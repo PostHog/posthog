@@ -42,6 +42,7 @@ class PersonPropertyRestoreConfig(dagster.Config):
     person_ids: list[int] | None = None  # Optional: filter to specific persons
     conflict_resolution: str = "keep_newer"  # "keep_newer", "restore_wins", "full_overwrite"
     dry_run: bool = False  # Log without applying
+    backup_batch_size: int = 1000  # Batch size for fetching backup entries
 
 
 def fetch_backup_entries(
@@ -50,8 +51,26 @@ def fetch_backup_entries(
     team_ids: list[int] | None = None,
     person_ids: list[int] | None = None,
 ) -> list[dict]:
-    """Fetch backup entries for restore, grouped by team."""
-    query = """
+    """Fetch backup entries for restore (non-paginated, for backward compatibility)."""
+    entries = []
+    for batch in fetch_backup_entries_paginated(cursor, job_id, team_ids, person_ids):
+        entries.extend(batch)
+    return entries
+
+
+def fetch_backup_entries_paginated(
+    cursor,
+    job_id: str,
+    team_ids: list[int] | None = None,
+    person_ids: list[int] | None = None,
+    batch_size: int = 1000,
+):
+    """
+    Fetch backup entries using keyset pagination.
+
+    Yields batches of entries ordered by (team_id, person_id).
+    """
+    base_query = """
         SELECT
             job_id, team_id, person_id, uuid::text,
             properties, properties_last_updated_at, properties_last_operation, version,
@@ -60,21 +79,49 @@ def fetch_backup_entries(
         FROM posthog_person_reconciliation_backup
         WHERE job_id = %s
     """
-    params: list[Any] = [job_id]
 
-    if team_ids:
-        query += " AND team_id = ANY(%s)"
-        params.append(team_ids)
+    last_team_id: int | None = None
+    last_person_id: int | None = None
 
-    if person_ids:
-        query += " AND person_id = ANY(%s)"
-        params.append(person_ids)
+    while True:
+        query = base_query
+        params: list[Any] = [job_id]
 
-    query += " ORDER BY team_id, person_id"
+        if team_ids:
+            query += " AND team_id = ANY(%s)"
+            params.append(team_ids)
 
-    cursor.execute(query, params)
-    columns = [desc[0] for desc in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        if person_ids:
+            query += " AND person_id = ANY(%s)"
+            params.append(person_ids)
+
+        # Keyset pagination: fetch records after the last (team_id, person_id)
+        if last_team_id is not None and last_person_id is not None:
+            query += " AND (team_id, person_id) > (%s, %s)"
+            params.extend([last_team_id, last_person_id])
+
+        query += " ORDER BY team_id, person_id LIMIT %s"
+        params.append(batch_size)
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        if not rows:
+            break
+
+        columns = [desc[0] for desc in cursor.description]
+        batch = [dict(zip(columns, row)) for row in rows]
+
+        # Update cursor position for next iteration
+        last_row = batch[-1]
+        last_team_id = last_row["team_id"]
+        last_person_id = last_row["person_id"]
+
+        yield batch
+
+        # If we got fewer rows than batch_size, we've reached the end
+        if len(rows) < batch_size:
+            break
 
 
 def fetch_person_by_id(cursor, team_id: int, person_id: int) -> dict | None:
@@ -105,6 +152,43 @@ def fetch_person_by_id(cursor, team_id: int, person_id: int) -> dict | None:
     result["properties"] = ensure_dict(result.get("properties"))
     result["properties_last_updated_at"] = ensure_dict(result.get("properties_last_updated_at"))
     result["properties_last_operation"] = ensure_dict(result.get("properties_last_operation"))
+    return result
+
+
+def fetch_persons_by_ids(cursor, team_id: int, person_ids: list[int]) -> dict[int, dict]:
+    """Batch fetch current person states by ids. Returns dict mapping person_id -> person data."""
+    if not person_ids:
+        return {}
+
+    cursor.execute(
+        """
+        SELECT
+            id,
+            uuid::text,
+            properties,
+            properties_last_updated_at,
+            properties_last_operation,
+            version,
+            is_identified,
+            created_at,
+            is_user_id
+        FROM posthog_person
+        WHERE team_id = %s AND id = ANY(%s)
+        """,
+        (team_id, person_ids),
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        return {}
+
+    columns = [desc[0] for desc in cursor.description]
+    result = {}
+    for row in rows:
+        person = dict(zip(columns, row))
+        person["properties"] = ensure_dict(person.get("properties"))
+        person["properties_last_updated_at"] = ensure_dict(person.get("properties_last_updated_at"))
+        person["properties_last_operation"] = ensure_dict(person.get("properties_last_operation"))
+        result[person["id"]] = person
     return result
 
 
@@ -201,6 +285,7 @@ def restore_person_with_version_check(
     conflict_resolution: str,
     dry_run: bool = False,
     max_retries: int = 3,
+    prefetched_person: dict | None = None,
 ) -> tuple[bool, dict | None]:
     """
     Restore a person's properties with optimistic locking.
@@ -214,6 +299,7 @@ def restore_person_with_version_check(
         conflict_resolution: "keep_newer", "restore_wins", or "full_overwrite"
         dry_run: If True, don't actually write the UPDATE
         max_retries: Maximum retry attempts on version mismatch
+        prefetched_person: Optional pre-fetched person data (used on first attempt)
 
     Returns:
         Tuple of (success: bool, updated_person_data: dict | None)
@@ -230,8 +316,12 @@ def restore_person_with_version_check(
         "properties_last_operation": ensure_dict(backup_entry.get("properties_last_operation_after")),
     }
 
-    for _attempt in range(max_retries):
-        person = fetch_person_by_id(cursor, team_id, person_id)
+    for attempt in range(max_retries):
+        # Use prefetched person on first attempt, fetch fresh on retries
+        if attempt == 0 and prefetched_person is not None:
+            person = prefetched_person
+        else:
+            person = fetch_person_by_id(cursor, team_id, person_id)
         if not person:
             return False, None
 
@@ -282,59 +372,56 @@ def restore_person_with_version_check(
     return False, None
 
 
-@dagster.op
-def get_backup_entries(
+@dagster.op(out=dagster.DynamicOut(list))
+def get_backup_entries_by_team(
     context: dagster.OpExecutionContext,
     config: PersonPropertyRestoreConfig,
     persons_database: dagster.ResourceParam[psycopg2.extensions.connection],
-) -> list[dict]:
-    """Query backup table for entries to restore."""
+):
+    """
+    Query backup table and yield entries grouped by team.
+
+    Uses keyset pagination to stream entries without loading all into memory.
+    Yields one DynamicOutput per team with all entries for that team.
+    """
     context.log.info(f"Fetching backup entries for job_id: {config.job_id}")
 
+    total_entries = 0
+    teams_seen: set[int] = set()
+    current_team_id: int | None = None
+    current_team_entries: list[dict] = []
+
     with persons_database.cursor() as cursor:
-        entries = fetch_backup_entries(cursor, config.job_id, config.team_ids, config.person_ids)
+        for batch in fetch_backup_entries_paginated(
+            cursor, config.job_id, config.team_ids, config.person_ids, batch_size=config.backup_batch_size
+        ):
+            for entry in batch:
+                team_id = entry["team_id"]
 
-    if not entries:
-        context.log.info("No backup entries found")
-        return []
+                # If we've moved to a new team, yield the previous team's entries
+                if current_team_id is not None and team_id != current_team_id:
+                    context.log.info(f"Yielding {len(current_team_entries)} entries for team_id={current_team_id}")
+                    yield dagster.DynamicOutput(
+                        value=current_team_entries,
+                        mapping_key=f"team_{current_team_id}",
+                    )
+                    teams_seen.add(current_team_id)
+                    current_team_entries = []
 
-    team_ids = {e["team_id"] for e in entries}
-    context.log.info(f"Found {len(entries)} backup entries across {len(team_ids)} teams")
-    context.add_output_metadata(
-        {
-            "entry_count": dagster.MetadataValue.int(len(entries)),
-            "team_count": dagster.MetadataValue.int(len(team_ids)),
-        }
-    )
+                current_team_id = team_id
+                current_team_entries.append(entry)
+                total_entries += 1
 
-    return entries
-
-
-@dagster.op(out=dagster.DynamicOut(list))
-def create_restore_chunks(
-    context: dagster.OpExecutionContext,
-    backup_entries: list[dict],
-):
-    """Group backup entries by team for parallel processing."""
-    if not backup_entries:
-        context.log.info("No entries to process")
-        return
-
-    teams: dict[int, list[dict]] = {}
-    for entry in backup_entries:
-        team_id = entry["team_id"]
-        if team_id not in teams:
-            teams[team_id] = []
-        teams[team_id].append(entry)
-
-    context.log.info(f"Creating {len(teams)} team chunks")
-
-    for team_id, entries in teams.items():
-        chunk_key = f"team_{team_id}"
+    # Yield the last team's entries
+    if current_team_entries and current_team_id is not None:
+        context.log.info(f"Yielding {len(current_team_entries)} entries for team_id={current_team_id}")
         yield dagster.DynamicOutput(
-            value=entries,
-            mapping_key=chunk_key,
+            value=current_team_entries,
+            mapping_key=f"team_{current_team_id}",
         )
+        teams_seen.add(current_team_id)
+
+    context.log.info(f"Completed: found {total_entries} backup entries across {len(teams_seen)} teams")
 
 
 @dagster.op
@@ -373,6 +460,11 @@ def restore_team_chunk(
             cursor.execute("SET statement_timeout = '30min'")
             cursor.execute("SET synchronous_commit = off")
 
+            # Batch fetch all persons for this chunk
+            person_ids = [entry["person_id"] for entry in chunk]
+            prefetched_persons = fetch_persons_by_ids(cursor, team_id, person_ids)
+            context.log.info(f"Batch fetched {len(prefetched_persons)} persons for team_id={team_id}")
+
             persons_to_publish = []
 
             for backup_entry in chunk:
@@ -387,6 +479,7 @@ def restore_team_chunk(
                     backup_entry=backup_entry,
                     conflict_resolution=config.conflict_resolution,
                     dry_run=config.dry_run,
+                    prefetched_person=prefetched_persons.get(person_id),
                 )
 
                 if not success:
@@ -505,6 +598,5 @@ def person_property_reconciliation_restore_from_backup():
     - restore_wins: Restore all backed-up properties, preserve new ones added after backup
     - keep_newer: Only restore properties unchanged since backup
     """
-    backup_entries = get_backup_entries()
-    chunks = create_restore_chunks(backup_entries)
-    chunks.map(restore_team_chunk)
+    team_chunks = get_backup_entries_by_team()
+    team_chunks.map(restore_team_chunk)

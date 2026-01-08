@@ -14,7 +14,9 @@ from django.db import connections
 from posthog.dags.person_property_reconciliation_restore import (
     compute_restore_diff,
     fetch_backup_entries,
+    fetch_backup_entries_paginated,
     fetch_person_by_id,
+    fetch_persons_by_ids,
     restore_person_with_version_check,
 )
 from posthog.models import Organization, Person, Team
@@ -698,6 +700,102 @@ class TestRestoreIntegration:
         assert entries[0]["team_id"] == team.id
         assert entries[0]["person_id"] == person.id
 
+    def test_fetch_backup_entries_paginated(self, organization):
+        """Test paginated fetch with small batch size."""
+        job_id = f"test-job-{uuid_module.uuid4()}"
+
+        # Create 2 teams with 5 persons each = 10 entries
+        team1 = Team.objects.create(organization=organization, name="Team 1")
+        team2 = Team.objects.create(organization=organization, name="Team 2")
+
+        persons = []
+        for team in [team1, team2]:
+            for i in range(5):
+                p = Person.objects.create(
+                    team_id=team.id,
+                    uuid=uuid_module.uuid4(),
+                    properties={"email": f"p{i}@example.com"},
+                    version=1,
+                )
+                persons.append((team.id, p))
+
+        with get_persons_db_connection().cursor() as cursor:
+            # Create backup entries
+            for team_id, person in persons:
+                create_backup_entry(
+                    cursor,
+                    job_id=job_id,
+                    team_id=team_id,
+                    person_id=person.id,
+                    person_uuid=str(person.uuid),
+                    properties_before={"email": "original@example.com"},
+                    properties_after={"email": f"p@example.com"},
+                )
+
+            # Fetch with batch_size=3, should get 4 batches (3+3+3+1)
+            batches = list(fetch_backup_entries_paginated(cursor, job_id, batch_size=3))
+
+        assert len(batches) == 4
+        assert len(batches[0]) == 3
+        assert len(batches[1]) == 3
+        assert len(batches[2]) == 3
+        assert len(batches[3]) == 1
+
+        # All entries should be returned in order
+        all_entries = [e for batch in batches for e in batch]
+        assert len(all_entries) == 10
+
+        # Should be ordered by (team_id, person_id)
+        for i in range(len(all_entries) - 1):
+            current = (all_entries[i]["team_id"], all_entries[i]["person_id"])
+            next_entry = (all_entries[i + 1]["team_id"], all_entries[i + 1]["person_id"])
+            assert current < next_entry, "Entries should be ordered by (team_id, person_id)"
+
+    def test_fetch_backup_entries_paginated_respects_filters(self, organization):
+        """Test paginated fetch respects team_ids and person_ids filters."""
+        job_id = f"test-job-{uuid_module.uuid4()}"
+
+        team1 = Team.objects.create(organization=organization, name="Team 1")
+        team2 = Team.objects.create(organization=organization, name="Team 2")
+
+        persons = {}
+        for team in [team1, team2]:
+            persons[team.id] = []
+            for i in range(3):
+                p = Person.objects.create(
+                    team_id=team.id,
+                    uuid=uuid_module.uuid4(),
+                    properties={"email": f"p{i}@example.com"},
+                    version=1,
+                )
+                persons[team.id].append(p)
+
+        with get_persons_db_connection().cursor() as cursor:
+            for team_id, team_persons in persons.items():
+                for person in team_persons:
+                    create_backup_entry(
+                        cursor,
+                        job_id=job_id,
+                        team_id=team_id,
+                        person_id=person.id,
+                        person_uuid=str(person.uuid),
+                        properties_before={"email": "original@example.com"},
+                        properties_after={"email": "current@example.com"},
+                    )
+
+            # Filter by team_ids
+            batches = list(fetch_backup_entries_paginated(cursor, job_id, team_ids=[team1.id], batch_size=2))
+            all_entries = [e for batch in batches for e in batch]
+            assert len(all_entries) == 3
+            assert all(e["team_id"] == team1.id for e in all_entries)
+
+            # Filter by person_ids
+            target_persons = [persons[team1.id][0].id, persons[team2.id][1].id]
+            batches = list(fetch_backup_entries_paginated(cursor, job_id, person_ids=target_persons, batch_size=1))
+            all_entries = [e for batch in batches for e in batch]
+            assert len(all_entries) == 2
+            assert all(e["person_id"] in target_persons for e in all_entries)
+
     def test_fetch_person_by_id(self, team, person):
         """Test fetching person by id."""
         with get_persons_db_connection().cursor() as cursor:
@@ -707,6 +805,51 @@ class TestRestoreIntegration:
         assert fetched["id"] == person.id
         assert fetched["uuid"] == str(person.uuid)
         assert fetched["properties"] == {"email": "current@example.com"}
+
+    def test_fetch_persons_by_ids(self, team):
+        """Test batch fetching persons by ids."""
+        # Create multiple persons
+        persons = []
+        for i in range(5):
+            p = Person.objects.create(
+                team_id=team.id,
+                uuid=uuid_module.uuid4(),
+                properties={"email": f"person{i}@example.com", "index": i},
+                version=i + 1,
+            )
+            persons.append(p)
+
+        person_ids = [p.id for p in persons]
+
+        with get_persons_db_connection().cursor() as cursor:
+            fetched = fetch_persons_by_ids(cursor, team.id, person_ids)
+
+        assert len(fetched) == 5
+        for p in persons:
+            assert p.id in fetched
+            assert fetched[p.id]["uuid"] == str(p.uuid)
+            assert fetched[p.id]["properties"]["email"] == p.properties["email"]
+
+    def test_fetch_persons_by_ids_partial(self, team):
+        """Test batch fetching when some ids don't exist."""
+        person = Person.objects.create(
+            team_id=team.id,
+            uuid=uuid_module.uuid4(),
+            properties={"email": "exists@example.com"},
+            version=1,
+        )
+
+        # Include non-existent ids
+        person_ids = [person.id, 99999, 99998]
+
+        with get_persons_db_connection().cursor() as cursor:
+            fetched = fetch_persons_by_ids(cursor, team.id, person_ids)
+
+        # Only the existing person should be returned
+        assert len(fetched) == 1
+        assert person.id in fetched
+        assert 99999 not in fetched
+        assert 99998 not in fetched
 
     def test_restore_full_overwrite(self, team, person):
         """Test full_overwrite restore overwrites current state."""
@@ -1003,7 +1146,7 @@ class TestRestoreJobEndToEnd:
         result = person_property_reconciliation_restore_from_backup.execute_in_process(
             run_config={
                 "ops": {
-                    "get_backup_entries": {
+                    "get_backup_entries_by_team": {
                         "config": {
                             "job_id": job_id,
                             "conflict_resolution": "full_overwrite",
@@ -1094,7 +1237,7 @@ class TestRestoreJobEndToEnd:
         result = person_property_reconciliation_restore_from_backup.execute_in_process(
             run_config={
                 "ops": {
-                    "get_backup_entries": {
+                    "get_backup_entries_by_team": {
                         "config": {
                             "job_id": job_id,
                             "team_ids": [team.id],
@@ -1161,7 +1304,7 @@ class TestRestoreJobEndToEnd:
         result = person_property_reconciliation_restore_from_backup.execute_in_process(
             run_config={
                 "ops": {
-                    "get_backup_entries": {
+                    "get_backup_entries_by_team": {
                         "config": {
                             "job_id": job_id,
                             "conflict_resolution": "full_overwrite",
@@ -1255,7 +1398,7 @@ class TestRestoreJobEndToEnd:
         result = person_property_reconciliation_restore_from_backup.execute_in_process(
             run_config={
                 "ops": {
-                    "get_backup_entries": {
+                    "get_backup_entries_by_team": {
                         "config": {
                             "job_id": job_id,
                             "conflict_resolution": "full_overwrite",
@@ -1345,7 +1488,7 @@ class TestRestoreJobEndToEnd:
         result = person_property_reconciliation_restore_from_backup.execute_in_process(
             run_config={
                 "ops": {
-                    "get_backup_entries": {
+                    "get_backup_entries_by_team": {
                         "config": {
                             "job_id": job_id,
                             "team_ids": teams_to_restore,
@@ -1447,7 +1590,7 @@ class TestRestoreJobEndToEnd:
         result = person_property_reconciliation_restore_from_backup.execute_in_process(
             run_config={
                 "ops": {
-                    "get_backup_entries": {
+                    "get_backup_entries_by_team": {
                         "config": {
                             "job_id": job_id,
                             "person_ids": persons_to_restore,
@@ -1556,7 +1699,7 @@ class TestRestoreJobEndToEnd:
         result = person_property_reconciliation_restore_from_backup.execute_in_process(
             run_config={
                 "ops": {
-                    "get_backup_entries": {
+                    "get_backup_entries_by_team": {
                         "config": {
                             "job_id": job_id,
                             "team_ids": teams_to_restore,
@@ -1666,7 +1809,7 @@ class TestRestoreJobEndToEnd:
         result = person_property_reconciliation_restore_from_backup.execute_in_process(
             run_config={
                 "ops": {
-                    "get_backup_entries": {
+                    "get_backup_entries_by_team": {
                         "config": {
                             "job_id": job_id,
                             "conflict_resolution": "restore_wins",
@@ -1706,3 +1849,91 @@ class TestRestoreJobEndToEnd:
 
         # All 9 persons restored
         assert mock_kafka_producer.produce.call_count == 9
+
+    def test_full_job_with_small_batch_size(self, organization, mock_kafka_producer, cluster):
+        """Test that batching works correctly with small batch sizes."""
+        from posthog.dags.person_property_reconciliation_restore import (
+            person_property_reconciliation_restore_from_backup,
+        )
+
+        job_id = f"test-job-{uuid_module.uuid4()}"
+
+        # Create 3 teams with 2, 2, 1 persons = 5 total
+        # With batch_size=2, this gives 3 batches (2, 2, 1) - last batch not full
+        teams = []
+        persons = {}
+        persons_per_team = [2, 2, 1]
+
+        for t in range(3):
+            team = Team.objects.create(organization=organization, name=f"Team {t}")
+            teams.append(team)
+            persons[team.id] = []
+
+            for p in range(persons_per_team[t]):
+                person = Person.objects.create(
+                    team_id=team.id,
+                    uuid=uuid_module.uuid4(),
+                    properties={"email": f"current_t{t}_p{p}@example.com"},
+                    version=5,
+                )
+                persons[team.id].append(person)
+
+        with get_persons_db_connection().cursor() as cursor:
+            for team in teams:
+                t = teams.index(team)
+                for p, person in enumerate(persons[team.id]):
+                    create_backup_entry(
+                        cursor,
+                        job_id=job_id,
+                        team_id=team.id,
+                        person_id=person.id,
+                        person_uuid=str(person.uuid),
+                        properties_before={"email": f"original_t{t}_p{p}@example.com", "restored": True},
+                        properties_after={"email": f"current_t{t}_p{p}@example.com"},
+                    )
+
+        persons_conn = get_persons_db_connection()
+
+        # Run with batch_size=2 to test pagination (3 batches: 2, 2, 1)
+        result = person_property_reconciliation_restore_from_backup.execute_in_process(
+            run_config={
+                "ops": {
+                    "get_backup_entries_by_team": {
+                        "config": {
+                            "job_id": job_id,
+                            "conflict_resolution": "full_overwrite",
+                            "dry_run": False,
+                            "backup_batch_size": 2,
+                        }
+                    },
+                    "restore_team_chunk": {
+                        "config": {
+                            "job_id": job_id,
+                            "conflict_resolution": "full_overwrite",
+                            "dry_run": False,
+                            "backup_batch_size": 2,
+                        }
+                    },
+                }
+            },
+            resources={
+                "cluster": cluster,
+                "persons_database": persons_conn,
+                "kafka_producer": mock_kafka_producer,
+            },
+        )
+
+        assert result.success
+
+        # Verify all 5 persons were restored correctly
+        for team in teams:
+            t = teams.index(team)
+            for p, person in enumerate(persons[team.id]):
+                person.refresh_from_db()
+                assert person.properties == {
+                    "email": f"original_t{t}_p{p}@example.com",
+                    "restored": True,
+                }, f"Person t{t}_p{p} has wrong properties"
+
+        # All 5 persons restored
+        assert mock_kafka_producer.produce.call_count == 5
