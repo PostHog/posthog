@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT\n                    id,\n                    project_id,\n                    organization_id,\n                    uuid,\n                    api_token,\n                    name,\n                    created_at,\n                    updated_at,\n                    anonymize_ips,\n                    person_processing_opt_out,\n                    autocapture_opt_out,\n                    autocapture_exceptions_opt_in,\n                    autocapture_web_vitals_opt_in,\n                    capture_performance_opt_in,\n                    capture_console_log_opt_in,\n                    session_recording_opt_in,\n                    inject_web_apps,\n                    surveys_opt_in,\n                    heatmaps_opt_in,\n                    capture_dead_clicks,\n                    flags_persistence_default,\n                    session_recording_sample_rate,\n                    session_recording_minimum_duration_milliseconds,\n                    autocapture_web_vitals_allowed_metrics as \"autocapture_web_vitals_allowed_metrics: _\",\n                    autocapture_exceptions_errors_to_ignore as \"autocapture_exceptions_errors_to_ignore: _\",\n                    session_recording_linked_flag as \"session_recording_linked_flag: _\",\n                    session_recording_network_payload_capture_config as \"session_recording_network_payload_capture_config: _\",\n                    session_recording_masking_config as \"session_recording_masking_config: _\",\n                    session_replay_config as \"session_replay_config: _\",\n                    survey_config as \"survey_config: _\",\n                    session_recording_url_trigger_config as \"session_recording_url_trigger_config: _\",\n                    session_recording_url_blocklist_config as \"session_recording_url_blocklist_config: _\",\n                    session_recording_event_trigger_config as \"session_recording_event_trigger_config: _\",\n                    session_recording_trigger_match_type_config,\n                    recording_domains,\n                    cookieless_server_hash_mode,\n                    timezone\n                FROM posthog_team\n                WHERE api_token = $1\n                LIMIT 1\n            ",
+  "query": "\n                SELECT\n                    id,\n                    project_id,\n                    organization_id,\n                    uuid,\n                    api_token,\n                    name,\n                    created_at,\n                    updated_at,\n                    anonymize_ips,\n                    person_processing_opt_out,\n                    autocapture_opt_out,\n                    autocapture_exceptions_opt_in,\n                    autocapture_web_vitals_opt_in,\n                    capture_performance_opt_in,\n                    capture_console_log_opt_in,\n                    logs_capture_console_log_opt_in,\n                    session_recording_opt_in,\n                    inject_web_apps,\n                    surveys_opt_in,\n                    heatmaps_opt_in,\n                    capture_dead_clicks,\n                    flags_persistence_default,\n                    session_recording_sample_rate,\n                    session_recording_minimum_duration_milliseconds,\n                    autocapture_web_vitals_allowed_metrics as \"autocapture_web_vitals_allowed_metrics: _\",\n                    autocapture_exceptions_errors_to_ignore as \"autocapture_exceptions_errors_to_ignore: _\",\n                    session_recording_linked_flag as \"session_recording_linked_flag: _\",\n                    session_recording_network_payload_capture_config as \"session_recording_network_payload_capture_config: _\",\n                    session_recording_masking_config as \"session_recording_masking_config: _\",\n                    session_replay_config as \"session_replay_config: _\",\n                    survey_config as \"survey_config: _\",\n                    session_recording_url_trigger_config as \"session_recording_url_trigger_config: _\",\n                    session_recording_url_blocklist_config as \"session_recording_url_blocklist_config: _\",\n                    session_recording_event_trigger_config as \"session_recording_event_trigger_config: _\",\n                    session_recording_trigger_match_type_config,\n                    recording_domains,\n                    cookieless_server_hash_mode,\n                    timezone,\n                    conversations_enabled,\n                    conversations_settings as \"conversations_settings: _\"\n                FROM posthog_team\n                WHERE api_token = $1\n                LIMIT 1\n            ",
   "describe": {
     "columns": [
       {
@@ -80,113 +80,128 @@
       },
       {
         "ordinal": 15,
-        "name": "session_recording_opt_in",
+        "name": "logs_capture_console_log_opt_in",
         "type_info": "Bool"
       },
       {
         "ordinal": 16,
-        "name": "inject_web_apps",
+        "name": "session_recording_opt_in",
         "type_info": "Bool"
       },
       {
         "ordinal": 17,
-        "name": "surveys_opt_in",
+        "name": "inject_web_apps",
         "type_info": "Bool"
       },
       {
         "ordinal": 18,
-        "name": "heatmaps_opt_in",
+        "name": "surveys_opt_in",
         "type_info": "Bool"
       },
       {
         "ordinal": 19,
-        "name": "capture_dead_clicks",
+        "name": "heatmaps_opt_in",
         "type_info": "Bool"
       },
       {
         "ordinal": 20,
-        "name": "flags_persistence_default",
+        "name": "capture_dead_clicks",
         "type_info": "Bool"
       },
       {
         "ordinal": 21,
+        "name": "flags_persistence_default",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 22,
         "name": "session_recording_sample_rate",
         "type_info": "Numeric"
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "session_recording_minimum_duration_milliseconds",
         "type_info": "Int4"
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "autocapture_web_vitals_allowed_metrics: _",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "autocapture_exceptions_errors_to_ignore: _",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 25,
+        "ordinal": 26,
         "name": "session_recording_linked_flag: _",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 26,
+        "ordinal": 27,
         "name": "session_recording_network_payload_capture_config: _",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 27,
+        "ordinal": 28,
         "name": "session_recording_masking_config: _",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 28,
+        "ordinal": 29,
         "name": "session_replay_config: _",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 29,
+        "ordinal": 30,
         "name": "survey_config: _",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 30,
+        "ordinal": 31,
         "name": "session_recording_url_trigger_config: _",
         "type_info": "JsonbArray"
       },
       {
-        "ordinal": 31,
+        "ordinal": 32,
         "name": "session_recording_url_blocklist_config: _",
         "type_info": "JsonbArray"
       },
       {
-        "ordinal": 32,
+        "ordinal": 33,
         "name": "session_recording_event_trigger_config: _",
         "type_info": "TextArray"
       },
       {
-        "ordinal": 33,
+        "ordinal": 34,
         "name": "session_recording_trigger_match_type_config",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 34,
+        "ordinal": 35,
         "name": "recording_domains",
         "type_info": "VarcharArray"
       },
       {
-        "ordinal": 35,
+        "ordinal": 36,
         "name": "cookieless_server_hash_mode",
         "type_info": "Int2"
       },
       {
-        "ordinal": 36,
+        "ordinal": 37,
         "name": "timezone",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 38,
+        "name": "conversations_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 39,
+        "name": "conversations_settings: _",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -210,6 +225,7 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       true,
@@ -231,8 +247,10 @@
       true,
       true,
       true,
-      false
+      false,
+      true,
+      true
     ]
   },
-  "hash": "07d46ca7a583e07c0fe87bd5d2f5e92f968e28d057c1c19d8d18d850d828bcee"
+  "hash": "4a8bdd514b56a794f5930eafb2688152e7c04d109b831e1316ab595b14d59d15"
 }

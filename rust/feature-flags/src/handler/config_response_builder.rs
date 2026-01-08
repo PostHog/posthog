@@ -1,7 +1,9 @@
 use crate::{
     api::{
         errors::FlagError,
-        types::{AnalyticsConfig, ErrorTrackingConfig, FlagsResponse, LogsConfig, SessionRecordingField},
+        types::{
+            AnalyticsConfig, ErrorTrackingConfig, FlagsResponse, LogsConfig, SessionRecordingField,
+        },
     },
     config::Config,
     site_apps::get_decide_site_apps,
@@ -262,7 +264,7 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
     ));
     response.config.is_authenticated = Some(false);
     response.config.capture_dead_clicks = team.capture_dead_clicks;
-    
+
     response.config.logs = if team.logs_capture_console_log_opt_in.unwrap_or(false) {
         Some(LogsConfig {
             capture_console_logs: Some(true),
