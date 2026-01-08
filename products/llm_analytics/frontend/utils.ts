@@ -826,9 +826,9 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
     const applicable = row[8]
 
     // N/A only when backend explicitly sets applicable=false
-    // Otherwise, convert result to boolean
+    // Otherwise, convert result to boolean (handle string 'false' from HogQL)
     let result: boolean | null
-    if (applicable === false) {
+    if (applicable === false || applicable === 'false') {
         result = null
     } else {
         result = rawResult === true || rawResult === 'true'
