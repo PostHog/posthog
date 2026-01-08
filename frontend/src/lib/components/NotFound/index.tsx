@@ -6,7 +6,15 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
-import { LemonButton, ProfilePicture, SpinnerOverlay, lemonToast } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonModal,
+    ProfilePicture,
+    SpinnerOverlay,
+    lemonToast,
+} from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -137,89 +145,143 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
 export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBasicType[] }): JSX.Element {
     const [isLoginInProgress, setIsLoginInProgress] = useState(false)
     const [successfulUserId, setSuccessfulUserId] = useState<number | null>(null)
+    const [selectedUser, setSelectedUser] = useState<UserBasicType | null>(null)
+    const [reason, setReason] = useState('')
+    const [readOnly, setReadOnly] = useState(true)
+
+    const handleLogin = async (user: UserBasicType): Promise<void> => {
+        setIsLoginInProgress(true)
+
+        try {
+            // check if admin OAuth2 verification is needed
+            const authCheckResponse = await fetch('/admin/auth_check', {
+                method: 'GET',
+                credentials: 'same-origin',
+                redirect: 'manual',
+            })
+
+            if (!authCheckResponse.ok) {
+                // Need OAuth2 verification - open a popup
+                const width = 600
+                const height = 700
+                const left = window.screen.width / 2 - width / 2
+                const top = window.screen.height / 2 - height / 2
+
+                const authWindow = window.open(
+                    '/admin/oauth2/success', // This will redirect to OAuth2
+                    'admin_oauth2',
+                    `width=${width},height=${height},top=${top},left=${left},toolbar=no,location=no,directories=no,status=no,menubar=no,scrollbars=yes,resizable=yes`
+                )
+
+                // Wait for the OAuth2 completion message
+                await new Promise<void>((resolve) => {
+                    const handleMessage = (event: MessageEvent): void => {
+                        if (event.origin !== window.location.origin) {
+                            return
+                        }
+                        if (event.data?.type === 'oauth2_complete') {
+                            window.removeEventListener('message', handleMessage)
+                            resolve()
+                        }
+                    }
+                    window.addEventListener('message', handleMessage)
+
+                    // Also poll to check if the window was closed manually
+                    const checkClosed = setInterval(() => {
+                        if (authWindow?.closed) {
+                            clearInterval(checkClosed)
+                            window.removeEventListener('message', handleMessage)
+                            resolve()
+                        }
+                    }, 500)
+                })
+            }
+
+            // Now proceed with the login-as request
+            const loginResponse = await fetch(`/admin/login/user/${user.id}/`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                mode: 'cors',
+                headers: {
+                    'X-CSRFToken': getCookie('posthog_csrftoken') as string,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    read_only: readOnly ? 'true' : 'false',
+                    reason: reason,
+                }),
+            })
+
+            if (!loginResponse.ok) {
+                throw new Error(`django-loginas request resulted in status ${loginResponse.status}`)
+            }
+
+            setSuccessfulUserId(user.id)
+            window.location.reload()
+        } catch {
+            lemonToast.error(`Failed to log in as ${user.first_name}`)
+            setIsLoginInProgress(false) // Only set to false if we aren't about to reload the page
+        }
+    }
 
     return (
-        <ScrollableShadows direction="vertical" className="bg-surface-primary border rounded mt-1 max-h-64 *:p-1">
-            <LemonMenuOverlay
-                items={suggestedUsers.map((user) => ({
-                    icon: <ProfilePicture user={user} size="md" />,
-                    label: `${user.first_name} ${user.last_name} (${user.email})`,
-                    tooltip: `Log in as ${user.first_name}`,
-                    sideIcon: user.id === successfulUserId ? <IconCheckCircle /> : <IconArrowRight />,
-                    onClick: async () => {
-                        setIsLoginInProgress(true)
+        <>
+            <ScrollableShadows direction="vertical" className="bg-surface-primary border rounded mt-1 max-h-64 *:p-1">
+                <LemonMenuOverlay
+                    items={suggestedUsers.map((user) => ({
+                        icon: <ProfilePicture user={user} size="md" />,
+                        label: `${user.first_name} ${user.last_name} (${user.email})`,
+                        tooltip: `Log in as ${user.first_name}`,
+                        sideIcon: user.id === successfulUserId ? <IconCheckCircle /> : <IconArrowRight />,
+                        onClick: () => {
+                            setSelectedUser(user)
+                            setReason('')
+                            setReadOnly(true)
+                        },
+                    }))}
+                    tooltipPlacement="right"
+                    buttonSize="medium"
+                />
+                {isLoginInProgress && <SpinnerOverlay className="text-3xl" />}
+            </ScrollableShadows>
 
-                        try {
-                            // check if admin OAuth2 verification is needed
-                            const authCheckResponse = await fetch('/admin/auth_check', {
-                                method: 'GET',
-                                credentials: 'same-origin',
-                                redirect: 'manual',
-                            })
-
-                            if (!authCheckResponse.ok) {
-                                // Need OAuth2 verification - open a popup
-                                const width = 600
-                                const height = 700
-                                const left = window.screen.width / 2 - width / 2
-                                const top = window.screen.height / 2 - height / 2
-
-                                const authWindow = window.open(
-                                    '/admin/oauth2/success', // This will redirect to OAuth2
-                                    'admin_oauth2',
-                                    `width=${width},height=${height},top=${top},left=${left},toolbar=no,location=no,directories=no,status=no,menubar=no,scrollbars=yes,resizable=yes`
-                                )
-
-                                // Wait for the OAuth2 completion message
-                                await new Promise<void>((resolve) => {
-                                    const handleMessage = (event: MessageEvent): void => {
-                                        if (event.origin !== window.location.origin) {
-                                            return
-                                        }
-                                        if (event.data?.type === 'oauth2_complete') {
-                                            window.removeEventListener('message', handleMessage)
-                                            resolve()
-                                        }
-                                    }
-                                    window.addEventListener('message', handleMessage)
-
-                                    // Also poll to check if the window was closed manually
-                                    const checkClosed = setInterval(() => {
-                                        if (authWindow?.closed) {
-                                            clearInterval(checkClosed)
-                                            window.removeEventListener('message', handleMessage)
-                                            resolve()
-                                        }
-                                    }, 500)
-                                })
-                            }
-
-                            // Now proceed with the login-as request
-                            const loginResponse = await fetch(`/admin/login/user/${user.id}/read-only/`, {
-                                method: 'POST',
-                                credentials: 'same-origin',
-                                mode: 'cors',
-                                headers: {
-                                    'X-CSRFToken': getCookie('posthog_csrftoken') as string,
-                                },
-                            })
-
-                            if (!loginResponse.ok) {
-                                throw new Error(`django-loginas request resulted in status ${loginResponse.status}`)
-                            }
-
-                            setSuccessfulUserId(user.id)
-                            window.location.reload()
-                        } catch {
-                            lemonToast.error(`Failed to log in as ${user.first_name}`)
-                            setIsLoginInProgress(false) // Only set to false if we aren't about to reload the page
-                        }
-                    },
-                }))}
-                tooltipPlacement="right"
-                buttonSize="medium"
-            />
-            {isLoginInProgress && <SpinnerOverlay className="text-3xl" />}
-        </ScrollableShadows>
+            <LemonModal
+                isOpen={selectedUser !== null}
+                onClose={() => setSelectedUser(null)}
+                title={`Log in as ${selectedUser?.first_name} ${selectedUser?.last_name}`}
+                footer={
+                    <>
+                        <LemonButton type="secondary" onClick={() => setSelectedUser(null)}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                if (selectedUser) {
+                                    setSelectedUser(null)
+                                    void handleLogin(selectedUser)
+                                }
+                            }}
+                            disabledReason={!reason.trim() ? 'Please provide a reason' : undefined}
+                        >
+                            Log in
+                        </LemonButton>
+                    </>
+                }
+            >
+                <div className="space-y-2">
+                    <div>
+                        <label className="block mb-1 font-semibold">Reason</label>
+                        <LemonInput
+                            value={reason}
+                            onChange={setReason}
+                            placeholder="e.g., Customer support request #12345"
+                            autoFocus
+                        />
+                    </div>
+                    <LemonCheckbox checked={readOnly} onChange={setReadOnly} label="Read-only mode (recommended)" />
+                </div>
+            </LemonModal>
+        </>
     )
 }
