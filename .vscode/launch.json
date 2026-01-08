@@ -145,8 +145,8 @@
             }
         },
         {
-            "name": "Plugin Server",
-            "command": "bin/turbo --env-mode=loose --filter=@posthog/plugin-server start",
+            "name": "Nodejs Services",
+            "command": "bin/turbo --env-mode=loose --filter=@posthog/nodejs start",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}",
@@ -155,8 +155,7 @@
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "KAFKA_HOSTS": "localhost:9092",
                 "WORKER_CONCURRENCY": "2",
-                "OBJECT_STORAGE_ENABLED": "True",
-                "HOG_HOOK_URL": "http://localhost:3300/hoghook"
+                "OBJECT_STORAGE_ENABLED": "True"
             },
             "presentation": {
                 "group": "main"
@@ -315,7 +314,7 @@
                 "Celery Threaded Pool",
                 "Celery Beat",
                 "Frontend",
-                "Plugin Server",
+                "Nodejs Services",
                 "Temporal Worker"
             ],
             "stopAll": true,
@@ -330,7 +329,7 @@
                 "Celery Threaded Pool",
                 "Celery Beat",
                 "Frontend (no typegen)",
-                "Plugin Server",
+                "Nodejs Services",
                 "Temporal Worker"
             ],
             "stopAll": true,
@@ -345,7 +344,7 @@
                 "Celery Threaded Pool",
                 "Celery Beat",
                 "Frontend (https)",
-                "Plugin Server",
+                "Nodejs Services",
                 "Temporal Worker"
             ],
             "stopAll": true,
@@ -359,7 +358,7 @@
                 "Backend (with local billing)",
                 "Celery Threaded Pool",
                 "Frontend",
-                "Plugin Server",
+                "Nodejs Services",
                 "Temporal Worker"
             ],
             "stopAll": true,

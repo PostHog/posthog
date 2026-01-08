@@ -9,6 +9,7 @@ from django.utils.timezone import now
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -265,6 +266,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return instance
 
 
+@extend_schema(tags=["core"])
 class ExportedAssetViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

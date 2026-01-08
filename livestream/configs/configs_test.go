@@ -30,6 +30,7 @@ func TestLoadConfig(t *testing.T) {
 				Kafka: KafkaConfig{
 					Brokers:                          "localhost:9092,localhost:9093",
 					Topic:                            "topic",
+					SecurityProtocol:                 "PLAINTEXT",
 					SessionRecordingEnabled:          true,
 					SessionRecordingTopic:            "session_recording_snapshot_item_events",
 					SessionRecordingBrokers:          "localhost:9092,localhost:9093",
@@ -41,6 +42,9 @@ func TestLoadConfig(t *testing.T) {
 				},
 				JWT: JWTConfig{
 					Secret: "token",
+				},
+				SessionRecording: SessionRecordingConfig{
+					MaxLRUEntries: 2_000_000_000,
 				},
 			},
 			wantErr: false,

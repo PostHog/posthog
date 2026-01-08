@@ -274,6 +274,11 @@ where
         Self::compute_stages(&self.graph, &mut out_degree)
     }
 
+    /// Returns an iterator over all nodes (items) in the graph.
+    pub fn iter_nodes(&self) -> impl Iterator<Item = &T> {
+        self.graph.node_indices().map(|idx| &self.graph[idx])
+    }
+
     fn build_evaluation_maps(&self) -> Result<HashMap<NodeIndex, usize>, T::Error> {
         use petgraph::Direction::Outgoing;
         let node_count = self.graph.node_count();

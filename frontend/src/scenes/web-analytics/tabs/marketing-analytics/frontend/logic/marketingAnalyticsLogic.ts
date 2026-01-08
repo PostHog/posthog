@@ -12,6 +12,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import {
     CompareFilter,
     ConversionGoalFilter,
+    CoreEvent,
     CurrencyCode,
     DataWarehouseNode,
     DatabaseSchemaDataWarehouseTable,
@@ -171,7 +172,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             teamLogic,
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
+            [
+                'sources_map',
+                'conversion_goals', // Legacy - for backwards compatibility
+                'enabledConversionGoalFilters', // New - resolved core events
+                'teamCoreEvents', // All team core events
+                'enabledCoreEvents', // Enabled core events (mapped)
+                'availableCoreEvents', // Core events available to explore (not yet mapped)
+            ],
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
         ],
@@ -181,7 +189,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
-            ['addOrUpdateConversionGoal'],
+            ['addOrUpdateConversionGoal', 'addGoalMapping'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -508,6 +516,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (s) => [s.dataWarehouseSourcesLoading],
             (dataWarehouseSourcesLoading: boolean) => dataWarehouseSourcesLoading,
         ],
+        // Core events available for exploration (not already mapped as conversion goals)
+        availableCoreEventsForExplore: [
+            (s) => [s.availableCoreEvents],
+            (availableCoreEvents: CoreEvent[]): CoreEvent[] => availableCoreEvents,
+        ],
         allAvailableSources: [
             (s) => [s.validExternalTables, s.validNativeSources],
             (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => {
@@ -520,7 +533,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         name: nativeSource.source.source_type,
                         type: 'native',
                         source_type: nativeSource.source.source_type,
-                        prefix: nativeSource.source.prefix,
+                        prefix: nativeSource.source.prefix ?? undefined,
                     })
                 })
 
@@ -582,7 +595,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 // Get all native sources with status and convert to ExternalTable format
                 const nativeSourcesAsExternalTables = nativeSources.map((source) => {
                     const status = getSourceStatus(
-                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix },
+                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix ?? undefined },
                         nativeSources,
                         []
                     )

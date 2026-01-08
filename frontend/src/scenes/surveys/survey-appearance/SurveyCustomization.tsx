@@ -76,11 +76,15 @@ export function Customization({
                                 <span>Hide PostHog branding</span>
                             </div>
                         }
-                        onChange={(checked) =>
-                            guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
+                        onChange={(checked) => {
+                            if (checked) {
+                                guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
+                                    onAppearanceChange({ whiteLabel: checked })
+                                )
+                            } else {
                                 onAppearanceChange({ whiteLabel: checked })
-                            )
-                        }
+                            }
+                        }}
                         checked={survey.appearance?.whiteLabel}
                     />
                     <div className="flex flex-col gap-2">

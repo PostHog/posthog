@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -14,7 +14,9 @@ use crate::metrics_const::{
     ACTIVE_STORE_COUNT, CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM,
     CLEANUP_OPERATIONS_COUNTER, STORE_CREATION_DURATION_MS, STORE_CREATION_EVENTS,
 };
+use crate::rocksdb::metrics_consts::ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
+use crate::utils::{format_partition_dir, format_store_path};
 
 /// Information about folder sizes on disk
 #[derive(Debug, Clone)]
@@ -112,6 +114,11 @@ pub struct StoreManager {
 
     /// Flag to prevent concurrent cleanup operations
     cleanup_running: AtomicBool,
+
+    /// Flag indicating whether a Kafka rebalance is in progress
+    /// When true, orphan cleanup should be skipped to avoid deleting directories
+    /// that are about to be assigned
+    rebalancing: AtomicBool,
 }
 
 impl StoreManager {
@@ -124,7 +131,21 @@ impl StoreManager {
             store_config,
             metrics,
             cleanup_running: AtomicBool::new(false),
+            rebalancing: AtomicBool::new(false),
         }
+    }
+
+    /// Set the rebalancing flag to indicate a Kafka rebalance is in progress
+    ///
+    /// When true, operations like orphan directory cleanup will be skipped
+    /// to avoid deleting directories that are about to be assigned.
+    pub fn set_rebalancing(&self, rebalancing: bool) {
+        self.rebalancing.store(rebalancing, Ordering::SeqCst);
+    }
+
+    /// Check if a Kafka rebalance is currently in progress
+    pub fn is_rebalancing(&self) -> bool {
+        self.rebalancing.load(Ordering::SeqCst)
     }
 
     /// Get an existing store for a partition, if it exists
@@ -149,7 +170,7 @@ impl StoreManager {
 
     /// Get or create a deduplication store during rebalancing (pre-creation)
     ///
-    /// This should be called during `cleanup_assigned_partitions` to pre-create stores
+    /// This should be called during `async_setup_assigned_partitions` to pre-create stores
     /// before messages start flowing. Unlike `get_or_create`, this won't emit a warning
     /// when creating a new store.
     pub async fn get_or_create_for_rebalance(
@@ -306,6 +327,43 @@ impl StoreManager {
         self.cleanup_store_files(topic, partition)
     }
 
+    // Internally register a restored set of checkpoint files at the given store path
+    // and topic/partition coordinates
+    pub fn restore_imported_store(&self, topic: &str, partition: i32, path: &Path) -> Result<()> {
+        let store_config = DeduplicationStoreConfig {
+            path: path.to_path_buf(),
+            max_capacity: self.store_config.max_capacity,
+        };
+        let restored = DeduplicationStore::new(store_config, topic.to_string(), partition)
+            .with_context(|| {
+                format!(
+                    "Failed to restore imported checkpoint for {topic}:{partition} at path {}",
+                    path.display(),
+                )
+            })?;
+
+        // Don't fail here but do report this it's evidence of a race condition
+        if let Some(existing_store) = self
+            .stores
+            .insert(Partition::new(topic.to_string(), partition), restored)
+        {
+            metrics::counter!(
+                STORE_CREATION_EVENTS,
+                "outcome" => "duplicate_on_restore",
+            )
+            .increment(1);
+            error!(
+                existing_store_path =% existing_store.get_db_path().display(),
+                restored_store_path =% path.display(),
+                topic = topic,
+                partition = partition,
+                "Unexpected duplicate store found when registering imported checkpoint"
+            );
+        }
+
+        Ok(())
+    }
+
     /// Unregister a store from the DashMap without deleting files (Step 1 of two-step cleanup).
     ///
     /// Call this BEFORE shutting down partition workers during rebalance. This prevents
@@ -339,21 +397,21 @@ impl StoreManager {
     ///
     /// Must be called after `unregister_store()` to ensure RocksDB is closed first.
     pub fn cleanup_store_files(&self, topic: &str, partition: i32) -> Result<()> {
-        let partition_dir = format!(
-            "{}/{}_{}",
-            self.store_config.path.display(),
-            topic.replace('/', "_"),
-            partition
-        );
+        let partition_dir = self
+            .store_config
+            .path
+            .join(format_partition_dir(topic, partition));
+        let partition_dir_str = partition_dir.to_string_lossy().to_string();
 
-        let partition_path = PathBuf::from(&partition_dir);
+        let partition_path = partition_dir;
+
         if partition_path.exists() {
             match std::fs::remove_dir_all(&partition_path) {
                 Ok(_) => {
                     info!(
                         topic = topic,
                         partition = partition,
-                        path = partition_dir,
+                        path = partition_dir_str,
                         "Deleted partition directory"
                     );
                 }
@@ -361,7 +419,7 @@ impl StoreManager {
                     warn!(
                         topic = topic,
                         partition = partition,
-                        path = partition_dir,
+                        path = partition_dir_str,
                         error = %e,
                         "Failed to remove partition directory (usually harmless)"
                     );
@@ -371,7 +429,7 @@ impl StoreManager {
             debug!(
                 topic = topic,
                 partition = partition,
-                path = partition_dir,
+                path = partition_dir_str,
                 "Partition directory doesn't exist"
             );
         }
@@ -387,6 +445,11 @@ impl StoreManager {
 
     pub fn get_active_store_count(&self) -> usize {
         self.stores.len()
+    }
+
+    /// Get the base path where stores are created
+    pub fn base_path(&self) -> &Path {
+        &self.store_config.path
     }
 
     /// Cleanup old entries across all stores to maintain global capacity
@@ -409,6 +472,13 @@ impl StoreManager {
         let _guard = CleanupGuard {
             flag: &self.cleanup_running,
         };
+
+        // Skip cleanup during rebalance to avoid deleting entries from stores
+        // that are being populated with imported checkpoints
+        if self.is_rebalancing() {
+            debug!("Skipping capacity cleanup - rebalance in progress");
+            return Ok(0);
+        }
 
         let start_time = Instant::now();
 
@@ -433,23 +503,40 @@ impl StoreManager {
             }
         }
 
-        // Check if we're under capacity
-        if total_size <= self.store_config.max_capacity {
-            return Ok(0); // Under capacity, no cleanup needed
+        // Start cleanup at 80% capacity to give compaction headroom
+        let cleanup_threshold = (self.store_config.max_capacity as f64 * 0.8) as u64;
+        if total_size <= cleanup_threshold {
+            return Ok(0); // Under threshold, no cleanup needed
         }
 
+        // Determine capacity level for logging and cleanup aggressiveness
+        let capacity_ratio = total_size as f64 / self.store_config.max_capacity as f64;
+        let capacity_percent = (capacity_ratio * 100.0) as u32;
+
         info!(
-            "Global store size {} exceeds max capacity {}, triggering cleanup",
-            total_size, self.store_config.max_capacity
+            "Global store size {} ({}% of max capacity {}) exceeds cleanup threshold, triggering cleanup",
+            total_size, capacity_percent, self.store_config.max_capacity
         );
 
-        // We need to clean up - target 80% of max capacity
-        let target_size = (self.store_config.max_capacity as f64 * 0.8) as u64;
+        // We need to clean up - target 70% of max capacity to create buffer
+        let target_size = (self.store_config.max_capacity as f64 * 0.7) as u64;
         let bytes_to_free = total_size.saturating_sub(target_size);
 
         // Calculate cleanup percentage based on how much we need to free
         // If we need to free 20% of total size, clean up 20% of time range from each store
-        let cleanup_percentage = (bytes_to_free as f64 / total_size as f64).min(0.3); // Cap at 30% max
+        let raw_cleanup_percentage = bytes_to_free as f64 / total_size as f64;
+
+        // When over 90% capacity, be more aggressive - no cap on cleanup percentage
+        // Otherwise cap at 30% to avoid removing too much data at once
+        let cleanup_percentage = if capacity_ratio > 0.9 {
+            info!(
+                "Critical capacity ({}%) - using aggressive cleanup without cap",
+                capacity_percent
+            );
+            raw_cleanup_percentage.min(0.5) // Still cap at 50% to avoid removing everything
+        } else {
+            raw_cleanup_percentage.min(0.3) // Normal cap at 30%
+        };
 
         info!(
             "Cleaning up {:.1}% of time range from each store (need to free {} bytes)",
@@ -460,6 +547,16 @@ impl StoreManager {
         // Cleanup stores with the calculated percentage (no longer holding DashMap guards)
         let mut total_bytes_freed = 0u64;
         for store in &stores {
+            // Check if rebalance started mid-cleanup - abort to avoid deleting
+            // entries from stores being populated with imported checkpoints
+            if self.is_rebalancing() {
+                info!(
+                    "Aborting capacity cleanup - rebalance started. Freed {} bytes so far",
+                    total_bytes_freed
+                );
+                return Ok(total_bytes_freed);
+            }
+
             match store.cleanup_old_entries_with_percentage(cleanup_percentage) {
                 Ok(bytes_freed) => {
                     total_bytes_freed += bytes_freed;
@@ -504,6 +601,7 @@ impl StoreManager {
     }
 
     /// Check if cleanup is needed based on current global size
+    /// Cleanup triggers at 80% capacity to give background compaction time to reclaim space
     pub fn needs_cleanup(&self) -> bool {
         // Log folder sizes and assigned partitions
         self.log_folder_sizes_and_partitions();
@@ -520,17 +618,32 @@ impl StoreManager {
             .collect();
 
         let mut total_size = 0u64;
+        let mut max_oldest_data_age: Option<u64> = None;
         for store in &stores {
             if let Ok(size) = store.get_total_size() {
                 total_size += size;
             }
+            // Emit per-partition oldest data age metric and track max
+            if let Ok(Some(age)) = store.get_oldest_data_age_seconds() {
+                metrics::gauge!(
+                    ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE,
+                    "topic" => store.get_topic().to_string(),
+                    "partition" => store.get_partition().to_string()
+                )
+                .set(age as f64);
+                max_oldest_data_age =
+                    Some(max_oldest_data_age.map_or(age, |current| current.max(age)));
+            }
         }
 
+        // Start cleanup at 80% capacity to give compaction headroom
+        let cleanup_threshold = (self.store_config.max_capacity as f64 * 0.8) as u64;
+
         info!(
-            "Total size of all stores: {} bytes, max capacity: {} bytes",
-            total_size, self.store_config.max_capacity
+            "Total size of all stores: {} bytes, cleanup threshold: {} bytes, max capacity: {} bytes, oldest data age: {}s",
+            total_size, cleanup_threshold, self.store_config.max_capacity, max_oldest_data_age.unwrap_or(0)
         );
-        total_size > self.store_config.max_capacity
+        total_size > cleanup_threshold
     }
 
     /// Start a periodic cleanup task that runs in the background
@@ -619,15 +732,14 @@ impl StoreManager {
     /// Build the path for a store based on topic and partition
     /// Each store gets a unique timestamp-based subdirectory to avoid conflicts
     fn build_store_path(&self, topic: &str, partition: i32) -> String {
-        // Create a unique subdirectory for this store instance
-        let timestamp = chrono::Utc::now().timestamp_millis();
-        format!(
-            "{}/{}_{}/{}",
-            self.store_config.path.display(),
-            topic.replace('/', "_"),
+        format_store_path(
+            &self.store_config.path,
+            topic,
             partition,
-            timestamp
+            chrono::Utc::now(),
         )
+        .to_string_lossy()
+        .to_string()
     }
 
     /// Ensure the parent directory for a store path exists
@@ -735,17 +847,28 @@ impl StoreManager {
 
     /// Clean up orphaned directories that don't belong to any assigned partition
     pub fn cleanup_orphaned_directories(&self) -> Result<u64> {
+        // Guard: skip cleanup if no stores are registered yet (startup race) or
+        // all stores were just unregistered (rebalance). This prevents deleting
+        // valid directories before partition assignment completes.
+        if self.stores.is_empty() {
+            debug!("Skipping orphan cleanup - no stores registered");
+            return Ok(0);
+        }
+
+        // Guard: skip cleanup during rebalance to avoid deleting directories
+        // that are about to be assigned to us
+        if self.is_rebalancing() {
+            debug!("Skipping orphan cleanup - rebalance in progress");
+            return Ok(0);
+        }
+
         let mut total_freed = 0u64;
 
         // Build a set of currently assigned partition directories
         let mut assigned_dirs = std::collections::HashSet::new();
         for entry in self.stores.iter() {
             let partition = entry.key();
-            let dir_name = format!(
-                "{}_{}",
-                partition.topic().replace('/', "_"),
-                partition.partition_number()
-            );
+            let dir_name = format_partition_dir(partition.topic(), partition.partition_number());
             assigned_dirs.insert(dir_name);
         }
 
@@ -764,6 +887,16 @@ impl StoreManager {
                         // Check if this directory matches the pattern topic_partition
                         // and is not in our assigned set
                         if dir_name.contains('_') && !assigned_dirs.contains(&dir_name) {
+                            // Check if rebalance started mid-cleanup - abort to avoid
+                            // deleting directories that may be about to be assigned
+                            if self.is_rebalancing() {
+                                info!(
+                                    "Aborting orphan cleanup - rebalance started. Freed {} bytes so far",
+                                    total_freed
+                                );
+                                return Ok(total_freed);
+                            }
+
                             // This is an orphaned directory
                             let dir_path = entry.path();
                             let dir_size = Self::get_directory_size(&dir_path).unwrap_or(0);
@@ -1133,7 +1266,7 @@ mod tests {
 
         let manager = StoreManager::new(config);
 
-        // Step 1: Pre-create during rebalance (cleanup_assigned_partitions)
+        // Step 1: Pre-create during rebalance (async_setup_assigned_partitions)
         let _store = manager
             .get_or_create_for_rebalance("test-topic", 0)
             .await
@@ -1323,5 +1456,108 @@ mod tests {
         for store in &stores {
             assert!(store.get_timestamp_record(&key).unwrap().is_some());
         }
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_orphaned_directories_skips_during_rebalance() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Create a store for partition 0
+        manager.get_or_create("test-topic", 0).await.unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Create an "orphaned" directory manually (not in stores map)
+        let orphan_dir = temp_dir.path().join("other-topic_1");
+        std::fs::create_dir_all(&orphan_dir).unwrap();
+        std::fs::write(orphan_dir.join("dummy.txt"), b"test data").unwrap();
+        assert!(orphan_dir.exists());
+
+        // When NOT rebalancing, cleanup should remove the orphan
+        assert!(!manager.is_rebalancing());
+        let freed = manager.cleanup_orphaned_directories().unwrap();
+        assert!(freed > 0);
+        assert!(
+            !orphan_dir.exists(),
+            "Orphan should be removed when not rebalancing"
+        );
+
+        // Recreate the orphan directory
+        std::fs::create_dir_all(&orphan_dir).unwrap();
+        std::fs::write(orphan_dir.join("dummy.txt"), b"test data").unwrap();
+        assert!(orphan_dir.exists());
+
+        // Set rebalancing flag
+        manager.set_rebalancing(true);
+        assert!(manager.is_rebalancing());
+
+        // During rebalance, cleanup should skip and not remove the orphan
+        let freed = manager.cleanup_orphaned_directories().unwrap();
+        assert_eq!(freed, 0);
+        assert!(
+            orphan_dir.exists(),
+            "Orphan should NOT be removed during rebalance"
+        );
+
+        // Clear rebalancing flag
+        manager.set_rebalancing(false);
+        assert!(!manager.is_rebalancing());
+
+        // Now cleanup should remove the orphan again
+        let freed = manager.cleanup_orphaned_directories().unwrap();
+        assert!(freed > 0);
+        assert!(
+            !orphan_dir.exists(),
+            "Orphan should be removed after rebalance ends"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_capacity_cleanup_skips_during_rebalance() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 100, // Very small to trigger cleanup
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Create a store and add data
+        let store = manager.get_or_create("test-topic", 0).await.unwrap();
+        for i in 0..10 {
+            let event = RawEvent {
+                uuid: Some(uuid::Uuid::new_v4()),
+                event: format!("test_event_{i}"),
+                distinct_id: Some(serde_json::Value::String(format!("user_{i}"))),
+                token: Some("test_token".to_string()),
+                timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+                properties: std::collections::HashMap::new(),
+                ..Default::default()
+            };
+            let key = TimestampKey::from(&event);
+            let metadata = TimestampMetadata::new(&event);
+            store.put_timestamp_record(&key, &metadata).unwrap();
+        }
+
+        // Set rebalancing flag
+        manager.set_rebalancing(true);
+        assert!(manager.is_rebalancing());
+
+        // During rebalance, capacity cleanup should skip
+        let freed = manager.cleanup_old_entries_if_needed().unwrap();
+        assert_eq!(freed, 0, "Should skip cleanup during rebalance");
+
+        // Clear rebalancing flag
+        manager.set_rebalancing(false);
+        assert!(!manager.is_rebalancing());
+
+        // Now cleanup should run (may or may not free bytes depending on actual size)
+        let result = manager.cleanup_old_entries_if_needed();
+        assert!(result.is_ok(), "Cleanup should run after rebalance ends");
     }
 }
