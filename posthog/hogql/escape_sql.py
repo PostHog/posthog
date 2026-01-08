@@ -52,7 +52,7 @@ def escape_hogql_identifier(identifier: str | int) -> str:
 
 
 # Copied from dlt/common/data_writers/escape.py
-POSTGRES_SIMPLE_IDENTIFIER_REGEX = re.compile(r"^[a-z_$][a-z0-9_$]*$")
+POSTGRES_SIMPLE_IDENTIFIER_REGEX = re.compile(r"^[a-z_][a-z0-9_$]*$")
 
 # https://www.postgresql.org/docs/current/sql-keywords-appendix.html
 POSTGRES_RESERVED_KEYWORDS = {
@@ -161,10 +161,13 @@ POSTGRES_RESERVED_KEYWORDS = {
 
 
 def escape_postgres_identifier(v: str) -> str:
+    if len(v) > 63:
+        raise QueryError(f'The Postgres identifier "{v}" is too long. Maximum length is 63 characters.')
+
     if POSTGRES_SIMPLE_IDENTIFIER_REGEX.match(v) and v.upper() not in POSTGRES_RESERVED_KEYWORDS:
         return v
 
-    return '"' + v.replace('"', '""').replace("\\", "\\\\") + '"'
+    return '"' + v.replace('"', '""') + '"'
 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
