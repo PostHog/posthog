@@ -161,7 +161,7 @@ class Command(BaseCommand):
         self.stdout.write("Sending $identify events...")
         identify_failures = 0
         for i, person in enumerate(persons):
-            properties = {
+            identify_properties = {
                 "$set_once": person.get_set_once_dict(),
                 "$set": person.get_set_dict(),
             }
@@ -173,7 +173,7 @@ class Command(BaseCommand):
                     event_source="generate_test_events",
                     distinct_id=person.distinct_id,
                     timestamp=datetime.now(UTC),
-                    properties=properties,
+                    properties=identify_properties,
                     process_person_profile=True,
                 )
                 resp.raise_for_status()
@@ -199,7 +199,7 @@ class Command(BaseCommand):
                 for prop in person.set_once_props:
                     mutate_property(prop, event_num)
 
-                properties: dict[str, Any] = {
+                pageview_properties: dict[str, Any] = {
                     "$current_url": f"https://example.com/page/{event_num}",
                     "$pathname": f"/page/{event_num}",
                     "$set_once": person.get_set_once_dict(),
@@ -213,7 +213,7 @@ class Command(BaseCommand):
                         event_source="generate_test_events",
                         distinct_id=person.distinct_id,
                         timestamp=datetime.now(UTC),
-                        properties=properties,
+                        properties=pageview_properties,
                         process_person_profile=True,
                     )
                     resp.raise_for_status()
