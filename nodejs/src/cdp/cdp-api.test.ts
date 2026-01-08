@@ -7,13 +7,16 @@ import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { HogFlow } from '~/schema/hogflow'
 
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
+import { UUIDT } from '../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogFunction } from './_tests/fixtures'
+import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -59,6 +62,13 @@ describe('CDP API', () => {
         return item
     }
 
+    const insertHogFlow = async (hogFlow: Partial<HogFlow>) => {
+        const item = await _insertHogFlow(hub.postgres, { team_id: team.id, ...hogFlow } as HogFlow)
+        // Trigger the reload that django would do
+        api['hogFlowManager']['onHogFlowsReloaded'](team.id, [item.id])
+        return item
+    }
+
     beforeAll(async () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
@@ -97,9 +107,17 @@ describe('CDP API', () => {
         await closeHub(hub)
     })
 
-    it('errors if missing hog function or team', async () => {
+    it('errors if missing hog function', async () => {
         const res = await supertest(app)
-            .post(`/api/projects/${hogFunction.team_id}/hog_functions/missing/invocations`)
+            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${new UUIDT().toString()}/invocations`)
+            .send({ globals })
+
+        expect(res.status).toEqual(404)
+    })
+
+    it('errors if missing team', async () => {
+        const res = await supertest(app)
+            .post(`/api/projects/${new UUIDT().toString()}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals })
 
         expect(res.status).toEqual(404)
@@ -546,6 +564,10 @@ describe('CDP API', () => {
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
         })
 
+        afterAll(() => {
+            jest.restoreAllMocks()
+        })
+
         it('returns the states of all hog functions', async () => {
             await api['hogWatcher'].forceStateChange(hogFunction, HogWatcherState.degraded)
             await api['hogWatcher'].forceStateChange(hogFunctionMultiFetch, HogWatcherState.disabled)
@@ -577,6 +599,155 @@ describe('CDP API', () => {
                 ],
                 total: 2,
             })
+        })
+    })
+
+    describe('batch hogflow invocations', () => {
+        let batchHogFlow: HogFlow
+        let originalKafkaProducer: any
+
+        beforeEach(async () => {
+            originalKafkaProducer = hub.kafkaProducer
+            batchHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'batch',
+                    filters: {
+                        properties: [
+                            {
+                                key: 'email',
+                                value: 'test@posthog.com',
+                                operator: 'exact',
+                                type: 'person',
+                            },
+                        ],
+                    },
+                },
+            })
+        })
+
+        afterEach(() => {
+            hub.kafkaProducer = originalKafkaProducer
+        })
+
+        it('errors if missing team', async () => {
+            const nonExistentTeamId = new UUIDT().toString()
+            const res = await supertest(app)
+                .post(`/api/projects/${nonExistentTeamId}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
+                .send({})
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Team not found')
+        })
+
+        it('errors if missing hog flow', async () => {
+            const nonExistentUuid = new UUIDT().toString()
+            const res = await supertest(app)
+                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${nonExistentUuid}/batch_invocations/job-123`)
+                .send({})
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Workflow not found')
+        })
+
+        it('errors if hog flow is not a batch trigger type', async () => {
+            const nonBatchHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test non-batch hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'event',
+                    filters: {},
+                },
+            })
+
+            const res = await supertest(app)
+                .post(
+                    `/api/projects/${nonBatchHogFlow.team_id}/hog_flows/${nonBatchHogFlow.id}/batch_invocations/job-123`
+                )
+                .send({})
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Only batch Workflows are supported for batch jobs')
+        })
+
+        it('queues batch job request to kafka', async () => {
+            const mockProduce = jest.fn().mockResolvedValue(undefined)
+            hub.kafkaProducer = { produce: mockProduce } as any
+
+            const res = await supertest(app)
+                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
+                .send({
+                    filters: {
+                        filter_test_accounts: true,
+                    },
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ status: 'queued' })
+            expect(mockProduce).toHaveBeenCalledWith({
+                topic: 'cdp_batch_hogflow_requests_test',
+                value: Buffer.from(
+                    JSON.stringify({
+                        teamId: batchHogFlow.team_id,
+                        hogFlowId: batchHogFlow.id,
+                        batchJobId: 'job-123',
+                        filters: {
+                            properties: (batchHogFlow as any).trigger.filters.properties,
+                            filter_test_accounts: true,
+                        },
+                    })
+                ),
+                key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
+            })
+        })
+
+        it('queues batch job with filters from hog flow config when not provided', async () => {
+            const mockProduce = jest.fn().mockResolvedValue(undefined)
+            hub.kafkaProducer = { produce: mockProduce } as any
+
+            const res = await supertest(app)
+                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-456`)
+                .send({})
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ status: 'queued' })
+            expect(mockProduce).toHaveBeenCalledWith({
+                topic: 'cdp_batch_hogflow_requests_test',
+                value: Buffer.from(
+                    JSON.stringify({
+                        teamId: batchHogFlow.team_id,
+                        hogFlowId: batchHogFlow.id,
+                        batchJobId: 'job-456',
+                        filters: {
+                            properties: (batchHogFlow as any).trigger.filters.properties,
+                            filter_test_accounts: false,
+                        },
+                    })
+                ),
+                key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
+            })
+        })
+
+        it('errors if kafka producer not available', async () => {
+            hub.kafkaProducer = undefined as any
+
+            const res = await supertest(app)
+                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
+                .send({})
+
+            expect(res.status).toEqual(500)
+            expect(res.body.error).toEqual('Kafka producer not available')
         })
     })
 })

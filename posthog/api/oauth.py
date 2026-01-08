@@ -83,9 +83,7 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
                 organization_uuids = [uuid.UUID(org_id) for org_id in scoped_organization_ids]
                 for org_uuid in organization_uuids:
                     if org_uuid not in org_memberships or not org_memberships[org_uuid].level:
-                        raise serializers.ValidationError(
-                            f"You must be a member of organization '{org_uuid}' to scope access to it."
-                        )
+                        raise serializers.ValidationError("Invalid organization specified or you do not have access.")
             except ValueError:
                 raise serializers.ValidationError("Invalid organization UUID provided in scoped_organizations.")
             return scoped_organization_ids
@@ -106,13 +104,11 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
             teams = Team.objects.filter(pk__in=scoped_team_ids)
             if len(teams) != len(scoped_team_ids):
-                raise serializers.ValidationError("One or more specified teams in scoped_teams do not exist.")
+                raise serializers.ValidationError("Invalid team specified or you do not have access.")
 
             for team in teams:
                 if user_permissions.team(team).effective_membership_level is None:
-                    raise serializers.ValidationError(
-                        f"You must be a member of team '{team.id}' ({team.name}) to scope access to it."
-                    )
+                    raise serializers.ValidationError("Invalid team specified or you do not have access.")
             return scoped_team_ids
         elif scoped_team_ids and len(scoped_team_ids) > 0:
             raise serializers.ValidationError(f"scoped_teams is not allowed when access_level is {access_level}")

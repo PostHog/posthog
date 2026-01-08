@@ -7,6 +7,7 @@ import express from 'ultimate-express'
 import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
+import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
@@ -260,6 +261,14 @@ export class PluginServer {
             if (capabilities.logsIngestion) {
                 serviceLoaders.push(async () => {
                     const consumer = new LogsIngestionConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.cdpBatchHogFlow) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpBatchHogFlowRequestsConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })

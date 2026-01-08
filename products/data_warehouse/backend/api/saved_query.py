@@ -10,6 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -17,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
-from posthog.schema import DataWarehouseManagedViewsetKind
+from posthog.schema import DataWarehouseManagedViewsetKind, ProductKey
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -298,7 +299,6 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                     raise serializers.ValidationError("The query was modified by someone else.")
 
             if sync_frequency == "never":
-                pause_saved_query_schedule(str(locked_instance.id))
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
@@ -366,22 +366,22 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-            if sync_frequency and sync_frequency != "never":
+            # update the temporal schedule if it exists
+            view_id = str(view.id)
+            temporal_schedule_exists = saved_query_workflow_exists(view_id)
+            if temporal_schedule_exists:
                 try:
-                    view.setup_model_paths()
+                    if sync_frequency == "never":
+                        pause_saved_query_schedule(view_id)
+                    elif sync_frequency:
+                        sync_saved_query_workflow(view, create=not temporal_schedule_exists)
                 except Exception as e:
-                    posthoganalytics.capture_exception(e)
-                    logger.exception("Failed to update model path when updating view %s", view.name)
-
-                # update the temporal schedule if the view is materialized
-                if view.is_materialized:
-                    try:
-                        sync_saved_query_workflow(view, create=not saved_query_workflow_exists(str(view.id)))
-                    except Exception as e:
-                        capture_exception(e)
-                        logger.exception(
-                            "Failed to update schedule when updating sync frequency for view %s", view.name
-                        )
+                    capture_exception(e)
+                    logger.exception(
+                        "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
+                        view.name,
+                        sync_frequency,
+                    )
 
         return view
 
@@ -437,6 +437,7 @@ class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
 
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.

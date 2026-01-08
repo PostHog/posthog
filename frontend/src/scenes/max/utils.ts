@@ -40,7 +40,14 @@ import { Scene } from '../sceneTypes'
 import { EnhancedToolCall } from './Thread'
 import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
-import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
+import {
+    MaxActionContext,
+    MaxContextType,
+    MaxDashboardContext,
+    MaxErrorTrackingIssueContext,
+    MaxEventContext,
+    MaxInsightContext,
+} from './maxTypes'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -234,6 +241,17 @@ export const actionToMaxContextPayload = (action: ActionType): MaxActionContext 
         id: action.id,
         name: action.name || `Action ${action.id}`,
         description: action.description || '',
+    }
+}
+
+export const errorTrackingIssueToMaxContextPayload = (issue: {
+    id: string
+    name?: string | null
+}): MaxErrorTrackingIssueContext => {
+    return {
+        type: MaxContextType.ERROR_TRACKING_ISSUE,
+        id: issue.id,
+        name: issue.name,
     }
 }
 

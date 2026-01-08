@@ -33,10 +33,10 @@ jobs:
         name: Cleanup preview droplets
         runs-on: ubuntu-24.04
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Install uv
-              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b
 
             - name: Cleanup specific PR droplet
               if: inputs.pr_number != ''
