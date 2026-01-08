@@ -9,6 +9,18 @@ import (
 	"time"
 )
 
+func CanSudo() bool {
+	cmd := exec.Command("sudo", "-n", "true")
+	return cmd.Run() == nil
+}
+
+func RequireSudo(operation string) error {
+	if !CanSudo() {
+		return fmt.Errorf("sudo access required to %s. Please run with sudo or ensure passwordless sudo is configured", operation)
+	}
+	return nil
+}
+
 func IsDockerInstalled() bool {
 	_, err := exec.LookPath("docker")
 	return err == nil
@@ -20,6 +32,10 @@ func IsDockerRunning() bool {
 }
 
 func StartDockerDaemon() error {
+	if err := RequireSudo("start Docker daemon"); err != nil {
+		return err
+	}
+
 	GetLogger().WriteString("Starting Docker daemon...\n")
 	cmd := exec.Command("sudo", "systemctl", "start", "docker")
 
@@ -41,6 +57,10 @@ func StartDockerDaemon() error {
 }
 
 func InstallDocker() error {
+	if err := RequireSudo("install Docker"); err != nil {
+		return err
+	}
+
 	GetLogger().WriteString("Installing Docker...\n")
 
 	commands := [][]string{
@@ -67,6 +87,10 @@ func InstallDocker() error {
 }
 
 func InstallDockerCompose() error {
+	if err := RequireSudo("install Docker Compose"); err != nil {
+		return err
+	}
+
 	cmd := exec.Command("sudo", "sh", "-c",
 		`curl -L "https://github.com/docker/compose/releases/download/v2.33.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose`)
 	return cmd.Run()
@@ -140,6 +164,10 @@ func DockerComposeUpDB() error {
 }
 
 func RunAsyncMigrationsCheck() error {
+	if err := RequireSudo("run async migrations check"); err != nil {
+		return err
+	}
+
 	GetLogger().WriteString("Checking async migrations...\n")
 
 	cmd, args := GetDockerComposeCommand()
@@ -189,6 +217,9 @@ func CheckDockerVolumes() (bool, bool) {
 }
 
 func AddUserToDockerGroup(user string) error {
+	if err := RequireSudo("add user to docker group"); err != nil {
+		return err
+	}
 	return exec.Command("sudo", "usermod", "-aG", "docker", user).Run()
 }
 
