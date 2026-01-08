@@ -318,6 +318,7 @@ def restore_person_with_version_check(
 
     for attempt in range(max_retries):
         # Use prefetched person on first attempt, fetch fresh on retries
+        person: dict | None
         if attempt == 0 and prefetched_person is not None:
             person = prefetched_person
         else:

@@ -758,7 +758,7 @@ class TestRestoreIntegration:
         team1 = Team.objects.create(organization=organization, name="Team 1")
         team2 = Team.objects.create(organization=organization, name="Team 2")
 
-        persons = {}
+        persons: dict[int, list[Person]] = {}
         for team in [team1, team2]:
             persons[team.id] = []
             for i in range(3):
@@ -1347,7 +1347,7 @@ class TestRestoreJobEndToEnd:
 
         # Create 5 teams with 4 persons each = 20 persons total
         teams = []
-        persons = {}  # {team_id: [person1, person2, ...]}
+        persons: dict[int, list[Person]] = {}
 
         for t in range(5):
             team = Team.objects.create(organization=organization, name=f"Team {t}")
@@ -1449,7 +1449,7 @@ class TestRestoreJobEndToEnd:
 
         # Create 5 teams with 3 persons each
         teams = []
-        persons = {}
+        persons: dict[int, list[Person]] = {}
 
         for t in range(5):
             team = Team.objects.create(organization=organization, name=f"Team {t}")
@@ -1544,8 +1544,8 @@ class TestRestoreJobEndToEnd:
 
         # Create 3 teams with 5 persons each
         teams = []
-        persons = {}
-        all_persons = []
+        persons: dict[int, list[Person]] = {}
+        all_persons: list[Person] = []
 
         for t in range(3):
             team = Team.objects.create(organization=organization, name=f"Team {t}")
@@ -1638,7 +1638,7 @@ class TestRestoreJobEndToEnd:
 
         # Create 4 teams with 4 persons each = 16 persons
         teams = []
-        persons = {}
+        persons: dict[int, list[Person]] = {}
 
         for t in range(4):
             team = Team.objects.create(organization=organization, name=f"Team {t}")
@@ -1762,7 +1762,7 @@ class TestRestoreJobEndToEnd:
 
         # Create 3 teams with 3 persons each
         teams = []
-        persons = {}
+        persons: dict[int, list[Person]] = {}
 
         for t in range(3):
             team = Team.objects.create(organization=organization, name=f"Team {t}")
@@ -1861,7 +1861,7 @@ class TestRestoreJobEndToEnd:
         # Create 3 teams with 2, 2, 1 persons = 5 total
         # With batch_size=2, this gives 3 batches (2, 2, 1) - last batch not full
         teams = []
-        persons = {}
+        persons: dict[int, list[Person]] = {}
         persons_per_team = [2, 2, 1]
 
         for t in range(3):
