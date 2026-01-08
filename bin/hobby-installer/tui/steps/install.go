@@ -22,6 +22,7 @@ const (
 
 type installItem struct {
 	name   string
+	hidden bool
 	status installStatus
 	detail string
 }
@@ -52,7 +53,7 @@ func NewInstallModel() InstallModel {
 	coreSteps := core.GetInstallSteps()
 	steps := make([]installItem, len(coreSteps))
 	for i, step := range coreSteps {
-		steps[i] = installItem{name: step.Name, status: installPending}
+		steps[i] = installItem{name: step.Name, status: installPending, hidden: step.Hidden}
 	}
 
 	return InstallModel{
@@ -145,6 +146,10 @@ func (m InstallModel) View() string {
 	var lines []string
 
 	for i, step := range m.steps {
+		if step.hidden {
+			continue
+		}
+
 		var icon string
 		var style lipgloss.Style
 

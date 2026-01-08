@@ -85,19 +85,28 @@ func runInstall(cfg core.InstallConfig) error {
 	for _, step := range steps {
 		if step.Skip != nil {
 			if skip, reason := step.Skip(cfg); skip {
-				fmt.Printf("   ○ %s... ◌ %s\n", step.Name, reason)
+				if !step.Hidden {
+					fmt.Printf("   ○ %s... ◌ %s\n", step.Name, reason)
+				}
 				continue
 			}
 		}
 
-		fmt.Printf("   ○ %s... ", step.Name)
+		if !step.Hidden {
+			fmt.Printf("   ○ %s... ", step.Name)
+		}
 		result := step.Run(cfg)
 
 		if result.Err != nil {
-			fmt.Printf("✗ %s\n", result.Err)
+			if !step.Hidden {
+				fmt.Printf("✗ %s\n", result.Err)
+			}
 			return fmt.Errorf("%s failed: %w", step.Name, result.Err)
 		}
-		fmt.Printf("✓ %s\n", result.Detail)
+
+		if !step.Hidden {
+			fmt.Printf("✓ %s\n", result.Detail)
+		}
 	}
 
 	return nil

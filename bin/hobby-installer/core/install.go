@@ -27,9 +27,10 @@ type InstallConfig struct {
 }
 
 type InstallStep struct {
-	Name string
-	Run  func(cfg InstallConfig) InstallResult
-	Skip func(cfg InstallConfig) (bool, string)
+	Name   string
+	Run    func(cfg InstallConfig) InstallResult
+	Skip   func(cfg InstallConfig) (bool, string)
+	Hidden bool
 }
 
 func GetInstallSteps() []InstallStep {
@@ -40,6 +41,7 @@ func GetInstallSteps() []InstallStep {
 				SendInstallStartEvent(cfg.Domain)
 				return InstallResult{Detail: "sent"}
 			},
+			Hidden: true,
 		},
 		{
 			Name: "Setup git",
@@ -211,6 +213,7 @@ func GetInstallSteps() []InstallStep {
 				SendInstallCompleteEvent(cfg.Domain)
 				return InstallResult{Detail: "sent"}
 			},
+			Hidden: true,
 		},
 	}
 }
