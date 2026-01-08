@@ -276,13 +276,17 @@ def filter_event_person_properties(
     for diffs in person_diffs:
         # Copy the maps so we don't mutate the input
         set_updates = dict(diffs.set_updates)
+        set_once_updates = dict(diffs.set_once_updates)
         unset_updates = dict(diffs.unset_updates)
 
         # Find keys that exist in both maps
-        for key in list(unset_updates.keys()):
+        # Use original unset keys for iteration so deletions in first loop don't affect second loop
+        original_unset_keys = list(diffs.unset_updates.keys())
+
+        for key in original_unset_keys:
             if key in set_updates:
                 set_ts = set_updates[key].timestamp
-                unset_ts = unset_updates[key].timestamp
+                unset_ts = diffs.unset_updates[key].timestamp
 
                 if set_ts > unset_ts:
                     # set is more recent - remove unset
@@ -291,11 +295,24 @@ def filter_event_person_properties(
                     # unset is more recent or equal - remove set
                     del set_updates[key]
 
+        # Filter set_once vs unset conflicts
+        for key in original_unset_keys:
+            if key in set_once_updates:
+                set_once_ts = set_once_updates[key].timestamp
+                unset_ts = diffs.unset_updates[key].timestamp
+
+                if set_once_ts > unset_ts:
+                    # Only delete if not already removed by set loop
+                    if key in unset_updates:
+                        del unset_updates[key]
+                else:
+                    del set_once_updates[key]
+
         results.append(
             PersonPropertyDiffs(
                 person_id=diffs.person_id,
                 set_updates=set_updates,
-                set_once_updates=diffs.set_once_updates,  # unchanged
+                set_once_updates=set_once_updates,
                 unset_updates=unset_updates,
             )
         )
