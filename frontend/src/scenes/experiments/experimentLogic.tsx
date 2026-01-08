@@ -1111,15 +1111,18 @@ export const experimentLogic = kea<experimentLogicType>([
         refreshExperimentResults: async ({ forceRefresh }) => {
             // Note: This listener is called both for manual and auto-refresh triggers
             // The context parameter is not available here, so we'll track from the calling locations
-            await Promise.all([
-                actions.loadPrimaryMetricsResults(forceRefresh),
-                actions.loadSecondaryMetricsResults(forceRefresh),
-                actions.loadExposures(forceRefresh),
-            ])
-
-            // After metrics load, set up auto-refresh if enabled
-            if (values.autoRefresh.enabled && values.experiment?.start_date) {
-                actions.resetAutoRefreshInterval()
+            try {
+                await Promise.all([
+                    actions.loadPrimaryMetricsResults(forceRefresh),
+                    actions.loadSecondaryMetricsResults(forceRefresh),
+                    actions.loadExposures(forceRefresh),
+                ])
+            } finally {
+                // Always set up auto-refresh if enabled, even if metrics fail to load
+                // This ensures the interval keeps trying to refresh
+                if (values.autoRefresh.enabled && values.experiment?.start_date) {
+                    actions.resetAutoRefreshInterval()
+                }
             }
         },
         updateExperimentMetrics: async () => {
