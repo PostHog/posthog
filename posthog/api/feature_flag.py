@@ -1427,7 +1427,7 @@ class FeatureFlagViewSet(
                                         AND (elem->'properties')::text = '[]'::text
                                         AND elem->'variant' IS NOT NULL
                                     )
-                                    AND (posthog_featureflag.filters->'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
+                                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
                                 )
                                 OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
                             )
