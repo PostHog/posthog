@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Optional
 
 from django.db.models import Q
@@ -169,7 +170,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             last_read_date = (
                 NotificationViewed.objects.filter(user=user).values_list("last_viewed_activity_date", flat=True).first()
             )
-            last_read_date_filter = last_read_date if (last_read_date and unread) else None
+            last_read_date_filter = last_read_date if (last_read_date and unread) else datetime.min
 
         with timer("query_for_candidate_ids"):
             # before we filter to include only the important changes,
@@ -195,11 +196,11 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             -- as multiple actual activities are logged for one logical activity
                             AND scope = 'Notebook'
                             AND NOT (user_id = %s AND user_id IS NOT NULL)
-                            AND (%s IS NULL OR date_trunc('millisecond', created_at) > %s)
+                            AND date_trunc('millisecond', created_at) > %s
                             ORDER BY created_at DESC) AS inner_q) AS counted_q
                 WHERE row_number = 1
                 """,
-                [self.team_id, user.pk, last_read_date_filter, last_read_date_filter],
+                [self.team_id, user.pk, last_read_date_filter],
             )
             deduplicated_notebook_activity_ids = [c.id for c in deduplicated_notebook_activity_ids_query]
 
