@@ -3,16 +3,7 @@ import { Message } from 'node-rdkafka'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
-import { createTestTeam } from '../../../tests/helpers/team'
-import {
-    MaterializedColumnSlot,
-    Person,
-    PersonMode,
-    PreIngestionEvent,
-    ProjectId,
-    Team,
-    TimestampFormat,
-} from '../../types'
+import { MaterializedColumnSlot, Person, PersonMode, PreIngestionEvent, ProjectId, TimestampFormat } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { castTimestampOrNow } from '../../utils/utils'
@@ -32,12 +23,10 @@ describe('create-event-step', () => {
     let mockPerson: Person
     let mockPreparedEvent: PreIngestionEvent
     let mockMessage: Message
-    let mockTeam: Team
     let mockConfig: CreateEventStepConfig
 
     beforeEach(() => {
         mockMessage = createTestMessage()
-        mockTeam = createTestTeam()
         mockConfig = { materializedColumnSlotManager: createMockSlotManager() }
         mockPerson = {
             team_id: 1,
@@ -66,7 +55,6 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                team: mockTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
@@ -102,7 +90,6 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: false,
                 historicalMigration: false,
-                team: mockTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
@@ -135,7 +122,6 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                team: mockTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
@@ -169,7 +155,6 @@ describe('create-event-step', () => {
                 preparedEvent: eventWithSetProperties,
                 processPerson: true,
                 historicalMigration: false,
-                team: mockTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
@@ -200,7 +185,6 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                team: mockTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
@@ -237,7 +221,6 @@ describe('create-event-step', () => {
                 preparedEvent: eventWithElements,
                 processPerson: true,
                 historicalMigration: false,
-                team: mockTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
@@ -268,7 +251,6 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                team: mockTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: mockMessage,
                 customProperty: 'test',
@@ -290,7 +272,6 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                team: mockTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
@@ -326,7 +307,6 @@ describe('create-event-step', () => {
                     preparedEvent: eventWithType,
                     processPerson: true,
                     historicalMigration: false,
-                    team: mockTeam,
                     inputHeaders: createTestEventHeaders(),
                     inputMessage: mockMessage,
                     lastStep: 'prepareEventStep',
@@ -353,7 +333,6 @@ describe('create-event-step', () => {
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
                     historicalMigration: true,
-                    team: mockTeam,
                     inputHeaders: createTestEventHeaders(),
                     inputMessage: mockMessage,
                     lastStep: 'prepareEventStep',
@@ -378,7 +357,6 @@ describe('create-event-step', () => {
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
                     historicalMigration: false,
-                    team: mockTeam,
                     inputHeaders: createTestEventHeaders(),
                     inputMessage: mockMessage,
                     lastStep: 'prepareEventStep',
@@ -414,7 +392,6 @@ describe('create-event-step', () => {
                     preparedEvent: mockPreparedEvent,
                     processPerson: config.processPerson,
                     historicalMigration: false,
-                    team: mockTeam,
                     inputHeaders: createTestEventHeaders(),
                     inputMessage: mockMessage,
                     lastStep: 'prepareEventStep',

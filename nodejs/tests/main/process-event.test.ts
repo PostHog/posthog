@@ -141,13 +141,12 @@ describe('processEvent', () => {
             const createEventStep = createCreateEventStep({
                 materializedColumnSlotManager: hub.materializedColumnSlotManager,
             })
-            const { person, preparedEvent, processPerson, historicalMigration, team: resultTeam } = res.value
+            const { person, preparedEvent, processPerson, historicalMigration } = res.value
             const createResult = await createEventStep({
                 person,
                 preparedEvent,
                 processPerson,
                 historicalMigration,
-                team: resultTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: createTestMessage(),
             })
@@ -303,13 +302,12 @@ describe('processEvent', () => {
             const createEventStep = createCreateEventStep({
                 materializedColumnSlotManager: hub.materializedColumnSlotManager,
             })
-            const { person, preparedEvent, processPerson, historicalMigration, team: resultTeam } = res.value
+            const { person, preparedEvent, processPerson, historicalMigration } = res.value
             const createResult = await createEventStep({
                 person,
                 preparedEvent,
                 processPerson,
                 historicalMigration,
-                team: resultTeam,
                 inputHeaders: createTestEventHeaders(),
                 inputMessage: createTestMessage(),
             })

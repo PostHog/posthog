@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { EAVEventProperty, EventHeaders, Person, PreIngestionEvent, RawKafkaEvent, Team } from '../../types'
+import { EAVEventProperty, EventHeaders, Person, PreIngestionEvent, RawKafkaEvent } from '../../types'
 import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { createEvent } from '../../worker/ingestion/create-event'
 import { PipelineResult, ok } from '../pipelines/results'
@@ -11,7 +11,6 @@ export interface CreateEventStepInput {
     preparedEvent: PreIngestionEvent
     processPerson: boolean
     historicalMigration: boolean
-    team: Team
     inputHeaders: EventHeaders
     inputMessage: Message
 }
@@ -33,10 +32,10 @@ export function createCreateEventStep<T extends CreateEventStepInput>(
     const { materializedColumnSlotManager } = config
 
     return async function createEventStep(input: T): Promise<PipelineResult<CreateEventStepResult>> {
-        const { person, preparedEvent, processPerson, historicalMigration, team, inputHeaders, inputMessage } = input
+        const { person, preparedEvent, processPerson, historicalMigration, inputHeaders, inputMessage } = input
 
         const capturedAt = inputHeaders.now ?? null
-        const materializedColumnSlots = await materializedColumnSlotManager.getSlots(team.id)
+        const materializedColumnSlots = await materializedColumnSlotManager.getSlots(preparedEvent.teamId)
 
         const { event: rawEvent, eavProperties } = createEvent(
             preparedEvent,
