@@ -3,10 +3,12 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
@@ -55,6 +57,9 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         saveExperiment,
         validateField,
     } = useActions(logic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showNewExperimentFormLayout = featureFlags[FEATURE_FLAGS.EXPERIMENTS_LEAN_CREATION_FORM] === 'test'
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
     const handleCancel = (): void => {
@@ -359,8 +364,6 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
             </div>
         )
     }
-
-    const showNewExperimentFormLayout = true
 
     if (showNewExperimentFormLayout) {
         return renderNewForm()
