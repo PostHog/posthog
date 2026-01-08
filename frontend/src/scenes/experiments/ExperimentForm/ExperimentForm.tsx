@@ -279,7 +279,74 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
             <div>
                 <SceneContent>
                     {renderFormHeader()}
-                    <p>NEW FORM</p>
+                    <VariantsPanel
+                        experiment={experiment}
+                        updateFeatureFlag={setFeatureFlagConfig}
+                        onPrevious={() => {}}
+                        onNext={() => {}}
+                        disabled={isEditMode}
+                    />
+                    <SceneDivider />
+                    <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} onNext={() => {}} />
+                    <SceneDivider />
+                    <MetricsPanel
+                        experiment={experiment}
+                        sharedMetrics={sharedMetrics}
+                        onSaveMetric={(metric, context) => {
+                            const isNew = !experiment[context.field].some((m) => m.uuid === metric.uuid)
+
+                            setExperiment({
+                                ...experiment,
+                                [context.field]: isNew
+                                    ? [...experiment[context.field], metric]
+                                    : experiment[context.field].map((m) => (m.uuid === metric.uuid ? metric : m)),
+                            })
+                        }}
+                        onDeleteMetric={(metric, context) => {
+                            if (metric.isSharedMetric) {
+                                setExperiment({
+                                    ...experiment,
+                                    saved_metrics: (experiment.saved_metrics ?? []).filter(
+                                        (sm) => sm.saved_metric !== metric.sharedMetricId
+                                    ),
+                                })
+                                setSharedMetrics({
+                                    ...sharedMetrics,
+                                    [context.type]: sharedMetrics[context.type].filter((m) => m.uuid !== metric.uuid),
+                                })
+                                return
+                            }
+
+                            const metricIndex = experiment[context.field].findIndex(({ uuid }) => uuid === metric.uuid)
+
+                            if (metricIndex !== -1) {
+                                setExperiment({
+                                    ...experiment,
+                                    [context.field]: experiment[context.field].filter(
+                                        ({ uuid }) => uuid !== metric.uuid
+                                    ),
+                                })
+                            }
+                        }}
+                        onSaveSharedMetrics={(metrics, context) => {
+                            setExperiment({
+                                ...experiment,
+                                saved_metrics: [
+                                    ...(experiment.saved_metrics ?? []),
+                                    ...metrics.map((metric) => ({
+                                        saved_metric: metric.sharedMetricId,
+                                    })),
+                                ],
+                            })
+                            setSharedMetrics({
+                                ...sharedMetrics,
+                                [context.type]: [...sharedMetrics[context.type], ...metrics],
+                            })
+                        }}
+                        onPrevious={() => {}}
+                    />
+
+                    {renderFormFooter()}
                 </SceneContent>
             </div>
         )
