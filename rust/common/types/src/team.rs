@@ -36,6 +36,7 @@ pub struct Team {
     pub autocapture_web_vitals_opt_in: Option<bool>,
     pub capture_performance_opt_in: Option<bool>,
     pub capture_console_log_opt_in: Option<bool>,
+    pub logs_capture_console_log_opt_in: Option<bool>,
     #[serde(default)]
     pub session_recording_opt_in: bool,
     pub inject_web_apps: Option<bool>,
@@ -97,6 +98,7 @@ impl Team {
                     autocapture_web_vitals_opt_in,
                     capture_performance_opt_in,
                     capture_console_log_opt_in,
+                    logs_capture_console_log_opt_in,
                     session_recording_opt_in,
                     inject_web_apps,
                     surveys_opt_in,
@@ -154,6 +156,7 @@ impl Team {
                     autocapture_web_vitals_opt_in,
                     capture_performance_opt_in,
                     capture_console_log_opt_in,
+                    logs_capture_console_log_opt_in,
                     session_recording_opt_in,
                     inject_web_apps,
                     surveys_opt_in,

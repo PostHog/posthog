@@ -18,6 +18,7 @@ const TEAM_COLUMNS: &str = "
     autocapture_web_vitals_opt_in,
     capture_performance_opt_in,
     capture_console_log_opt_in,
+    logs_capture_console_log_opt_in,
     session_recording_opt_in,
     inject_web_apps,
     surveys_opt_in,

@@ -1371,3 +1371,128 @@ fn test_disable_flags_request_parsing() {
         "Default should be flags enabled"
     );
 }
+
+#[tokio::test]
+async fn test_logs_config_response_enabled() {
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+    let cohort_cache = Arc<dyn CohortManager + Send + Sync> = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+    let context = TestContext::new(None).await;
+    
+    let mut team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team in pg");
+    
+    // Enable logs capture for console logs
+    team.logs_capture_console_log_opt_in = Some(true);
+    
+    let flag_list = FeatureFlagList { flags: vec![] };
+    
+    let evaluation_context = FeatureFlagEvaluationContext {
+        distinct_id: "test_user".to_string(),
+        device_id: None,
+        feature_flags: flag_list,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
+        cohort_cache,
+        person_property_overrides: None,
+        group_property_overrides: None,
+        groups: None,
+        hash_key_override: None,
+        flag_keys: None,
+        optimize_experience_continuity_lookups: false,
+    };
+
+    let request_id = Uuid::new_v4();
+    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    
+    // Test that logs config is properly set when enabled
+    assert!(result.config.logs.is_some());
+    if let Some(logs_config) = &result.config.logs {
+        assert_eq!(logs_config.capture_console_logs, Some(true));
+    }
+}
+
+#[tokio::test]
+async fn test_logs_config_response_disabled() {
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+    let cohort_cache = Arc<dyn CohortManager + Send + Sync> = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+    let context = TestContext::new(None).await;
+    
+    let mut team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team in pg");
+    
+    // Explicitly disable logs capture for console logs
+    team.logs_capture_console_log_opt_in = Some(false);
+    
+    let flag_list = FeatureFlagList { flags: vec![] };
+    
+    let evaluation_context = FeatureFlagEvaluationContext {
+        distinct_id: "test_user".to_string(),
+        device_id: None,
+        feature_flags: flag_list,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
+        cohort_cache,
+        person_property_overrides: None,
+        group_property_overrides: None,
+        groups: None,
+        hash_key_override: None,
+        flag_keys: None,
+        optimize_experience_continuity_lookups: false,
+    };
+
+    let request_id = Uuid::new_v4();
+    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    
+    // Test that logs config is None when disabled
+    assert!(result.config.logs.is_none());
+}
+
+#[tokio::test]
+async fn test_logs_config_response_default() {
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+    let cohort_cache = Arc<dyn CohortManager + Send + Sync> = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+    let context = TestContext::new(None).await;
+    
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team in pg");
+    
+    // Default team settings (logs_capture_console_log_opt_in = None)
+    
+    let flag_list = FeatureFlagList { flags: vec![] };
+    
+    let evaluation_context = FeatureFlagEvaluationContext {
+        distinct_id: "test_user".to_string(),
+        device_id: None,
+        feature_flags: flag_list,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
+        cohort_cache,
+        person_property_overrides: None,
+        group_property_overrides: None,
+        groups: None,
+        hash_key_override: None,
+        flag_keys: None,
+        optimize_experience_continuity_lookups: false,
+    };
+
+    let request_id = Uuid::new_v4();
+    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    
+    // Test that logs config is None by default (when not set)
+    assert!(result.config.logs.is_none());
+}
