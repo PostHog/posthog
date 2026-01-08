@@ -75,9 +75,14 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
                                     <ButtonPrimitive
                                         menuItem
                                         onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
+                                        tooltip={
+                                            otherOrganization.is_active === false
+                                                ? otherOrganization.is_not_active_reason || 'Organization is disabled'
+                                                : `Switch to organization: ${otherOrganization.name}`
+                                        }
                                         tooltipPlacement="right"
                                         data-attr="tree-navbar-organization-dropdown-other-organization-button"
+                                        disabled={otherOrganization.is_active === false}
                                     >
                                         <IconBlank />
                                         <UploadedLogo

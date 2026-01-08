@@ -8,7 +8,7 @@ use std::time::Duration;
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
-    limiters::CaptureQuotaLimiter,
+    quota_limiters::CaptureQuotaLimiter,
     router::router,
     sinks::Event,
     time::TimeSource,
@@ -982,6 +982,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             liveness.clone(),
             sink.clone(),
             redis,
+            None, // TODO: add global rate limiter for prod ship
             quota_limiter,
             TokenDropper::default(),
             false,
@@ -994,7 +995,10 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             is_mirror_deploy,
             verbose_sample_percent,
             26_214_400, // 25MB default for AI endpoint
+            None,       // ai_blob_storage
             Some(10),   // request_timeout_seconds
+            None,       // body_chunk_read_timeout_ms
+            256,        // body_read_chunk_size_kb
         ),
         sink,
     )

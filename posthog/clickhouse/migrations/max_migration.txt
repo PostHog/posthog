@@ -1,1 +1,1 @@
-0186_events_historical_migration_column
+0194_add_person_id_to_precalculated_person_properties

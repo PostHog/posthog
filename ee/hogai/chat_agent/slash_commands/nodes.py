@@ -7,6 +7,7 @@ from ee.hogai.chat_agent.memory.nodes import MemoryOnboardingNode
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
 from ee.hogai.chat_agent.slash_commands.commands.feedback import FeedbackCommand
 from ee.hogai.chat_agent.slash_commands.commands.remember import RememberCommand
+from ee.hogai.chat_agent.slash_commands.commands.ticket import TicketCommand
 from ee.hogai.chat_agent.slash_commands.commands.usage import UsageCommand
 from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.core.node import AssistantNode
@@ -28,6 +29,7 @@ class SlashCommandHandlerNode(AssistantNode):
         SlashCommandName.FIELD_USAGE: UsageCommand,
         SlashCommandName.FIELD_REMEMBER: RememberCommand,
         SlashCommandName.FIELD_FEEDBACK: FeedbackCommand,
+        SlashCommandName.FIELD_TICKET: TicketCommand,
     }
 
     def _get_command(self, state: AssistantState) -> str | None:

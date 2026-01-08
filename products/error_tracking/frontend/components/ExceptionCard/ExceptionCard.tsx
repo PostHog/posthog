@@ -9,8 +9,6 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
-
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
@@ -24,13 +22,20 @@ interface ExceptionCardContentProps {
     renderStackTraceActions?: () => JSX.Element | null
 }
 
-export interface ExceptionCardProps extends Omit<ExceptionCardContentProps, 'timestamp' | 'issueId'> {
-    issueId: ErrorTrackingRelationalIssue['id']
+export interface ExceptionCardProps extends ExceptionCardContentProps {
+    issueId: string
+    issueName: string | null
     event?: ErrorEventType
     loading: boolean
 }
 
-export function ExceptionCard({ issueId, event, loading, ...contentProps }: ExceptionCardProps): JSX.Element {
+export function ExceptionCard({
+    issueId,
+    issueName,
+    event,
+    loading,
+    ...contentProps
+}: ExceptionCardProps): JSX.Element {
     const cardLogicProps = useMemo(() => ({ issueId }), [issueId])
     const { setLoading } = useActions(exceptionCardLogic(cardLogicProps))
 
@@ -44,6 +49,7 @@ export function ExceptionCard({ issueId, event, loading, ...contentProps }: Exce
                 properties: event?.properties,
                 id: event?.uuid ?? issueId ?? 'error',
             }) as ErrorPropertiesLogicProps,
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [event?.uuid ?? issueId]
     )
 

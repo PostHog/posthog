@@ -1,19 +1,17 @@
 import { useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
-import { urls } from 'scenes/urls'
 
 import {
     CachedNewExperimentQueryResponse,
@@ -30,7 +28,6 @@ import {
     FunnelStep,
     FunnelStepWithNestedBreakdown,
     RecordingUniversalFilters,
-    ReplayTabs,
 } from '~/types'
 
 import {
@@ -249,36 +246,36 @@ export function ResultDetails({
                 const variantKey = item.key
                 const filters = getViewRecordingFilters(experiment, metric, variantKey)
 
+                const filterGroup: Partial<RecordingUniversalFilters> = {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: filters,
+                            },
+                        ],
+                    },
+                    date_from: experiment?.start_date,
+                    date_to: experiment?.end_date,
+                    filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
+                }
+
                 return (
-                    <LemonButton
+                    <ViewRecordingsPlaylistButton
+                        filters={filterGroup}
                         size="xsmall"
-                        icon={<IconRewindPlay />}
+                        type="secondary"
                         tooltip="Watch recordings of people who were exposed to this variant."
+                        disabled={filters.length === 0}
                         disabledReason={
                             filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined
                         }
-                        type="secondary"
+                        data-attr="experiment-metrics-view-recordings"
                         onClick={() => {
-                            const filterGroup: Partial<RecordingUniversalFilters> = {
-                                filter_group: {
-                                    type: FilterLogicalOperator.And,
-                                    values: [
-                                        {
-                                            type: FilterLogicalOperator.And,
-                                            values: filters,
-                                        },
-                                    ],
-                                },
-                                date_from: experiment?.start_date,
-                                date_to: experiment?.end_date,
-                                filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
-                            }
-                            router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
                             posthog.capture('viewed recordings from experiment', { variant: variantKey })
                         }}
-                    >
-                        View recordings
-                    </LemonButton>
+                    />
                 )
             },
         },

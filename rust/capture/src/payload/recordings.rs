@@ -4,16 +4,18 @@
 //! Unlike analytics events, recording payloads are deserialized directly to
 //! Vec<RawRecording> to avoid the overhead of going through RawRequest.
 
+use axum::body::Body;
 use axum::extract::{MatchedPath, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
-use bytes::Bytes;
 use metrics::counter;
-use tracing::{debug, instrument, warn, Span};
+use tracing::{instrument, warn, Span};
 
 use crate::{
     api::CaptureError,
+    debug_or_info,
     events::recordings::RawRecording,
+    extractors::extract_body_with_timeout,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     v0_request::ProcessingContext,
@@ -47,12 +49,28 @@ pub async fn handle_recording_payload(
     headers: &HeaderMap,
     method: &Method,
     path: &MatchedPath,
-    body: Bytes,
+    body: Body,
 ) -> Result<(ProcessingContext, Vec<RawRecording>), CaptureError> {
+    let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
+
+    debug_or_info!(chatty_debug_enabled, headers=?headers, "entering handle_recording_payload");
+
+    // Extract body with optional chunk timeout
+    let body = extract_body_with_timeout(
+        body,
+        state.event_payload_size_limit,
+        state.body_chunk_read_timeout,
+        state.body_read_chunk_size_kb,
+        path.as_str(),
+    )
+    .await?;
+
+    debug_or_info!(chatty_debug_enabled, headers=?headers, "streamed payload body");
+
     // Extract request metadata using shared helper
     let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);
 
-    debug!("entering handle_recording_payload");
+    debug_or_info!(chatty_debug_enabled, metadata=?metadata, "extracted metadata");
 
     // Extract payload bytes and metadata using shared helper
     let (data, compression, lib_version) =
@@ -61,14 +79,23 @@ pub async fn handle_recording_payload(
     Span::current().record("compression", format!("{compression}"));
     Span::current().record("lib_version", &lib_version);
 
-    debug!("payload processed: deserializing to RawRecording");
+    debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, lib_version=?lib_version, "extracted payload");
 
     // Decompress the payload
-    let payload = decompress_payload(data, compression, state.event_size_limit, path.as_str())?;
+    let payload = decompress_payload(
+        data,
+        compression,
+        state.event_payload_size_limit,
+        path.as_str(),
+    )?;
+
+    debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, lib_version=?lib_version, "decompressed payload");
 
     // Deserialize to RecordingPayload (handles both single event and array)
     let recording_payload: RecordingPayload = serde_json::from_str(&payload)?;
     let mut events = recording_payload.into_vec();
+
+    debug_or_info!(chatty_debug_enabled, metadata=?metadata, event_count=?events.len(), "hydrated events");
 
     if events.is_empty() {
         warn!("rejected empty recording batch");
@@ -83,11 +110,7 @@ pub async fn handle_recording_payload(
         .ok_or(CaptureError::NoTokenError)?;
     Span::current().record("token", &token);
 
-    counter!(
-        "capture_events_received_total",
-        &[("legacy", "false"), ("endpoint", "recordings")]
-    )
-    .increment(events.len() as u64);
+    counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();
     let sent_at = query_params.sent_at();
@@ -103,20 +126,18 @@ pub async fn handle_recording_payload(
         is_mirror_deploy: metadata.is_mirror_deploy,
         historical_migration: false, // recordings don't support historical migration
         user_agent: Some(metadata.user_agent.to_string()),
+        chatty_debug_enabled,
     };
 
     // Apply all billing limit quotas and drop partial or whole
     // payload if any are exceeded for this token (team)
-    debug!(context=?context, event_count=?events.len(), "handle_recording_payload: evaluating quota limits");
+    debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "evaluating quota limits");
     events = state
         .quota_limiter
         .check_and_filter(&context.token, events)
         .await?;
 
-    debug!(context=?context,
-        event_count=?events.len(),
-        "handle_recording_payload: successfully hydrated recording events");
-
+    debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");
     Ok((context, events))
 }
 

@@ -7,6 +7,8 @@ import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } f
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -14,22 +16,25 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { pluralize } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -96,12 +101,20 @@ const ExperimentsTableFilters = ({
     return (
         <div className="flex justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-6">
-                <LemonInput
-                    type="search"
-                    placeholder="Search experiments"
-                    onChange={(search) => onFiltersChange({ search, page: 1 })}
-                    value={filters.search || ''}
-                />
+                <AppShortcut
+                    name="SearchExperiments"
+                    keybind={[keyBinds.filter]}
+                    intent="Search experiments"
+                    interaction="click"
+                    scope={Scene.Experiments}
+                >
+                    <LemonInput
+                        type="search"
+                        placeholder="Search experiments"
+                        onChange={(search) => onFiltersChange({ search, page: 1 })}
+                        value={filters.search || ''}
+                    />
+                </AppShortcut>
                 <div className="flex items-center gap-2">
                     {ExperimentsTabs.Archived !== tab && (
                         <>
@@ -224,6 +237,50 @@ const ExperimentsTable = ({
             align: 'right',
         },
         {
+            title: 'Remaining',
+            key: 'remaining_time',
+            width: 80,
+            render: function Render(_, experiment: Experiment) {
+                const remainingDays = experiment.parameters?.recommended_running_time
+                const daysElapsed = experiment.start_date
+                    ? dayjs().diff(dayjs(experiment.start_date), 'day')
+                    : undefined
+
+                if (remainingDays === undefined || remainingDays === null) {
+                    return (
+                        <Tooltip title="Remaining time will be calculated once the experiment has enough data">
+                            <div className="w-full">
+                                <LemonProgress percent={0} bgColor="var(--border)" strokeColor="var(--border)" />
+                            </div>
+                        </Tooltip>
+                    )
+                }
+
+                if (remainingDays === 0) {
+                    return (
+                        <Tooltip title="Recommended sample size reached">
+                            <div className="w-full">
+                                <LemonProgress percent={100} strokeColor="var(--success)" />
+                            </div>
+                        </Tooltip>
+                    )
+                }
+
+                const totalEstimatedDays = (daysElapsed ?? 0) + remainingDays
+                const progress = totalEstimatedDays > 0 ? ((daysElapsed ?? 0) / totalEstimatedDays) * 100 : 0
+
+                return (
+                    <Tooltip
+                        title={`~${Math.ceil(remainingDays)} day${Math.ceil(remainingDays) !== 1 ? 's' : ''} remaining`}
+                    >
+                        <div className="w-full">
+                            <LemonProgress percent={progress} />
+                        </div>
+                    </Tooltip>
+                )
+            },
+        },
+        {
             title: 'Status',
             key: 'status',
             render: function Render(_, experiment: Experiment) {
@@ -257,7 +314,14 @@ const ExperimentsTable = ({
                                 </LemonButton>
                                 <ExperimentSurveyButton
                                     experiment={experiment}
-                                    onOpenModal={() => openSurveyModal(experiment)}
+                                    onOpenModal={() => {
+                                        openSurveyModal(experiment)
+                                        void addProductIntentForCrossSell({
+                                            from: ProductKey.EXPERIMENTS,
+                                            to: ProductKey.SURVEYS,
+                                            intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
+                                        })
+                                    }}
                                 />
                                 {!experiment.archived &&
                                     experiment?.end_date &&
@@ -392,9 +456,7 @@ const ExperimentsTable = ({
             {count ? (
                 <div>
                     <span className="text-secondary">
-                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} experiment${
-                            count === 1 ? '' : 's'
-                        }`}
+                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'experiment')}`}
                     </span>
                 </div>
             ) : null}
@@ -480,14 +542,23 @@ export function Experiments(): JSX.Element {
                                 active={true}
                                 context={{}}
                             >
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    data-attr="create-experiment"
-                                    to={urls.experiment('new')}
+                                <AppShortcut
+                                    name="NewExperiment"
+                                    keybind={[keyBinds.new]}
+                                    intent="New experiment"
+                                    interaction="click"
+                                    scope={Scene.Experiments}
                                 >
-                                    <span className="pr-3">New experiment</span>
-                                </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="primary"
+                                        data-attr="create-experiment"
+                                        to={urls.experiment('new')}
+                                        tooltip="New experiment"
+                                    >
+                                        <span className="pr-3">New experiment</span>
+                                    </LemonButton>
+                                </AppShortcut>
                             </MaxTool>
                         </AccessControlAction>
                     ) : undefined

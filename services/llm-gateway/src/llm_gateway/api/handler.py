@@ -8,14 +8,18 @@ import structlog
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
+from llm_gateway.analytics import get_analytics_service
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
 from llm_gateway.metrics.prometheus import (
     ACTIVE_STREAMS,
+    CONCURRENT_REQUESTS,
     PROVIDER_ERRORS,
     PROVIDER_LATENCY,
     REQUEST_COUNT,
     REQUEST_LATENCY,
+    STREAMING_CLIENT_DISCONNECT,
+    TIME_TO_FIRST_CHUNK,
     TOKENS_INPUT,
     TOKENS_OUTPUT,
 )
@@ -47,6 +51,13 @@ OPENAI_CONFIG = ProviderConfig(
     output_tokens_field="completion_tokens",
 )
 
+OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="responses",
+    input_tokens_field="input_tokens",
+    output_tokens_field="output_tokens",
+)
+
 
 async def handle_llm_request(
     request_data: dict[str, Any],
@@ -66,18 +77,19 @@ async def handle_llm_request(
         model=model,
     )
 
-    try:
-        if is_streaming:
-            return await _handle_streaming_request(
-                request_data=request_data,
-                user=user,
-                model=model,
-                provider_config=provider_config,
-                llm_call=llm_call,
-                start_time=start_time,
-                timeout=settings.streaming_timeout,
-            )
+    if is_streaming:
+        return await _handle_streaming_request(
+            request_data=request_data,
+            user=user,
+            model=model,
+            provider_config=provider_config,
+            llm_call=llm_call,
+            start_time=start_time,
+            timeout=settings.streaming_timeout,
+        )
 
+    CONCURRENT_REQUESTS.inc()
+    try:
         return await _handle_non_streaming_request(
             request_data=request_data,
             user=user,
@@ -112,6 +124,8 @@ async def handle_llm_request(
                 }
             },
         ) from e
+    finally:
+        CONCURRENT_REQUESTS.dec()
 
 
 async def _handle_streaming_request(
@@ -125,9 +139,11 @@ async def _handle_streaming_request(
 ) -> StreamingResponse:
     async def stream_generator() -> AsyncGenerator[bytes, None]:
         ACTIVE_STREAMS.labels(provider=provider_config.name).inc()
+        CONCURRENT_REQUESTS.inc()
         status_code = "200"
         provider_start = time.monotonic()
         first_chunk_received = False
+        error: Exception | None = None
 
         try:
             response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
@@ -135,21 +151,27 @@ async def _handle_streaming_request(
             async for chunk in format_sse_stream(response):
                 if not first_chunk_received:
                     first_chunk_received = True
-                    PROVIDER_LATENCY.labels(provider=provider_config.name, model=model).observe(
-                        time.monotonic() - provider_start
-                    )
+                    time_to_first = time.monotonic() - provider_start
+                    PROVIDER_LATENCY.labels(provider=provider_config.name, model=model).observe(time_to_first)
+                    TIME_TO_FIRST_CHUNK.labels(provider=provider_config.name, model=model).observe(time_to_first)
                 yield chunk
 
+        except asyncio.CancelledError:
+            STREAMING_CLIENT_DISCONNECT.labels(provider=provider_config.name).inc()
+            raise
         except TimeoutError:
             status_code = "504"
+            error = TimeoutError("Streaming timeout")
             logger.error(f"Streaming timeout for {provider_config.endpoint_name}")
             raise
         except Exception as e:
             status_code = str(getattr(e, "status_code", 500))
+            error = e
             capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
             raise
         finally:
             ACTIVE_STREAMS.labels(provider=provider_config.name).dec()
+            CONCURRENT_REQUESTS.dec()
             REQUEST_COUNT.labels(
                 endpoint=provider_config.endpoint_name,
                 provider=provider_config.name,
@@ -162,6 +184,25 @@ async def _handle_streaming_request(
                 provider=provider_config.name,
                 streaming="true",
             ).observe(time.monotonic() - start_time)
+
+            try:
+                analytics = get_analytics_service()
+                if analytics:
+                    latency_seconds = time.monotonic() - start_time
+                    analytics.capture(
+                        user=user,
+                        model=model,
+                        provider=provider_config.name,
+                        input_messages=request_data.get("messages", []),
+                        latency_seconds=latency_seconds,
+                        response=None,
+                        error=error,
+                        is_streaming=True,
+                        input_tokens_field=provider_config.input_tokens_field,
+                        output_tokens_field=provider_config.output_tokens_field,
+                    )
+            except Exception as analytics_error:
+                logger.warning("Failed to capture analytics", error=str(analytics_error))
 
     return StreamingResponse(
         stream_generator(),
@@ -180,34 +221,58 @@ async def _handle_non_streaming_request(
     timeout: float,
 ) -> dict[str, Any]:
     provider_start = time.monotonic()
-    response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
+    response_dict: dict[str, Any] | None = None
+    error: Exception | None = None
 
-    PROVIDER_LATENCY.labels(provider=provider_config.name, model=model).observe(time.monotonic() - provider_start)
+    try:
+        response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
+        PROVIDER_LATENCY.labels(provider=provider_config.name, model=model).observe(time.monotonic() - provider_start)
+        response_dict = response.model_dump() if hasattr(response, "model_dump") else response
 
-    response_dict: dict[str, Any] = response.model_dump() if hasattr(response, "model_dump") else response
+        REQUEST_COUNT.labels(
+            endpoint=provider_config.endpoint_name,
+            provider=provider_config.name,
+            model=model,
+            status_code="200",
+            auth_method=user.auth_method,
+        ).inc()
 
-    REQUEST_COUNT.labels(
-        endpoint=provider_config.endpoint_name,
-        provider=provider_config.name,
-        model=model,
-        status_code="200",
-        auth_method=user.auth_method,
-    ).inc()
+        if "usage" in response_dict:
+            usage = response_dict["usage"]
+            input_tokens = usage.get(provider_config.input_tokens_field, 0)
+            output_tokens = usage.get(provider_config.output_tokens_field, 0)
 
-    if "usage" in response_dict:
-        usage = response_dict["usage"]
-        input_tokens = usage.get(provider_config.input_tokens_field, 0)
-        output_tokens = usage.get(provider_config.output_tokens_field, 0)
+            if 0 <= input_tokens <= 1_000_000:
+                TOKENS_INPUT.labels(provider=provider_config.name, model=model).inc(input_tokens)
+            if 0 <= output_tokens <= 1_000_000:
+                TOKENS_OUTPUT.labels(provider=provider_config.name, model=model).inc(output_tokens)
 
-        if 0 <= input_tokens <= 1_000_000:
-            TOKENS_INPUT.labels(provider=provider_config.name, model=model).inc(input_tokens)
-        if 0 <= output_tokens <= 1_000_000:
-            TOKENS_OUTPUT.labels(provider=provider_config.name, model=model).inc(output_tokens)
+        REQUEST_LATENCY.labels(
+            endpoint=provider_config.endpoint_name,
+            provider=provider_config.name,
+            streaming="false",
+        ).observe(time.monotonic() - start_time)
 
-    REQUEST_LATENCY.labels(
-        endpoint=provider_config.endpoint_name,
-        provider=provider_config.name,
-        streaming="false",
-    ).observe(time.monotonic() - start_time)
-
-    return response_dict
+        return response_dict
+    except Exception as e:
+        error = e
+        raise
+    finally:
+        try:
+            analytics = get_analytics_service()
+            if analytics:
+                latency_seconds = time.monotonic() - start_time
+                analytics.capture(
+                    user=user,
+                    model=model,
+                    provider=provider_config.name,
+                    input_messages=request_data.get("messages", []),
+                    latency_seconds=latency_seconds,
+                    response=response_dict,
+                    error=error,
+                    is_streaming=False,
+                    input_tokens_field=provider_config.input_tokens_field,
+                    output_tokens_field=provider_config.output_tokens_field,
+                )
+        except Exception as analytics_error:
+            logger.warning("Failed to capture analytics", error=str(analytics_error))

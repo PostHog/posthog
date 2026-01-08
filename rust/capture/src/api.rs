@@ -1,6 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -79,8 +80,17 @@ pub enum CaptureError {
     #[error("rate limited")]
     RateLimited,
 
+    #[error("{0}: {1} events submitted between {2} and {3} exceeds limit of {4} events per {5}s")]
+    GlobalRateLimitExceeded(String, u64, DateTime<Utc>, DateTime<Utc>, u64, u64),
+
     #[error("payload empty after filtering invalid event types")]
     EmptyPayloadFiltered,
+
+    #[error("service unavailable: {0}")]
+    ServiceUnavailable(String),
+
+    #[error("client stopped sending data")]
+    BodyReadTimeout,
 }
 
 impl From<serde_json::Error> for CaptureError {
@@ -113,7 +123,10 @@ impl CaptureError {
             CaptureError::NonRetryableSinkError => "non_retry_sink",
             CaptureError::BillingLimit => "billing_limit",
             CaptureError::RateLimited => "rate_limited",
+            CaptureError::GlobalRateLimitExceeded(_, _, _, _, _, _) => "global_rate_limit",
             CaptureError::EmptyPayloadFiltered => "empty_filtered_payload",
+            CaptureError::ServiceUnavailable(_) => "service_unavailable",
+            CaptureError::BodyReadTimeout => "body_read_timeout",
         }
     }
 }
@@ -143,11 +156,19 @@ impl IntoResponse for CaptureError {
             | CaptureError::MultipleTokensError
             | CaptureError::TokenValidationError(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
 
-            CaptureError::RetryableSinkError => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
+            CaptureError::RetryableSinkError | CaptureError::ServiceUnavailable(_) => {
+                (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
+            }
 
             CaptureError::BillingLimit | CaptureError::RateLimited => {
                 (StatusCode::TOO_MANY_REQUESTS, self.to_string())
             }
+
+            CaptureError::GlobalRateLimitExceeded(_, _, _, _, _, _) => {
+                (StatusCode::TOO_MANY_REQUESTS, self.to_string())
+            }
+
+            CaptureError::BodyReadTimeout => (StatusCode::REQUEST_TIMEOUT, self.to_string()),
         }
         .into_response()
     }

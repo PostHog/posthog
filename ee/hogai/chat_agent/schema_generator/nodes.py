@@ -18,7 +18,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
@@ -151,7 +150,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         artifact = await self.context_manager.artifacts.create(
             content=VisualizationArtifactContent(
                 query=result.query,
-                description=generated_plan or None,
+                name=state.visualization_title,
+                description=state.visualization_description,
+                plan=generated_plan,
             ),
             name=state.visualization_title or "Visualization",
         )
@@ -211,7 +212,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             content = artifact_contents.get(message.id or "")
             if not content:
                 continue
-            plan = content.description or ""
+            plan = content.plan or ""
             query = content.name or ""
             answer = content.query
 
@@ -260,9 +261,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         if start_message:
             return start_message.content
         return ""
-
-    def _has_agent_modes_feature_flag(self) -> bool:
-        return has_agent_modes_feature_flag(self._team, self._user)
 
 
 class SchemaGeneratorToolsNode(AssistantNode):

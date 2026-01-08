@@ -11,6 +11,7 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -101,6 +102,7 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
+@extend_schema(tags=["batch_exports"])
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExportRun.objects.all()
@@ -504,6 +506,24 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 elif isinstance(authorization, str) and not authorization.strip():
                     raise serializers.ValidationError("Missing required IAM role for 'COPY'")
 
+        if destination_type == BatchExportDestination.Destination.WORKFLOWS:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "backfill-workflows-destination",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
+
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
@@ -666,11 +686,18 @@ def recursive_dict_merge(
     return merged
 
 
+@extend_schema(tags=["batch_exports"])
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer
     log_source = "batch_exports"
+
+    def safely_get_queryset(self, queryset):
+        """Filter out batch exports with Workflows destination type if action is list."""
+        if self.action == "list":
+            return queryset.exclude(destination__type="Workflows")
+        return queryset
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:

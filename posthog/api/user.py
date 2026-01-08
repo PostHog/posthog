@@ -25,6 +25,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -412,6 +413,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
+@extend_schema(tags=["core"])
 class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -434,6 +436,7 @@ class UserViewSet(
         "set_current_organization",
         "allow_sidebar_suggestions",
         "shortcut_position",
+        "has_seen_product_intro_for",
     ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
@@ -788,6 +791,7 @@ def redirect_to_site(request):
         "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
         "experimentId": request.GET.get("experimentId"),
+        "productTourId": request.GET.get("productTourId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
         "apiURL": request.build_absolute_uri("/")[:-1],

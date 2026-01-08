@@ -23,7 +23,7 @@ from posthog.hogql.property import operator_is_negative, property_to_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -53,6 +53,7 @@ def _generate_resource_attribute_filters(
     """
     converted_exprs = []
     for filter in resource_attribute_filters:
+        attribute_type = "resource" if filter.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE else "log"
         if is_negative_filter:
             # invert the negative filter back to the positive equivalent
             # we invert the IN logic instead
@@ -68,23 +69,27 @@ def _generate_resource_attribute_filters(
         if filter.operator == PropertyOperator.IS_SET:
             converted_exprs.append(
                 parse_expr(
-                    "attribute_key = {attribute_key}", placeholders={"attribute_key": ast.Constant(value=filter.key)}
+                    "attribute_type = {attribute_type} AND attribute_key = {attribute_key}",
+                    placeholders={
+                        "attribute_type": ast.Constant(value=attribute_type),
+                        "attribute_key": ast.Constant(value=filter.key),
+                    },
                 )
             )
             continue
 
-        filter_expr = property_to_expr(filter, team=team)
+        filter_expr = property_to_expr(filter, team=team, scope="log_resource")
         converted_expr = parse_expr(
-            "attribute_key = {attribute_key} AND {value_expr}",
-            placeholders={"value_expr": filter_expr, "attribute_key": ast.Constant(value=filter.key)},
+            "attribute_type = {attribute_type} AND attribute_key = {attribute_key} AND {value_expr}",
+            placeholders={
+                "attribute_type": ast.Constant(value=attribute_type),
+                "value_expr": filter_expr,
+                "attribute_key": ast.Constant(value=filter.key),
+            },
         )
         converted_exprs.append(converted_expr)
 
     IN_ = "NOT IN" if is_negative_filter else "IN"
-    # AND for positive filters, OR for negative filters
-    # (if you search for k8s.container.name!='contour' AND k8s.container.name!='nginx',
-    #  we change this to k8s.container.name='contour' OR k8s.container.name='nginx')
-    groupBitmapFunc = "groupBitmapOrState" if is_negative_filter else "groupBitmapAndState"
 
     # this query has two steps - the inner step filters for resource_fingerprints that match ANY attribute filter
     # e.g. if you filter on k8s.container.name='contour' and k8s.container.restart_count='0'
@@ -97,18 +102,15 @@ def _generate_resource_attribute_filters(
         f"""
         (resource_fingerprint) {IN_}
         (
-            SELECT arrayJoin(bitmapToArray({groupBitmapFunc}(resources))) FROM (
-                SELECT
-                    groupBitmapState(resource_fingerprint) as resources,
-                    {{ops}} as ops
-                FROM log_attributes
-                WHERE
-                    time_bucket >= toStartOfInterval({{date_from}},toIntervalMinute(10))
-                    AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
-                    AND {{resource_attribute_filters}} AND {{existing_filters}}
-                    AND attribute_type = 'resource'
-                    GROUP BY ops
-            )
+            SELECT
+                resource_fingerprint
+            FROM log_attributes
+            WHERE
+                time_bucket >= toStartOfInterval({{date_from}},toIntervalMinute(10))
+                AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
+                AND {{resource_attribute_filters}} AND {{existing_filters}}
+            GROUP BY resource_fingerprint
+            HAVING arrayAll(x -> x > 0, sumForEach({{ops}}))
         )
     """,
         placeholders={
@@ -120,15 +122,9 @@ def _generate_resource_attribute_filters(
     )
 
 
-class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
-    query: LogsQuery
-    cached_response: CachedLogsQueryResponse
-    paginator: HogQLHasMorePaginator
-
+class LogsQueryRunnerMixin(QueryRunner):
     def __init__(self, query, *args, **kwargs):
-        # defensive copy of query because we mutate it
-        super().__init__(query.model_copy(deep=True), *args, **kwargs)
-        assert isinstance(self.query, LogsQuery)
+        super().__init__(query, *args, **kwargs)
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
@@ -148,8 +144,34 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             # todo: datetime?
             return "str"
 
-        if len(self.query.filterGroup.values) > 0:
-            filter_keys = []
+        self.resource_attribute_filters: list[LogPropertyFilter] = []
+        self.resource_attribute_negative_filters: list[LogPropertyFilter] = []
+        self.log_filters: list[LogPropertyFilter] = []
+        self.attribute_filters: list[LogPropertyFilter] = []
+        if self.query.filterGroup and len(self.query.filterGroup.values) > 0:
+            for property_group in self.query.filterGroup.values:
+                self.resource_attribute_filters = cast(
+                    list[LogPropertyFilter],
+                    [
+                        f
+                        for f in property_group.values
+                        if f.type in [LogPropertyFilterType.LOG_ATTRIBUTE, LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE]
+                        and not operator_is_negative(f.operator)
+                    ],
+                )
+                self.resource_attribute_negative_filters = cast(
+                    list[LogPropertyFilter],
+                    [
+                        f
+                        for f in property_group.values
+                        if f.type in [LogPropertyFilterType.LOG_ATTRIBUTE, LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE]
+                        and operator_is_negative(f.operator)
+                    ],
+                )
+                self.log_filters = cast(
+                    list[LogPropertyFilter], [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
+                )
+
             # dynamically detect type of the given property values
             # if they all convert cleanly to float, use the __float property mapping instead
             # we keep multiple attribute maps for different types:
@@ -173,21 +195,176 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                             property_type = property_types.pop()
                     else:
                         property_type = get_property_type(property_filter.value)
-                    property_filter.key = f"{property_filter.key}__{property_type}"
-                    # for all operators except SET and NOT_SET we add an IS_SET operator to force
-                    # the property key bloom filter index to be used.
-                    if property_filter.operator not in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET):
-                        filter_keys.append(property_filter.key)
 
-            for filter_key in filter_keys:
-                self.query.filterGroup.values[0].values.insert(
-                    0,
-                    LogPropertyFilter(
-                        key=filter_key,
-                        operator=PropertyOperator.IS_SET,
-                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
-                    ),
+                    # defensive copy as we mutate the filter here and don't want to impact other copies
+                    property_filter = property_filter.copy(deep=True)
+                    property_filter.key = f"{property_filter.key}__{property_type}"
+
+                    self.attribute_filters.insert(0, property_filter)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        qdr = QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=IntervalType.MINUTE,
+            interval_count=2,
+            now=dt.datetime.now(),
+        )
+
+        _step = (qdr.date_to() - qdr.date_from()) / 50
+        interval_type = IntervalType.SECOND
+
+        def find_closest(target, arr):
+            if not arr:
+                raise ValueError("Input array cannot be empty")
+            closest_number = min(arr, key=lambda x: (abs(x - target), x))
+
+            return closest_number
+
+        # set the number of intervals to a "round" number of minutes
+        # it's hard to reason about the rate of logs on e.g. 13 minute intervals
+        # the min interval is 1 minute and max interval is 1 day
+        interval_count = find_closest(
+            _step.total_seconds(),
+            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
+        )
+
+        if _step >= dt.timedelta(minutes=1):
+            interval_type = IntervalType.MINUTE
+            interval_count //= 60
+
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=interval_type,
+            interval_count=int(interval_count),
+            now=dt.datetime.now(),
+            timezone_info=ZoneInfo("UTC"),
+        )
+
+    def where(self) -> ast.Expr:
+        exprs: list[ast.Expr] = []
+
+        if self.query.serviceNames:
+            exprs.append(
+                parse_expr(
+                    "service_name IN {serviceNames}",
+                    placeholders={
+                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
+                    },
                 )
+            )
+
+        if self.query.filterGroup:
+            exprs.append(self.resource_filter(existing_filters=exprs))
+
+            if self.attribute_filters:
+                exprs.append(property_to_expr(self.attribute_filters, team=self.team))
+
+            if self.log_filters:
+                exprs.append(property_to_expr(self.log_filters, team=self.team))
+
+        exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
+
+        if self.query.severityLevels:
+            exprs.append(
+                parse_expr(
+                    "severity_text IN {severityLevels}",
+                    placeholders={
+                        "severityLevels": ast.Tuple(
+                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
+                        )
+                    },
+                )
+            )
+
+        if self.query.liveLogsCheckpoint:
+            exprs.append(
+                parse_expr(
+                    "observed_timestamp >= {liveLogsCheckpoint}",
+                    placeholders={"liveLogsCheckpoint": ast.Constant(value=self.query.liveLogsCheckpoint)},
+                )
+            )
+
+        if self.query.after:
+            try:
+                cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
+                cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
+                cursor_uuid = cursor["uuid"]
+            except (KeyError, ValueError, json.JSONDecodeError) as e:
+                raise ValueError(f"Invalid cursor format: {e}")
+            # For ASC (earliest first): get rows where (timestamp, uuid) > cursor
+            # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
+            op = ">" if self.query.orderBy == "earliest" else "<"
+            ts_op = ">=" if self.query.orderBy == "earliest" else "<="
+            # The logs table is sorted by (team_id, time_bucket, ..., timestamp) where
+            # time_bucket = toStartOfDay(timestamp). ClickHouse only prunes efficiently when
+            # the WHERE clause matches the sorting key. A tuple comparison like
+            # (timestamp, uuid) < (x, y) won't trigger pruning.
+            # We add explicit scalar bounds on both time_bucket and timestamp to ensure
+            # ClickHouse can use the primary index and skip irrelevant parts.
+            exprs.append(
+                parse_expr(
+                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
+            exprs.append(
+                parse_expr(
+                    f"timestamp {ts_op} {{cursor_ts}}",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
+            # Tuple comparison handles the exact cursor position (same timestamp, different uuid)
+            exprs.append(
+                parse_expr(
+                    f"(timestamp, uuid) {op} ({{cursor_ts}}, {{cursor_uuid}})",
+                    placeholders={
+                        "cursor_ts": ast.Constant(value=cursor_ts),
+                        "cursor_uuid": ast.Constant(value=cursor_uuid),
+                    },
+                )
+            )
+
+        return ast.And(exprs=exprs)
+
+    def resource_filter(self, *, existing_filters):
+        negative_resource_filter = ast.Constant(value=True)
+        # generate a query which excludes all the resources which match a negative filter
+        # e.g. if you filter k8s.container.name != "nginx", this will return
+        #      (resource_fingerprint) NOT IN (<query which returns resources which DO have k8s.container.name = "nginx">)
+        if self.resource_attribute_negative_filters:
+            negative_resource_filter = _generate_resource_attribute_filters(
+                self.resource_attribute_negative_filters,
+                team=self.team,
+                existing_filters=existing_filters,
+                query_date_range=self.query_date_range,
+                is_negative_filter=True,
+            )
+
+        if self.resource_attribute_filters:
+            return _generate_resource_attribute_filters(
+                self.resource_attribute_filters,
+                team=self.team,
+                # negative resource filter is passed in here
+                existing_filters=[*existing_filters, negative_resource_filter],
+                query_date_range=self.query_date_range,
+                is_negative_filter=False,
+            )
+        elif self.resource_attribute_negative_filters:
+            # If we have both positive and negative filters, the negative filters are applied to the positive filter
+            # query, so we don't need to add them again.
+            # If we ONLY have negative filters, we have to add them to the top level query.
+            return negative_resource_filter
+
+        return ast.Constant(value=1)
+
+
+class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
+    query: LogsQuery
+    cached_response: CachedLogsQueryResponse
+    paginator: HogQLHasMorePaginator
 
     def _calculate(self) -> LogsQueryResponse:
         response = self.paginator.execute_hogql_query(
@@ -276,148 +453,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         ]
         return final_query
 
-    def where(self):
-        exprs: list[ast.Expr] = []
-
-        if self.query.serviceNames:
-            exprs.append(
-                parse_expr(
-                    "service_name IN {serviceNames}",
-                    placeholders={
-                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
-                    },
-                )
-            )
-
-        if self.query.filterGroup:
-            # split out attribute and resource attribute filters
-            attribute_filters = []
-            log_filters = []
-            resource_attribute_positive_filters = []
-            resource_attribute_negative_filters = []
-
-            for property_group in self.query.filterGroup.values:
-                attribute_filters = cast(
-                    list[LogPropertyFilter],
-                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_ATTRIBUTE],
-                )
-                log_filters = cast(
-                    list[LogPropertyFilter], [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
-                )
-                resource_attribute_group_filters = cast(
-                    list[LogPropertyFilter],
-                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE],
-                )
-                if resource_attribute_group_filters:
-                    resource_attribute_positive_filters += [
-                        filter
-                        for filter in resource_attribute_group_filters
-                        if not operator_is_negative(filter.operator)
-                    ]
-                    resource_attribute_negative_filters += [
-                        filter for filter in resource_attribute_group_filters if operator_is_negative(filter.operator)
-                    ]
-
-            negative_resource_filter = ast.Constant(value=True)
-            # generate a query which excludes all the resources which match a negative filter
-            # e.g. if you filter k8s.container.name != "nginx", this will return
-            #      (resource_fingerprint) NOT IN (<query which returns resources which DO have k8s.container.name = "nginx">)
-            if resource_attribute_negative_filters:
-                negative_resource_filter = _generate_resource_attribute_filters(
-                    resource_attribute_negative_filters,
-                    team=self.team,
-                    existing_filters=exprs,
-                    query_date_range=self.query_date_range,
-                    is_negative_filter=True,
-                )
-
-            if resource_attribute_positive_filters:
-                exprs.append(
-                    _generate_resource_attribute_filters(
-                        resource_attribute_positive_filters,
-                        team=self.team,
-                        # negative resource filter is passed in here
-                        existing_filters=[*exprs, negative_resource_filter],
-                        query_date_range=self.query_date_range,
-                        is_negative_filter=False,
-                    )
-                )
-            elif resource_attribute_negative_filters:
-                # If we have both positive and negative filters, the negative filters are applied to the positive filter
-                # query, so we don't need to add them again.
-                # If we ONLY have negative filters, we have to add them to the top level query.
-                exprs.append(negative_resource_filter)
-
-            if attribute_filters:
-                exprs.append(property_to_expr(attribute_filters, team=self.team))
-
-            if log_filters:
-                exprs.append(property_to_expr(log_filters, team=self.team))
-
-        exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
-
-        if self.query.severityLevels:
-            exprs.append(
-                parse_expr(
-                    "severity_text IN {severityLevels}",
-                    placeholders={
-                        "severityLevels": ast.Tuple(
-                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
-                        )
-                    },
-                )
-            )
-
-        if self.query.liveLogsCheckpoint:
-            exprs.append(
-                parse_expr(
-                    "observed_timestamp >= {liveLogsCheckpoint}",
-                    placeholders={"liveLogsCheckpoint": ast.Constant(value=self.query.liveLogsCheckpoint)},
-                )
-            )
-
-        if self.query.after:
-            try:
-                cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
-                cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
-                cursor_uuid = cursor["uuid"]
-            except (KeyError, ValueError, json.JSONDecodeError) as e:
-                raise ValueError(f"Invalid cursor format: {e}")
-            # For ASC (earliest first): get rows where (timestamp, uuid) > cursor
-            # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
-            op = ">" if self.query.orderBy == "earliest" else "<"
-            ts_op = ">=" if self.query.orderBy == "earliest" else "<="
-            # The logs table is sorted by (team_id, time_bucket, ..., timestamp) where
-            # time_bucket = toStartOfDay(timestamp). ClickHouse only prunes efficiently when
-            # the WHERE clause matches the sorting key. A tuple comparison like
-            # (timestamp, uuid) < (x, y) won't trigger pruning.
-            # We add explicit scalar bounds on both time_bucket and timestamp to ensure
-            # ClickHouse can use the primary index and skip irrelevant parts.
-            exprs.append(
-                parse_expr(
-                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
-                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
-                )
-            )
-            exprs.append(
-                parse_expr(
-                    f"timestamp {ts_op} {{cursor_ts}}",
-                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
-                )
-            )
-            # Tuple comparison handles the exact cursor position (same timestamp, different uuid)
-            exprs.append(
-                parse_expr(
-                    f"(timestamp, uuid) {op} ({{cursor_ts}}, {{cursor_uuid}})",
-                    placeholders={
-                        "cursor_ts": ast.Constant(value=cursor_ts),
-                        "cursor_uuid": ast.Constant(value=cursor_uuid),
-                    },
-                )
-            )
-
-        return ast.And(exprs=exprs)
-
     @cached_property
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
@@ -429,45 +464,4 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             allow_experimental_join_condition=False,
             transform_null_in=False,
             allow_experimental_analyzer=True,
-        )
-
-    @cached_property
-    def query_date_range(self) -> QueryDateRange:
-        qdr = QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=IntervalType.MINUTE,
-            interval_count=2,
-            now=dt.datetime.now(),
-        )
-
-        _step = (qdr.date_to() - qdr.date_from()) / 50
-        interval_type = IntervalType.SECOND
-
-        def find_closest(target, arr):
-            if not arr:
-                raise ValueError("Input array cannot be empty")
-            closest_number = min(arr, key=lambda x: (abs(x - target), x))
-
-            return closest_number
-
-        # set the number of intervals to a "round" number of minutes
-        # it's hard to reason about the rate of logs on e.g. 13 minute intervals
-        # the min interval is 1 minute and max interval is 1 day
-        interval_count = find_closest(
-            _step.total_seconds(),
-            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
-        )
-
-        if _step >= dt.timedelta(minutes=1):
-            interval_type = IntervalType.MINUTE
-            interval_count //= 60
-
-        return QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=interval_type,
-            interval_count=int(interval_count),
-            now=dt.datetime.now(),
-            timezone_info=ZoneInfo("UTC"),
         )

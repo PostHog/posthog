@@ -90,6 +90,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': () => [
                     200,
                     { has_next: false, results: recordings, version: '1' },

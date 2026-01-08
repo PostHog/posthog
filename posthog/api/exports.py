@@ -9,6 +9,7 @@ from django.utils.timezone import now
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -118,7 +119,10 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 created_at__gte=start_of_month,
             ).count()
 
-            if existing_full_video_exports_count >= FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM:
+            if (
+                not self.context["request"].user.is_staff
+                and existing_full_video_exports_count >= FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM
+            ):
                 raise ValidationError(
                     {
                         "export_limit_exceeded": [
@@ -262,6 +266,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return instance
 
 
+@extend_schema(tags=["core"])
 class ExportedAssetViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
