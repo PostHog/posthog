@@ -27,8 +27,9 @@ func StartDockerDaemon() error {
 		return fmt.Errorf("failed to start docker daemon: %w", err)
 	}
 
-	// Wait a moment for daemon to be ready
-	for i := 0; i < 20; i++ {
+	// Wait up to a minute for daemon to be ready
+	GetLogger().WriteString("Waiting for Docker daemon to start...\n")
+	for i := 0; i < 60; i++ {
 		if IsDockerRunning() {
 			GetLogger().WriteString("Docker daemon started\n")
 			return nil
