@@ -302,7 +302,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_CONVERSATIONS: 'product-conversations', // owner: @veryayskiy #team-conversations
-    ONBOARDING_AI_CONSENT_STEP: 'onboarding-ai-consent-step', // owner: @mattbro #team-growth
     ONBOARDING_AI_PRODUCT_RECOMMENDATIONS: 'onboarding-ai-product-recommendations', // owner: @rafaeelaudibert #team-growth, AI-powered product recommendations in onboarding multivariate=control,test
     ONBOARDING_GREAT_FOR_ROLE: 'onboarding-great-for-role', // owner: @rafaeelaudibert #team-growth
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
@@ -333,6 +332,7 @@ export const FEATURE_FLAGS = {
     SHOPIFY_DWH: 'shopify-dwh', // owner: @andrew #team-data-stack
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
+    SIGNUP_AA_TEST: 'signup-aa-test', // owner: @andehen #team-experiments multivariate=control,test
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
     SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
     SURVEY_RESULTS_V2: 'survey-results-v2', // owner: #team-surveys

@@ -7,15 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface PaginatedColumnConfigurationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ColumnConfigurationApi[]
-}
-
 export interface ColumnConfigurationApi {
     readonly id: string
     /** @maxLength 255 */
@@ -25,6 +16,15 @@ export interface ColumnConfigurationApi {
     readonly updated_at: string
 }
 
+export interface PaginatedColumnConfigurationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ColumnConfigurationApi[]
+}
+
 export interface PatchedColumnConfigurationApi {
     readonly id?: string
     /** @maxLength 255 */
@@ -32,15 +32,6 @@ export interface PatchedColumnConfigurationApi {
     columns?: string[]
     readonly created_at?: string
     readonly updated_at?: string
-}
-
-export interface PaginatedElementListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ElementApi[]
 }
 
 export interface ElementApi {
@@ -85,6 +76,15 @@ export interface ElementApi {
      * @nullable
      */
     order?: number | null
+}
+
+export interface PaginatedElementListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ElementApi[]
 }
 
 export interface PatchedElementApi {

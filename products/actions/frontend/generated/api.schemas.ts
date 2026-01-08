@@ -7,7 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-
 /**
  * * `contains` - contains
  * `regex` - regex
@@ -26,6 +25,36 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
+
+export type ActionStepJSONApiPropertiesItem = { [key: string]: unknown }
+
+export type ActionStepJSONApiTextMatching = UrlMatchingEnumApi | NullEnumApi
+
+export type ActionStepJSONApiHrefMatching = UrlMatchingEnumApi | NullEnumApi
+
+export type ActionStepJSONApiUrlMatching = UrlMatchingEnumApi | NullEnumApi
+
+export interface ActionStepJSONApi {
+    /** @nullable */
+    event?: string | null
+    /** @nullable */
+    properties?: ActionStepJSONApiPropertiesItem[] | null
+    /** @nullable */
+    selector?: string | null
+    /** @nullable */
+    readonly selector_regex: string | null
+    /** @nullable */
+    tag_name?: string | null
+    /** @nullable */
+    text?: string | null
+    text_matching?: ActionStepJSONApiTextMatching
+    /** @nullable */
+    href?: string | null
+    href_matching?: ActionStepJSONApiHrefMatching
+    /** @nullable */
+    url?: string | null
+    url_matching?: ActionStepJSONApiUrlMatching
+}
 
 /**
  * * `engineering` - Engineering
@@ -58,13 +87,34 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export interface PaginatedActionListApi {
-    count: number
+export type UserBasicApiHedgehogConfigAnyOf = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = UserBasicApiHedgehogConfigAnyOf | null | null
+
+export type UserBasicApiRoleAtOrganization = RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
     /** @nullable */
-    next?: string | null
+    is_email_verified?: boolean | null
     /** @nullable */
-    previous?: string | null
-    results: ActionApi[]
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: UserBasicApiRoleAtOrganization
 }
 
 /**
@@ -103,6 +153,15 @@ export interface ActionApi {
     readonly user_access_level: string | null
 }
 
+export interface PaginatedActionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ActionApi[]
+}
+
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
  */
@@ -137,96 +196,6 @@ export interface PatchedActionApi {
      * @nullable
      */
     readonly user_access_level?: string | null
-}
-
-export type ActionStepJSONApiPropertiesItem = { [key: string]: unknown }
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ActionStepJSONApiTextMatching = { ...UrlMatchingEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type ActionStepJSONApiTextMatching =
-    | (typeof ActionStepJSONApiTextMatching)[keyof typeof ActionStepJSONApiTextMatching]
-    | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ActionStepJSONApiHrefMatching = { ...UrlMatchingEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type ActionStepJSONApiHrefMatching =
-    | (typeof ActionStepJSONApiHrefMatching)[keyof typeof ActionStepJSONApiHrefMatching]
-    | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ActionStepJSONApiUrlMatching = { ...UrlMatchingEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type ActionStepJSONApiUrlMatching =
-    | (typeof ActionStepJSONApiUrlMatching)[keyof typeof ActionStepJSONApiUrlMatching]
-    | null
-
-export interface ActionStepJSONApi {
-    /** @nullable */
-    event?: string | null
-    /** @nullable */
-    properties?: ActionStepJSONApiPropertiesItem[] | null
-    /** @nullable */
-    selector?: string | null
-    /** @nullable */
-    readonly selector_regex: string | null
-    /** @nullable */
-    tag_name?: string | null
-    /** @nullable */
-    text?: string | null
-    /** @nullable */
-    text_matching?: ActionStepJSONApiTextMatching
-    /** @nullable */
-    href?: string | null
-    /** @nullable */
-    href_matching?: ActionStepJSONApiHrefMatching
-    /** @nullable */
-    url?: string | null
-    /** @nullable */
-    url_matching?: ActionStepJSONApiUrlMatching
-}
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type UserBasicApiRoleAtOrganization =
-    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
-    | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    /** @nullable */
-    role_at_organization?: UserBasicApiRoleAtOrganization
 }
 
 export type ActionsListParams = {
