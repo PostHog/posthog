@@ -1,4 +1,3 @@
-import { Limiter } from '../../utils/token-bucket'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'
@@ -21,7 +20,6 @@ describe('SessionBatchManager', () => {
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
     let mockSessionFilter: jest.Mocked<SessionFilter>
-    let mockSessionLimiter: jest.Mocked<Limiter>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -68,12 +66,8 @@ describe('SessionBatchManager', () => {
 
         mockSessionFilter = {
             isBlocked: jest.fn().mockResolvedValue(false),
-            blockSession: jest.fn().mockResolvedValue(undefined),
+            handleNewSession: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFilter>
-
-        mockSessionLimiter = {
-            consume: jest.fn().mockReturnValue(true),
-        } as unknown as jest.Mocked<Limiter>
 
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
@@ -85,8 +79,6 @@ describe('SessionBatchManager', () => {
             consoleLogStore: mockConsoleLogStore,
             sessionTracker: mockSessionTracker,
             sessionFilter: mockSessionFilter,
-            sessionLimiter: mockSessionLimiter,
-            sessionRateLimitEnabled: false,
         })
     })
 
@@ -106,9 +98,7 @@ describe('SessionBatchManager', () => {
             mockConsoleLogStore,
             mockSessionTracker,
             mockSessionFilter,
-            mockSessionLimiter,
-            Number.MAX_SAFE_INTEGER,
-            false
+            Number.MAX_SAFE_INTEGER
         )
 
         const secondBatch = manager.getCurrentBatch()
@@ -188,8 +178,6 @@ describe('SessionBatchManager', () => {
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
-                sessionLimiter: mockSessionLimiter,
-                sessionRateLimitEnabled: false,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -199,9 +187,7 @@ describe('SessionBatchManager', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
-                mockSessionLimiter,
-                500,
-                false
+                500
             )
         })
 
@@ -216,8 +202,6 @@ describe('SessionBatchManager', () => {
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
-                sessionLimiter: mockSessionLimiter,
-                sessionRateLimitEnabled: false,
             })
 
             await manager.flush()
@@ -229,9 +213,7 @@ describe('SessionBatchManager', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
-                mockSessionLimiter,
-                250,
-                false
+                250
             )
         })
 
@@ -246,8 +228,6 @@ describe('SessionBatchManager', () => {
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
-                sessionLimiter: mockSessionLimiter,
-                sessionRateLimitEnabled: false,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -257,9 +237,7 @@ describe('SessionBatchManager', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
-                mockSessionLimiter,
-                0,
-                false
+                0
             )
         })
 
@@ -274,8 +252,6 @@ describe('SessionBatchManager', () => {
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
-                sessionLimiter: mockSessionLimiter,
-                sessionRateLimitEnabled: false,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -285,9 +261,7 @@ describe('SessionBatchManager', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
-                mockSessionLimiter,
-                Number.MAX_SAFE_INTEGER,
-                false
+                Number.MAX_SAFE_INTEGER
             )
         })
     })

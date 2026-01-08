@@ -213,11 +213,16 @@ export class SessionRecordingIngester {
             this.redisPool,
             this.hub.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
         )
-        const sessionFilter = new SessionFilter(this.redisPool, this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS)
         const sessionLimiter = new Limiter(
             this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
             this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE
         )
+        const sessionFilter = new SessionFilter({
+            redisPool: this.redisPool,
+            sessionLimiter,
+            rateLimitEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_RATE_LIMIT_ENABLED,
+            localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
+        })
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
@@ -229,8 +234,6 @@ export class SessionRecordingIngester {
             consoleLogStore,
             sessionTracker,
             sessionFilter,
-            sessionLimiter,
-            sessionRateLimitEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_RATE_LIMIT_ENABLED,
         })
     }
 

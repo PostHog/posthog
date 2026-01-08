@@ -1,5 +1,4 @@
 import { logger } from '../../utils/logger'
-import { Limiter } from '../../utils/token-bucket'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
@@ -25,12 +24,8 @@ export interface SessionBatchManagerConfig {
     consoleLogStore: SessionConsoleLogStore
     /** Session tracker for new session detection */
     sessionTracker: SessionTracker
-    /** Session filter for blocking rate-limited sessions */
+    /** Session filter for blocking and rate-limiting sessions */
     sessionFilter: SessionFilter
-    /** Token bucket limiter for new session rate limiting */
-    sessionLimiter: Limiter
-    /** When true, rate limiting will drop messages that exceed the limit */
-    sessionRateLimitEnabled: boolean
 }
 
 /**
@@ -79,8 +74,6 @@ export class SessionBatchManager {
     private lastFlushTime: number
     private readonly sessionTracker: SessionTracker
     private readonly sessionFilter: SessionFilter
-    private readonly sessionLimiter: Limiter
-    private readonly sessionRateLimitEnabled: boolean
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -92,8 +85,6 @@ export class SessionBatchManager {
         this.consoleLogStore = config.consoleLogStore
         this.sessionTracker = config.sessionTracker
         this.sessionFilter = config.sessionFilter
-        this.sessionLimiter = config.sessionLimiter
-        this.sessionRateLimitEnabled = config.sessionRateLimitEnabled
 
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
@@ -102,9 +93,7 @@ export class SessionBatchManager {
             this.consoleLogStore,
             this.sessionTracker,
             this.sessionFilter,
-            this.sessionLimiter,
-            this.maxEventsPerSessionPerBatch,
-            this.sessionRateLimitEnabled
+            this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
     }
@@ -129,9 +118,7 @@ export class SessionBatchManager {
             this.consoleLogStore,
             this.sessionTracker,
             this.sessionFilter,
-            this.sessionLimiter,
-            this.maxEventsPerSessionPerBatch,
-            this.sessionRateLimitEnabled
+            this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
     }

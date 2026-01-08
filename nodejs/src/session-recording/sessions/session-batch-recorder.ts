@@ -1,7 +1,6 @@
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../utils/logger'
-import { Limiter } from '../../utils/token-bucket'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
@@ -67,7 +66,6 @@ export class SessionBatchRecorder {
     private _size: number = 0
     private readonly batchId: string
     private readonly rateLimiter: SessionRateLimiter
-    private readonly sessionRateLimitEnabled: boolean
 
     constructor(
         private readonly offsetManager: KafkaOffsetManager,
@@ -76,14 +74,11 @@ export class SessionBatchRecorder {
         private readonly consoleLogStore: SessionConsoleLogStore,
         private readonly sessionTracker: SessionTracker,
         private readonly sessionFilter: SessionFilter,
-        private readonly sessionLimiter: Limiter,
-        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
-        sessionRateLimitEnabled: boolean = false
+        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
     ) {
         this.batchId = uuidv7()
         this.rateLimiter = new SessionRateLimiter(maxEventsPerSessionPerBatch)
-        this.sessionRateLimitEnabled = sessionRateLimitEnabled
-        logger.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId, sessionRateLimitEnabled })
+        logger.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })
     }
 
     /**
@@ -98,8 +93,13 @@ export class SessionBatchRecorder {
         const teamId = message.team.teamId
         const teamSessionKey = `${teamId}$${sessionId}`
 
-        // Check if session is blocked (rate limited on first message)
-        // This prevents half-ingested recordings
+        // Check if this is a new session and check if we're in breach of the rate limit
+        const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
+        if (isNewSession) {
+            await this.sessionFilter.handleNewSession(teamId, sessionId)
+        }
+
+        // Check if session is blocked
         if (await this.sessionFilter.isBlocked(teamId, sessionId)) {
             logger.debug('🔁', 'session_batch_recorder_session_blocked', {
                 partition,
@@ -108,28 +108,6 @@ export class SessionBatchRecorder {
                 batchId: this.batchId,
             })
             return this.ignoreMessage(message)
-        }
-
-        // Check if this is a new session and whether it should be rate limited
-        const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
-        const isAllowed = this.sessionLimiter.consume(String(teamId), isNewSession ? 1 : 0)
-
-        if (!isAllowed) {
-            logger.debug('🔁', 'session_batch_recorder_new_session_rate_limited', {
-                partition,
-                sessionId,
-                teamId,
-                batchId: this.batchId,
-                sessionRateLimitEnabled: this.sessionRateLimitEnabled,
-            })
-            SessionBatchMetrics.incrementNewSessionsRateLimited()
-
-            // Only drop messages if rate limiting is enabled
-            if (this.sessionRateLimitEnabled) {
-                // Block the session to prevent half-ingested recordings
-                await this.sessionFilter.blockSession(teamId, sessionId)
-                return this.ignoreMessage(message)
-            }
         }
 
         const isEventAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)

@@ -2,17 +2,31 @@ import { LRUCache } from 'lru-cache'
 
 import { RedisPool } from '../../types'
 import { logger } from '../../utils/logger'
+import { Limiter } from '../../utils/token-bucket'
 import { SESSION_FILTER_REDIS_TTL_SECONDS } from '../constants'
 import { SessionBatchMetrics } from './metrics'
 
 const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
 
+export interface SessionFilterConfig {
+    redisPool: RedisPool
+    sessionLimiter: Limiter
+    rateLimitEnabled: boolean
+    localCacheTtlMs: number
+    localCacheMaxSize?: number
+}
+
 /**
- * Manages a blocklist of sessions that should be dropped.
+ * Manages session filtering and rate limiting for new sessions.
  *
- * When a session is rate-limited on its first message, we block the entire session
- * to prevent half-ingested recordings. The blocklist is persisted in Redis with
- * an in-memory LRU cache to minimize Redis round-trips.
+ * Responsibilities:
+ * - Rate limiting new sessions per team using a token bucket
+ * - Maintaining a blocklist of sessions that should be dropped
+ * - When a new session is rate-limited, blocking the entire session
+ *   to prevent half-ingested recordings
+ *
+ * The blocklist is persisted in Redis with an in-memory LRU cache
+ * to minimize Redis round-trips.
  */
 export class SessionFilter {
     private readonly keyPrefix = '@posthog/replay/session-blocked'
@@ -22,14 +36,18 @@ export class SessionFilter {
     // Maps key -> blocked status (true = blocked, false = not blocked but checked)
     private readonly localCache: LRUCache<string, boolean>
 
-    constructor(
-        private readonly redisPool: RedisPool,
-        private readonly localCacheTtlMs: number,
-        localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE
-    ) {
+    private readonly redisPool: RedisPool
+    private readonly sessionLimiter: Limiter
+    private readonly rateLimitEnabled: boolean
+
+    constructor(config: SessionFilterConfig) {
+        this.redisPool = config.redisPool
+        this.sessionLimiter = config.sessionLimiter
+        this.rateLimitEnabled = config.rateLimitEnabled
+
         this.localCache = new LRUCache({
-            max: localCacheMaxSize,
-            ttl: localCacheTtlMs,
+            max: config.localCacheMaxSize ?? DEFAULT_LOCAL_CACHE_MAX_SIZE,
+            ttl: config.localCacheTtlMs,
         })
     }
 
@@ -39,7 +57,7 @@ export class SessionFilter {
      * @param teamId - The team ID
      * @param sessionId - The session ID to block
      */
-    public async blockSession(teamId: number, sessionId: string): Promise<void> {
+    private async blockSession(teamId: number, sessionId: string): Promise<void> {
         const key = this.generateKey(teamId, sessionId)
 
         // Add to local cache immediately for fast lookups
@@ -100,6 +118,34 @@ export class SessionFilter {
             return isBlocked
         } finally {
             await this.redisPool.release(client)
+        }
+    }
+
+    /**
+     * Handle a new session by checking rate limits and blocking if necessary.
+     *
+     * This method should be called for new sessions (as determined by SessionTracker).
+     * If the team has exceeded its rate limit and rate limiting is enabled,
+     * the session will be blocked. The caller should then check isBlocked() to
+     * determine whether to process the message.
+     *
+     * @param teamId - The team ID
+     * @param sessionId - The session ID
+     */
+    public async handleNewSession(teamId: number, sessionId: string): Promise<void> {
+        const isAllowed = this.sessionLimiter.consume(String(teamId), 1)
+
+        if (!isAllowed) {
+            logger.debug('session_filter_new_session_rate_limited', {
+                teamId,
+                sessionId,
+                rateLimitEnabled: this.rateLimitEnabled,
+            })
+            SessionBatchMetrics.incrementNewSessionsRateLimited()
+
+            if (this.rateLimitEnabled) {
+                await this.blockSession(teamId, sessionId)
+            }
         }
     }
 
