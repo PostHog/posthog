@@ -54,7 +54,7 @@ func checkDocker() CheckResult {
 	cmd := exec.Command("docker", "info")
 	if err := cmd.Run(); err != nil {
 		logger.WriteString("⚠ Docker daemon not running\n")
-		return CheckResult{Passed: true, Warning: true, Detail: "daemon not running"}
+		return CheckResult{Passed: true, Warning: true, Detail: "daemon not running for this user, might need sudo to detect or add current user to `docker` group"}
 	}
 
 	logger.WriteString("✓ Docker is running\n")
