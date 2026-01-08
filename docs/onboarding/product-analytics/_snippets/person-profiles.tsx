@@ -14,6 +14,8 @@ export const PersonProfiles = ({ language = 'javascript', file }: PersonProfiles
                 return { code: '"$process_person_profile": False', file: file || 'Python' }
             case 'php':
                 return { code: "'$process_person_profile' => false", file: file || 'PHP' }
+            case 'elixir':
+                return { code: '"$process_person_profile" => false', file: file || 'Elixir' }
             default:
                 return { code: '"$process_person_profile": false', file: file || language.charAt(0).toUpperCase() + language.slice(1) }
         }

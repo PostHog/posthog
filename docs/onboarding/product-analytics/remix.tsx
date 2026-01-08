@@ -38,7 +38,8 @@ export const RemixInstallation = (): JSX.Element => {
 
             <Step title="Configure Vite" badge="required">
                 <Markdown>
-                    Add `posthog-js` to `ssr.noExternal` in your `vite.config.ts` so it gets bundled for SSR:
+                    Add `posthog-js` and `posthog-js/react` to `ssr.noExternal` in your `vite.config.ts` so they get
+                    bundled for SSR:
                 </Markdown>
                 <CodeBlock
                     blocks={[
