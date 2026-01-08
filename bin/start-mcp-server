@@ -3,8 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../services/mcp/typescript"
 
-pnpm install --frozen-lockfile
+if [ ! -f .dev.vars ]; then
+    cp .dev.vars.example .dev.vars
+fi
 
-export POSTHOG_BASE_URL="${POSTHOG_BASE_URL:-http://localhost:8000}"
+pnpm install --frozen-lockfile
 
 exec pnpm run dev
