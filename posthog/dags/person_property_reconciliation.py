@@ -229,7 +229,7 @@ def get_person_property_updates_from_clickhouse(
             updates.append(
                 PropertyUpdate(
                     key=key,
-                    value=value,
+                    value=json.loads(value),  # Parse raw JSON: strip quotes from strings, convert types
                     timestamp=timestamp,
                     operation="set",
                 )
@@ -240,7 +240,7 @@ def get_person_property_updates_from_clickhouse(
             updates.append(
                 PropertyUpdate(
                     key=key,
-                    value=value,
+                    value=json.loads(value),  # Parse raw JSON: strip quotes from strings, convert types
                     timestamp=timestamp,
                     operation="set_once",
                 )

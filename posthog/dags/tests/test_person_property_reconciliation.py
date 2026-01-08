@@ -21,12 +21,13 @@ class TestClickHouseResultParsing:
         """Test that set_diff array of tuples is correctly parsed."""
         # Simulate ClickHouse returning: (person_id, set_diff, set_once_diff)
         # set_diff is an array of (key, value, timestamp) tuples
+        # Values are raw JSON strings from JSONExtractKeysAndValuesRaw (strings are double-quoted)
         mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
             (
                 "018d1234-5678-0000-0000-000000000001",  # person_id (UUID as string)
-                [  # set_diff - array of tuples
-                    ("email", "new@example.com", datetime(2024, 1, 15, 12, 0, 0)),
-                    ("name", "John Doe", datetime(2024, 1, 15, 12, 30, 0)),
+                [  # set_diff - array of tuples (values are raw JSON)
+                    ("email", '"new@example.com"', datetime(2024, 1, 15, 12, 0, 0)),
+                    ("name", '"John Doe"', datetime(2024, 1, 15, 12, 30, 0)),
                 ],
                 [],  # set_once_diff - empty
             )
@@ -44,26 +45,27 @@ class TestClickHouseResultParsing:
         assert person_updates.person_id == "018d1234-5678-0000-0000-000000000001"
         assert len(person_updates.updates) == 2
 
-        # Verify first update
+        # Verify first update - quotes should be stripped
         assert person_updates.updates[0].key == "email"
         assert person_updates.updates[0].value == "new@example.com"
         assert person_updates.updates[0].timestamp == datetime(2024, 1, 15, 12, 0, 0)
         assert person_updates.updates[0].operation == "set"
 
-        # Verify second update
+        # Verify second update - quotes should be stripped
         assert person_updates.updates[1].key == "name"
         assert person_updates.updates[1].value == "John Doe"
         assert person_updates.updates[1].operation == "set"
 
     def test_parses_set_once_diff_tuples(self):
         """Test that set_once_diff array of tuples is correctly parsed."""
+        # Values are raw JSON strings from JSONExtractKeysAndValuesRaw
         mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
             (
                 "018d1234-5678-0000-0000-000000000002",
                 [],  # set_diff - empty
-                [  # set_once_diff - array of tuples
-                    ("initial_referrer", "google.com", datetime(2024, 1, 10, 8, 0, 0)),
-                    ("first_seen", "2024-01-10", datetime(2024, 1, 10, 8, 0, 0)),
+                [  # set_once_diff - array of tuples (values are raw JSON)
+                    ("initial_referrer", '"google.com"', datetime(2024, 1, 10, 8, 0, 0)),
+                    ("first_seen", '"2024-01-10"', datetime(2024, 1, 10, 8, 0, 0)),
                 ],
             )
         ]
@@ -79,21 +81,23 @@ class TestClickHouseResultParsing:
         person_updates = results[0]
         assert len(person_updates.updates) == 2
 
-        # Verify set_once updates
+        # Verify set_once updates - quotes should be stripped
         assert person_updates.updates[0].key == "initial_referrer"
         assert person_updates.updates[0].value == "google.com"
         assert person_updates.updates[0].operation == "set_once"
 
         assert person_updates.updates[1].key == "first_seen"
+        assert person_updates.updates[1].value == "2024-01-10"
         assert person_updates.updates[1].operation == "set_once"
 
     def test_parses_mixed_set_and_set_once(self):
         """Test parsing when both set_diff and set_once_diff have values."""
+        # Values are raw JSON strings from JSONExtractKeysAndValuesRaw
         mock_rows = [
             (
                 "018d1234-5678-0000-0000-000000000003",
-                [("email", "updated@example.com", datetime(2024, 1, 15, 12, 0, 0))],  # set_diff
-                [("initial_source", "organic", datetime(2024, 1, 10, 8, 0, 0))],  # set_once_diff
+                [("email", '"updated@example.com"', datetime(2024, 1, 15, 12, 0, 0))],  # set_diff
+                [("initial_source", '"organic"', datetime(2024, 1, 10, 8, 0, 0))],  # set_once_diff
             )
         ]
 
@@ -115,25 +119,28 @@ class TestClickHouseResultParsing:
         assert len(set_updates) == 1
         assert len(set_once_updates) == 1
         assert set_updates[0].key == "email"
+        assert set_updates[0].value == "updated@example.com"  # quotes stripped
         assert set_once_updates[0].key == "initial_source"
+        assert set_once_updates[0].value == "organic"  # quotes stripped
 
     def test_handles_multiple_persons(self):
         """Test parsing results for multiple persons."""
+        # Values are raw JSON strings from JSONExtractKeysAndValuesRaw
         mock_rows = [
             (
                 "018d1234-0000-0000-0000-000000000001",
-                [("prop1", "val1", datetime(2024, 1, 15, 12, 0, 0))],
+                [("prop1", '"val1"', datetime(2024, 1, 15, 12, 0, 0))],
                 [],
             ),
             (
                 "018d1234-0000-0000-0000-000000000002",
-                [("prop2", "val2", datetime(2024, 1, 15, 13, 0, 0))],
+                [("prop2", '"val2"', datetime(2024, 1, 15, 13, 0, 0))],
                 [],
             ),
             (
                 "018d1234-0000-0000-0000-000000000003",
                 [],
-                [("prop3", "val3", datetime(2024, 1, 10, 8, 0, 0))],
+                [("prop3", '"val3"', datetime(2024, 1, 10, 8, 0, 0))],
             ),
         ]
 
@@ -146,8 +153,11 @@ class TestClickHouseResultParsing:
 
         assert len(results) == 3
         assert results[0].person_id == "018d1234-0000-0000-0000-000000000001"
+        assert results[0].updates[0].value == "val1"  # quotes stripped
         assert results[1].person_id == "018d1234-0000-0000-0000-000000000002"
+        assert results[1].updates[0].value == "val2"  # quotes stripped
         assert results[2].person_id == "018d1234-0000-0000-0000-000000000003"
+        assert results[2].updates[0].value == "val3"  # quotes stripped
 
     def test_skips_persons_with_no_updates(self):
         """Test that persons with empty set_diff and set_once_diff are skipped."""
@@ -179,6 +189,66 @@ class TestClickHouseResultParsing:
             )
 
         assert results == []
+
+    def test_parses_raw_json_value_types(self):
+        """Test that raw JSON values from CH are correctly parsed to Python types."""
+        # JSONExtractKeysAndValuesRaw returns raw JSON representations:
+        # - strings are double-quoted: "hello"
+        # - numbers are unquoted: 123, 3.14
+        # - booleans are lowercase: true, false
+        # - null is literal: null
+        mock_rows = [
+            (
+                "018d1234-5678-0000-0000-000000000001",
+                [
+                    ("string_prop", '"hello"', datetime(2024, 1, 15, 12, 0, 0)),
+                    ("int_prop", "123", datetime(2024, 1, 15, 12, 0, 0)),
+                    ("float_prop", "3.14", datetime(2024, 1, 15, 12, 0, 0)),
+                    ("bool_true_prop", "true", datetime(2024, 1, 15, 12, 0, 0)),
+                    ("bool_false_prop", "false", datetime(2024, 1, 15, 12, 0, 0)),
+                    ("null_prop", "null", datetime(2024, 1, 15, 12, 0, 0)),
+                ],
+                [],
+            )
+        ]
+
+        with patch("posthog.dags.person_property_reconciliation.sync_execute", return_value=mock_rows):
+            results = get_person_property_updates_from_clickhouse(
+                team_id=1,
+                bug_window_start="2024-01-01T00:00:00Z",
+                bug_window_end="2024-01-31T00:00:00Z",
+            )
+
+        assert len(results) == 1
+        updates = results[0].updates
+        assert len(updates) == 6
+
+        # String - quotes stripped
+        assert updates[0].key == "string_prop"
+        assert updates[0].value == "hello"
+        assert isinstance(updates[0].value, str)
+
+        # Integer
+        assert updates[1].key == "int_prop"
+        assert updates[1].value == 123
+        assert isinstance(updates[1].value, int)
+
+        # Float
+        assert updates[2].key == "float_prop"
+        assert updates[2].value == 3.14
+        assert isinstance(updates[2].value, float)
+
+        # Boolean true
+        assert updates[3].key == "bool_true_prop"
+        assert updates[3].value is True
+
+        # Boolean false
+        assert updates[4].key == "bool_false_prop"
+        assert updates[4].value is False
+
+        # Null
+        assert updates[5].key == "null_prop"
+        assert updates[5].value is None
 
 
 class TestReconcilePersonProperties:
