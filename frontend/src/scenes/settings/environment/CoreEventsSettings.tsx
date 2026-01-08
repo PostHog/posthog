@@ -2,17 +2,31 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonLabel,
+    LemonModal,
+    LemonSelect,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils'
 import { ActionFilter as ActionFilterComponent } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
+import {
+    getGoalFilterSummary,
+    getGoalTypeLabel,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/utils/coreEventUtils'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     ActionsNode,
+    ConversionGoalFilter,
     CoreEvent,
     CoreEventCategory,
     DataWarehouseNode,
@@ -45,32 +59,6 @@ const CATEGORY_OPTIONS = [
     { value: CoreEventCategory.Churn, label: 'Churn', description: 'Subscription canceled' },
     { value: CoreEventCategory.Reactivation, label: 'Reactivation', description: 'Returned after churn' },
 ]
-
-function getFilterTypeLabel(filter: EventsNode | ActionsNode | DataWarehouseNode): string {
-    switch (filter.kind) {
-        case NodeKind.EventsNode:
-            return 'Event'
-        case NodeKind.ActionsNode:
-            return 'Action'
-        case NodeKind.DataWarehouseNode:
-            return 'Data warehouse'
-        default:
-            return 'Unknown'
-    }
-}
-
-function getFilterSummary(filter: EventsNode | ActionsNode | DataWarehouseNode): string {
-    switch (filter.kind) {
-        case NodeKind.EventsNode:
-            return filter.event || 'All events'
-        case NodeKind.ActionsNode:
-            return filter.name || `Action #${filter.id}`
-        case NodeKind.DataWarehouseNode:
-            return filter.table_name || 'Unknown table'
-        default:
-            return 'Unknown'
-    }
-}
 
 // Convert ActionFilter format to our filter node format
 function actionFilterToNode(filters: FilterType): EventsNode | ActionsNode | DataWarehouseNode | null {
@@ -178,12 +166,28 @@ const eventToFormState = (event: CoreEvent): FormState => ({
     filter: event.filter,
 })
 
+/** Convert legacy ConversionGoalFilter to FormState for migration */
+function legacyGoalToFormState(goal: ConversionGoalFilter): FormState {
+    // Extract the filter part (without conversion_goal_id, conversion_goal_name, schema_map)
+    const { conversion_goal_id, conversion_goal_name, schema_map, ...filterPart } = goal
+    return {
+        id: null, // New core event
+        name: conversion_goal_name || '',
+        description: '',
+        category: null, // User must select
+        filter: filterPart as EventsNode | ActionsNode | DataWarehouseNode,
+    }
+}
+
 export function CoreEventsSettings(): JSX.Element {
     const { coreEvents } = useValues(coreEventsLogic)
     const { addCoreEvent, updateCoreEvent, removeCoreEvent } = useActions(coreEventsLogic)
+    const { conversion_goals: legacyConversionGoals } = useValues(marketingAnalyticsSettingsLogic)
+    const { removeConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
 
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [formState, setFormState] = useState<FormState>(createEmptyFormState())
+    const [migratingGoal, setMigratingGoal] = useState<ConversionGoalFilter | null>(null)
 
     const isEditing = formState.id !== null
 
@@ -194,12 +198,20 @@ export function CoreEventsSettings(): JSX.Element {
 
     const handleOpenEditModal = (event: CoreEvent): void => {
         setFormState(eventToFormState(event))
+        setMigratingGoal(null)
+        setIsModalOpen(true)
+    }
+
+    const handleMigrateLegacyGoal = (goal: ConversionGoalFilter): void => {
+        setFormState(legacyGoalToFormState(goal))
+        setMigratingGoal(goal)
         setIsModalOpen(true)
     }
 
     const handleCloseModal = (): void => {
         setIsModalOpen(false)
         setFormState(createEmptyFormState())
+        setMigratingGoal(null)
     }
 
     const handleFilterChange = (filters: Partial<FilterType>): void => {
@@ -232,6 +244,12 @@ export function CoreEventsSettings(): JSX.Element {
         } else {
             addCoreEvent(event)
         }
+
+        // If migrating, also remove the legacy conversion goal
+        if (migratingGoal) {
+            removeConversionGoal(migratingGoal.conversion_goal_id)
+        }
+
         handleCloseModal()
     }
 
@@ -261,8 +279,92 @@ export function CoreEventsSettings(): JSX.Element {
     // Build filter for ActionFilterComponent
     const currentFilter = nodeToActionFilter(formState.filter)
 
+    const hasLegacyGoals = legacyConversionGoals.length > 0
+    const isMigrating = migratingGoal !== null
+
     return (
         <div className="space-y-4">
+            <p className="text-muted">
+                Core events are reusable event definitions. Define your key business events once — like signups,
+                purchases, or subscriptions — and use them consistently across your analytics.
+            </p>
+
+            {hasLegacyGoals && (
+                <LemonBanner type="warning" className="mb-2">
+                    <div>
+                        <strong>Migrate your Marketing conversion goals</strong>
+                        <p className="text-sm mt-1">
+                            You have {legacyConversionGoals.length} legacy conversion goal
+                            {legacyConversionGoals.length === 1 ? '' : 's'} in Marketing analytics. Migrate them to Core
+                            Events to manage them centrally.
+                        </p>
+                    </div>
+                </LemonBanner>
+            )}
+
+            {hasLegacyGoals && (
+                <div className="border border-warning rounded p-4 space-y-3 bg-warning-highlight">
+                    <h4 className="font-medium text-warning-dark">Legacy Marketing conversion goals</h4>
+                    <p className="text-sm text-muted">
+                        These goals are only available in Marketing analytics. Migrate them to Core Events to share them
+                        across products.
+                    </p>
+                    <LemonTable
+                        rowKey={(item) => item.conversion_goal_id}
+                        dataSource={legacyConversionGoals}
+                        size="small"
+                        columns={[
+                            {
+                                key: 'name',
+                                title: 'Name',
+                                render: (_, goal: ConversionGoalFilter) => (
+                                    <span className="font-medium">{goal.conversion_goal_name}</span>
+                                ),
+                            },
+                            {
+                                key: 'type',
+                                title: 'Type',
+                                render: (_, goal: ConversionGoalFilter) => {
+                                    if (goal.kind === NodeKind.EventsNode) {
+                                        return 'Event'
+                                    }
+                                    if (goal.kind === NodeKind.ActionsNode) {
+                                        return 'Action'
+                                    }
+                                    if (goal.kind === NodeKind.DataWarehouseNode) {
+                                        return 'Data warehouse'
+                                    }
+                                    return 'Unknown'
+                                },
+                            },
+                            {
+                                key: 'actions',
+                                title: '',
+                                width: 140,
+                                render: (_, goal: ConversionGoalFilter) => (
+                                    <div className="flex gap-1">
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => handleMigrateLegacyGoal(goal)}
+                                        >
+                                            Migrate
+                                        </LemonButton>
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            size="small"
+                                            status="danger"
+                                            onClick={() => removeConversionGoal(goal.conversion_goal_id)}
+                                            tooltip="Delete without migrating"
+                                        />
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
+            )}
+
             <div className="flex justify-between items-center">
                 <h3 className="font-bold">
                     {coreEvents.length === 0
@@ -286,13 +388,13 @@ export function CoreEventsSettings(): JSX.Element {
                     {
                         key: 'type',
                         title: 'Type',
-                        render: (_, event: CoreEvent) => getFilterTypeLabel(event.filter),
+                        render: (_, event: CoreEvent) => getGoalTypeLabel(event),
                     },
                     {
                         key: 'filter',
                         title: 'Filter',
                         render: (_, event: CoreEvent) => (
-                            <span className="text-muted">{getFilterSummary(event.filter)}</span>
+                            <span className="text-muted">{getGoalFilterSummary(event)}</span>
                         ),
                     },
                     {
@@ -332,18 +434,32 @@ export function CoreEventsSettings(): JSX.Element {
             <LemonModal
                 isOpen={isModalOpen}
                 onClose={handleCloseModal}
-                title={isEditing ? 'Edit core event' : 'Add core event'}
+                title={
+                    isMigrating
+                        ? `Migrate "${migratingGoal?.conversion_goal_name}" to Core Event`
+                        : isEditing
+                          ? 'Edit core event'
+                          : 'Add core event'
+                }
                 width="40rem"
                 footer={
                     <>
                         <LemonButton onClick={handleCloseModal}>Cancel</LemonButton>
                         <LemonButton type="primary" onClick={handleSave} disabledReason={disabledReason}>
-                            {isEditing ? 'Update' : 'Add'}
+                            {isMigrating ? 'Migrate to Core Event' : isEditing ? 'Update' : 'Add'}
                         </LemonButton>
                     </>
                 }
             >
                 <div className="space-y-4">
+                    {isMigrating && (
+                        <LemonBanner type="warning">
+                            <p className="text-sm">
+                                This will create a new Core Event and remove the legacy Marketing conversion goal.
+                            </p>
+                        </LemonBanner>
+                    )}
+
                     <div className="space-y-1">
                         <LemonLabel>Name</LemonLabel>
                         <LemonInput

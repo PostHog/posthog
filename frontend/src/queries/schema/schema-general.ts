@@ -4550,9 +4550,20 @@ export interface CampaignFieldPreference {
     match_field: MatchField
 }
 
+/** Maps a CoreEvent to marketing analytics with optional UTM field mappings */
+export interface MarketingConversionGoalMapping {
+    /** Reference to the CoreEvent.id */
+    core_event_id: string
+    /** UTM field mappings - required for DataWarehouseNode, optional otherwise */
+    schema_map?: SchemaMap
+}
+
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
+    /** @deprecated Use conversion_goal_mappings instead. Kept for backwards compatibility. */
     conversion_goals?: ConversionGoalFilter[]
+    /** Mappings to team-level conversion goals with optional schema_map for DW goals */
+    conversion_goal_mappings?: MarketingConversionGoalMapping[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
     campaign_name_mappings?: Record<string, Record<string, string[]>>
