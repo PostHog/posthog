@@ -305,6 +305,8 @@ export default {
                         'openid',
                         'profile',
                         'email',
+                        'introspection',
+                        'user:read',
                         'organization:read',
                         'project:read',
                         'feature_flag:read',
