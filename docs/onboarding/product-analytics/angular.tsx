@@ -36,24 +36,6 @@ export const AngularInstallation = (): JSX.Element => {
                 />
             </Step>
 
-            <Step title="Add environment variables" badge="required">
-                <Markdown>
-                    Add your environment variables to your `.env` file and to your hosting provider:
-                </Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'bash',
-                            file: '.env',
-                            code: dedent`
-                                POSTHOG_KEY=<ph_project_api_key>
-                                POSTHOG_HOST=<ph_client_api_host>
-                            `,
-                        },
-                    ]}
-                />
-            </Step>
-
             <Step title="Initialize PostHog" badge="required">
                 <Markdown>
                     In your `src/main.ts`, initialize PostHog using your project API key and instance address:
@@ -70,9 +52,9 @@ export const AngularInstallation = (): JSX.Element => {
                                 import posthog from 'posthog-js'
 
                                 posthog.init(
-                                  process.env.POSTHOG_KEY,
+                                  '<ph_project_api_key>',
                                   {
-                                    api_host: process.env.POSTHOG_HOST,
+                                    api_host: '<ph_client_api_host>',
                                     person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users too
                                     defaults: '2025-11-30'
                                   }

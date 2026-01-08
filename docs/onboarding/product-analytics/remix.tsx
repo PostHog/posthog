@@ -38,7 +38,7 @@ export const RemixInstallation = (): JSX.Element => {
 
             <Step title="Configure Vite" badge="required">
                 <Markdown>
-                    Set `posthog-js` and `posthog-js/react` as external packages in your `vite.config.ts` file:
+                    Add `posthog-js` to `ssr.noExternal` in your `vite.config.ts` so it gets bundled for SSR:
                 </Markdown>
                 <CodeBlock
                     blocks={[
@@ -92,8 +92,8 @@ export const RemixInstallation = (): JSX.Element => {
                                   useEffect(() => {
                                     posthog.init("<ph_project_api_key>", {
                                       api_host: "<ph_client_api_host>",
-                                      defaults: '2025-11-30',
-                                      person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users too
+                                      defaults: "2025-11-30",
+                                      person_profiles: "identified_only", // or "always" to create profiles for anonymous users too
                                     });
 
                                     setHydrated(true);

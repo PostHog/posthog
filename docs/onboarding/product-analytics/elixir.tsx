@@ -1,5 +1,8 @@
 import { ReactNode } from 'react'
+
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
+import { PersonProfiles } from './_snippets/person-profiles'
 
 export interface StepDefinition {
     title: string
@@ -11,6 +14,7 @@ export const getElixirSteps = (CodeBlock: any, Markdown: any, dedent: any): Step
     return [
         {
             title: 'Install',
+            badge: 'required',
             content: (
                 <>
                     <Markdown>Add the PostHog Elixir library to your `mix.exs` dependencies:</Markdown>
@@ -34,6 +38,7 @@ export const getElixirSteps = (CodeBlock: any, Markdown: any, dedent: any): Step
         },
         {
             title: 'Configure',
+            badge: 'required',
             content: (
                 <>
                     <Markdown>Add your PostHog configuration to your config file:</Markdown>
@@ -50,6 +55,31 @@ export const getElixirSteps = (CodeBlock: any, Markdown: any, dedent: any): Step
                             },
                         ]}
                     />
+                </>
+            ),
+        },
+        {
+            title: 'Send events',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        Once installed, you can manually send events to test your integration:
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'elixir',
+                                file: 'Elixir',
+                                code: dedent`
+                                    Posthog.capture("user_123", "button_clicked", %{
+                                        button_name: "signup"
+                                    })
+                                `,
+                            },
+                        ]}
+                    />
+                    <PersonProfiles language="elixir" />
                 </>
             ),
         },

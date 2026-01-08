@@ -55,7 +55,7 @@ export const NuxtInstallation = (): JSX.Element => {
                                     public: {
                                       posthogPublicKey: '<ph_project_api_key>',
                                       posthogHost: '<ph_client_api_host>',
-                                      posthogDefaults: '2024-12-10'
+                                      posthogDefaults: '2025-11-30'
                                     }
                                   }
                                 })
