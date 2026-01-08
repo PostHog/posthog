@@ -193,7 +193,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
-        setConversionGoalFromCoreEvent: (coreEvent: CoreEvent | null) => ({ coreEvent }),
         setCoreEvents: (coreEvents: CoreEvent[]) => ({ coreEvents }),
         openAsNewInsight: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
@@ -432,14 +431,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setCoreEvents: (_, { coreEvents }) => coreEvents,
             },
         ],
-        selectedCoreEventId: [
-            null as string | null,
-            persistConfig,
-            {
-                setConversionGoalFromCoreEvent: (_, { coreEvent }) => coreEvent?.id ?? null,
-                setConversionGoal: () => null, // Clear when setting directly
-            },
-        ],
         conversionGoalWarning: [
             null as ConversionGoalWarning | null,
             {
@@ -520,16 +511,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (coreEvents: CoreEvent[]): CoreEvent[] => {
                 // Filter out DataWarehouseNode goals - they don't support pageview-based attribution
                 return coreEvents.filter((event) => event.filter.kind !== NodeKind.DataWarehouseNode)
-            },
-        ],
-        // Get the currently selected Core Event object
-        selectedCoreEvent: [
-            (s) => [s.coreEvents, s.selectedCoreEventId],
-            (coreEvents: CoreEvent[], selectedId: string | null): CoreEvent | null => {
-                if (!selectedId) {
-                    return null
-                }
-                return coreEvents.find((event) => event.id === selectedId) ?? null
             },
         ],
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
@@ -2369,20 +2350,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
-            },
-            setConversionGoalFromCoreEvent: ({ coreEvent }) => {
-                if (!coreEvent) {
-                    actions.setConversionGoal(null)
-                    return
-                }
-                // Convert Core Event filter to WebAnalyticsConversionGoal
-                const filter = coreEvent.filter
-                if (filter.kind === NodeKind.ActionsNode) {
-                    actions.setConversionGoal({ actionId: filter.id })
-                } else if (filter.kind === NodeKind.EventsNode && filter.event) {
-                    actions.setConversionGoal({ customEventName: filter.event })
-                }
-                // DataWarehouseNode goals are filtered out in the selector, so we don't handle them here
             },
             setConversionGoal: [
                 ({ conversionGoal }) => {
