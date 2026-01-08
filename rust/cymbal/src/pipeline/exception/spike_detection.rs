@@ -13,6 +13,7 @@ use crate::issue_resolution::Issue;
 use crate::metric_consts::{
     SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_EMIT_EVENTS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME,
     SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
+    SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
 };
 
 const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
@@ -206,10 +207,13 @@ pub async fn do_spike_detection(
     .await;
     team_buckets_timer.fin();
 
+    metrics::counter!(SPIKE_ISSUES_CHECKED).increment(issues_by_id.len() as u64);
+
     let get_spiking_timer = common_metrics::timing_guard(SPIKE_GET_SPIKING_ISSUES_TIME, &[]);
     match get_spiking_issues(&*context.issue_buckets_redis_client, &issues_by_id).await {
         Ok(spiking) => {
             get_spiking_timer.fin();
+            metrics::counter!(SPIKE_ISSUES_SPIKING).increment(spiking.len() as u64);
             emit_spiking_events(&context, spiking).await;
         }
         Err(err) => {
@@ -253,6 +257,9 @@ async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
             return;
         }
     };
+
+    let blocked_count = lock_results.iter().filter(|&&acquired| !acquired).count();
+    metrics::counter!(SPIKE_ISSUES_BLOCKED_BY_COOLDOWN).increment(blocked_count as u64);
 
     let acquired_locks: Vec<SpikingIssue> = spiking
         .into_iter()

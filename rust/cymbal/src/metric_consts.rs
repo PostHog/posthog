@@ -81,3 +81,6 @@ pub const SPIKE_INCREMENT_TEAM_BUCKETS_TIME: &str = "cymbal_spike_increment_team
 pub const SPIKE_GET_SPIKING_ISSUES_TIME: &str = "cymbal_spike_get_spiking_issues_time";
 pub const SPIKE_ACQUIRE_LOCKS_TIME: &str = "cymbal_spike_acquire_locks_time";
 pub const SPIKE_EMIT_EVENTS_TIME: &str = "cymbal_spike_emit_events_time";
+pub const SPIKE_ISSUES_CHECKED: &str = "cymbal_spike_issues_checked";
+pub const SPIKE_ISSUES_SPIKING: &str = "cymbal_spike_issues_spiking";
+pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_by_cooldown";
