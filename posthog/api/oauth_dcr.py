@@ -45,8 +45,10 @@ class DCRRequestSerializer(serializers.Serializer):
     """Validates incoming DCR requests per RFC 7591."""
 
     # Required fields
+    # Use CharField instead of URLField to allow custom URI schemes (e.g., myapp://callback)
+    # per RFC 8252 Section 7.1. The OAuthApplication model's clean() method handles full validation.
     redirect_uris = serializers.ListField(
-        child=serializers.URLField(),
+        child=serializers.CharField(),
         min_length=1,
         help_text="List of allowed redirect URIs",
     )
