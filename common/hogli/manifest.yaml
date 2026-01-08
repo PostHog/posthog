@@ -529,7 +529,7 @@ tools:
         hidden: true
     start:llm:gateway:
         bin_script: start-llm-gateway
-        description: 'TODO: add description for start-llm-gateway'
+        description: 'Start the LLM gateway service'
         hidden: true
     posthog:node:
         bin_script: posthog-node
@@ -537,7 +537,7 @@ tools:
         hidden: true
     start:mcp:server:
         bin_script: start-mcp-server
-        description: 'TODO: add description for start-mcp-server'
+        description: 'Start the MCP server'
         hidden: true
 utilities:
     nuke:
