@@ -56,7 +56,7 @@ export const LaravelInstallation = (): JSX.Element => {
                 />
             </Step>
 
-            <Step title="Send events">
+            <Step title="Send events" badge="optional">
                 <Markdown>Capture custom events using the PostHog client:</Markdown>
                 <CodeBlock
                     blocks={[
