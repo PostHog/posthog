@@ -186,6 +186,7 @@ class TestReconcilePersonProperties:
     def test_set_creates_new_property(self):
         """Test that $set creates a property that doesn't exist in PG."""
         person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {},
             "properties_last_updated_at": {},
             "properties_last_operation": {},
@@ -209,6 +210,7 @@ class TestReconcilePersonProperties:
     def test_set_updates_existing_property_when_newer(self):
         """Test that $set updates an existing property when CH timestamp is newer."""
         person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {"email": "old@example.com"},
             "properties_last_updated_at": {"email": "2024-01-10T00:00:00+00:00"},
             "properties_last_operation": {"email": "set"},
@@ -230,6 +232,7 @@ class TestReconcilePersonProperties:
     def test_set_skips_when_pg_is_newer(self):
         """Test that $set is skipped when PG timestamp is newer than CH."""
         person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {"email": "current@example.com"},
             "properties_last_updated_at": {"email": "2024-01-20T00:00:00+00:00"},
             "properties_last_operation": {"email": "set"},
@@ -251,6 +254,7 @@ class TestReconcilePersonProperties:
     def test_set_once_creates_missing_property(self):
         """Test that $set_once creates a property that doesn't exist in PG."""
         person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {"other_prop": "value"},
             "properties_last_updated_at": {},
             "properties_last_operation": {},
@@ -273,6 +277,7 @@ class TestReconcilePersonProperties:
     def test_set_once_skips_existing_property(self):
         """Test that $set_once doesn't overwrite an existing property."""
         person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {"initial_referrer": "facebook.com"},
             "properties_last_updated_at": {"initial_referrer": "2024-01-05T00:00:00+00:00"},
             "properties_last_operation": {"initial_referrer": "set_once"},
@@ -294,6 +299,7 @@ class TestReconcilePersonProperties:
     def test_handles_multiple_updates(self):
         """Test processing multiple updates for different properties."""
         person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {"existing": "value"},
             "properties_last_updated_at": {},
             "properties_last_operation": {},
@@ -316,6 +322,7 @@ class TestReconcilePersonProperties:
     def test_handles_null_properties(self):
         """Test handling when person has None for properties fields."""
         person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": None,
             "properties_last_updated_at": None,
             "properties_last_operation": None,
@@ -334,6 +341,7 @@ class TestReconcilePersonProperties:
     def test_returns_none_when_no_changes(self):
         """Test that None is returned when no updates are applicable."""
         person = {
+            "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {"email": "current@example.com"},
             "properties_last_updated_at": {"email": "2024-01-20T00:00:00+00:00"},
             "properties_last_operation": {"email": "set"},

@@ -33,8 +33,8 @@ executor_def = dagster.in_process_executor if settings.DEBUG else k8s_job_execut
 class PersonPropertyReconciliationConfig(dagster.Config):
     """Configuration for the person property reconciliation job."""
 
-    bug_window_start: str  # ISO format: "2024-12-01T00:00:00Z"
-    bug_window_end: str  # ISO format: "2024-12-15T00:00:00Z"
+    bug_window_start: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS" (assumed UTC)
+    bug_window_end: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS" (assumed UTC)
     team_ids: list[int] | None = None  # Optional: filter to specific teams
     dry_run: bool = False  # Log changes without applying
 
@@ -57,11 +57,24 @@ class PersonPropertyUpdates:
     updates: list[PropertyUpdate]
 
 
-def parse_datetime(dt_str: str) -> datetime:
-    """Parse an ISO format datetime string."""
+def parse_datetime(dt_str: str, person_id: str, property_key: str) -> datetime:
+    """Parse an ISO format datetime string, assuming UTC if no timezone."""
+    from datetime import UTC
+
+    import structlog
+
     if dt_str.endswith("Z"):
         dt_str = dt_str[:-1] + "+00:00"
-    return datetime.fromisoformat(dt_str)
+    dt = datetime.fromisoformat(dt_str)
+    if dt.tzinfo is None:
+        structlog.get_logger(__name__).warning(
+            "naive_datetime_assumed_utc",
+            datetime_str=dt_str,
+            person_id=person_id,
+            property_key=property_key,
+        )
+        dt = dt.replace(tzinfo=UTC)
+    return dt
 
 
 def get_person_property_updates_from_clickhouse(
@@ -281,7 +294,7 @@ def reconcile_person_properties(
                 changed = True
         else:
             # set: create or update property if CH timestamp is newer (or no existing timestamp)
-            if existing_ts_str is None or event_ts > parse_datetime(existing_ts_str):
+            if existing_ts_str is None or event_ts > parse_datetime(existing_ts_str, person["uuid"], key):
                 properties[key] = value
                 properties_last_updated_at[key] = event_ts_str
                 properties_last_operation[key] = "set"
