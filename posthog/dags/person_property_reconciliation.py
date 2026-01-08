@@ -23,7 +23,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags.common import JobOwners
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.topics import KAFKA_PERSON
 
 # Use in_process_executor locally (k8s_job_executor doesn't work outside k8s)
@@ -296,12 +296,13 @@ def reconcile_person_properties(
     return None
 
 
-def publish_person_to_kafka(person_data: dict) -> None:
+def publish_person_to_kafka(person_data: dict, producer: _KafkaProducer) -> None:
     """
     Publish a person update to the Kafka topic for ClickHouse ingestion.
 
     Args:
         person_data: Dict with id, team_id, properties, is_identified, is_deleted, created_at, version
+        producer: Kafka producer instance (injected resource)
     """
     from django.utils.timezone import now
 
@@ -323,7 +324,6 @@ def publish_person_to_kafka(person_data: dict) -> None:
         "_timestamp": now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-    producer = KafkaProducer()
     producer.produce(topic=KAFKA_PERSON, data=kafka_data)
 
 
@@ -512,8 +512,9 @@ def reconcile_team_chunk(
     context: dagster.OpExecutionContext,
     config: PersonPropertyReconciliationConfig,
     chunk: int,
-    database: dagster.ResourceParam[psycopg2.extensions.connection],
+    persons_database: dagster.ResourceParam[psycopg2.extensions.connection],
     cluster: dagster.ResourceParam[ClickhouseCluster],
+    kafka_producer: dagster.ResourceParam[_KafkaProducer],
 ) -> dict[str, Any]:
     """
     Reconcile person properties for all affected persons in a team.
@@ -551,7 +552,7 @@ def reconcile_team_chunk(
 
         context.log.info(f"Processing {len(person_property_updates)} persons for team_id={team_id}")
 
-        with database.cursor() as cursor:
+        with persons_database.cursor() as cursor:
             cursor.execute("SET application_name = 'person_property_reconciliation'")
             cursor.execute("SET lock_timeout = '5s'")
             cursor.execute("SET statement_timeout = '30min'")
@@ -583,13 +584,13 @@ def reconcile_team_chunk(
 
             # Commit the Postgres transaction
             if persons_to_publish and not config.dry_run:
-                database.commit()
+                persons_database.commit()
 
             # Publish to Kafka (after commit, so we don't publish if commit fails)
             if persons_to_publish and not config.dry_run:
                 for person_data in persons_to_publish:
                     try:
-                        publish_person_to_kafka(person_data)
+                        publish_person_to_kafka(person_data, kafka_producer)
                     except Exception as kafka_error:
                         context.log.warning(
                             f"Failed to publish person to Kafka: {person_data['id']}, error: {kafka_error}"
