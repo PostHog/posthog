@@ -34,6 +34,21 @@ pub fn team_token_hypercache_key(api_token: &str) -> String {
     format!("posthog:1:cache/team_tokens/{api_token}/team_metadata/full_metadata.json")
 }
 
+/// Update team data in HyperCache with proper pickle encoding.
+/// Use this when modifying team settings in tests and need to update the cache.
+/// Format: Pickle(JSON string) to match Django's cache format.
+pub async fn update_team_in_hypercache(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    team: &Team,
+) -> Result<(), Error> {
+    let json_string = serde_json::to_string(team)?;
+    let pickled_bytes =
+        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle team");
+    let cache_key = team_token_hypercache_key(&team.api_token);
+    client.set_bytes(cache_key, pickled_bytes, None).await?;
+    Ok(())
+}
+
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
@@ -48,9 +63,12 @@ pub async fn insert_new_team_in_redis(
         ..Default::default()
     };
 
-    let serialized_team = serde_json::to_string(&team)?;
+    // Serialize team to JSON string, then pickle to match Django's cache format: Pickle(JSON)
+    let json_string = serde_json::to_string(&team)?;
+    let pickled_bytes =
+        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle team");
     let cache_key = team_token_hypercache_key(&team.api_token);
-    client.set(cache_key, serialized_team).await?;
+    client.set_bytes(cache_key, pickled_bytes, None).await?;
 
     Ok(team)
 }
