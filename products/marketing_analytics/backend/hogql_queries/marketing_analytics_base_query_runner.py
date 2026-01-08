@@ -24,6 +24,7 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models.team.team import DEFAULT_CURRENCY
 
 from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
+from products.marketing_analytics.backend.models import MarketingAnalyticsGoalMapping
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
@@ -209,10 +210,48 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         )
 
     def _get_team_conversion_goals(self) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
-        """Get conversion goals from team marketing analytics config and convert to proper objects"""
-        conversion_goals = convert_team_conversion_goals_to_objects(
-            self.team.marketing_analytics_config.conversion_goals, self.team.pk
-        )
+        """Get conversion goals from both legacy config and MarketingAnalyticsGoalMapping records"""
+        # Start with legacy conversion goals from team marketing analytics config
+        legacy_conversion_goals = self.team.marketing_analytics_config.conversion_goals or []
+
+        # Fetch goal mappings from the MarketingAnalyticsGoalMapping table (new system using CoreEvents)
+        goal_mappings = MarketingAnalyticsGoalMapping.objects.filter(team=self.team).select_related("core_event")
+
+        # Convert goal mappings to the dict format expected by convert_team_conversion_goals_to_objects
+        core_event_goals = []
+        for mapping in goal_mappings:
+            core_event = mapping.core_event
+            filter_config = core_event.filter
+
+            # Build the conversion goal dict from CoreEvent filter + GoalMapping schema_map
+            # Use core_event.id as a unique identifier for conversion_goal_id
+            goal_dict: dict = {
+                "conversion_goal_id": str(core_event.id),
+                "conversion_goal_name": core_event.name,
+                "kind": filter_config.get("kind"),
+                "schema_map": mapping.schema_map or {},
+            }
+
+            kind = filter_config.get("kind")
+            if kind == "EventsNode":
+                goal_dict["event"] = filter_config.get("event")
+                # EventsNode doesn't have an 'id' field in the schema
+            elif kind == "ActionsNode":
+                # ActionsNode requires 'id' as int (the action ID)
+                goal_dict["id"] = filter_config.get("id")
+            elif kind == "DataWarehouseNode":
+                # DataWarehouseNode requires 'id' as str (table identifier)
+                goal_dict["id"] = filter_config.get("id")
+                goal_dict["id_field"] = filter_config.get("id_field")
+                goal_dict["distinct_id_field"] = filter_config.get("distinct_id_field")
+                goal_dict["table_name"] = filter_config.get("table_name")
+                goal_dict["timestamp_field"] = filter_config.get("timestamp_field")
+
+            core_event_goals.append(goal_dict)
+
+        # Merge both sources: legacy goals + core event goals
+        all_goals = legacy_conversion_goals + core_event_goals
+        conversion_goals = convert_team_conversion_goals_to_objects(all_goals, self.team.pk)
 
         # Only check draftConversionGoal if the query type supports it
         if hasattr(self.query, "draftConversionGoal") and self.query.draftConversionGoal:
