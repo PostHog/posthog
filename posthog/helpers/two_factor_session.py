@@ -291,7 +291,7 @@ class EmailMFAVerifier:
 
     def should_send_email_mfa_verification(self, user: User) -> EmailMFACheckResult:
         if is_dev_mode() and not settings.TEST:
-            return EmailMFACheckResult(should_send=True)
+            return EmailMFACheckResult(should_send=False)
 
         if not is_email_available(with_absolute_urls=True):
             return EmailMFACheckResult(should_send=False)
