@@ -1,3 +1,12 @@
+# Hobby Installer Build Workflow
+#
+# This workflow builds the hobby installer binaries and publishes them as GitHub releases.
+#
+# Download the latest version:
+#   curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer && chmod +x hobby-installer
+#
+# Or browse all versions at: https://github.com/PostHog/posthog/releases?q=hobby-&expanded=true
+
 name: Build Hobby Installer
 
 on:
@@ -10,24 +19,15 @@ on:
             - '.github/workflows/build-hobby-installer.yml'
 
 permissions:
-    contents: read
+    contents: write
 
 jobs:
     build:
         runs-on: ubuntu-24.04
 
         steps:
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@v2
-              with:
-                  app-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
             - name: Checkout repository
               uses: actions/checkout@v4
-              with:
-                  token: ${{ steps.app-token.outputs.token }}
 
             - name: Set up Go
               uses: actions/setup-go@v6
@@ -37,35 +37,29 @@ jobs:
             - name: Build production binary
               run: cd bin/hobby-installer && make build-linux
 
-            - name: Check for changes
-              id: check-changes
+            - name: Create versioned and latest releases
+              env:
+                  GH_TOKEN: ${{ github.token }}
               run: |
-                  if git diff --quiet bin/posthog-hobby; then
-                    echo "changes=false" >> $GITHUB_OUTPUT
-                    echo "No changes detected in hobby installer binary"
-                  else
-                    echo "changes=true" >> $GITHUB_OUTPUT
-                    echo "Changes detected in hobby installer binary"
-                    git diff --stat bin/posthog-hobby
-                  fi
+                  VERSION="hobby-$(date +%Y%m%d-%H%M%S)"
 
-            - name: Create pull request
-              if: steps.check-changes.outputs.changes == 'true'
-              uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v5
-              with:
-                  token: ${{ steps.app-token.outputs.token }}
-                  commit-message: 'chore(hobby): rebuild hobby installer binary'
-                  title: 'chore(hobby): Rebuild hobby installer binary'
-                  body: |
-                      This is an automated PR to rebuild the hobby installer binary after source changes.
+                  # Versioned release for history
+                  gh release create "$VERSION" \
+                      bin/hobby-installer \
+                      --title "Hobby Installer $VERSION" \
+                      --notes "Build from commit ${{ github.sha }}" \
+                      --latest=false
 
-                      The `bin/posthog-hobby` binary was out of sync with the source code in `bin/hobby-installer/`.
-                  branch: chore/hobby-rebuild-installer
-                  base: master
-                  delete-branch: true
-                  labels: |
-                      automated
-                      hobby
-                  reviewers: |
-                      pauldambra
-                      rafaeelaudibert
+                  # Update floating latest release
+                  gh release delete hobby-latest --yes || true
+                  git push origin :refs/tags/hobby-latest || true
+                  gh release create hobby-latest \
+                      bin/hobby-installer \
+                      --title "Hobby Installer (Latest)" \
+                      --notes "Latest hobby installer build - same as $VERSION
+
+                  This is currently experimental and may not work as expected. We believe it to be working correctly, but please make sure you backup your data before using it.
+
+
+                  Download: \`curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer && chmod +x hobby-installer\`" \
+                      --latest=false
