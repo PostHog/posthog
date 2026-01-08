@@ -18,7 +18,6 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     id: 1,
     name: 'test',
     key: 'test',
-    rollout_percentage: 50,
     filters: {
         groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         multivariate: null,
