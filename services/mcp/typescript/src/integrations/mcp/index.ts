@@ -7,7 +7,7 @@ import { getPostHogClient } from '@/integrations/mcp/utils/client'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
-import { CUSTOM_BASE_URL, MCP_DOCS_URL } from '@/lib/constants'
+import { CUSTOM_BASE_URL, MCP_DOCS_URL, OAUTH_AUTHORIZATION_SERVER_URL } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
@@ -285,6 +285,48 @@ export default {
                 {
                     headers: {
                         'content-type': 'text/html',
+                    },
+                }
+            )
+        }
+
+        // OAuth Protected Resource Metadata (RFC 9728)
+        // Tells MCP clients where to authenticate to get tokens
+        if (url.pathname === '/.well-known/oauth-protected-resource') {
+            const resourceUrl = new URL(request.url)
+            resourceUrl.pathname = '/'
+            resourceUrl.search = ''
+
+            return new Response(
+                JSON.stringify({
+                    resource: resourceUrl.toString().replace(/\/$/, ''),
+                    authorization_servers: [OAUTH_AUTHORIZATION_SERVER_URL],
+                    scopes_supported: [
+                        'openid',
+                        'profile',
+                        'email',
+                        'organization:read',
+                        'project:read',
+                        'feature_flag:read',
+                        'feature_flag:write',
+                        'experiment:read',
+                        'experiment:write',
+                        'insight:read',
+                        'insight:write',
+                        'dashboard:read',
+                        'dashboard:write',
+                        'query:read',
+                        'survey:read',
+                        'survey:write',
+                        'error_tracking:read',
+                        'logs:read',
+                    ],
+                    bearer_methods_supported: ['header'],
+                }),
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'public, max-age=3600',
                     },
                 }
             )

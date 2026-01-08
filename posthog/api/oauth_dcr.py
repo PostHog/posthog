@@ -122,17 +122,25 @@ class DynamicClientRegistrationView(APIView):
                 user=None,
             )
         except ValidationError as e:
-            # Convert Django ValidationError to RFC 7591 error format
-            if hasattr(e, "message_dict"):
-                error_detail = "; ".join(f"{k}: {', '.join(v)}" for k, v in e.message_dict.items())
-            else:
-                error_detail = "; ".join(e.messages)
+            # Only expose redirect_uri validation errors to clients
+            # Other validation errors (like missing RSA key) are internal and should not be leaked
+            if hasattr(e, "message_dict") and "redirect_uris" in e.message_dict:
+                error_detail = "; ".join(e.message_dict["redirect_uris"])
+                return Response(
+                    {
+                        "error": "invalid_redirect_uri",
+                        "error_description": error_detail,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # Log internal validation errors but don't expose details
+            logger.exception("dcr_validation_failed")
             return Response(
                 {
-                    "error": "invalid_redirect_uri",
-                    "error_description": error_detail,
+                    "error": "server_error",
+                    "error_description": "Failed to create client",
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         except Exception:
             logger.exception("dcr_client_creation_failed")

@@ -545,6 +545,8 @@ class OAuthAuthorizationServerMetadataView(APIView):
             "introspection_endpoint": f"{base_url}/oauth/introspect/",
             "userinfo_endpoint": f"{base_url}/oauth/userinfo/",
             "jwks_uri": f"{base_url}/.well-known/jwks.json",
+            # Dynamic Client Registration (RFC 7591)
+            "registration_endpoint": f"{base_url}/oauth/register/",
             # Supported features
             "scopes_supported": all_scopes,
             "response_types_supported": ["code"],
