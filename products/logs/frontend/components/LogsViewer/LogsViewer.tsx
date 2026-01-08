@@ -3,16 +3,16 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { cn } from 'lib/utils/css-classes'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
+import { LogDetailsModal } from './LogDetailsModal'
 import { LogsSelectionToolbar } from './LogsSelectionToolbar'
 import { LogsSparkline, LogsSparklineData } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
@@ -35,6 +35,8 @@ export interface LogsViewerProps {
     sparklineData: LogsSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
+    sparklineBreakdownBy: LogsSparklineBreakdownBy
+    onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
 }
 
 export function LogsViewer({
@@ -51,6 +53,8 @@ export function LogsViewer({
     sparklineData,
     sparklineLoading,
     onDateRangeChange,
+    sparklineBreakdownBy,
+    onSparklineBreakdownByChange,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
@@ -65,6 +69,8 @@ export function LogsViewer({
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={onDateRangeChange}
+                sparklineBreakdownBy={sparklineBreakdownBy}
+                onSparklineBreakdownByChange={onSparklineBreakdownByChange}
             />
         </BindLogic>
     )
@@ -81,6 +87,8 @@ interface LogsViewerContentProps {
     sparklineData: LogsSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
+    sparklineBreakdownBy: LogsSparklineBreakdownBy
+    onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
 }
 
 function LogsViewerContent({
@@ -94,6 +102,8 @@ function LogsViewerContent({
     sparklineData,
     sparklineLoading,
     onDateRangeChange,
+    sparklineBreakdownBy,
+    onSparklineBreakdownByChange,
 }: LogsViewerContentProps): JSX.Element {
     const {
         tabId,
@@ -102,26 +112,21 @@ function LogsViewerContent({
         pinnedLogsArray,
         isFocused,
         cursorLogId,
-        linkToLogId,
         logs,
-        logsCount,
         timezone,
         isSelectionActive,
     } = useValues(logsViewerLogic)
     const {
-        setFocused,
         moveCursorDown,
         moveCursorUp,
         toggleExpandLog,
         resetCursor,
-        setCursorToLogId,
         toggleSelectLog,
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ tabId }))
-    const containerRef = useRef<HTMLDivElement>(null)
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
     const scrollLeftRef = useRef(messageScrollLeft)
     scrollLeftRef.current = messageScrollLeft
@@ -194,14 +199,6 @@ function LogsViewerContent({
             stopScrolling()
         }
     }, [isFocused, wrapBody, startScrolling, stopScrolling])
-
-    // Position cursor at linked log when deep linking (URL -> cursor)
-    useEffect(() => {
-        if (linkToLogId && logsCount > 0) {
-            setCursorToLogId(linkToLogId)
-            containerRef.current?.focus()
-        }
-    }, [linkToLogId, logsCount, setCursorToLogId])
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'> = {
         formatDate: 'YYYY-MM-DD',
@@ -296,52 +293,37 @@ function LogsViewerContent({
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={onDateRangeChange}
                 displayTimezone={timezone}
+                breakdownBy={sparklineBreakdownBy}
+                onBreakdownByChange={onSparklineBreakdownByChange}
             />
             <SceneDivider />
             <LogsViewerToolbar totalLogsCount={totalLogsCount} orderBy={orderBy} onChangeOrderBy={onChangeOrderBy} />
             <LogsSelectionToolbar />
-            <div
-                ref={containerRef}
-                className="flex flex-col gap-2 flex-1 min-h-0 outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 rounded"
-                tabIndex={0}
-                onFocus={() => {
-                    setFocused(true)
-                    containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                }}
-                onBlur={() => setFocused(false)}
-            >
-                {pinnedLogsArray.length > 0 && (
-                    <div className="border rounded-t bg-bg-light shadow-sm">
-                        <VirtualizedLogsList
-                            dataSource={pinnedLogsArray}
-                            loading={false}
-                            wrapBody={wrapBody}
-                            prettifyJson={prettifyJson}
-                            tzLabelFormat={tzLabelFormat}
-                            showPinnedWithOpacity
-                            fixedHeight={250}
-                            disableInfiniteScroll
-                        />
-                    </div>
-                )}
-                <div
-                    className={cn(
-                        'border bg-bg-light flex-1 min-h-0',
-                        pinnedLogsArray.length > 0 ? 'rounded-b' : 'rounded'
-                    )}
-                >
-                    <VirtualizedLogsList
-                        dataSource={logs}
-                        loading={loading}
-                        wrapBody={wrapBody}
-                        prettifyJson={prettifyJson}
-                        tzLabelFormat={tzLabelFormat}
-                        showPinnedWithOpacity
-                        hasMoreLogsToLoad={hasMoreLogsToLoad}
-                        onLoadMore={onLoadMore}
-                    />
-                </div>
-            </div>
+            {pinnedLogsArray.length > 0 && (
+                <VirtualizedLogsList
+                    dataSource={pinnedLogsArray}
+                    loading={false}
+                    wrapBody={wrapBody}
+                    prettifyJson={prettifyJson}
+                    tzLabelFormat={tzLabelFormat}
+                    fixedHeight={250}
+                    disableInfiniteScroll
+                    disableCursor
+                />
+            )}
+
+            <VirtualizedLogsList
+                dataSource={logs}
+                loading={loading}
+                wrapBody={wrapBody}
+                prettifyJson={prettifyJson}
+                tzLabelFormat={tzLabelFormat}
+                showPinnedWithOpacity
+                hasMoreLogsToLoad={hasMoreLogsToLoad}
+                onLoadMore={onLoadMore}
+            />
+
+            <LogDetailsModal timezone={timezone} />
         </div>
     )
 }

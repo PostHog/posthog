@@ -1,3 +1,9 @@
+"""
+Activity 3 of the video-based summarization workflow:
+Analyzing a specific segment of the session video with Gemini.
+(Python modules have to start with a letter, hence the file is prefixed `a3_` instead of `3_`.)
+"""
+
 import re
 from datetime import datetime
 from math import floor
@@ -8,7 +14,8 @@ from django.conf import settings
 
 import structlog
 import temporalio
-from google.genai import Client, types
+from google.genai import types
+from posthoganalytics.ai.gemini import genai
 
 from posthog.models.team.team import Team
 from posthog.temporal.ai.session_summary.state import (
@@ -49,23 +56,22 @@ async def analyze_video_segment_activity(
     """
     try:
         # Construct analysis prompt
-        start_timestamp = _format_timestamp(segment.start_time)
-        end_timestamp = _format_timestamp(segment.end_time)
+        start_timestamp = _format_timestamp_as_mm_ss(segment.start_time)
+        end_timestamp = _format_timestamp_as_mm_ss(segment.end_time)
         segment_duration = segment.end_time - segment.start_time
 
-        logger.info(
+        logger.debug(
             f"Analyzing segment {segment.segment_index} ({start_timestamp} - {end_timestamp}) for session {inputs.session_id}",
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
         )
 
+        # We can't do async operations at the workflow level, so we have to fetch team_name in each individual activity here
         team_name = (await Team.objects.only("name").aget(id=inputs.team_id)).name
 
         # Analyze with Gemini using video_metadata to specify the time range
-        client = Client(api_key=settings.GEMINI_API_KEY)
-
-        # TODO: Use posthoganalytics wrapper for async calls (update posthoganalytics version?)
-        response = await client.aio.models.generate_content(
+        client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+        response = await client.models.generate_content(
             model=f"models/{inputs.model_to_use}",
             contents=[
                 types.Part(
@@ -97,22 +103,13 @@ async def analyze_video_segment_activity(
 
         response_text = (response.text or "").strip()
 
-        logger.info(
+        logger.debug(
             f"Received analysis for segment {segment.segment_index}",
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
             response_length=len(response_text),
             response_preview=response_text[:200] if response_text else None,
         )
-
-        if response_text.lower() == "static":
-            # No activity in this segment
-            logger.debug(
-                f"Segment {segment.segment_index} marked as static",
-                session_id=inputs.session_id,
-                segment_index=segment.segment_index,
-            )
-            return []
 
         # Parse response into segments
         segments = VideoSegmentParser().parse_response_into_segment_outputs(response_text)
@@ -124,7 +121,7 @@ async def analyze_video_segment_activity(
             )
             return []
 
-        logger.info(
+        logger.debug(
             f"Parsed {len(segments)} segments from segment {segment.segment_index}",
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
@@ -176,6 +173,9 @@ This segment starts at {start_timestamp} in the full recording and runs for appr
 - Highlight what features were used, and what the user was doing with them
 - Explicitly mention names/labels of the elements the user interacted with
 - Note any problems, errors, confusion, or friction the user experienced
+- If tracked events show exceptions ($exception_types, $exception_values), validate if they happened in the video
+- Red lines indicate mouse movements, and should be ignored
+- If nothing is happening, return "Static" for the timestamp range
 
 ## Indicators
 Video includes additional video indicators for LLMs specifically, and are not visible to the user:
@@ -188,6 +188,13 @@ Video includes additional video indicators for LLMs specifically, and are not vi
     - Optional `IDLE` indicator, if present - user didn't move mouse or click buttons
 
 Avoid mentioning these indicators in the output, as they are not part of the recording and added for analysis purposes only.
+
+Example output:
+* 0:16 - 0:18: User clicked on the dashboard navigation item in the sidebar
+* 0:18 - 0:24: User scrolled through the dashboard page viewing multiple analytics widgets
+* 0:24 - 0:25: User clicked "Create new project" button in the top toolbar
+* 0:25 - 0:32: User filled out the project creation form, entering name and description
+* 0:32 - 0:33: User attempted to submit the form but received validation error "Name is required"
 
 ## What to ignore
 - Ignore accidental hovers
@@ -281,7 +288,7 @@ class VideoSegmentParser:
                 elements.append(VideoSegmentElement(element_type=element_type, element_value=value.strip('"')))
         return elements
 
-    def _parse_interaction(self, description_raw: str) -> str:
+    def _parse_interaction(self, description_raw: str) -> str | None:
         interaction_pattern = r"\s*`interaction:\s*(.*)?`(?:\n|$)"
         results = re.findall(interaction_pattern, description_raw)
         if not results:
@@ -506,8 +513,7 @@ def _parse_timestamp_to_seconds(time_str: str) -> int:
     return seconds
 
 
-def _format_timestamp(seconds: float) -> str:
-    """Format seconds as MM:SS or HH:MM:SS"""
+def _format_timestamp_as_mm_ss(seconds: float) -> str:
     minutes = int(seconds // 60)
     secs = int(seconds % 60)
     return f"{minutes:02d}:{secs:02d}"

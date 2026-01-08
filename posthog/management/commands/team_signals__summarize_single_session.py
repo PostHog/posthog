@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 
 from django.core.management.base import BaseCommand
 
@@ -96,7 +97,6 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write("")
             self.stdout.write(self.style.ERROR(f"Error during analysis: {e}"))
-            import traceback
 
             self.stdout.write(traceback.format_exc())
             raise

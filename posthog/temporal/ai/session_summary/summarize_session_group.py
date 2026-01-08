@@ -35,9 +35,6 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
-from posthog.temporal.ai.session_summary.activities.video_validation import (
-    validate_llm_single_session_summary_with_videos_activity,
-)
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     generate_state_id_from_session_ids,
@@ -402,20 +399,18 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         Run and handle the summary for a single session to avoid one activity failing the whole group.
         Supports both regular event-based summarization and video-based summarization.
         """
-        # Generate session summary
-        await ensure_llm_single_session_summary(inputs)
-        # Validate session summary with videos and apply updates
-        if inputs.video_validation_enabled:
-            await temporalio.workflow.execute_activity(
-                validate_llm_single_session_summary_with_videos_activity,
-                inputs,
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+        try:
+            # Generate session summary
+            await ensure_llm_single_session_summary(inputs)
+            # Keep track of processed summaries
+            self._processed_single_summaries += 1
+            self._current_status.append(
+                f"Watching sessions ({self._processed_single_summaries}/{self._total_sessions})"
             )
-        # Keep track of processed summaries
-        self._processed_single_summaries += 1
-        self._current_status.append(f"Watching sessions ({self._processed_single_summaries}/{self._total_sessions})")
-        return None
+            return None
+        except Exception as err:  # Activity retries exhausted
+            # Let caller handle the error
+            return err
 
     async def _run_summaries(self, inputs: list[SingleSessionSummaryInputs]) -> list[SingleSessionSummaryInputs]:
         """

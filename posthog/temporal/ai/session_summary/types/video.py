@@ -2,12 +2,15 @@ import dataclasses
 from enum import Enum
 from typing import Literal
 
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class VideoSummarySingleSessionInputs:
+class VideoSummarySingleSessionInputs(BaseModel):
     """Workflow input for video-based session analysis"""
+
+    model_config = ConfigDict(frozen=True)
 
     session_id: str
     user_id: int
@@ -18,22 +21,30 @@ class VideoSummarySingleSessionInputs:
     extra_summary_context: ExtraSummaryContext | None = None
 
 
-@dataclasses.dataclass(frozen=True)
-class UploadedVideo:
+class UploadedVideo(BaseModel):
     """Reference to a video uploaded to Gemini for analysis"""
+
+    model_config = ConfigDict(frozen=True)
 
     file_uri: str
     mime_type: str
-    duration: int  # Duration in seconds
+    duration: int = Field(description="Duration in seconds")
 
 
-@dataclasses.dataclass(frozen=True)
-class VideoSegmentSpec:
+class VideoSegmentSpec(BaseModel):
     """Specification for a segment of video to analyze"""
 
+    model_config = ConfigDict(frozen=True)
+
     segment_index: int
-    start_time: float  # Seconds from start of video
-    end_time: float  # Seconds from start of video
+    start_time: float = Field(description="Seconds from start of video")
+    end_time: float = Field(description="Seconds from start of video")
+
+    @model_validator(mode="after")
+    def validate_time_range(self):
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be greater than start_time")
+        return self
 
 
 # Using Enum to check the output values of LLM, but don't force the values (use `custom` if validation fails)
@@ -97,44 +108,58 @@ class VideoSegmentOutput:
     Contains detailed description of what happened during this time segment.
     """
 
-    start_time: str  # Format: MM:SS or HH:MM:SS
-    end_time: str  # Format: MM:SS or HH:MM:SS
-    description: str
+    model_config = ConfigDict(frozen=True)
+
+    start_time: str = Field(description="Format: MM:SS or HH:MM:SS")
+    end_time: str = Field(description="Format: MM:SS or HH:MM:SS")
+    description: str | None = None
     interactions: list[VideoSegmentInteraction] | None = None
     timestamp_indicator: int | None = None
 
 
-@dataclasses.dataclass(frozen=True)
-class ConsolidatedVideoSegment:
+class ConsolidatedVideoSegment(BaseModel):
     """A semantically meaningful segment consolidated from raw video analysis outputs.
 
     Unlike VideoSegmentOutput which is purely based on a timestamp range, ConsolidatedVideoSegment is a meaningful
     unit of something the user did/experienced.
     """
 
-    title: str  # Meaningful segment title (e.g., "User onboarding flow", "Debugging API errors")
-    start_time: str  # Format: MM:SS or HH:MM:SS
-    end_time: str  # Format: MM:SS or HH:MM:SS
-    description: str  # Combined/refined description of what happened
-    # Success/failure indicators detected from video analysis
-    success: bool = True  # Whether the segment appears successful
-    failure_detected: bool = False  # User encountered errors/failures
-    confusion_detected: bool = False  # User appeared confused (backtracking, hesitation)
-    abandonment_detected: bool = False  # User abandoned a flow
+    model_config = ConfigDict(frozen=True)
+
+    title: str = Field(description="Meaningful segment title (e.g., 'User onboarding flow', 'Debugging API errors')")
+    start_time: str = Field(description="Format: MM:SS or HH:MM:SS")
+    end_time: str = Field(description="Format: MM:SS or HH:MM:SS")
+    description: str = Field(description="Combined/refined description of what happened")
+    success: bool = Field(default=True, description="Whether the segment appears successful")
+    failure_detected: bool = Field(default=False, description="User encountered errors/failures")
+    confusion_detected: bool = Field(default=False, description="User appeared confused (backtracking, hesitation)")
+    abandonment_detected: bool = Field(default=False, description="User abandoned a flow")
 
 
-@dataclasses.dataclass(frozen=True)
-class VideoSessionOutcome:
+class VideoSessionOutcome(BaseModel):
     """Overall session outcome determined from video analysis."""
+
+    model_config = ConfigDict(frozen=True)
 
     success: bool
     description: str
 
 
-@dataclasses.dataclass(frozen=True)
-class ConsolidatedVideoAnalysis:
+class VideoSegmentOutcome(BaseModel):
+    """Outcome for a specific video segment."""
+
+    model_config = ConfigDict(frozen=True)
+
+    segment_index: int
+    success: bool
+    summary: str
+
+
+class ConsolidatedVideoAnalysis(BaseModel):
     """Complete output from video segment consolidation including segments, outcomes, and session-level analysis."""
+
+    model_config = ConfigDict(frozen=True)
 
     segments: list[ConsolidatedVideoSegment]
     session_outcome: VideoSessionOutcome
-    segment_outcomes: list[dict]  # [{segment_index: int, success: bool, summary: str}]
+    segment_outcomes: list[VideoSegmentOutcome]

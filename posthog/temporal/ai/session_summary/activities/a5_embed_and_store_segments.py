@@ -1,3 +1,9 @@
+"""
+Activity 5 of the video-based summarization workflow:
+Embedding the meaningful video segments and storing them in ClickHouse.
+(Python modules have to start with a letter, hence the file is prefixed `a5_` instead of `5_`.)
+"""
+
 import structlog
 import temporalio
 
@@ -15,7 +21,6 @@ logger = structlog.get_logger(__name__)
 async def embed_and_store_segments_activity(
     inputs: VideoSummarySingleSessionInputs,
     segments: list[VideoSegmentOutput],
-    asset_id: int,
 ) -> None:
     """Generate embeddings for all segments and produce to Kafka for ClickHouse storage
 
@@ -23,13 +28,6 @@ async def embed_and_store_segments_activity(
     distinct_id, and timestamps.
     """
     try:
-        if not segments:
-            logger.info(
-                f"No segments to embed for session {inputs.session_id}",
-                session_id=inputs.session_id,
-            )
-            return
-
         for segment in segments:
             # Use the description directly as the content to embed
             content = segment.description
@@ -63,7 +61,7 @@ async def embed_and_store_segments_activity(
                 document_id=document_id,
             )
 
-        logger.info(
+        logger.debug(
             f"Successfully produced {len(segments)} embeddings for session {inputs.session_id}",
             session_id=inputs.session_id,
             segment_count=len(segments),

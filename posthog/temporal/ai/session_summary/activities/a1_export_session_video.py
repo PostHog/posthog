@@ -1,3 +1,9 @@
+"""
+Activity 1 of the video-based summarization workflow:
+Exporting the session as a video.
+(Python modules have to start with a letter, hence the file is prefixed `a1_` instead of `1_`.)
+"""
+
 import uuid
 from datetime import timedelta
 
@@ -7,7 +13,6 @@ from django.utils.timezone import now
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ApplicationError
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -26,10 +31,13 @@ from ee.hogai.session_summaries.session.input_data import get_team
 
 logger = structlog.get_logger(__name__)
 
+# We can speed things up a bit right now - but not too much, as CSS animations are the same speed
+VIDEO_ANALYSIS_PLAYBACK_SPEED = 2
+
 
 @temporalio.activity.defn
-async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs) -> int:
-    """Export full session video and return ExportedAsset ID"""
+async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs) -> int | None:
+    """Export full session video and return ExportedAsset ID, or None if session is too short"""
     try:
         # Check for existing exported asset for this session
         # TODO: Find a way to attach Gemini Files API id to the asset, with an expiration date, so we can reuse it (instead of re-uploading)
@@ -50,12 +58,16 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 existing_asset.export_context.get("duration", 0) if existing_asset.export_context else 0
             )
             if existing_duration_s * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
-                raise ApplicationError(
-                    f"Session {inputs.session_id} video is too short for summarization "
-                    f"({existing_duration_s * 1000:.0f}ms < {MIN_SESSION_DURATION_FOR_SUMMARY_MS}ms)",
-                    non_retryable=True,
+                logger.warning(
+                    f"Session {inputs.session_id} in team {inputs.team_id} is too short ({existing_duration_s * 1000:.0f}ms) to summarize, skipping",
+                    extra={
+                        "session_id": inputs.session_id,
+                        "team_id": inputs.team_id,
+                        "signals_type": "session-summaries",
+                    },
                 )
-            logger.info(
+                return None
+            logger.debug(
                 f"Found existing video export for session {inputs.session_id}, reusing asset {existing_asset.id}",
                 session_id=inputs.session_id,
                 asset_id=existing_asset.id,
@@ -77,10 +89,11 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
 
         # Check if session is too short for summarization - note: this is different from the video duration, but probs close enough
         if session_duration * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
-            msg = f"Session {inputs.session_id} video is too short for summarization "
-            f"({session_duration * 1000:.0f}ms < {MIN_SESSION_DURATION_FOR_SUMMARY_MS}ms)"
-            logger.error(msg, session_id=inputs.session_id, signals_type="session-summaries")
-            raise ApplicationError(msg, non_retryable=True)
+            logger.warning(
+                f"Session {inputs.session_id} in team {inputs.team_id} is too short ({session_duration * 1000:.0f}ms) to summarize, skipping",
+                extra={"session_id": inputs.session_id, "team_id": inputs.team_id, "signals_type": "session-summaries"},
+            )
+            return None
 
         # Create ExportedAsset
         filename = f"session-video-summary_{inputs.session_id}_{uuid.uuid4()}"
@@ -93,9 +106,9 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 "timestamp": 0,  # Start from beginning
                 "filename": filename,
                 "duration": session_duration,
-                "playback_speed": 1.0,  # Normal speed
+                "playback_speed": VIDEO_ANALYSIS_PLAYBACK_SPEED,
                 "mode": "video",
-                "show_llm_metadata": True,  # Display additional metadata for LLMs in the video
+                "show_metadata_footer": True,  # Display additional metadata for LLMs in the video
             },
             created_by_id=inputs.user_id,
             created_at=created_at,
@@ -107,13 +120,13 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         await client.execute_workflow(
             VideoExportWorkflow.run,
             VideoExportInputs(exported_asset_id=exported_asset.id),
-            id=f"session-video-summary-export_{inputs.session_id}_{uuid.uuid4()}",
+            id=f"session-video-summary-export_{inputs.session_id}",
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         )
 
-        logger.info(
+        logger.debug(
             f"Video exported successfully for session {inputs.session_id}",
             session_id=inputs.session_id,
             asset_id=exported_asset.id,

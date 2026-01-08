@@ -1,3 +1,9 @@
+"""
+Activity 4 of the video-based summarization workflow:
+Consolidating raw video segments into meaningful semantic segments using LLM.
+(Python modules have to start with a letter, hence the file is prefixed `a4_` instead of `4_`.)
+"""
+
 import re
 import json
 
@@ -7,15 +13,15 @@ import structlog
 import temporalio
 from google.genai import types
 from posthoganalytics.ai.gemini import genai
+from temporalio.exceptions import ApplicationError
 
-from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
 from posthog.temporal.ai.session_summary.types.video import (
     ConsolidatedVideoAnalysis,
-    ConsolidatedVideoSegment,
     VideoSegmentOutput,
-    VideoSessionOutcome,
     VideoSummarySingleSessionInputs,
 )
+
+from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
 
 logger = structlog.get_logger(__name__)
 
@@ -42,27 +48,28 @@ async def consolidate_video_segments_activity(
     - Per-segment outcomes (success, confusion, abandonment, failures)
     """
     if not raw_segments:
-        return ConsolidatedVideoAnalysis(
-            segments=[],
-            session_outcome=VideoSessionOutcome(success=True, description="Empty session with no activity"),
-            segment_outcomes=[],
+        raise ApplicationError(
+            f"No segments extracted from video analysis for session {inputs.session_id}. "
+            "All video segments may have been static or the LLM output format was not parseable.",
+            non_retryable=True,
         )
 
     try:
-        logger.info(
+        logger.debug(
             f"Consolidating {len(raw_segments)} raw segments for session {inputs.session_id}",
             session_id=inputs.session_id,
             raw_segment_count=len(raw_segments),
         )
         segments_text = "\n".join(f"- **{seg.start_time} - {seg.end_time}:** {seg.description}" for seg in raw_segments)
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        response = client.models.generate_content(
+
+        # Generate JSON schema from Pydantic model
+        json_schema = ConsolidatedVideoAnalysis.model_json_schema()
+        json_schema_str = json.dumps(json_schema)
+
+        client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+        response = await client.models.generate_content(
             model=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-            contents=[
-                CONSOLIDATION_PROMPT.format(
-                    segments_text=segments_text, example_json=json.dumps(CONSOLIDATION_PROMPT_EXAMPLE_JSON, indent=2)
-                )
-            ],
+            contents=[CONSOLIDATION_PROMPT.format(segments_text=segments_text, json_schema=json_schema_str)],
             config=types.GenerateContentConfig(max_output_tokens=8192),
             posthog_distinct_id=inputs.user_distinct_id_to_log,
             posthog_trace_id=trace_id,
@@ -81,44 +88,18 @@ async def consolidate_video_segments_activity(
 
         parsed = json.loads(json_str)
 
-        # Parse segments
-        consolidated_segments = [
-            ConsolidatedVideoSegment(
-                title=item["title"],
-                start_time=item["start_time"],
-                end_time=item["end_time"],
-                description=item["description"],
-                success=item.get("success", True),
-                failure_detected=item.get("failure_detected", False),
-                confusion_detected=item.get("confusion_detected", False),
-                abandonment_detected=item.get("abandonment_detected", False),
-            )
-            for item in parsed.get("segments", [])
-        ]
+        # Parse using Pydantic model validation
+        consolidated_analysis = ConsolidatedVideoAnalysis.model_validate(parsed)
 
-        # Parse session outcome
-        session_outcome_data = parsed.get("session_outcome", {})
-        session_outcome = VideoSessionOutcome(
-            success=session_outcome_data.get("success", True),
-            description=session_outcome_data.get("description", "Session analyzed via video"),
-        )
-
-        # Parse segment outcomes
-        segment_outcomes = parsed.get("segment_outcomes", [])
-
-        logger.info(
-            f"Consolidated {len(raw_segments)} raw segments into {len(consolidated_segments)} semantic segments",
+        logger.debug(
+            f"Consolidated {len(raw_segments)} raw segments into {len(consolidated_analysis.segments)} semantic segments",
             session_id=inputs.session_id,
             raw_count=len(raw_segments),
-            consolidated_count=len(consolidated_segments),
-            session_success=session_outcome.success,
+            consolidated_count=len(consolidated_analysis.segments),
+            session_success=consolidated_analysis.session_outcome.success,
         )
 
-        return ConsolidatedVideoAnalysis(
-            segments=consolidated_segments,
-            session_outcome=session_outcome,
-            segment_outcomes=segment_outcomes,
-        )
+        return consolidated_analysis
 
     except Exception as e:
         logger.exception(
@@ -142,9 +123,9 @@ Your task is to consolidate these into meaningful semantic segments and provide 
 Raw segments:
 {segments_text}
 
-Output format (JSON object):
+Output format (JSON object matching this schema):
 ```json
-{example_json}
+{json_schema}
 ```
 
 Rules:
@@ -163,28 +144,3 @@ Rules:
 
 Output ONLY the JSON object, no other text.
 """
-CONSOLIDATION_PROMPT_EXAMPLE_JSON = {
-    "segments": [
-        {
-            "title": "Descriptive segment title",
-            "start_time": "MM:SS",
-            "end_time": "MM:SS",
-            "description": "Combined description of what happened in this segment",
-            "success": True,
-            "failure_detected": False,
-            "confusion_detected": False,
-            "abandonment_detected": False,
-        }
-    ],
-    "session_outcome": {
-        "success": True,
-        "description": "Overall summary of session outcome - what the user accomplished or failed to accomplish",
-    },
-    "segment_outcomes": [
-        {
-            "segment_index": 0,
-            "success": True,
-            "summary": "Brief summary of segment outcome",
-        }
-    ],
-}

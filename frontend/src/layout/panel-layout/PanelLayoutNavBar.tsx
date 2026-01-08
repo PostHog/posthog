@@ -17,6 +17,7 @@ import {
     IconShortcut,
     IconSidebarClose,
     IconSidebarOpen,
+    IconSparkles,
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -28,6 +29,7 @@ import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavP
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -58,6 +60,7 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
+import { RecentItemsMenu } from './ProjectTree/menus/RecentItemsMenu'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
@@ -100,6 +103,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const isAiUx = useFeatureFlag('AI_UX')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -146,6 +150,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
             return true
         }
+        if (itemIdentifier === 'ai' && currentPath.startsWith('/ai')) {
+            return true
+        }
 
         return false
     }
@@ -170,6 +177,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         collapsedTooltip?: React.ReactNode | [React.ReactNode, React.ReactNode] // Open and closed tooltips
         documentationUrl?: string
     }[] = [
+        ...(isAiUx
+            ? [
+                  {
+                      identifier: 'ai',
+                      label: 'PostHog AI',
+                      icon: <IconSparkles />,
+                      to: urls.ai(),
+                      onClick: () => handleStaticNavbarItemClick(urls.ai(), true),
+                      collapsedTooltip: 'PostHog AI',
+                  },
+              ]
+            : []),
         {
             identifier: 'ProjectHomepage',
             label: 'Home',
@@ -342,6 +361,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 }}
                                 iconOnly={isLayoutNavCollapsed}
                             />
+
+                            <RecentItemsMenu />
                         </div>
                     </div>
 
