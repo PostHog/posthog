@@ -122,9 +122,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             return current_members_sql, hogql_context.values
 
         for idx, cohort in enumerate(cohorts, 1):
-            if idx % 100 == 0 or idx == len(cohorts):
-                heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)}",)
-                logger.info(f"Processed {idx}/{len(cohorts)} cohorts so far")
+            heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)} (cohort_id={cohort.id})",)
+            logger.info(f"Processing cohort {idx}/{len(cohorts)}", cohort_id=cohort.id)
+
             try:
                 current_members_sql, query_params = await build_query(cohort)
                 query_params = {
@@ -159,6 +159,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     SETTINGS join_use_nulls = 1
                     FORMAT JSONEachRow
                 """
+
+                heartbeater.details = (f"Executing query for cohort {idx}/{len(cohorts)} (cohort_id={cohort.id})",)
 
                 with tags_context(
                     team_id=cohort.team_id,
@@ -208,6 +210,10 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         f"Query completed for cohort {cohort.id}. Total messages to flush: {len(pending_kafka_messages)}",
                         cohort_id=cohort.id,
                         message_count=len(pending_kafka_messages),
+                    )
+
+                    heartbeater.details = (
+                        f"Flushing {len(pending_kafka_messages)} messages for cohort {idx}/{len(cohorts)} (cohort_id={cohort.id})",
                     )
                     await asyncio.to_thread(kafka_producer.flush)
 

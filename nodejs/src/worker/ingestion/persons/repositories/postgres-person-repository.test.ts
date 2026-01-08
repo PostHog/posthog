@@ -1444,6 +1444,119 @@ describe('PostgresPersonRepository', () => {
             expect(actualVersion).toBeUndefined()
             expect(messages).toHaveLength(0)
         })
+
+        it('should merge properties_to_set into properties when updating', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-merge-set', { existing: 'value', to_update: 'old' })
+
+            const personUpdate = {
+                id: person.id,
+                team_id: person.team_id,
+                uuid: person.uuid,
+                distinct_id: 'test-merge-set',
+                properties: { existing: 'value', to_update: 'old' }, // Original properties from DB
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: person.created_at,
+                version: person.version,
+                is_identified: person.is_identified,
+                is_user_id: person.is_user_id,
+                needs_write: true,
+                properties_to_set: { new_prop: 'new_value', to_update: 'new' }, // New properties to merge
+                properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+            }
+
+            const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
+
+            expect(actualVersion).toBe(person.version + 1)
+            expect(messages).toHaveLength(1)
+
+            const updatedPerson = await repository.fetchPerson(team.id, 'test-merge-set')
+            expect(updatedPerson?.properties).toEqual({
+                existing: 'value',
+                to_update: 'new', // Updated from properties_to_set
+                new_prop: 'new_value', // Added from properties_to_set
+            })
+        })
+
+        it('should apply properties_to_unset when updating', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-unset', {
+                keep: 'value',
+                remove_me: 'will be removed',
+            })
+
+            const personUpdate = {
+                id: person.id,
+                team_id: person.team_id,
+                uuid: person.uuid,
+                distinct_id: 'test-unset',
+                properties: { keep: 'value', remove_me: 'will be removed' },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: person.created_at,
+                version: person.version,
+                is_identified: person.is_identified,
+                is_user_id: person.is_user_id,
+                needs_write: true,
+                properties_to_set: {},
+                properties_to_unset: ['remove_me'],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+            }
+
+            const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
+
+            expect(actualVersion).toBe(person.version + 1)
+            expect(messages).toHaveLength(1)
+
+            const updatedPerson = await repository.fetchPerson(team.id, 'test-unset')
+            expect(updatedPerson?.properties).toEqual({ keep: 'value' })
+            expect(updatedPerson?.properties).not.toHaveProperty('remove_me')
+        })
+
+        it('should handle combined properties_to_set and properties_to_unset', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-combined', {
+                keep: 'value',
+                remove: 'will go',
+                update: 'old',
+            })
+
+            const personUpdate = {
+                id: person.id,
+                team_id: person.team_id,
+                uuid: person.uuid,
+                distinct_id: 'test-combined',
+                properties: { keep: 'value', remove: 'will go', update: 'old' },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: person.created_at,
+                version: person.version,
+                is_identified: person.is_identified,
+                is_user_id: person.is_user_id,
+                needs_write: true,
+                properties_to_set: { update: 'new', added: 'fresh' },
+                properties_to_unset: ['remove'],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+            }
+
+            const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
+
+            expect(actualVersion).toBe(person.version + 1)
+            expect(messages).toHaveLength(1)
+
+            const updatedPerson = await repository.fetchPerson(team.id, 'test-combined')
+            expect(updatedPerson?.properties).toEqual({
+                keep: 'value',
+                update: 'new',
+                added: 'fresh',
+            })
+            expect(updatedPerson?.properties).not.toHaveProperty('remove')
+        })
     })
 
     describe('updateCohortsAndFeatureFlagsForMerge()', () => {
