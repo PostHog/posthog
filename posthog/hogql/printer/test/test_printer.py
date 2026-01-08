@@ -33,7 +33,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect, HogQ
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
@@ -3555,3 +3555,30 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("a >= b"), "(a >= b)")
         self.assertEqual(self._expr("a < b"), "(a < b)")
         self.assertEqual(self._expr("a <= b"), "(a <= b)")
+
+    def test_unknown_comparison_operator_raises_error(self):
+        query = parse_expr("a = b")
+
+        # Manually set an invalid operator to test error handling
+        class MockOp:
+            name = "INVALID_OP"
+
+        query.op = MockOp()
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[query], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="postgres", stack=[select_query]),
+        )
+
+        self.assertRaises(
+            ImpossibleASTError,
+            lambda: print_prepared_ast(
+                prepared_select_query.select[0],
+                context=context,
+                dialect="postgres",
+                stack=[prepared_select_query],
+            ),
+        )
