@@ -47,7 +47,7 @@ class PostgresPrinter(HogQLPrinter):
         return f"{node.name}({', '.join(args)})"
 
     def visit_table_type(self, type: ast.TableType):
-        return type.table.to_printed_postgres()
+        return type.table.to_printed_clickhouse(self.context)
 
     def _visit_in_values(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Tuple):
@@ -104,7 +104,7 @@ class PostgresPrinter(HogQLPrinter):
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
 
     def _print_table_ref(self, table_type: ast.TableType, node: ast.JoinExpr) -> str:
-        return table_type.table.to_printed_postgres()
+        return table_type.table.to_printed_clickhouse(self.context)
 
     def _ensure_team_id_where_clause(self, table_type: ast.TableType, node_type: ast.TableOrSelectType): ...
 
