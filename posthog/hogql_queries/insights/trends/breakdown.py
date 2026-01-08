@@ -412,7 +412,7 @@ class Breakdown:
         return "breakdown_value"
 
     @cached_property
-    def multiple_breakdowns_aliases(self):
+    def multiple_breakdowns_aliases(self) -> list[str]:
         breakdown_filter = self._breakdown_filter
         assert breakdown_filter.breakdowns is not None  # type checking
         return [self._get_multiple_breakdown_alias_name(idx + 1) for idx in range(len(breakdown_filter.breakdowns))]

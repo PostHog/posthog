@@ -5,6 +5,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
@@ -148,6 +149,10 @@ export class CdpApi {
 
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
         router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/batch_invocations/:batch_job_id',
+            asyncHandler(this.postHogFlowBatchInvocation)
+        )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -495,6 +500,57 @@ export class CdpApi {
             })
         } catch (e) {
             console.error(e)
+            res.status(500).json({ error: [e.message] })
+        }
+    }
+
+    private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            const { id, team_id, batch_job_id } = req.params
+
+            logger.info('⚡️', 'Received hogflow batch invocation', { id, team_id, batch_job_id })
+
+            const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            // Queue a message for the CDP batch producer to consume
+            const kafkaProducer = this.hub.kafkaProducer
+            if (!kafkaProducer) {
+                return res.status(500).json({ error: 'Kafka producer not available' })
+            }
+
+            if (hogFlow.trigger.type !== 'batch') {
+                return res.status(400).json({ error: 'Only batch Workflows are supported for batch jobs' })
+            }
+
+            const batchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                batchJobId: batch_job_id,
+                filters: {
+                    properties: hogFlow.trigger.filters.properties || [],
+                    filter_test_accounts: req.body.filters?.filter_test_accounts || false,
+                },
+            }
+
+            await kafkaProducer.produce({
+                topic: KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
+                value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
+                key: `${team.id}_${hogFlow.id}`,
+            })
+
+            res.json({ status: 'queued' })
+        } catch (e) {
+            logger.error('Error handling hogflow batch invocation', { error: e })
             res.status(500).json({ error: [e.message] })
         }
     }

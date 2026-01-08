@@ -37,14 +37,14 @@ LOGGER = get_logger(__name__)
 
 
 class RetryableResponseError(Exception):
-    """Error for HTTP status >=500 (plus 429)."""
+    """Error for HTTP status >=500 (plus 429 and 408)."""
 
     def __init__(self, status):
         super().__init__(f"RetryableResponseError status: {status}")
 
 
 class NonRetryableResponseError(Exception):
-    """Error for HTTP status >= 400 and < 500 (excluding 429)."""
+    """Error for HTTP status >= 400 and < 500 (excluding 429 and 408)."""
 
     def __init__(self, status, content):
         super().__init__(f"NonRetryableResponseError (status: {status}): {content}")
@@ -54,7 +54,7 @@ async def raise_for_status(response: aiohttp.ClientResponse):
     """Like aiohttp raise_for_status, but it distinguishes between retryable and non-retryable
     errors."""
     if not response.ok:
-        if response.status >= 500 or response.status == 429:
+        if response.status >= 500 or response.status == 429 or response.status == 408:
             raise RetryableResponseError(response.status)
         else:
             text = await response.text()
