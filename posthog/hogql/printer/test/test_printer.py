@@ -3557,13 +3557,13 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("a <= b"), "(a <= b)")
 
     def test_unknown_comparison_operator_raises_error(self):
-        query = parse_expr("a = b")
+        query: ast.CompareOperation = cast(ast.CompareOperation, parse_expr("a = b"))
 
         # Manually set an invalid operator to test error handling
         class MockOp:
             name = "INVALID_OP"
 
-        query.op = MockOp()
+        query.op = cast(ast.CompareOperationOp, MockOp())
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(select=[query], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
