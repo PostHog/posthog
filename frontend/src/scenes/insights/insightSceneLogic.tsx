@@ -352,6 +352,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (insightId) {
                     const insightProps: InsightLogicProps = {
                         dashboardItemId: insightId,
+                        dashboardId: values.dashboardId ?? undefined,
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,

@@ -56,8 +56,8 @@ export function Navigation({
         return (
             // eslint-disable-next-line react/forbid-dom-props
             <div className="Navigation3000 flex-col" style={theme?.mainStyle}>
-                {mode === 'minimal' ? <MinimalNavigation /> : null}
-                <main>{children}</main>
+                {(mode === 'minimal' || mode === 'zen') && <MinimalNavigation />}
+                <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
             </div>
         )
     }
@@ -115,7 +115,6 @@ export function Navigation({
                                 <div
                                     className={cn({
                                         'px-4': sceneConfig?.layout === 'app-raw-no-header',
-                                        'pt-4': sceneConfig?.layout === 'app-raw',
                                     })}
                                 >
                                     {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}

@@ -103,7 +103,12 @@ class Task(DeletedMetaFields, models.Model):
 
     @property
     def latest_run(self) -> Optional["TaskRun"]:
-        return self.runs.order_by("-created_at").first()
+        # Use .all() which respects prefetch_related cache, then sort in Python
+        # This avoids N+1 queries when tasks are loaded with prefetch_related("runs")
+        runs = list(self.runs.all())
+        if runs:
+            return max(runs, key=lambda r: r.created_at)
+        return None
 
     def _assign_task_number(self) -> None:
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
@@ -300,6 +305,24 @@ class TaskRun(models.Model):
                     "sessionId": str(self.id),
                     "level": level,
                     "message": message,
+                },
+            },
+        }
+        self.append_log([event])
+
+    def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
+        """Emit sandbox execution output as ACP notification."""
+        event = {
+            "type": "notification",
+            "timestamp": timezone.now().isoformat(),
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "_posthog/sandbox_output",
+                "params": {
+                    "sessionId": str(self.id),
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "exitCode": exit_code,
                 },
             },
         }

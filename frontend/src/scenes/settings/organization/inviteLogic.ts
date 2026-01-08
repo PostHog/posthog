@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -221,7 +222,7 @@ export const inviteLogic = kea<inviteLogicType>([
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembersInternal.length
             if (values.preflight?.email_service_available) {
-                lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
+                lemonToast.success(`Invited ${pluralize(inviteCount, 'new team member')}`)
             } else {
                 lemonToast.success('Team invite links generated')
             }

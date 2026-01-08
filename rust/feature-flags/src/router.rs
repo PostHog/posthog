@@ -1,4 +1,9 @@
-use std::{future::ready, sync::Arc};
+use std::{
+    future::ready,
+    panic::{catch_unwind, AssertUnwindSafe},
+    sync::Arc,
+    time::Duration,
+};
 
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
@@ -9,9 +14,11 @@ use axum::{
 };
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
+use common_hypercache::HyperCacheReader;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
+use metrics::gauge;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
@@ -52,6 +59,9 @@ pub struct State {
     pub config: Config,
     pub flags_rate_limiter: FlagsRateLimiter,
     pub ip_rate_limiter: IpRateLimiter,
+    /// Pre-initialized HyperCacheReader for feature flags (flags.json)
+    /// Initialized once at startup to avoid per-request AWS SDK initialization
+    pub flags_hypercache_reader: Arc<HyperCacheReader>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -65,6 +75,7 @@ pub fn router(
     feature_flags_billing_limiter: FeatureFlagsLimiter,
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
+    flags_hypercache_reader: Arc<HyperCacheReader>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -107,6 +118,13 @@ pub fn router(
     // Clone database_pools for readiness check before moving into State
     let db_pools_for_readiness = database_pools.clone();
 
+    spawn_rate_limiter_cleanup_task(
+        flags_rate_limiter.clone(),
+        ip_rate_limiter.clone(),
+        flag_definitions_limiter.clone(),
+        config.rate_limiter_cleanup_interval_secs,
+    );
+
     let state = State {
         redis_client,
         dedicated_redis_client,
@@ -121,6 +139,7 @@ pub fn router(
         config: config.clone(),
         flags_rate_limiter,
         ip_rate_limiter,
+        flags_hypercache_reader,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -175,6 +194,51 @@ pub fn router(
     } else {
         router
     }
+}
+
+/// Spawns a background task to periodically clean up stale rate limiter entries.
+/// Without this, the rate limiters would accumulate entries for every unique
+/// token/IP that makes a request, leading to unbounded memory growth.
+/// See: https://docs.rs/governor/latest/governor/struct.RateLimiter.html#method.retain_recent
+fn spawn_rate_limiter_cleanup_task(
+    flags_rate_limiter: FlagsRateLimiter,
+    ip_rate_limiter: IpRateLimiter,
+    flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    cleanup_interval_secs: u64,
+) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(cleanup_interval_secs));
+        loop {
+            interval.tick().await;
+
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                // Remove stale entries and reclaim memory
+                flags_rate_limiter.cleanup();
+                ip_rate_limiter.cleanup();
+                flag_definitions_limiter.cleanup();
+
+                // Report metrics for monitoring
+                gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
+                gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
+                gauge!("flags_rate_limiter_definitions_entries")
+                    .set(flag_definitions_limiter.len() as f64);
+
+                tracing::debug!(
+                    token_entries = flags_rate_limiter.len(),
+                    ip_entries = ip_rate_limiter.len(),
+                    definitions_entries = flag_definitions_limiter.len(),
+                    "Rate limiter cleanup completed"
+                );
+            }));
+
+            if let Err(e) = result {
+                tracing::error!(
+                    ?e,
+                    "Rate limiter cleanup panicked, will retry next interval"
+                );
+            }
+        }
+    });
 }
 
 pub async fn readiness(

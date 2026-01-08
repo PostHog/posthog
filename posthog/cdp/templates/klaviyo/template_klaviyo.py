@@ -51,7 +51,9 @@ for (let key, value in inputs.customProperties) {
     }
 }
 
-let res := fetch('https://a.klaviyo.com/api/profiles', {
+print(f'Upserting profile with email={not empty(inputs.email)} external_id={not empty(inputs.externalId)}')
+
+let res := fetch('https://a.klaviyo.com/api/profile-import', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Klaviyo-API-Key {inputs.apiKey}',
@@ -61,25 +63,14 @@ let res := fetch('https://a.klaviyo.com/api/profiles', {
     'body': body
 })
 
-if (res.status == 409 and not empty(res.body.errors.1.meta.duplicate_profile_id)) {
-    let id := res.body.errors.1.meta.duplicate_profile_id
-    body.data.id := id
-
-    let res2 := fetch(f'https://a.klaviyo.com/api/profiles/{id}', {
-        'method': 'PATCH',
-        'headers': {
-            'Authorization': f'Klaviyo-API-Key {inputs.apiKey}',
-            'revision': '2024-10-15',
-            'Content-Type': 'application/json'
-        },
-        'body': body
-    })
-    if (res2.status >= 400) {
-        throw Error(f'Error from a.klaviyo.com api: {res2.status}: {res2.body}');
-    }
-} else if (res.status >= 400) {
-    throw Error(f'Error from a.klaviyo.com api: {res.status}: {res.body}');
+if (res.status >= 400) {
+    print(f'Error response: status={res.status}')
+    throw Error(f'Error from a.klaviyo.com api: {res.status}');
 }
+
+let action := res.status == 201 ? 'Created' : 'Updated'
+let profileId := res.body.data.id
+print(f'{action} profile successfully: id={profileId}')
 
 """.strip(),
     inputs_schema=[

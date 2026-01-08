@@ -7,6 +7,8 @@ import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -22,13 +24,14 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
@@ -325,8 +328,8 @@ export function OverViewTab({
                               <FeatureFlagEvaluationTags
                                   tags={tags}
                                   evaluationTags={featureFlag.evaluation_tags || []}
-                                  staticOnly
                                   flagId={featureFlag.id}
+                                  context="static"
                               />
                           ) : (
                               <ObjectTags tags={tags} staticOnly />
@@ -378,11 +381,7 @@ export function OverViewTab({
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
                     <div className="flex justify-start gap-1">
-                        {featureFlag.performed_rollback ? (
-                            <LemonTag type="warning" className="uppercase">
-                                Rolled Back
-                            </LemonTag>
-                        ) : featureFlag.active ? (
+                        {featureFlag.active ? (
                             <LemonTag type="success" className="uppercase">
                                 Enabled
                             </LemonTag>
@@ -482,9 +481,7 @@ export function OverViewTab({
                     {featureFlagsLoading ? (
                         <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
                     ) : count ? (
-                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
-                            count === 1 ? '' : 's'
-                        }`
+                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'flag')}`
                     ) : null}
                 </span>
             </div>
@@ -554,14 +551,23 @@ export function FeatureFlags(): JSX.Element {
                             active={true}
                             context={{}}
                         >
-                            <LemonButton
-                                type="primary"
-                                to={urls.featureFlag('new')}
-                                data-attr="new-feature-flag"
-                                size="small"
+                            <AppShortcut
+                                name="NewFeatureFlag"
+                                keybind={[keyBinds.new]}
+                                intent="New feature flag"
+                                interaction="click"
+                                scope={Scene.FeatureFlags}
                             >
-                                <span className="pr-4">New feature flag</span>
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    to={urls.featureFlag('new')}
+                                    data-attr="new-feature-flag"
+                                    size="small"
+                                    tooltip="New feature flag"
+                                >
+                                    <span className="pr-4">New feature flag</span>
+                                </LemonButton>
+                            </AppShortcut>
                         </MaxTool>
                     </AccessControlAction>
                 }

@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -9,6 +10,8 @@ import {
     AttributionMode,
     CampaignFieldPreference,
     ConversionGoalFilter,
+    CoreEvent,
+    DataWarehouseNode,
     DatabaseSchemaDataWarehouseTable,
     HogQLQueryResponse,
     MARKETING_CAMPAIGN_TABLE_PATTERNS,
@@ -17,6 +20,9 @@ import {
     MarketingAnalyticsConfig,
     NativeMarketingSource,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    SchemaMap,
     SourceMap,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
@@ -24,6 +30,26 @@ import { ExternalDataSource } from '~/types'
 import { IntegrationSettingsTab } from '../components/settings/IntegrationSettingsModal'
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
 import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, generateUniqueName } from './utils'
+
+/** API response type for core events */
+export interface CoreEventResponse {
+    id: string
+    name: string
+    description: string
+    category: string
+    filter: Record<string, unknown>
+    created_at: string
+    updated_at: string
+}
+
+/** API response type for goal mappings - includes nested core_event */
+export interface MarketingAnalyticsGoalMapping {
+    id: string
+    core_event: CoreEventResponse
+    schema_map: Record<string, string | undefined>
+    created_at: string
+    updated_at: string
+}
 
 export interface IntegrationSettingsModalState {
     isOpen: boolean
@@ -51,7 +77,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'dataWarehouseSources'],
         ],
-        actions: [teamLogic, ['updateCurrentTeam']],
+        actions: [teamLogic, ['updateCurrentTeam', 'addProductIntent']],
     })),
     actions({
         updateSourceMapping: (
@@ -63,6 +89,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             fieldName,
             columnName,
         }),
+        // Legacy actions for backwards compatibility (deprecated - use goal mappings API)
         updateConversionGoals: (conversionGoals: ConversionGoalFilter[]) => ({
             conversionGoals,
         }),
@@ -72,8 +99,23 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         removeConversionGoal: (goalId: string) => ({
             goalId,
         }),
-        updateAttributionWindowWeeks: (weeks: number) => ({
-            weeks,
+        // Core events API actions
+        setCoreEvents: (coreEvents: CoreEventResponse[]) => ({ coreEvents }),
+        loadCoreEvents: true,
+        // Goal mappings API actions
+        setGoalMappings: (mappings: MarketingAnalyticsGoalMapping[]) => ({ mappings }),
+        loadGoalMappings: true,
+        addGoalMapping: (coreEventId: string, schemaMap?: Record<string, string | undefined>) => ({
+            coreEventId,
+            schemaMap,
+        }),
+        updateGoalMapping: (mappingId: string, schemaMap: Record<string, string | undefined>) => ({
+            mappingId,
+            schemaMap,
+        }),
+        removeGoalMapping: (mappingId: string) => ({ mappingId }),
+        updateAttributionWindowDays: (days: number) => ({
+            days,
         }),
         updateAttributionMode: (mode: AttributionMode) => ({
             mode,
@@ -264,16 +306,112 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 }),
             },
         ],
+        // Core events from API
+        coreEvents: [
+            [] as CoreEventResponse[],
+            {
+                setCoreEvents: (_, { coreEvents }) => coreEvents,
+            },
+        ],
+        // Goal mappings from API
+        goalMappings: [
+            [] as MarketingAnalyticsGoalMapping[],
+            {
+                setGoalMappings: (_, { mappings }) => mappings,
+            },
+        ],
     })),
     selectors({
         sources_map: [
             (s) => [s.marketingAnalyticsConfig],
             (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => marketingAnalyticsConfig?.sources_map || {},
         ],
+        // Legacy selector for backwards compatibility
         conversion_goals: [
             (s) => [s.marketingAnalyticsConfig],
             (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => {
                 return marketingAnalyticsConfig?.conversion_goals || []
+            },
+        ],
+        // Team core events (shared pool) - now loaded from API
+        teamCoreEvents: [
+            (s) => [s.coreEvents],
+            (coreEvents: CoreEventResponse[]): CoreEvent[] => {
+                // Convert API response to CoreEvent type used by components
+                return coreEvents.map((ce) => ({
+                    id: ce.id,
+                    name: ce.name,
+                    description: ce.description,
+                    category: ce.category as CoreEvent['category'],
+                    filter: ce.filter as unknown as CoreEvent['filter'],
+                }))
+            },
+        ],
+        // Core events that are enabled for marketing analytics (have a mapping)
+        enabledCoreEvents: [
+            (s) => [s.goalMappings],
+            (mappings: MarketingAnalyticsGoalMapping[]): CoreEvent[] => {
+                // Goal mappings now include the full core_event object
+                return mappings.map((m) => ({
+                    id: m.core_event.id,
+                    name: m.core_event.name,
+                    description: m.core_event.description,
+                    category: m.core_event.category as CoreEvent['category'],
+                    filter: m.core_event.filter as unknown as CoreEvent['filter'],
+                }))
+            },
+        ],
+        // Core events available to add (not yet mapped)
+        availableCoreEvents: [
+            (s) => [s.teamCoreEvents, s.goalMappings],
+            (coreEvents: CoreEvent[], mappings: MarketingAnalyticsGoalMapping[]): CoreEvent[] => {
+                const mappedIds = mappings.map((m) => m.core_event.id)
+                return coreEvents.filter((event) => !mappedIds.includes(event.id))
+            },
+        ],
+        // Convert enabled core events to ConversionGoalFilter format for queries
+        enabledConversionGoalFilters: [
+            (s) => [s.goalMappings],
+            (mappings: MarketingAnalyticsGoalMapping[]): ConversionGoalFilter[] => {
+                return mappings.map((mapping) => {
+                    const event = mapping.core_event
+                    const filter = event.filter as unknown as CoreEvent['filter']
+                    // For DW goals, use UTM fields from mapping and timestamp/distinct_id from goal filter
+                    // For events/actions, use defaults (pageview-based attribution)
+                    let schemaMap: SchemaMap
+                    if (filter.kind === NodeKind.DataWarehouseNode) {
+                        const dwFilter = filter as DataWarehouseNode
+                        schemaMap = {
+                            utm_campaign_name: mapping?.schema_map?.utm_campaign_name || 'utm_campaign',
+                            utm_source_name: mapping?.schema_map?.utm_source_name || 'utm_source',
+                            // Use timestamp and distinct_id from the DW goal's filter
+                            timestamp_field: dwFilter.timestamp_field,
+                            distinct_id_field: dwFilter.distinct_id_field,
+                        }
+                    } else {
+                        schemaMap = {
+                            utm_campaign_name: 'utm_campaign',
+                            utm_source_name: 'utm_source',
+                            timestamp_field: undefined,
+                            distinct_id_field: undefined,
+                        }
+                    }
+                    return {
+                        ...filter,
+                        conversion_goal_id: event.id,
+                        conversion_goal_name: event.name,
+                        schema_map: schemaMap,
+                    }
+                })
+            },
+        ],
+        // Get mapping for a specific core event (for UI editing)
+        getGoalMapping: [
+            (s) => [s.goalMappings],
+            (mappings: MarketingAnalyticsGoalMapping[]) => {
+                return (coreEventId: string): MarketingAnalyticsGoalMapping | undefined => {
+                    return mappings.find((m) => m.core_event.id === coreEventId)
+                }
             },
         ],
         attribution_window_days: [
@@ -336,16 +474,77 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             }
         }
 
+        const trackSourceConfigured = (): void => {
+            updateCurrentTeam()
+            actions.addProductIntent({
+                product_type: ProductKey.MARKETING_ANALYTICS,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_SOURCE_CONFIGURED,
+            })
+        }
+
+        const trackSettingsUpdated = (): void => {
+            updateCurrentTeam()
+            actions.addProductIntent({
+                product_type: ProductKey.MARKETING_ANALYTICS,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_SETTINGS_UPDATED,
+            })
+        }
+
         return {
-            updateSourceMapping: updateCurrentTeam,
-            updateConversionGoals: updateCurrentTeam,
-            addOrUpdateConversionGoal: updateCurrentTeam,
-            removeConversionGoal: updateCurrentTeam,
-            updateAttributionWindowWeeks: updateCurrentTeam,
-            updateAttributionMode: updateCurrentTeam,
-            updateCampaignNameMappings: updateCurrentTeam,
-            updateCustomSourceMappings: updateCurrentTeam,
-            updateCampaignFieldPreferences: updateCurrentTeam,
+            updateSourceMapping: trackSourceConfigured,
+            updateConversionGoals: trackSettingsUpdated,
+            addOrUpdateConversionGoal: trackSettingsUpdated,
+            removeConversionGoal: trackSettingsUpdated,
+            updateAttributionWindowDays: trackSettingsUpdated,
+            updateAttributionMode: trackSettingsUpdated,
+            updateCampaignNameMappings: trackSettingsUpdated,
+            updateCustomSourceMappings: trackSettingsUpdated,
+            updateCampaignFieldPreferences: trackSettingsUpdated,
+            // Goal mappings API operations
+            addGoalMapping: async ({ coreEventId, schemaMap }) => {
+                if (!values.currentTeam) {
+                    return
+                }
+                try {
+                    await api.create(`api/environments/${values.currentTeam.id}/marketing_analytics/goal_mappings/`, {
+                        core_event_id: coreEventId,
+                        schema_map: schemaMap || {},
+                    })
+                    actions.loadGoalMappings()
+                    trackSettingsUpdated()
+                } catch {
+                    lemonToast.error('Failed to add goal mapping')
+                }
+            },
+            updateGoalMapping: async ({ mappingId, schemaMap }) => {
+                if (!values.currentTeam) {
+                    return
+                }
+                try {
+                    await api.update(
+                        `api/environments/${values.currentTeam.id}/marketing_analytics/goal_mappings/${mappingId}/`,
+                        { schema_map: schemaMap }
+                    )
+                    actions.loadGoalMappings()
+                    trackSettingsUpdated()
+                } catch {
+                    lemonToast.error('Failed to update goal mapping')
+                }
+            },
+            removeGoalMapping: async ({ mappingId }) => {
+                if (!values.currentTeam) {
+                    return
+                }
+                try {
+                    await api.delete(
+                        `api/environments/${values.currentTeam.id}/marketing_analytics/goal_mappings/${mappingId}/`
+                    )
+                    actions.loadGoalMappings()
+                    trackSettingsUpdated()
+                } catch {
+                    lemonToast.error('Failed to remove goal mapping')
+                }
+            },
             loadIntegrationCampaigns: async ({ integration }) => {
                 const fieldInfo = MARKETING_INTEGRATION_FIELD_MAP[integration]
                 if (!fieldInfo) {
@@ -381,7 +580,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             },
         }
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         marketingAnalyticsConfig: {
             loadMarketingAnalyticsConfig: async () => {
                 if (values.currentTeam) {
@@ -390,8 +589,40 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 return null
             },
         },
+        coreEventsLoader: {
+            loadCoreEvents: async () => {
+                if (!values.currentTeam) {
+                    return []
+                }
+                try {
+                    const response = await api.get(`api/environments/${values.currentTeam.id}/core_events/`)
+                    actions.setCoreEvents(response.results || [])
+                    return response.results || []
+                } catch {
+                    return []
+                }
+            },
+        },
+        goalMappingsLoader: {
+            loadGoalMappings: async () => {
+                if (!values.currentTeam) {
+                    return []
+                }
+                try {
+                    const response = await api.get(
+                        `api/environments/${values.currentTeam.id}/marketing_analytics/goal_mappings/`
+                    )
+                    actions.setGoalMappings(response.results || [])
+                    return response.results || []
+                } catch {
+                    return []
+                }
+            },
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadMarketingAnalyticsConfig()
+        actions.loadCoreEvents()
+        actions.loadGoalMappings()
     }),
 ])

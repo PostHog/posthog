@@ -30,7 +30,7 @@ from posthog.api.services.query import process_query_dict
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.query_executor.nodes import QueryExecutorNode
-from ee.hogai.chat_agent.query_executor.prompts import (
+from ee.hogai.context.insight.prompts import (
     FUNNEL_STEPS_EXAMPLE_PROMPT,
     FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
     FUNNEL_TRENDS_EXAMPLE_PROMPT,
@@ -51,7 +51,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.conversation = Conversation.objects.create(user=self.user, team=self.team)
         self.artifact_manager = ArtifactManager(self.team, self.user)
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict", side_effect=process_query_dict)
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict", side_effect=process_query_dict)
     async def test_node_legacy_viz_message_runs(self, mock_process_query_dict):
         node = QueryExecutorNode(self.team, self.user)
         new_state = await node.arun(
@@ -64,7 +64,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_calls=[
                             AssistantToolCall(
                                 id="tool1",
-                                name="create_and_query_insight",
+                                name="create_insight",
                                 args={"query_kind": "trends", "query_description": "test query"},
                             )
                         ],
@@ -87,9 +87,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantToolCallMessage, new_state.messages[0])
-        self.assertIn(
-            "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
-        )
+        self.assertIn("Here is the results table of the TrendsQuery insight:", msg.content)
         self.assertEqual(msg.type, "tool")
         self.assertEqual(msg.tool_call_id, "tool1")
         self.assertIsNotNone(msg.id)
@@ -97,7 +95,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertFalse(new_state.root_tool_insight_plan)
         self.assertFalse(new_state.root_tool_insight_type)
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict", side_effect=process_query_dict)
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict", side_effect=process_query_dict)
     async def test_node_runs(self, mock_process_query_dict):
         node = QueryExecutorNode(self.team, self.user)
 
@@ -120,7 +118,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_calls=[
                             AssistantToolCall(
                                 id="tool1",
-                                name="create_and_query_insight",
+                                name="create_insight",
                                 args={"query_kind": "trends", "query_description": "test query"},
                             )
                         ],
@@ -143,9 +141,10 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantToolCallMessage, new_state.messages[0])
-        self.assertIn(
-            "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
-        )
+        self.assertIn("Here is the results table of the TrendsQuery insight:", msg.content)
+        self.assertIn(f"Insight ID: {insight.short_id}", msg.content)
+        self.assertIn("Name: test insight", msg.content)
+        self.assertIn("Description: test description", msg.content)
         self.assertEqual(msg.type, "tool")
         self.assertEqual(msg.tool_call_id, "tool1")
         self.assertIsNotNone(msg.id)
@@ -154,7 +153,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertFalse(new_state.root_tool_insight_type)
 
     @patch(
-        "ee.hogai.chat_agent.query_executor.query_executor.process_query_dict",
+        "ee.hogai.context.insight.query_executor.process_query_dict",
         side_effect=ValueError("You have not glibbled the glorp before running this."),
     )
     async def test_node_handles_internal_error(self, mock_process_query_dict):
@@ -191,12 +190,15 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantMessage, new_state.messages[0])
-        self.assertEqual(msg.content, "There was an unknown error running this query.")
+        self.assertEqual(
+            msg.content,
+            "There was an error running this query: Error executing query: There was an unknown error running this query.",
+        )
         self.assertEqual(msg.type, "ai")
         self.assertIsNotNone(msg.id)
 
     @patch(
-        "ee.hogai.chat_agent.query_executor.query_executor.process_query_dict",
+        "ee.hogai.context.insight.query_executor.process_query_dict",
         side_effect=ValidationError(
             "This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam."
         ),
@@ -237,7 +239,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         assert isinstance(msg, AssistantMessage)
         self.assertEqual(
             msg.content,
-            "There was an error running this query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
+            "There was an error running this query: Error executing query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
         )
         self.assertEqual(msg.type, "ai")
         self.assertIsNotNone(msg.id)
@@ -264,7 +266,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_fallback_to_json(self):
         node = QueryExecutorNode(self.team, self.user)
-        with patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict") as mock_process_query_dict:
+        with patch("ee.hogai.context.insight.query_executor.process_query_dict") as mock_process_query_dict:
             mock_process_query_dict.return_value = QueryStatus(
                 id="test", team_id=self.team.pk, query_async=True, complete=True, results=[{"test": "test"}]
             )
@@ -301,14 +303,12 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             new_state = cast(PartialAssistantState, new_state)
             mock_process_query_dict.assert_called_once()  # Query processing started
             msg = cast(AssistantMessage, new_state.messages[0])
-            self.assertIn(
-                "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
-            )
+            self.assertIn("Here is the results table of the TrendsQuery insight:", msg.content)
             self.assertEqual(msg.type, "tool")
             self.assertIsNotNone(msg.id)
 
     def test_get_example_prompt(self):
-        from ee.hogai.chat_agent.query_executor.query_executor import get_example_prompt
+        from ee.hogai.context.insight.query_executor import get_example_prompt
 
         # Test Trends Query
         trends_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()])

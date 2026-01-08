@@ -5,14 +5,14 @@ updates:
       schedule:
           interval: weekly
 
-    # Python dependencies for main PostHog application
-    - package-ecosystem: 'pip'
+    # Python dependencies for main PostHog application (uv updates both pyproject.toml and uv.lock)
+    - package-ecosystem: 'uv'
       directory: '/'
       schedule:
           interval: weekly
       open-pull-requests-limit: 1
-      assignees:
-          - 'posthog/devex'
+      reviewers:
+          - 'PostHog/team-devex'
       groups:
           # Security and authentication packages
           security-auth:
@@ -110,7 +110,6 @@ updates:
                   - 'freezegun'
                   - 'requests-mock'
                   - 'responses'
-                  - 'inline-snapshot'
                   - 'syrupy'
                   - 'flaky'
                   - 'parameterized'

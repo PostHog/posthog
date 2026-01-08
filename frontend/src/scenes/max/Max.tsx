@@ -12,8 +12,9 @@ import {
     IconShare,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { appLogic } from 'scenes/appLogic'
@@ -32,6 +33,7 @@ import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { Thread } from './Thread'
+import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
@@ -50,6 +52,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
+    const isAiUx = useFeatureFlag('AI_UX')
 
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
@@ -70,6 +73,10 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
                 </div>
             </SceneContent>
         )
+    }
+
+    if (isAiUx) {
+        return <AiFirstMaxInstance tabId={tabId ?? ''} />
     }
 
     return <MaxInstance tabId={tabId ?? ''} />
@@ -123,7 +130,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                             !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
                         )}
                     >
-                        <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                        <div className="flex-1 items-center justify-center flex flex-col gap-3 relative z-50">
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />
                         </div>
@@ -161,8 +168,8 @@ export const MaxInstance = React.memo(function MaxInstance({
                     startNewConversation()
                 }}
             >
-                <div className="flex flex-1">
-                    <div className="flex items-center flex-1">
+                <div className="flex flex-1 min-w-0 overflow-hidden">
+                    <div className="flex items-center flex-1 min-w-0">
                         <AnimatedBackButton in={!backButtonDisabled}>
                             <LemonButton
                                 size="small"
@@ -174,12 +181,11 @@ export const MaxInstance = React.memo(function MaxInstance({
                             />
                         </AnimatedBackButton>
 
-                        <h3
-                            className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
-                            title={chatTitle || undefined}
-                        >
-                            {chatTitle || 'PostHog AI'}
-                        </h3>
+                        <Tooltip title={chatTitle || undefined} placement="bottom">
+                            <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-1">
+                                {chatTitle || 'PostHog AI'}
+                            </h3>
+                        </Tooltip>
                     </div>
                     {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
                         <LemonButton

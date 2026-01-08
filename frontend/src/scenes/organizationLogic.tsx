@@ -44,7 +44,10 @@ export const organizationLogic = kea<organizationLogicType>([
         deleteOrganizationSuccess: ({ redirectPath }: { redirectPath?: string }) => ({ redirectPath }),
         deleteOrganizationFailure: (error: string) => ({ error }),
     }),
-    connect([userLogic]),
+    connect(() => ({
+        values: [userLogic, ['hasAvailableFeature']],
+        actions: [userLogic, ['loadUser'], router, ['locationChanged']],
+    })),
     reducers({
         organizationBeingDeleted: [
             null as string | null,
@@ -136,16 +139,26 @@ export const organizationLogic = kea<organizationLogicType>([
                 return orgCreatedAt ? dayjs().diff(dayjs(orgCreatedAt), 'month') < 3 : false
             },
         ],
+        isNotActiveReason: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): string | null => currentOrganization?.is_not_active_reason ?? null,
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
             if (currentOrganization) {
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
             }
         },
+        locationChanged: ({ pathname }) => {
+            // Redirect to deactivated page if organization is inactive (client-side navigation)
+            if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
+                router.actions.replace(urls.organizationDeactivated())
+            }
+        },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
-            window.location.href = urls.useCaseSelection()
+            window.location.href = urls.onboarding()
         },
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')
