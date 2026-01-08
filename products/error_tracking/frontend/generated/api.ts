@@ -1030,27 +1030,15 @@ export const getEnvironmentsErrorTrackingSymbolSetsCreateUrl = (projectId: strin
 
 export const environmentsErrorTrackingSymbolSetsCreate = async (
     projectId: string,
-    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    environmentsErrorTrackingSymbolSetsCreateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsCreateResponse> => {
-    const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
-    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
-    }
-    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
-    }
-    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
-    }
-
     return apiMutator<environmentsErrorTrackingSymbolSetsCreateResponse>(
         getEnvironmentsErrorTrackingSymbolSetsCreateUrl(projectId),
         {
             ...options,
             method: 'POST',
-            body: formData,
+            body: JSON.stringify(environmentsErrorTrackingSymbolSetsCreateBody),
         }
     )
 }
@@ -1103,27 +1091,15 @@ export const getEnvironmentsErrorTrackingSymbolSetsUpdateUrl = (projectId: strin
 export const environmentsErrorTrackingSymbolSetsUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    environmentsErrorTrackingSymbolSetsUpdateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsUpdateResponse> => {
-    const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
-    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
-    }
-    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
-    }
-    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
-    }
-
     return apiMutator<environmentsErrorTrackingSymbolSetsUpdateResponse>(
         getEnvironmentsErrorTrackingSymbolSetsUpdateUrl(projectId, id),
         {
             ...options,
             method: 'PUT',
-            body: formData,
+            body: JSON.stringify(environmentsErrorTrackingSymbolSetsUpdateBody),
         }
     )
 }
@@ -1147,38 +1123,15 @@ export const getEnvironmentsErrorTrackingSymbolSetsPartialUpdateUrl = (projectId
 export const environmentsErrorTrackingSymbolSetsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingSymbolSetApi: NonReadonly<PatchedErrorTrackingSymbolSetApi>,
+    environmentsErrorTrackingSymbolSetsPartialUpdateBody: NonReadonly<PatchedErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsPartialUpdateResponse> => {
-    const formData = new FormData()
-    if (patchedErrorTrackingSymbolSetApi.ref !== undefined) {
-        formData.append(`ref`, patchedErrorTrackingSymbolSetApi.ref)
-    }
-    if (
-        patchedErrorTrackingSymbolSetApi.last_used !== undefined &&
-        patchedErrorTrackingSymbolSetApi.last_used !== null
-    ) {
-        formData.append(`last_used`, patchedErrorTrackingSymbolSetApi.last_used)
-    }
-    if (
-        patchedErrorTrackingSymbolSetApi.storage_ptr !== undefined &&
-        patchedErrorTrackingSymbolSetApi.storage_ptr !== null
-    ) {
-        formData.append(`storage_ptr`, patchedErrorTrackingSymbolSetApi.storage_ptr)
-    }
-    if (
-        patchedErrorTrackingSymbolSetApi.failure_reason !== undefined &&
-        patchedErrorTrackingSymbolSetApi.failure_reason !== null
-    ) {
-        formData.append(`failure_reason`, patchedErrorTrackingSymbolSetApi.failure_reason)
-    }
-
     return apiMutator<environmentsErrorTrackingSymbolSetsPartialUpdateResponse>(
         getEnvironmentsErrorTrackingSymbolSetsPartialUpdateUrl(projectId, id),
         {
             ...options,
             method: 'PATCH',
-            body: formData,
+            body: JSON.stringify(environmentsErrorTrackingSymbolSetsPartialUpdateBody),
         }
     )
 }
@@ -1328,27 +1281,15 @@ export const getEnvironmentsErrorTrackingSymbolSetsStartUploadCreateUrl = (proje
 
 export const environmentsErrorTrackingSymbolSetsStartUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    environmentsErrorTrackingSymbolSetsStartUploadCreateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsStartUploadCreateResponse> => {
-    const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
-    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
-    }
-    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
-    }
-    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
-    }
-
     return apiMutator<environmentsErrorTrackingSymbolSetsStartUploadCreateResponse>(
         getEnvironmentsErrorTrackingSymbolSetsStartUploadCreateUrl(projectId),
         {
             ...options,
             method: 'POST',
-            body: formData,
+            body: JSON.stringify(environmentsErrorTrackingSymbolSetsStartUploadCreateBody),
         }
     )
 }
@@ -1607,25 +1548,13 @@ export const getErrorTrackingSymbolSetsCreateUrl = (projectId: string) => {
 
 export const errorTrackingSymbolSetsCreate = async (
     projectId: string,
-    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    errorTrackingSymbolSetsCreateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsCreateResponse> => {
-    const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
-    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
-    }
-    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
-    }
-    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
-    }
-
     return apiMutator<errorTrackingSymbolSetsCreateResponse>(getErrorTrackingSymbolSetsCreateUrl(projectId), {
         ...options,
         method: 'POST',
-        body: formData,
+        body: JSON.stringify(errorTrackingSymbolSetsCreateBody),
     })
 }
 
@@ -1671,25 +1600,13 @@ export const getErrorTrackingSymbolSetsUpdateUrl = (projectId: string, id: strin
 export const errorTrackingSymbolSetsUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    errorTrackingSymbolSetsUpdateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsUpdateResponse> => {
-    const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
-    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
-    }
-    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
-    }
-    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
-    }
-
     return apiMutator<errorTrackingSymbolSetsUpdateResponse>(getErrorTrackingSymbolSetsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
-        body: formData,
+        body: JSON.stringify(errorTrackingSymbolSetsUpdateBody),
     })
 }
 
@@ -1710,38 +1627,15 @@ export const getErrorTrackingSymbolSetsPartialUpdateUrl = (projectId: string, id
 export const errorTrackingSymbolSetsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingSymbolSetApi: NonReadonly<PatchedErrorTrackingSymbolSetApi>,
+    errorTrackingSymbolSetsPartialUpdateBody: NonReadonly<PatchedErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsPartialUpdateResponse> => {
-    const formData = new FormData()
-    if (patchedErrorTrackingSymbolSetApi.ref !== undefined) {
-        formData.append(`ref`, patchedErrorTrackingSymbolSetApi.ref)
-    }
-    if (
-        patchedErrorTrackingSymbolSetApi.last_used !== undefined &&
-        patchedErrorTrackingSymbolSetApi.last_used !== null
-    ) {
-        formData.append(`last_used`, patchedErrorTrackingSymbolSetApi.last_used)
-    }
-    if (
-        patchedErrorTrackingSymbolSetApi.storage_ptr !== undefined &&
-        patchedErrorTrackingSymbolSetApi.storage_ptr !== null
-    ) {
-        formData.append(`storage_ptr`, patchedErrorTrackingSymbolSetApi.storage_ptr)
-    }
-    if (
-        patchedErrorTrackingSymbolSetApi.failure_reason !== undefined &&
-        patchedErrorTrackingSymbolSetApi.failure_reason !== null
-    ) {
-        formData.append(`failure_reason`, patchedErrorTrackingSymbolSetApi.failure_reason)
-    }
-
     return apiMutator<errorTrackingSymbolSetsPartialUpdateResponse>(
         getErrorTrackingSymbolSetsPartialUpdateUrl(projectId, id),
         {
             ...options,
             method: 'PATCH',
-            body: formData,
+            body: JSON.stringify(errorTrackingSymbolSetsPartialUpdateBody),
         }
     )
 }
@@ -1884,27 +1778,15 @@ export const getErrorTrackingSymbolSetsStartUploadCreateUrl = (projectId: string
 
 export const errorTrackingSymbolSetsStartUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    errorTrackingSymbolSetsStartUploadCreateBody: NonReadonly<ErrorTrackingSymbolSetApi | Blob>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsStartUploadCreateResponse> => {
-    const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
-    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
-    }
-    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
-    }
-    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
-    }
-
     return apiMutator<errorTrackingSymbolSetsStartUploadCreateResponse>(
         getErrorTrackingSymbolSetsStartUploadCreateUrl(projectId),
         {
             ...options,
             method: 'POST',
-            body: formData,
+            body: JSON.stringify(errorTrackingSymbolSetsStartUploadCreateBody),
         }
     )
 }
