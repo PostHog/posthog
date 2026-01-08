@@ -216,9 +216,6 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                             isLastInGroup={isLastInGroup}
                                             isFinal={index === threadGrouped.length - 1}
                                             isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
-                                            relevantSessionSummaryForm={
-                                                !streamingActive ? getSessionSummaryForm(prevMessage) : null
-                                            }
                                         />
                                     </TraceIdProvider>
                                     {conversationId &&
@@ -308,18 +305,9 @@ interface MessageProps {
     isLastInGroup: boolean
     isFinal: boolean
     isSlashCommandResponse?: boolean
-    /** Form from the preceding session summary tool result - if relevant */
-    relevantSessionSummaryForm?: AssistantForm | null
 }
 
-function Message({
-    message,
-    nextMessage,
-    isLastInGroup,
-    isFinal,
-    isSlashCommandResponse,
-    relevantSessionSummaryForm,
-}: MessageProps): JSX.Element {
+function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
@@ -495,30 +483,24 @@ function Message({
                                     return null
                                 }
                                 // Message has been interrupted with quick replies
-                                if (message.meta?.form?.options && isFinal) {
+                                // (non-links as ones with links get rendered in TextAnswer)
+                                if (
+                                    message.meta?.form?.options &&
+                                    !message.meta?.form?.options.some((option) => option.href) &&
+                                    isFinal
+                                ) {
                                     return <AssistantMessageForm key={`${key}-form`} form={message.meta.form} />
                                 }
 
                                 // Show answer actions if the assistant's response is complete at this point
                                 // For feedback command responses, only show the trace button (hide rating/retry)
-                                // TRICKY: Also show AssistantMessageForm if the previous message has the session summaries "Open report" button
-                                //         - this is slightly hacky, but truly useful UX-wise
                                 return (
-                                    <>
-                                        {relevantSessionSummaryForm && !message.meta?.form && (
-                                            <AssistantMessageForm
-                                                key={`${key}-session-summary-form`}
-                                                form={relevantSessionSummaryForm}
-                                                topMargin={false}
-                                            />
-                                        )}
-                                        <SuccessActions
-                                            key={`${key}-actions`}
-                                            retriable={retriable}
-                                            hideRatingAndRetry={isSlashCommandResponse}
-                                            content={message.content}
-                                        />
-                                    </>
+                                    <SuccessActions
+                                        key={`${key}-actions`}
+                                        retriable={retriable}
+                                        hideRatingAndRetry={isSlashCommandResponse}
+                                        content={message.content}
+                                    />
                                 )
                             }
 
@@ -597,21 +579,6 @@ function Message({
             </div>
         </MessageContainer>
     )
-}
-
-/**
- * Check if a message has a session summary form (with "Open report" button).
- * Used to show the button on the message following a session summarization result.
- */
-function getSessionSummaryForm(message: ThreadMessage | undefined): AssistantForm | null {
-    if (!message || !isAssistantMessage(message) || !message.meta?.form?.options) {
-        return null
-    }
-    // Check if any option has an href to session-summaries
-    const hasSessionSummaryLink = message.meta.form.options.some((option) =>
-        option.href?.startsWith('/session-summaries/')
-    )
-    return hasSessionSummaryLink ? message.meta.form : null
 }
 
 function MessageGroupSkeleton({
@@ -695,10 +662,9 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 interface AssistantMessageFormProps {
     form: AssistantForm
     linksOnly?: boolean
-    topMargin?: boolean
 }
 
-function AssistantMessageForm({ form, linksOnly, topMargin = true }: AssistantMessageFormProps): JSX.Element {
+function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxThreadLogic)
 
     const options = linksOnly ? form.options.filter((option) => option.href) : form.options
@@ -706,7 +672,7 @@ function AssistantMessageForm({ form, linksOnly, topMargin = true }: AssistantMe
     return (
         // ml-1 is because buttons have radius of 0.375rem, while messages of 0.65rem, where diff = 0.25rem
         // Also makes it clear the form is subservient to the message. *Harmony*
-        <div className={clsx('flex flex-wrap gap-1.5 ml-1', topMargin && 'mt-1')}>
+        <div className="flex flex-wrap gap-1.5 ml-1 mt-1">
             {options.map((option) => (
                 <LemonButton
                     key={option.value}
