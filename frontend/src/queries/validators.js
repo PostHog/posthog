@@ -70,6 +70,15 @@ const schema14 = {
         'gte',
         'lt',
         'lte',
+        'semver_gt',
+        'semver_gte',
+        'semver_lt',
+        'semver_lte',
+        'semver_eq',
+        'semver_neq',
+        'semver_tilde',
+        'semver_caret',
+        'semver_wildcard',
         'is_set',
         'is_not_set',
         'is_date_exact',
@@ -330,6 +339,15 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -558,6 +576,15 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -799,6 +826,15 @@ function validate19(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -1026,6 +1062,15 @@ function validate22(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -1253,6 +1298,15 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -1516,6 +1570,15 @@ function validate28(data, { instancePath = '', parentData, parentDataProperty, r
                                             data3 === 'gte' ||
                                             data3 === 'lt' ||
                                             data3 === 'lte' ||
+                                            data3 === 'semver_gt' ||
+                                            data3 === 'semver_gte' ||
+                                            data3 === 'semver_lt' ||
+                                            data3 === 'semver_lte' ||
+                                            data3 === 'semver_eq' ||
+                                            data3 === 'semver_neq' ||
+                                            data3 === 'semver_tilde' ||
+                                            data3 === 'semver_caret' ||
+                                            data3 === 'semver_wildcard' ||
                                             data3 === 'is_set' ||
                                             data3 === 'is_not_set' ||
                                             data3 === 'is_date_exact' ||
@@ -1915,6 +1978,15 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -2142,6 +2214,15 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -2445,6 +2526,15 @@ function validate36(data, { instancePath = '', parentData, parentDataProperty, r
                                             data3 === 'gte' ||
                                             data3 === 'lt' ||
                                             data3 === 'lte' ||
+                                            data3 === 'semver_gt' ||
+                                            data3 === 'semver_gte' ||
+                                            data3 === 'semver_lt' ||
+                                            data3 === 'semver_lte' ||
+                                            data3 === 'semver_eq' ||
+                                            data3 === 'semver_neq' ||
+                                            data3 === 'semver_tilde' ||
+                                            data3 === 'semver_caret' ||
+                                            data3 === 'semver_wildcard' ||
                                             data3 === 'is_set' ||
                                             data3 === 'is_not_set' ||
                                             data3 === 'is_date_exact' ||
@@ -2675,6 +2765,15 @@ function validate39(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -3057,6 +3156,15 @@ function validate45(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -3284,6 +3392,15 @@ function validate48(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -3511,6 +3628,15 @@ function validate51(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -3739,6 +3865,15 @@ function validate54(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -3972,6 +4107,15 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
@@ -4910,6 +5054,15 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'gte' ||
                                         data2 === 'lt' ||
                                         data2 === 'lte' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
                                         data2 === 'is_set' ||
                                         data2 === 'is_not_set' ||
                                         data2 === 'is_date_exact' ||
