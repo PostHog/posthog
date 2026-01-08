@@ -13,6 +13,7 @@ import boto3
 import psycopg
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from temporalio import activity
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -683,6 +684,11 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
     def mock_func(inputs):
         return {}
 
+    # Mock gate to use legacy path
+    @activity.defn(name="etl_separation_gate_activity")
+    async def mock_gate(_) -> bool:
+        return False
+
     with (
         mock.patch(
             "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}
@@ -712,6 +718,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         calculate_table_size_activity,
                         check_billing_limits_activity,
                         sync_new_schemas_activity,
+                        mock_gate,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                     activity_executor=ThreadPoolExecutor(max_workers=50),

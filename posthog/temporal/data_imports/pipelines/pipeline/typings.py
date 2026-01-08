@@ -54,3 +54,4 @@ class SourceInputs:
     incremental_field_type: Optional[IncrementalFieldType]
     job_id: str
     logger: FilteringBoundLogger
+    chunk_size_override: Optional[int] = None

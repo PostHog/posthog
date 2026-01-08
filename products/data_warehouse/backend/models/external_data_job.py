@@ -19,6 +19,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     class PipelineVersion(models.TextChoices):
         V1 = "v1-dlt-sync", "v1-dlt-sync"
         V2 = "v2-non-dlt", "v2-non-dlt"
+        V3 = "v3-split", "v3-split"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pipeline = models.ForeignKey("data_warehouse.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
@@ -34,6 +35,18 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     billable = models.BooleanField(default=True, null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
+
+    # ET+L separation tracking (only populated when using ET+L separation path)
+    et_workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    l_workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    temp_s3_prefix = models.CharField(max_length=500, null=True, blank=True)
+    manifest_path = models.CharField(max_length=500, null=True, blank=True)
+    et_started_at = models.DateTimeField(null=True, blank=True)
+    et_finished_at = models.DateTimeField(null=True, blank=True)
+    l_started_at = models.DateTimeField(null=True, blank=True)
+    l_finished_at = models.DateTimeField(null=True, blank=True)
+    et_rows_extracted = models.BigIntegerField(null=True, blank=True)
+    l_rows_loaded = models.BigIntegerField(null=True, blank=True)
 
     __repr__ = sane_repr("id")
 
@@ -55,6 +68,28 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
 
 
+class ExternalDataJobBatch(CreatedMetaFields, UUIDTModel):
+    """
+    Tracks individual batches/parquet files created during ET+L separation.
+    Only populated when using ET+L separation path.
+    """
+
+    job = models.ForeignKey(ExternalDataJob, on_delete=models.CASCADE, related_name="batches")
+    batch_number = models.IntegerField()
+    parquet_path = models.CharField(max_length=500)
+    row_count = models.BigIntegerField(null=True, blank=True)
+    loaded_at = models.DateTimeField(null=True, blank=True)
+
+    __repr__ = sane_repr("id", "batch_number")
+
+    class Meta:
+        db_table = "posthog_externaldatajobbatch"
+        ordering = ["batch_number"]
+        constraints = [
+            models.UniqueConstraint(fields=["job", "batch_number"], name="unique_job_batch_number"),
+        ]
+
+
 @database_sync_to_async
 def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     from products.data_warehouse.backend.models import ExternalDataSchema
@@ -65,11 +100,11 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
 
 
 @database_sync_to_async
-def get_latest_run_if_exists(team_id: int, pipeline_id: UUID) -> ExternalDataJob | None:
+def get_latest_run_if_exists(
+    team_id: int, pipeline_id: UUID, expected_status: ExternalDataJob.Status = ExternalDataJob.Status.COMPLETED
+) -> ExternalDataJob | None:
     job = (
-        ExternalDataJob.objects.filter(
-            team_id=team_id, pipeline_id=pipeline_id, status=ExternalDataJob.Status.COMPLETED
-        )
+        ExternalDataJob.objects.filter(team_id=team_id, pipeline_id=pipeline_id, status=expected_status)
         .prefetch_related("pipeline")
         .order_by("-created_at")
         .first()

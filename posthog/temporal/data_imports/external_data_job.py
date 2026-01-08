@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
+from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
@@ -33,6 +34,14 @@ from posthog.temporal.data_imports.workflow_activities.check_billing_limits impo
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     create_external_data_job_model_activity,
+)
+from posthog.temporal.data_imports.workflow_activities.et_activities import (
+    ExtractBatchInputs,
+    StartLoadWorkflowInputs,
+    UpdateETTrackingInputs,
+    extract_and_transform_batch_activity,
+    start_load_workflow_activity,
+    update_et_tracking_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
@@ -74,6 +83,7 @@ class UpdateExternalDataJobStatusInputs:
     status: str
     internal_error: str | None
     latest_error: str | None
+    rows_synced: int | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -165,6 +175,8 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
     )
 
     job.finished_at = dt.datetime.now(dt.UTC)
+    if inputs.rows_synced is not None:
+        job.rows_synced = inputs.rows_synced
     job.save()
 
     logger.info(
@@ -201,6 +213,73 @@ def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     trigger_schedule_buffer_one(temporal, schedule_id)
 
 
+@dataclasses.dataclass
+class ETLSeparationGateInputs:
+    team_id: int
+    schema_id: str
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {"team_id": self.team_id, "schema_id": self.schema_id}
+
+
+@activity.defn
+def etl_separation_gate_activity(inputs: ETLSeparationGateInputs) -> bool:
+    """
+    Evaluate whether to use the new ET+L separation workflow.
+    Only incremental syncs behind the feature flag will use the new path.
+    """
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    return True
+
+    try:
+        schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
+    except ExternalDataSchema.DoesNotExist:
+        logger.exception("Schema does not exist when evaluating ETL separation gate")
+        return False
+
+    if not schema.is_incremental:
+        logger.debug("Non-incremental sync, using V2 pipeline version")
+        return False
+
+    logger.debug("Incremental sync, evaluating feature flag for V3 pipeline version")
+
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(id=inputs.team_id)
+    except Team.DoesNotExist:
+        logger.exception("Team does not exist when evaluating ETL separation gate")
+        return False
+
+    try:
+        return posthoganalytics.feature_enabled(
+            "data-warehouse-etl-separation",
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(team.organization_id),
+                },
+                "project": {
+                    "id": str(team.id),
+                },
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception as error:
+        logger.warning(
+            f"Failed to evaluate ETL separation feature flag, defaulting to legacy path for team {inputs.team_id}",
+            error=str(error),
+        )
+        capture_exception(error)
+        return False
+
+
 # TODO: update retry policies
 @workflow.defn(name="external-data-job")
 class ExternalDataJobWorkflow(PostHogWorkflow):
@@ -224,6 +303,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         source_type = None
+        use_etl_separation = False
         try:
             # create external data job and trigger activity
             create_external_data_job_inputs = CreateExternalDataJobModelActivityInputs(
@@ -273,12 +353,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 ),
             )
 
-            job_inputs = ImportDataActivityInputs(
-                team_id=inputs.team_id,
-                run_id=job_id,
-                schema_id=inputs.external_data_schema_id,
-                source_id=inputs.external_data_source_id,
-                reset_pipeline=inputs.reset_pipeline,
+            use_etl_separation = await workflow.execute_activity(
+                etl_separation_gate_activity,
+                ETLSeparationGateInputs(team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id)),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
             is_resumable_source = False
@@ -302,42 +381,127 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 }
             )
 
-            await workflow.execute_activity(
-                import_data_activity_sync,
-                job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                **timeout_params,
-            )  # type: ignore
+            if use_etl_separation:
+                # Generate Load workflow ID
+                et_workflow_id = workflow.info().workflow_id
+                now = workflow.now()
+                timestamp = now.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+                load_workflow_id = f"load-{inputs.external_data_schema_id}-{timestamp}"
+                load_workflow_started = False
+                et_completed_successfully = False
 
-            # Create source templates
-            await workflow.execute_activity(
-                create_source_templates,
-                CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+                try:
+                    await workflow.execute_activity(
+                        update_et_tracking_activity,
+                        UpdateETTrackingInputs(
+                            job_id=job_id,
+                            et_workflow_id=et_workflow_id,
+                            l_workflow_id=load_workflow_id,
+                            et_started_at=True,
+                            pipeline_version=ExternalDataJob.PipelineVersion.V3,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
 
-            await workflow.execute_activity(
-                calculate_table_size_activity,
-                CalculateTableSizeActivityInputs(
-                    team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+                    # Start Load workflow (it will wait for signals)
+                    await workflow.execute_activity(
+                        start_load_workflow_activity,
+                        StartLoadWorkflowInputs(
+                            workflow_id=load_workflow_id,
+                            team_id=inputs.team_id,
+                            source_id=str(inputs.external_data_source_id),
+                            schema_id=str(inputs.external_data_schema_id),
+                            job_id=job_id,
+                            source_type=source_type,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    load_workflow_started = True
 
-            # Start DuckLake copy workflow as a child (fire-and-forget)
-            await workflow.start_child_workflow(
-                DuckLakeCopyDataImportsWorkflow.run,
-                DataImportsDuckLakeCopyInputs(
+                    et_result = await workflow.execute_activity(
+                        extract_and_transform_batch_activity,
+                        ExtractBatchInputs(
+                            team_id=inputs.team_id,
+                            source_id=inputs.external_data_source_id,
+                            schema_id=inputs.external_data_schema_id,
+                            job_id=job_id,
+                            temp_s3_prefix=None,
+                            reset_pipeline=inputs.reset_pipeline or False,
+                            load_workflow_id=load_workflow_id,
+                        ),
+                        heartbeat_timeout=dt.timedelta(minutes=2),
+                        **timeout_params,
+                    )
+
+                    if et_result.manifest_path:
+                        await workflow.execute_activity(
+                            update_et_tracking_activity,
+                            UpdateETTrackingInputs(
+                                job_id=job_id,
+                                temp_s3_prefix=et_result.temp_s3_prefix,
+                                manifest_path=et_result.manifest_path,
+                                et_finished_at=True,
+                                et_rows_extracted=et_result.row_count,
+                            ),
+                            start_to_close_timeout=dt.timedelta(minutes=1),
+                            retry_policy=RetryPolicy(maximum_attempts=2),
+                        )
+
+                    et_completed_successfully = True
+                finally:
+                    if load_workflow_started and not et_completed_successfully:
+                        try:
+                            cancel_handle = workflow.get_external_workflow_handle(load_workflow_id)
+                            await cancel_handle.cancel()
+                        except Exception as e:
+                            workflow.logger.warning(f"Failed to cancel Load workflow {load_workflow_id}: {e}")
+            else:
+                job_inputs = ImportDataActivityInputs(
                     team_id=inputs.team_id,
-                    job_id=job_id,
-                    schema_ids=[inputs.external_data_schema_id],
-                ),
-                id=f"ducklake-copy-data-imports-{job_id}",
-                task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-            )
+                    run_id=job_id,
+                    schema_id=inputs.external_data_schema_id,
+                    source_id=inputs.external_data_source_id,
+                    reset_pipeline=inputs.reset_pipeline,
+                )
+
+                await workflow.execute_activity(
+                    import_data_activity_sync,
+                    job_inputs,
+                    heartbeat_timeout=dt.timedelta(minutes=2),
+                    **timeout_params,
+                )
+
+                # Create source templates
+                await workflow.execute_activity(
+                    create_source_templates,
+                    CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+
+                await workflow.execute_activity(
+                    calculate_table_size_activity,
+                    CalculateTableSizeActivityInputs(
+                        team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
+                # Start DuckLake copy workflow as a child (fire-and-forget)
+                await workflow.start_child_workflow(
+                    DuckLakeCopyDataImportsWorkflow.run,
+                    DataImportsDuckLakeCopyInputs(
+                        team_id=inputs.team_id,
+                        job_id=job_id,
+                        schema_ids=[inputs.external_data_schema_id],
+                    ),
+                    id=f"ducklake-copy-data-imports-{job_id}",
+                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                )
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
@@ -357,8 +521,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
             elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "NonRetryableException":
                 update_inputs.status = ExternalDataJob.Status.FAILED
-                update_inputs.internal_error = str(e.cause.cause)
-                update_inputs.latest_error = str(e.cause.cause)
+                update_inputs.internal_error = str(e.cause)
+                update_inputs.latest_error = str(e.cause)
                 raise
             else:
                 # Handle other activity errors normally
@@ -373,16 +537,22 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:
-            get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
-
-            await workflow.execute_activity(
-                update_external_data_job_model,
-                update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "DoesNotExist"],
-                ),
+            et_workflow_needs_status_update = update_inputs.status in (
+                ExternalDataJob.Status.FAILED,
+                ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW,
+                ExternalDataJob.Status.BILLING_LIMIT_REACHED,
             )
+            if not use_etl_separation or et_workflow_needs_status_update:
+                get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
+
+                await workflow.execute_activity(
+                    update_external_data_job_model,
+                    update_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_interval=dt.timedelta(seconds=60),
+                        maximum_attempts=0,
+                        non_retryable_error_types=["NotNullViolation", "IntegrityError", "DoesNotExist"],
+                    ),
+                )

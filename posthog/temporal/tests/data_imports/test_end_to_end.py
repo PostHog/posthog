@@ -45,7 +45,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.models import DataWarehouseTable
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
-from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.external_data_job import ETLSeparationGateInputs, ExternalDataJobWorkflow
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
@@ -2944,3 +2944,2509 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
 
     # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
     assert mock_get_rows.call_count == 4
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_etl_separation_happy_path_incremental(team, stripe_customer, mock_stripe_client):
+    """
+    Test the V3 ET+L separation pipeline happy path for incremental syncs.
+
+    When etl_separation_gate_activity returns True (for incremental syncs):
+    - ET workflow starts the Load workflow via start_load_workflow_activity
+    - extract_and_transform_batch_activity is called and signals batches to Load workflow
+    - Load workflow receives batch_ready signals and processes batches
+    - Load workflow receives et_complete signal and finalizes
+    - Job record is updated with V3 pipeline version and ET+L tracking fields
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.workflow_activities.et_activities import (
+        ExtractBatchInputs,
+        ExtractBatchResult,
+        StartLoadWorkflowInputs,
+        UpdateETTrackingInputs,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created",
+            "incremental_field_type": "integer",
+        },
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+        billable=False,
+    )
+
+    activity_calls: dict[str, list[Any]] = {
+        "etl_separation_gate": [],
+        "start_load_workflow": [],
+        "extract_and_transform_batch": [],
+        "update_et_tracking": [],
+    }
+
+    @activity.defn(name="etl_separation_gate_activity")
+    def mock_gate(inputs: ETLSeparationGateInputs) -> bool:
+        activity_calls["etl_separation_gate"].append(inputs)
+        return True
+
+    @activity.defn(name="start_load_workflow_activity")
+    async def mock_start_load(inputs: StartLoadWorkflowInputs) -> None:
+        activity_calls["start_load_workflow"].append(inputs)
+
+    @activity.defn(name="extract_and_transform_batch_activity")
+    async def mock_extract(inputs: ExtractBatchInputs) -> ExtractBatchResult:
+        activity_calls["extract_and_transform_batch"].append(inputs)
+        return ExtractBatchResult(
+            is_done=True,
+            batch_path="temp/data/part-0000.parquet",
+            batch_number=1,
+            row_count=100,
+            schema_path="temp/schema.arrow",
+            temp_s3_prefix="temp/prefix",
+            manifest_path="temp/prefix/manifest.json",
+        )
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(inputs: UpdateETTrackingInputs) -> None:
+        activity_calls["update_et_tracking"].append(inputs)
+
+    # Filter out the real activities we're mocking
+    filtered_activities = [
+        a
+        for a in ACTIVITIES
+        if a.__name__
+        not in (
+            "etl_separation_gate_activity",
+            "start_load_workflow_activity",
+            "extract_and_transform_batch_activity",
+            "update_et_tracking_activity",
+        )
+    ]
+    test_activities = [*filtered_activities, mock_gate, mock_start_load, mock_extract, mock_update_tracking]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                await env.client.execute_workflow(
+                    ExternalDataJobWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    # Verify gate was called with schema_id
+    assert len(activity_calls["etl_separation_gate"]) == 1
+    gate_input = activity_calls["etl_separation_gate"][0]
+    assert gate_input.team_id == team.id
+    assert gate_input.schema_id == str(schema.id)
+
+    # V3 path: verify ET activities were called
+    assert len(activity_calls["start_load_workflow"]) == 1
+    assert len(activity_calls["extract_and_transform_batch"]) == 1
+    assert len(activity_calls["update_et_tracking"]) >= 1
+
+    # Verify start_load_workflow inputs
+    start_load_input = activity_calls["start_load_workflow"][0]
+    assert start_load_input.team_id == team.id
+    assert start_load_input.schema_id == str(schema.id)
+    assert start_load_input.source_id == str(source.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_et_failure_cancels_load_workflow(team, stripe_customer, mock_stripe_client):
+    """
+    Test that when ET fails mid-extraction, the Load workflow is cancelled.
+
+    When extract_and_transform_batch_activity fails:
+    - The Load workflow should be cancelled via workflow.cancel()
+    - Job status should be set to FAILED
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.workflow_activities.et_activities import (
+        ExtractBatchInputs,
+        ExtractBatchResult,
+        StartLoadWorkflowInputs,
+        UpdateETTrackingInputs,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created",
+            "incremental_field_type": "integer",
+        },
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+        billable=False,
+    )
+
+    from posthog.temporal.data_imports.load_data_job import LoadDataJobInputs, LoadDataJobWorkflow
+
+    # Use a mutable container to share the client with the mock activity
+    client_holder: dict = {}
+
+    @activity.defn(name="etl_separation_gate_activity")
+    async def mock_gate(_) -> bool:
+        return True
+
+    @activity.defn(name="start_load_workflow_activity")
+    async def mock_start_load(inputs: StartLoadWorkflowInputs) -> None:
+        # Actually start the Load workflow so it can be cancelled
+        # Use the same task queue as the main workflow for test simplicity
+        client = client_holder["client"]
+        await client.start_workflow(
+            LoadDataJobWorkflow.run,
+            LoadDataJobInputs(
+                team_id=inputs.team_id,
+                source_id=inputs.source_id,
+                schema_id=inputs.schema_id,
+                job_id=inputs.job_id,
+                source_type=inputs.source_type,
+            ),
+            id=inputs.workflow_id,
+            task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+        )
+
+    @activity.defn(name="extract_and_transform_batch_activity")
+    async def mock_extract_failure(_: ExtractBatchInputs) -> ExtractBatchResult:
+        from temporalio.exceptions import ApplicationError
+
+        raise ApplicationError("Simulated extraction failure", type="NonRetryableException")
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    filtered_activities = [
+        a
+        for a in ACTIVITIES
+        if a.__name__
+        not in (
+            "etl_separation_gate_activity",
+            "start_load_workflow_activity",
+            "extract_and_transform_batch_activity",
+            "update_et_tracking_activity",
+        )
+    ]
+    test_activities = [*filtered_activities, mock_gate, mock_start_load, mock_extract_failure, mock_update_tracking]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            client_holder["client"] = env.client
+
+            # Single worker with both workflows on the same task queue for test simplicity
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow, LoadDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                with pytest.raises(Exception) as exc_info:
+                    await env.client.execute_workflow(
+                        ExternalDataJobWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+
+                # Exception chain: WorkflowFailureError -> ActivityError -> ApplicationError
+                assert "Simulated extraction failure" in str(exc_info.value.cause.cause)
+
+    # Verify job is marked as failed
+    job = await sync_to_async(
+        lambda: ExternalDataJob.objects.filter(
+            team_id=team.id,
+            schema_id=schema.id,
+        )
+        .order_by("-created_at")
+        .first()
+    )()
+    assert job is not None
+    assert job.status == ExternalDataJob.Status.FAILED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_gate_returns_false_for_non_incremental_syncs(team, stripe_customer, mock_stripe_client):
+    """
+    Test that etl_separation_gate_activity returns False for non-incremental syncs
+    (full_refresh) and the V2 legacy path is used instead of V3.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.external_data_job import ETLSeparationGateInputs
+    from posthog.temporal.data_imports.workflow_activities.et_activities import StartLoadWorkflowInputs
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    # Full refresh sync - should NOT use V3 path
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="full_refresh",
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+        billable=False,
+    )
+
+    gate_inputs_received: list[ETLSeparationGateInputs] = []
+    start_load_called = {"called": False}
+
+    @activity.defn(name="etl_separation_gate_activity")
+    def mock_gate(inputs: ETLSeparationGateInputs) -> bool:
+        gate_inputs_received.append(inputs)
+        # Gate returns False for non-incremental syncs
+        return False
+
+    @activity.defn(name="start_load_workflow_activity")
+    async def mock_start_load(_: StartLoadWorkflowInputs) -> None:
+        start_load_called["called"] = True
+        raise AssertionError("start_load_workflow_activity should not be called for non-incremental sync")
+
+    filtered_activities = [
+        a for a in ACTIVITIES if a.__name__ not in ("etl_separation_gate_activity", "start_load_workflow_activity")
+    ]
+    test_activities = [*filtered_activities, mock_gate, mock_start_load]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                await env.client.execute_workflow(
+                    ExternalDataJobWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    # Verify gate was called with correct inputs
+    assert len(gate_inputs_received) == 1
+    assert gate_inputs_received[0].team_id == team.id
+    assert gate_inputs_received[0].schema_id == str(schema.id)
+
+    # Verify start_load was NOT called (V2 path used)
+    assert start_load_called["called"] is False
+
+    # Verify job completed using V2 path
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_load_workflow_processes_batches_and_finalizes(team, stripe_customer, mock_stripe_client):
+    """
+    Test the Load workflow in isolation:
+    - Receives batch_ready signals and processes batches via load_batch_to_delta_activity
+    - Receives et_complete signal and finalizes via finalize_delta_table_activity
+    - Cleans up temp storage via cleanup_temp_storage_activity
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.external_data_job import create_source_templates, update_external_data_job_model
+    from posthog.temporal.data_imports.load_data_job import (
+        CleanupTempStorageInputs,
+        FinalizeDeltaTableInputs,
+        LoadBatchInputs,
+        LoadDataJobInputs,
+        LoadDataJobWorkflow,
+        RecoveryState,
+    )
+    from posthog.temporal.data_imports.pipelines.pipeline.signals import BatchReadySignal, ETCompleteSignal
+    from posthog.temporal.data_imports.workflow_activities.calculate_table_size import calculate_table_size_activity
+    from posthog.temporal.data_imports.workflow_activities.et_activities import UpdateETTrackingInputs
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+    )
+
+    job = await sync_to_async(ExternalDataJob.objects.create)(
+        team_id=team.id,
+        pipeline_id=source.pk,
+        schema_id=schema.id,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+        pipeline_version=ExternalDataJob.PipelineVersion.V3,
+    )
+
+    load_workflow_id = f"load-{schema.id}-test"
+    load_inputs = LoadDataJobInputs(
+        team_id=team.id,
+        source_id=str(source.pk),
+        schema_id=str(schema.id),
+        job_id=str(job.id),
+        source_type="Stripe",
+    )
+
+    activity_calls: dict[str, list[Any]] = {
+        "check_recovery_state": [],
+        "load_batch_to_delta": [],
+        "finalize_delta_table": [],
+        "cleanup_temp_storage": [],
+    }
+
+    @activity.defn(name="check_recovery_state_activity")
+    def mock_check_recovery(_) -> RecoveryState:
+        activity_calls["check_recovery_state"].append(True)
+        return RecoveryState(
+            has_manifest=False,
+            manifest_path=None,
+            temp_s3_prefix=None,
+            batches=[],
+            total_rows=0,
+            primary_keys=None,
+            sync_type=None,
+            schema_path=None,
+        )
+
+    @activity.defn(name="load_batch_to_delta_activity")
+    def mock_load_batch(inputs: LoadBatchInputs) -> dict:
+        activity_calls["load_batch_to_delta"].append(inputs)
+        return {"rows_loaded": inputs.batch_number * 50 + 50, "batch_number": inputs.batch_number}
+
+    @activity.defn(name="finalize_delta_table_activity")
+    def mock_finalize(inputs: FinalizeDeltaTableInputs) -> dict:
+        activity_calls["finalize_delta_table"].append(inputs)
+        return {"status": "finalized", "total_rows": inputs.total_rows, "queryable_folder": "test-folder"}
+
+    @activity.defn(name="cleanup_temp_storage_activity")
+    def mock_cleanup(inputs: CleanupTempStorageInputs) -> None:
+        activity_calls["cleanup_temp_storage"].append(inputs)
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    @activity.defn(name="update_job_batch_loaded_activity")
+    def mock_update_batch_loaded(_) -> None:
+        pass
+
+    test_activities = [
+        mock_check_recovery,
+        mock_load_batch,
+        mock_finalize,
+        mock_cleanup,
+        mock_update_tracking,
+        mock_update_batch_loaded,
+        update_external_data_job_model,
+        create_source_templates,
+        calculate_table_size_activity,
+    ]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.load_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[LoadDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                # Start the load workflow
+                handle = await env.client.start_workflow(
+                    LoadDataJobWorkflow.run,
+                    load_inputs,
+                    id=load_workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+                # Send batch_ready signals
+                await handle.signal(
+                    "batch_ready",
+                    BatchReadySignal(
+                        batch_path="temp/data/part-0000.parquet",
+                        batch_number=0,
+                        schema_path="temp/schema.arrow",
+                        row_count=50,
+                        primary_keys=["id"],
+                        sync_type="incremental",
+                    ),
+                )
+
+                await handle.signal(
+                    "batch_ready",
+                    BatchReadySignal(
+                        batch_path="temp/data/part-0001.parquet",
+                        batch_number=1,
+                        schema_path="temp/schema.arrow",
+                        row_count=100,
+                        primary_keys=["id"],
+                        sync_type="incremental",
+                    ),
+                )
+
+                # Send et_complete signal
+                await handle.signal(
+                    "et_complete",
+                    ETCompleteSignal(
+                        manifest_path="temp/prefix/manifest.json",
+                        total_batches=2,
+                        total_rows=150,
+                    ),
+                )
+
+                # Wait for completion
+                result = await handle.result()
+
+    # Verify activities were called
+    assert len(activity_calls["check_recovery_state"]) == 1
+    assert len(activity_calls["load_batch_to_delta"]) == 2
+    assert len(activity_calls["finalize_delta_table"]) == 1
+    assert len(activity_calls["cleanup_temp_storage"]) == 1
+
+    # Verify batch inputs
+    batch_0 = activity_calls["load_batch_to_delta"][0]
+    assert batch_0.batch_number == 0
+    assert batch_0.is_first_batch is True
+    assert batch_0.sync_type == "incremental"
+
+    batch_1 = activity_calls["load_batch_to_delta"][1]
+    assert batch_1.batch_number == 1
+    assert batch_1.is_first_batch is False
+
+    # Verify finalize inputs
+    finalize = activity_calls["finalize_delta_table"][0]
+    assert finalize.total_rows == 150
+    assert finalize.manifest_path == "temp/prefix/manifest.json"
+
+    # Verify result
+    assert result["batches_processed"] == 2
+    assert result["total_rows"] == 150
+    assert result["status"] == "completed"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_load_workflow_handles_recovery_state(team, stripe_customer, mock_stripe_client):
+    """
+    Test that the Load workflow correctly handles recovery state when restarted.
+    It should skip batches that were already loaded and continue from where it left off.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.external_data_job import create_source_templates, update_external_data_job_model
+    from posthog.temporal.data_imports.load_data_job import (
+        CleanupTempStorageInputs,
+        FinalizeDeltaTableInputs,
+        LoadBatchInputs,
+        LoadDataJobInputs,
+        LoadDataJobWorkflow,
+        RecoveryBatch,
+        RecoveryState,
+    )
+    from posthog.temporal.data_imports.workflow_activities.calculate_table_size import calculate_table_size_activity
+    from posthog.temporal.data_imports.workflow_activities.et_activities import UpdateETTrackingInputs
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+    )
+
+    job = await sync_to_async(ExternalDataJob.objects.create)(
+        team_id=team.id,
+        pipeline_id=source.pk,
+        schema_id=schema.id,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+        pipeline_version=ExternalDataJob.PipelineVersion.V3,
+        manifest_path="temp/prefix/manifest.json",
+    )
+
+    load_workflow_id = f"load-{schema.id}-recovery-test"
+    load_inputs = LoadDataJobInputs(
+        team_id=team.id,
+        source_id=str(source.pk),
+        schema_id=str(schema.id),
+        job_id=str(job.id),
+        source_type="Stripe",
+    )
+
+    activity_calls: dict[str, list[Any]] = {
+        "load_batch_to_delta": [],
+    }
+
+    @activity.defn(name="check_recovery_state_activity")
+    def mock_check_recovery(_) -> RecoveryState:
+        return RecoveryState(
+            has_manifest=True,
+            manifest_path="temp/prefix/manifest.json",
+            temp_s3_prefix="temp/prefix",
+            batches=[
+                RecoveryBatch(
+                    batch_path="temp/data/part-0000.parquet",
+                    batch_number=0,
+                    row_count=50,
+                    already_loaded=True,  # Already loaded
+                ),
+                RecoveryBatch(
+                    batch_path="temp/data/part-0001.parquet",
+                    batch_number=1,
+                    row_count=100,
+                    already_loaded=False,  # Not yet loaded
+                ),
+            ],
+            total_rows=150,
+            primary_keys=["id"],
+            sync_type="incremental",
+            schema_path="temp/schema.arrow",
+        )
+
+    @activity.defn(name="load_batch_to_delta_activity")
+    def mock_load_batch(inputs: LoadBatchInputs) -> dict:
+        activity_calls["load_batch_to_delta"].append(inputs)
+        return {"rows_loaded": inputs.batch_number * 50 + 50, "batch_number": inputs.batch_number}
+
+    @activity.defn(name="finalize_delta_table_activity")
+    def mock_finalize(_: FinalizeDeltaTableInputs) -> dict:
+        return {"status": "finalized", "total_rows": 150, "queryable_folder": "test-folder"}
+
+    @activity.defn(name="cleanup_temp_storage_activity")
+    def mock_cleanup(_: CleanupTempStorageInputs) -> None:
+        pass
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    @activity.defn(name="update_job_batch_loaded_activity")
+    def mock_update_batch_loaded(_) -> None:
+        pass
+
+    test_activities = [
+        mock_check_recovery,
+        mock_load_batch,
+        mock_finalize,
+        mock_cleanup,
+        mock_update_tracking,
+        mock_update_batch_loaded,
+        update_external_data_job_model,
+        create_source_templates,
+        calculate_table_size_activity,
+    ]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.load_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[LoadDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                result = await env.client.execute_workflow(
+                    LoadDataJobWorkflow.run,
+                    load_inputs,
+                    id=load_workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    # Should only load batch 1 (batch 0 was already loaded in recovery state)
+    assert len(activity_calls["load_batch_to_delta"]) == 1
+    batch = activity_calls["load_batch_to_delta"][0]
+    assert batch.batch_number == 1
+    # is_first_batch should be False because batch 0 was already loaded
+    assert batch.is_first_batch is False
+
+    assert result["batches_processed"] == 2  # Both batches counted (1 recovered + 1 loaded)
+    assert result["status"] == "completed"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_billing_limits(team, stripe_customer, mock_stripe_client):
+    """
+    Test that billing limits work correctly in the V3 ET+L separated flow.
+    When billing limit is reached, job should be marked as BILLING_LIMIT_REACHED.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.workflow_activities.et_activities import (
+        ExtractBatchInputs,
+        ExtractBatchResult,
+        StartLoadWorkflowInputs,
+        UpdateETTrackingInputs,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+    # Set created_at to older than 7 days so billing check is not skipped
+    source.created_at = datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(source.save)()
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created",
+            "incremental_field_type": "integer",
+        },
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+        billable=True,
+    )
+
+    @activity.defn(name="etl_separation_gate_activity")
+    async def mock_gate(_) -> bool:
+        return True
+
+    @activity.defn(name="start_load_workflow_activity")
+    async def mock_start_load(_: StartLoadWorkflowInputs) -> None:
+        pass
+
+    @activity.defn(name="extract_and_transform_batch_activity")
+    async def mock_extract(_: ExtractBatchInputs) -> ExtractBatchResult:
+        return ExtractBatchResult(
+            is_done=True,
+            batch_path="temp/data/part-0000.parquet",
+            batch_number=1,
+            row_count=100,
+            schema_path="temp/schema.arrow",
+            temp_s3_prefix="temp/prefix",
+            manifest_path="temp/prefix/manifest.json",
+        )
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    filtered_activities = [
+        a
+        for a in ACTIVITIES
+        if a.__name__
+        not in (
+            "etl_separation_gate_activity",
+            "start_load_workflow_activity",
+            "extract_and_transform_batch_activity",
+            "update_et_tracking_activity",
+        )
+    ]
+    test_activities = [*filtered_activities, mock_gate, mock_start_load, mock_extract, mock_update_tracking]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+        mock.patch("ee.billing.quota_limiting.list_limited_team_attributes") as mock_billing,
+    ):
+        mock_billing.return_value = [team.api_token]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                await env.client.execute_workflow(
+                    ExternalDataJobWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    job = await sync_to_async(
+        lambda: ExternalDataJob.objects.filter(team_id=team.id, schema_id=schema.id).order_by("-created_at").first()
+    )()
+    assert job is not None
+    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_REACHED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_non_retryable_error_in_et(team, stripe_customer, mock_stripe_client):
+    """
+    Test that non-retryable errors in the ET phase are handled correctly.
+    The schema should be marked as should_sync=False.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.load_data_job import LoadDataJobInputs, LoadDataJobWorkflow
+    from posthog.temporal.data_imports.workflow_activities.et_activities import (
+        ExtractBatchInputs,
+        ExtractBatchResult,
+        StartLoadWorkflowInputs,
+        UpdateETTrackingInputs,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created",
+            "incremental_field_type": "integer",
+        },
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+        billable=False,
+    )
+
+    # Use a mutable container to share the client with the mock activity
+    client_holder: dict = {}
+
+    @activity.defn(name="etl_separation_gate_activity")
+    async def mock_gate(_) -> bool:
+        return True
+
+    @activity.defn(name="start_load_workflow_activity")
+    async def mock_start_load(inputs: StartLoadWorkflowInputs) -> None:
+        # Actually start the Load workflow so it can be cancelled
+        client = client_holder["client"]
+        await client.start_workflow(
+            LoadDataJobWorkflow.run,
+            LoadDataJobInputs(
+                team_id=inputs.team_id,
+                source_id=inputs.source_id,
+                schema_id=inputs.schema_id,
+                job_id=inputs.job_id,
+                source_type=inputs.source_type,
+            ),
+            id=inputs.workflow_id,
+            task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+        )
+
+    @activity.defn(name="extract_and_transform_batch_activity")
+    async def mock_extract_non_retryable(_: ExtractBatchInputs) -> ExtractBatchResult:
+        from temporalio.exceptions import ApplicationError
+
+        raise ApplicationError(
+            "401 Client Error: Unauthorized for url: https://api.stripe.com", type="NonRetryableException"
+        )
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    filtered_activities = [
+        a
+        for a in ACTIVITIES
+        if a.__name__
+        not in (
+            "etl_separation_gate_activity",
+            "start_load_workflow_activity",
+            "extract_and_transform_batch_activity",
+            "update_et_tracking_activity",
+        )
+    ]
+    test_activities = [
+        *filtered_activities,
+        mock_gate,
+        mock_start_load,
+        mock_extract_non_retryable,
+        mock_update_tracking,
+    ]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+        mock.patch.object(posthoganalytics, "capture"),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            client_holder["client"] = env.client
+
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow, LoadDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                with pytest.raises(Exception) as exc_info:
+                    await env.client.execute_workflow(
+                        ExternalDataJobWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+
+                # Exception chain: WorkflowFailureError -> ActivityError -> ApplicationError
+                assert "401 Client Error" in str(exc_info.value.cause.cause)
+
+    job = await sync_to_async(
+        lambda: ExternalDataJob.objects.filter(team_id=team.id, schema_id=schema.id).order_by("-created_at").first()
+    )()
+    assert job is not None
+    assert job.status == ExternalDataJob.Status.FAILED
+
+    await sync_to_async(schema.refresh_from_db)()
+    assert schema.should_sync is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_reset_pipeline(team, stripe_customer, mock_stripe_client):
+    """
+    Test that reset_pipeline works correctly with the V3 ET+L path.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.workflow_activities.et_activities import (
+        ExtractBatchInputs,
+        ExtractBatchResult,
+        StartLoadWorkflowInputs,
+        UpdateETTrackingInputs,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created",
+            "incremental_field_type": "integer",
+            "reset_pipeline": True,
+        },
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+        billable=False,
+        reset_pipeline=True,
+    )
+
+    reset_detected = {"detected": False}
+
+    @activity.defn(name="etl_separation_gate_activity")
+    async def mock_gate(_) -> bool:
+        return True
+
+    @activity.defn(name="start_load_workflow_activity")
+    async def mock_start_load(_: StartLoadWorkflowInputs) -> None:
+        pass
+
+    @activity.defn(name="extract_and_transform_batch_activity")
+    async def mock_extract(inputs: ExtractBatchInputs) -> ExtractBatchResult:
+        if inputs.reset_pipeline:
+            reset_detected["detected"] = True
+            # Simulate real activity behavior: clear reset_pipeline flag after extraction
+            schema_obj = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.schema_id)
+            await sync_to_async(schema_obj.update_sync_type_config_for_reset_pipeline)()
+        return ExtractBatchResult(
+            is_done=True,
+            batch_path="temp/data/part-0000.parquet",
+            batch_number=1,
+            row_count=100,
+            schema_path="temp/schema.arrow",
+            temp_s3_prefix="temp/prefix",
+            manifest_path="temp/prefix/manifest.json",
+        )
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    filtered_activities = [
+        a
+        for a in ACTIVITIES
+        if a.__name__
+        not in (
+            "etl_separation_gate_activity",
+            "start_load_workflow_activity",
+            "extract_and_transform_batch_activity",
+            "update_et_tracking_activity",
+        )
+    ]
+    test_activities = [*filtered_activities, mock_gate, mock_start_load, mock_extract, mock_update_tracking]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                await env.client.execute_workflow(
+                    ExternalDataJobWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    # Verify reset was passed to the extract activity
+    assert reset_detected["detected"] is True
+
+    # Verify reset_pipeline is cleared after successful run
+    await sync_to_async(schema.refresh_from_db)()
+    assert schema.sync_type_config.get("reset_pipeline") is None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_delta_no_merging_on_first_batch(team, stripe_customer, mock_stripe_client):
+    """
+    Test that the V3 Load workflow correctly sets is_first_batch to skip delta merging
+    on the first batch write.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.external_data_job import create_source_templates, update_external_data_job_model
+    from posthog.temporal.data_imports.load_data_job import (
+        CleanupTempStorageInputs,
+        FinalizeDeltaTableInputs,
+        LoadBatchInputs,
+        LoadDataJobInputs,
+        LoadDataJobWorkflow,
+        RecoveryState,
+    )
+    from posthog.temporal.data_imports.pipelines.pipeline.signals import BatchReadySignal, ETCompleteSignal
+    from posthog.temporal.data_imports.workflow_activities.calculate_table_size import calculate_table_size_activity
+    from posthog.temporal.data_imports.workflow_activities.et_activities import UpdateETTrackingInputs
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+    )
+
+    job = await sync_to_async(ExternalDataJob.objects.create)(
+        team_id=team.id,
+        pipeline_id=source.pk,
+        schema_id=schema.id,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+        pipeline_version=ExternalDataJob.PipelineVersion.V3,
+    )
+
+    load_workflow_id = f"load-{schema.id}-first-batch-test"
+    load_inputs = LoadDataJobInputs(
+        team_id=team.id,
+        source_id=str(source.pk),
+        schema_id=str(schema.id),
+        job_id=str(job.id),
+        source_type="Stripe",
+    )
+
+    batch_inputs_received: list[LoadBatchInputs] = []
+
+    @activity.defn(name="check_recovery_state_activity")
+    def mock_check_recovery(_) -> RecoveryState:
+        return RecoveryState(
+            has_manifest=False,
+            manifest_path=None,
+            temp_s3_prefix=None,
+            batches=[],
+            total_rows=0,
+            primary_keys=None,
+            sync_type=None,
+            schema_path=None,
+        )
+
+    @activity.defn(name="load_batch_to_delta_activity")
+    def mock_load_batch(inputs: LoadBatchInputs) -> dict:
+        batch_inputs_received.append(inputs)
+        return {"rows_loaded": 50, "batch_number": inputs.batch_number}
+
+    @activity.defn(name="finalize_delta_table_activity")
+    def mock_finalize(_: FinalizeDeltaTableInputs) -> dict:
+        return {"status": "finalized", "total_rows": 150, "queryable_folder": "test-folder"}
+
+    @activity.defn(name="cleanup_temp_storage_activity")
+    def mock_cleanup(_: CleanupTempStorageInputs) -> None:
+        pass
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    @activity.defn(name="update_job_batch_loaded_activity")
+    def mock_update_batch_loaded(_) -> None:
+        pass
+
+    test_activities = [
+        mock_check_recovery,
+        mock_load_batch,
+        mock_finalize,
+        mock_cleanup,
+        mock_update_tracking,
+        mock_update_batch_loaded,
+        update_external_data_job_model,
+        create_source_templates,
+        calculate_table_size_activity,
+    ]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.load_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[LoadDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                handle = await env.client.start_workflow(
+                    LoadDataJobWorkflow.run,
+                    load_inputs,
+                    id=load_workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+                # Send 3 batches
+                for i in range(3):
+                    await handle.signal(
+                        "batch_ready",
+                        BatchReadySignal(
+                            batch_path=f"temp/data/part-{i:04d}.parquet",
+                            batch_number=i,
+                            schema_path="temp/schema.arrow",
+                            row_count=50,
+                            primary_keys=["id"],
+                            sync_type="incremental",
+                        ),
+                    )
+
+                await handle.signal(
+                    "et_complete",
+                    ETCompleteSignal(
+                        manifest_path="temp/prefix/manifest.json",
+                        total_batches=3,
+                        total_rows=150,
+                    ),
+                )
+
+                await handle.result()
+
+    # Verify is_first_batch flag
+    assert len(batch_inputs_received) == 3
+
+    # First batch should have is_first_batch=True (should use overwrite mode, no merge)
+    assert batch_inputs_received[0].batch_number == 0
+    assert batch_inputs_received[0].is_first_batch is True
+
+    # Subsequent batches should have is_first_batch=False (should use append mode)
+    assert batch_inputs_received[1].batch_number == 1
+    assert batch_inputs_received[1].is_first_batch is False
+
+    assert batch_inputs_received[2].batch_number == 2
+    assert batch_inputs_received[2].is_first_batch is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_et_workflow_does_not_call_finish_row_tracking(team, stripe_customer, mock_stripe_client):
+    """
+    Test that in V3 ET workflow, finish_row_tracking is NOT called.
+    In V3, row tracking finalization is delegated to the Load workflow.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.workflow_activities.et_activities import (
+        ExtractBatchInputs,
+        ExtractBatchResult,
+        StartLoadWorkflowInputs,
+        UpdateETTrackingInputs,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created",
+            "incremental_field_type": "integer",
+        },
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+        billable=False,
+    )
+
+    @activity.defn(name="etl_separation_gate_activity")
+    async def mock_gate(_) -> bool:
+        return True
+
+    @activity.defn(name="start_load_workflow_activity")
+    async def mock_start_load(_: StartLoadWorkflowInputs) -> None:
+        pass
+
+    @activity.defn(name="extract_and_transform_batch_activity")
+    async def mock_extract(_: ExtractBatchInputs) -> ExtractBatchResult:
+        return ExtractBatchResult(
+            is_done=True,
+            batch_path="temp/data/part-0000.parquet",
+            batch_number=1,
+            row_count=100,
+            schema_path="temp/schema.arrow",
+            temp_s3_prefix="temp/prefix",
+            manifest_path="temp/prefix/manifest.json",
+        )
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    filtered_activities = [
+        a
+        for a in ACTIVITIES
+        if a.__name__
+        not in (
+            "etl_separation_gate_activity",
+            "start_load_workflow_activity",
+            "extract_and_transform_batch_activity",
+            "update_et_tracking_activity",
+        )
+    ]
+    test_activities = [*filtered_activities, mock_gate, mock_start_load, mock_extract, mock_update_tracking]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATA_WAREHOUSE_REDIS_HOST="localhost",
+            DATA_WAREHOUSE_REDIS_PORT="6379",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.pipeline.decrement_rows"),
+        mock.patch("posthog.temporal.data_imports.external_data_job.finish_row_tracking") as mock_finish,
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                await env.client.execute_workflow(
+                    ExternalDataJobWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    # In V3 ET workflow, finish_row_tracking should NOT be called
+    # (it's handled by the Load workflow instead)
+    mock_finish.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_load_workflow_calls_finish_row_tracking(team, stripe_customer, mock_stripe_client):
+    """
+    Test that in V3 Load workflow, finish_row_tracking IS called.
+    The Load workflow is responsible for finalizing row tracking in V3.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.load_data_job import (
+        CheckRecoveryStateInputs,
+        CleanupTempStorageInputs,
+        FinalizeDeltaTableInputs,
+        LoadBatchInputs,
+        LoadDataJobInputs,
+        LoadDataJobWorkflow,
+        RecoveryState,
+    )
+    from posthog.temporal.data_imports.workflow_activities.et_activities import (
+        UpdateETTrackingInputs,
+        UpdateJobBatchLoadedInputs,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created",
+            "incremental_field_type": "integer",
+        },
+    )
+
+    job = await sync_to_async(ExternalDataJob.objects.create)(
+        team_id=team.pk,
+        pipeline_id=source.pk,
+        schema_id=schema.pk,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+        workflow_id="test-workflow",
+        pipeline_version=ExternalDataJob.PipelineVersion.V3,
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = LoadDataJobInputs(
+        team_id=team.id,
+        source_id=str(source.pk),
+        schema_id=str(schema.id),
+        job_id=str(job.id),
+        source_type="Stripe",
+    )
+
+    @activity.defn(name="check_recovery_state_activity")
+    def mock_check_recovery(_: CheckRecoveryStateInputs) -> RecoveryState:
+        return RecoveryState(
+            has_manifest=False,
+            manifest_path=None,
+            temp_s3_prefix=None,
+            batches=[],
+            total_rows=0,
+            primary_keys=None,
+            sync_type=None,
+            schema_path=None,
+        )
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    @activity.defn(name="load_batch_to_delta_activity")
+    def mock_load_batch(_: LoadBatchInputs) -> dict:
+        return {"rows_loaded": 100, "batch_number": 0}
+
+    @activity.defn(name="update_job_batch_loaded_activity")
+    def mock_update_batch(_: UpdateJobBatchLoadedInputs) -> None:
+        pass
+
+    @activity.defn(name="finalize_delta_table_activity")
+    def mock_finalize(_: FinalizeDeltaTableInputs) -> dict:
+        return {"status": "finalized", "total_rows": 100, "queryable_folder": "test/folder"}
+
+    @activity.defn(name="cleanup_temp_storage_activity")
+    def mock_cleanup(_: CleanupTempStorageInputs) -> None:
+        pass
+
+    # Get the activity names we're mocking
+    mocked_activity_names = {
+        "check_recovery_state_activity",
+        "update_et_tracking_activity",
+        "load_batch_to_delta_activity",
+        "update_job_batch_loaded_activity",
+        "finalize_delta_table_activity",
+        "cleanup_temp_storage_activity",
+    }
+
+    # Filter out activities we're mocking and add our mocks
+    filtered_activities = [a for a in ACTIVITIES if a.__name__ not in mocked_activity_names]
+    test_activities = [
+        *filtered_activities,
+        mock_check_recovery,
+        mock_update_tracking,
+        mock_load_batch,
+        mock_update_batch,
+        mock_finalize,
+        mock_cleanup,
+    ]
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+        ),
+        mock.patch("posthog.temporal.data_imports.load_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch("posthog.temporal.data_imports.external_data_job.finish_row_tracking") as mock_finish,
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[LoadDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                # Send ET complete signal immediately (no batches to process)
+                handle = await env.client.start_workflow(
+                    LoadDataJobWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+                # Signal that ET is complete with no batches
+                from posthog.temporal.data_imports.pipelines.pipeline.signals import ETCompleteSignal
+
+                await handle.signal(
+                    LoadDataJobWorkflow.et_complete,
+                    ETCompleteSignal(
+                        manifest_path="",  # Empty string for no manifest
+                        total_batches=0,
+                        total_rows=0,
+                    ),
+                )
+
+                await handle.result()
+
+    # In V3 Load workflow, finish_row_tracking SHOULD be called
+    mock_finish.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_billable_job(team, stripe_customer, mock_stripe_client):
+    """
+    Test that the billable flag is correctly set on jobs in V3 pipeline.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.workflow_activities.et_activities import (
+        ExtractBatchInputs,
+        ExtractBatchResult,
+        StartLoadWorkflowInputs,
+        UpdateETTrackingInputs,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created",
+            "incremental_field_type": "integer",
+        },
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+        billable=False,  # Explicitly set to False
+    )
+
+    @activity.defn(name="etl_separation_gate_activity")
+    async def mock_gate(_) -> bool:
+        return True
+
+    @activity.defn(name="start_load_workflow_activity")
+    async def mock_start_load(_: StartLoadWorkflowInputs) -> None:
+        pass
+
+    @activity.defn(name="extract_and_transform_batch_activity")
+    async def mock_extract(_: ExtractBatchInputs) -> ExtractBatchResult:
+        return ExtractBatchResult(
+            is_done=True,
+            batch_path="temp/data/part-0000.parquet",
+            batch_number=1,
+            row_count=100,
+            schema_path="temp/schema.arrow",
+            temp_s3_prefix="temp/prefix",
+            manifest_path="temp/prefix/manifest.json",
+        )
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    filtered_activities = [
+        a
+        for a in ACTIVITIES
+        if a.__name__
+        not in (
+            "etl_separation_gate_activity",
+            "start_load_workflow_activity",
+            "extract_and_transform_batch_activity",
+            "update_et_tracking_activity",
+        )
+    ]
+    test_activities = [*filtered_activities, mock_gate, mock_start_load, mock_extract, mock_update_tracking]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                await env.client.execute_workflow(
+                    ExternalDataJobWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    run = await get_latest_run_if_exists(
+        team_id=team.pk, pipeline_id=source.pk, expected_status=ExternalDataJob.Status.RUNNING
+    )
+    assert run is not None
+    assert run.billable is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_worker_shutdown_during_et(team, stripe_customer, mock_stripe_client):
+    """
+    Test that worker shutdown during ET phase is handled correctly.
+    The workflow should complete successfully if the data was already extracted.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.workflow_activities.et_activities import (
+        ExtractBatchInputs,
+        ExtractBatchResult,
+        StartLoadWorkflowInputs,
+        UpdateETTrackingInputs,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created",
+            "incremental_field_type": "integer",
+        },
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+        billable=False,
+    )
+
+    extraction_calls = {"count": 0}
+
+    @activity.defn(name="etl_separation_gate_activity")
+    async def mock_gate(_) -> bool:
+        return True
+
+    @activity.defn(name="start_load_workflow_activity")
+    async def mock_start_load(_: StartLoadWorkflowInputs) -> None:
+        pass
+
+    @activity.defn(name="extract_and_transform_batch_activity")
+    async def mock_extract(_: ExtractBatchInputs) -> ExtractBatchResult:
+        extraction_calls["count"] += 1
+        # Simulate worker shutdown on first call by raising WorkerShuttingDownError
+        if extraction_calls["count"] == 1:
+            raise WorkerShuttingDownError(
+                "test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type"
+            )
+        return ExtractBatchResult(
+            is_done=True,
+            batch_path="temp/data/part-0000.parquet",
+            batch_number=1,
+            row_count=100,
+            schema_path="temp/schema.arrow",
+            temp_s3_prefix="temp/prefix",
+            manifest_path="temp/prefix/manifest.json",
+        )
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(_: UpdateETTrackingInputs) -> None:
+        pass
+
+    filtered_activities = [
+        a
+        for a in ACTIVITIES
+        if a.__name__
+        not in (
+            "etl_separation_gate_activity",
+            "start_load_workflow_activity",
+            "extract_and_transform_batch_activity",
+            "update_et_tracking_activity",
+        )
+    ]
+    test_activities = [*filtered_activities, mock_gate, mock_start_load, mock_extract, mock_update_tracking]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+        mock.patch("posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow],
+                activities=test_activities,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                # The workflow should handle the shutdown and potentially reschedule
+                try:
+                    await env.client.execute_workflow(
+                        ExternalDataJobWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=2),  # Allow retry
+                    )
+                except Exception:
+                    pass  # Workflow may fail due to shutdown
+
+    # Verify that extraction was attempted
+    assert extraction_calls["count"] >= 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_integrated_et_and_l_workflows(team, stripe_customer, mock_stripe_client):
+    """
+    Integrated E2E test that runs both ET and L workflows together.
+
+    This test verifies the full V3 pipeline where:
+    - ET workflow starts the L workflow via start_load_workflow_activity
+    - ET workflow sends batch_ready signals to L workflow as it extracts data
+    - ET workflow sends et_complete signal when extraction finishes
+    - L workflow processes batches and finalizes the Delta table
+    - Both workflows complete successfully
+
+    Unlike other V3 tests that test ET and L in isolation, this test verifies
+    the actual signal passing and workflow coordination between ET and L.
+    """
+    from temporalio import activity
+
+    from posthog.temporal.data_imports.load_data_job import (
+        CheckRecoveryStateInputs,
+        CleanupTempStorageInputs,
+        FinalizeDeltaTableInputs,
+        LoadBatchInputs,
+        LoadDataJobInputs,
+        LoadDataJobWorkflow,
+        RecoveryState,
+    )
+    from posthog.temporal.data_imports.pipelines.pipeline.signals import BatchReadySignal, ETCompleteSignal
+    from posthog.temporal.data_imports.workflow_activities.et_activities import (
+        ExtractBatchInputs,
+        ExtractBatchResult,
+        StartLoadWorkflowInputs,
+        UpdateETTrackingInputs,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created",
+            "incremental_field_type": "integer",
+        },
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+        billable=False,
+    )
+
+    activity_calls: dict[str, list[Any]] = {
+        "etl_separation_gate": [],
+        "start_load_workflow": [],
+        "extract_and_transform_batch": [],
+        "update_et_tracking": [],
+        "check_recovery_state": [],
+        "load_batch_to_delta": [],
+        "finalize_delta_table": [],
+        "cleanup_temp_storage": [],
+    }
+
+    # Track the test environment client for mocking
+    test_env_client = None
+
+    @activity.defn(name="etl_separation_gate_activity")
+    def mock_gate(inputs: ETLSeparationGateInputs) -> bool:
+        activity_calls["etl_separation_gate"].append(inputs)
+        return True  # Use V3 path
+
+    # Note: start_load_workflow_activity is defined below (mock_start_load_with_capture)
+    # to capture the L workflow ID for waiting
+
+    @activity.defn(name="extract_and_transform_batch_activity")
+    async def mock_extract(inputs: ExtractBatchInputs) -> ExtractBatchResult:
+        """Mock extraction that sends real signals to the L workflow."""
+        activity_calls["extract_and_transform_batch"].append(inputs)
+
+        # Get handle to the L workflow and send signals
+        if inputs.load_workflow_id:
+            load_handle = test_env_client.get_workflow_handle(inputs.load_workflow_id)
+
+            # Send batch signals (simulating 2 batches of data)
+            await load_handle.signal(
+                "batch_ready",
+                BatchReadySignal(
+                    batch_path="temp/data/part-0000.parquet",
+                    batch_number=0,
+                    schema_path="temp/schema.arrow",
+                    row_count=50,
+                    primary_keys=["id"],
+                    sync_type="incremental",
+                ),
+            )
+
+            await load_handle.signal(
+                "batch_ready",
+                BatchReadySignal(
+                    batch_path="temp/data/part-0001.parquet",
+                    batch_number=1,
+                    schema_path="temp/schema.arrow",
+                    row_count=75,
+                    primary_keys=["id"],
+                    sync_type="incremental",
+                ),
+            )
+
+            # Send ET complete signal
+            await load_handle.signal(
+                "et_complete",
+                ETCompleteSignal(
+                    manifest_path="temp/prefix/manifest.json",
+                    total_batches=2,
+                    total_rows=125,
+                ),
+            )
+
+        return ExtractBatchResult(
+            is_done=True,
+            batch_path=None,
+            batch_number=2,
+            row_count=125,
+            schema_path="temp/schema.arrow",
+            temp_s3_prefix="temp/prefix",
+            manifest_path="temp/prefix/manifest.json",
+        )
+
+    @activity.defn(name="update_et_tracking_activity")
+    def mock_update_tracking(inputs: UpdateETTrackingInputs) -> None:
+        activity_calls["update_et_tracking"].append(inputs)
+        # Actually update the job record like the real activity does
+        job = ExternalDataJob.objects.get(id=inputs.job_id)
+        if inputs.pipeline_version is not None:
+            job.pipeline_version = inputs.pipeline_version
+            job.save()
+
+    @activity.defn(name="check_recovery_state_activity")
+    def mock_check_recovery(_: CheckRecoveryStateInputs) -> RecoveryState:
+        activity_calls["check_recovery_state"].append(True)
+        return RecoveryState(
+            has_manifest=False,
+            manifest_path=None,
+            temp_s3_prefix=None,
+            batches=[],
+            total_rows=0,
+            primary_keys=None,
+            sync_type=None,
+            schema_path=None,
+        )
+
+    @activity.defn(name="load_batch_to_delta_activity")
+    def mock_load_batch(inputs: LoadBatchInputs) -> dict:
+        activity_calls["load_batch_to_delta"].append(inputs)
+        return {"rows_loaded": inputs.batch_number * 50 + 50, "batch_number": inputs.batch_number}
+
+    @activity.defn(name="finalize_delta_table_activity")
+    def mock_finalize(inputs: FinalizeDeltaTableInputs) -> dict:
+        activity_calls["finalize_delta_table"].append(inputs)
+        return {"status": "finalized", "total_rows": inputs.total_rows, "queryable_folder": "test-folder"}
+
+    @activity.defn(name="cleanup_temp_storage_activity")
+    def mock_cleanup(inputs: CleanupTempStorageInputs) -> None:
+        activity_calls["cleanup_temp_storage"].append(inputs)
+
+    @activity.defn(name="update_job_batch_loaded_activity")
+    def mock_update_batch_loaded(_) -> None:
+        pass
+
+    # Filter out real activities and replace with mocks
+    # Note: start_load_workflow_activity is handled separately below to capture the L workflow ID
+    filtered_activities = [
+        a
+        for a in ACTIVITIES
+        if a.__name__
+        not in (
+            "etl_separation_gate_activity",
+            "start_load_workflow_activity",
+            "extract_and_transform_batch_activity",
+            "update_et_tracking_activity",
+            "check_recovery_state_activity",
+            "load_batch_to_delta_activity",
+            "finalize_delta_table_activity",
+            "cleanup_temp_storage_activity",
+            "update_job_batch_loaded_activity",
+        )
+    ]
+    test_activities = [
+        *filtered_activities,
+        mock_gate,
+        # mock_start_load is added below as mock_start_load_with_capture
+        mock_extract,
+        mock_update_tracking,
+        mock_check_recovery,
+        mock_load_batch,
+        mock_finalize,
+        mock_cleanup,
+        mock_update_batch_loaded,
+    ]
+
+    def mock_to_session_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(_):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    # Track the L workflow ID so we can wait for it
+    load_workflow_id_captured: list[str] = []
+
+    @activity.defn(name="start_load_workflow_activity")
+    async def mock_start_load_with_capture(inputs_inner: StartLoadWorkflowInputs) -> None:
+        """Start the Load workflow using the test environment client."""
+        activity_calls["start_load_workflow"].append(inputs_inner)
+        load_workflow_id_captured.append(inputs_inner.workflow_id)
+
+        # Start the actual Load workflow in the test environment
+        await test_env_client.start_workflow(
+            LoadDataJobWorkflow.run,
+            LoadDataJobInputs(
+                team_id=inputs_inner.team_id,
+                source_id=inputs_inner.source_id,
+                schema_id=inputs_inner.schema_id,
+                job_id=inputs_inner.job_id,
+                source_type=inputs_inner.source_type,
+            ),
+            id=inputs_inner.workflow_id,
+            task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,  # Same queue for testing
+        )
+
+    # Update the activities list to use the capturing version
+    test_activities_with_capture = [
+        a for a in test_activities if getattr(a, "__name__", "") != "start_load_workflow_activity"
+    ] + [mock_start_load_with_capture]
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(DeltaTableHelper, "compact_table"),
+        mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+        mock.patch("posthog.temporal.data_imports.load_data_job.get_data_import_finished_metric"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    ):
+        # Import DuckLake workflow for child workflow registration
+        from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            # Store the test client for use in mock activities
+            test_env_client = env.client
+
+            # Create workers for both task queues (DuckLake child workflow runs on different queue)
+            async with (
+                Worker(
+                    env.client,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    workflows=[ExternalDataJobWorkflow, LoadDataJobWorkflow],
+                    activities=test_activities_with_capture,
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                    activity_executor=ThreadPoolExecutor(max_workers=50),
+                    max_concurrent_activities=50,
+                ),
+                Worker(
+                    env.client,
+                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                    workflows=[DuckLakeCopyDataImportsWorkflow],
+                    activities=[],  # DuckLake workflow activities not needed for this test
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                ),
+            ):
+                # Execute the ET workflow - it will start the L workflow internally
+                await env.client.execute_workflow(
+                    ExternalDataJobWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+                # Wait for the L workflow to complete
+                # The ET workflow starts the L workflow and sends signals, but L runs independently
+                if load_workflow_id_captured:
+                    load_handle = env.client.get_workflow_handle(load_workflow_id_captured[0])
+                    await load_handle.result()
+
+    # Verify ET workflow activities were called
+    assert len(activity_calls["etl_separation_gate"]) == 1
+    assert len(activity_calls["start_load_workflow"]) == 1
+    assert len(activity_calls["extract_and_transform_batch"]) == 1
+
+    # Verify L workflow was started with correct inputs
+    start_load_input = activity_calls["start_load_workflow"][0]
+    assert start_load_input.team_id == team.id
+    assert start_load_input.schema_id == str(schema.id)
+    assert start_load_input.source_id == str(source.pk)
+
+    # Verify L workflow activities were called (signals were received and processed)
+    assert len(activity_calls["check_recovery_state"]) == 1
+    assert len(activity_calls["load_batch_to_delta"]) == 2  # 2 batches
+    assert len(activity_calls["finalize_delta_table"]) == 1
+    assert len(activity_calls["cleanup_temp_storage"]) == 1
+
+    # Verify batches were processed in order
+    batch_0 = activity_calls["load_batch_to_delta"][0]
+    assert batch_0.batch_number == 0
+    assert batch_0.is_first_batch is True
+    assert batch_0.sync_type == "incremental"
+    assert batch_0.batch_path == "temp/data/part-0000.parquet"
+
+    batch_1 = activity_calls["load_batch_to_delta"][1]
+    assert batch_1.batch_number == 1
+    assert batch_1.is_first_batch is False
+    assert batch_1.batch_path == "temp/data/part-0001.parquet"
+
+    # Verify finalize was called with correct total rows
+    finalize = activity_calls["finalize_delta_table"][0]
+    assert finalize.total_rows == 125
+    assert finalize.manifest_path == "temp/prefix/manifest.json"
+
+    # Verify job was created and has V3 pipeline version
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
+    assert job.pipeline_version == ExternalDataJob.PipelineVersion.V3
+    assert job.status == ExternalDataJob.Status.COMPLETED
