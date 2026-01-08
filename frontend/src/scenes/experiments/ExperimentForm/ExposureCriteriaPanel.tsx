@@ -23,9 +23,15 @@ type ExposureCriteriaPanelProps = {
     experiment: Experiment
     onChange: (exposureCriteria: ExperimentExposureCriteria) => void
     onNext: () => void
+    showNewExperimentFormLayout?: boolean
 }
 
-export function ExposureCriteriaPanel({ experiment, onChange, onNext }: ExposureCriteriaPanelProps): JSX.Element {
+export function ExposureCriteriaPanel({
+    experiment,
+    onChange,
+    onNext,
+    showNewExperimentFormLayout = false,
+}: ExposureCriteriaPanelProps): JSX.Element {
     // Derive exposure type from experiment state
     const selectedExposureType = experiment.exposure_criteria?.exposure_config ? 'custom' : 'default'
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
@@ -34,7 +40,6 @@ export function ExposureCriteriaPanel({ experiment, onChange, onNext }: Exposure
     const { featureFlags } = useValues(featureFlagLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     const showCollapsableSettings = featureFlags[FEATURE_FLAGS.EXPERIMENTS_EXPOSURE_CRITERIA_COLLAPSABLE] === 'test'
-    const showNewExperimentFormLayout = true
 
     if (showNewExperimentFormLayout) {
         return (
@@ -60,6 +65,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, onNext }: Exposure
                     {advancedSettingsExpanded && (
                         <div className="border rounded bg-surface-primary p-3 space-y-4">
                             {/* Exposure Type Selection */}
+                            <label className="block text-sm font-medium text-default mb-2">Exposure criteria</label>
                             <div className="flex gap-4 mb-4">
                                 <SelectableCard
                                     title="Default"

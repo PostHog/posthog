@@ -181,6 +181,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                         experiment={experiment}
                                         onChange={setExposureCriteria}
                                         onNext={() => setSelectedPanel('experiment-variants')}
+                                        showNewExperimentFormLayout={showNewExperimentFormLayout}
                                     />
                                 ),
                             },
@@ -194,6 +195,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                         onPrevious={() => setSelectedPanel('experiment-exposure')}
                                         onNext={() => setSelectedPanel('experiment-metrics')}
                                         disabled={isEditMode}
+                                        showNewExperimentFormLayout={showNewExperimentFormLayout}
                                     />
                                 ),
                             },
@@ -202,6 +204,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                 header: <MetricsPanelHeader experiment={experiment} sharedMetrics={sharedMetrics} />,
                                 content: (
                                     <MetricsPanel
+                                        showNewExperimentFormLayout={showNewExperimentFormLayout}
                                         experiment={experiment}
                                         sharedMetrics={sharedMetrics}
                                         onSaveMetric={(metric, context) => {
@@ -285,11 +288,16 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                         onPrevious={() => {}}
                         onNext={() => {}}
                         disabled={isEditMode}
+                        showNewExperimentFormLayout={showNewExperimentFormLayout}
                     />
-                    <SceneDivider />
-                    <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} onNext={() => {}} />
-                    <SceneDivider />
+                    <ExposureCriteriaPanel
+                        experiment={experiment}
+                        onChange={setExposureCriteria}
+                        onNext={() => {}}
+                        showNewExperimentFormLayout={showNewExperimentFormLayout}
+                    />
                     <MetricsPanel
+                        showNewExperimentFormLayout={showNewExperimentFormLayout}
                         experiment={experiment}
                         sharedMetrics={sharedMetrics}
                         onSaveMetric={(metric, context) => {

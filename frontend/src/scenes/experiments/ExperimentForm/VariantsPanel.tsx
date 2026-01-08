@@ -27,6 +27,7 @@ interface VariantsPanelProps {
         }
     }) => void
     disabled?: boolean
+    showNewExperimentFormLayout?: boolean
 }
 
 export function VariantsPanel({
@@ -35,6 +36,7 @@ export function VariantsPanel({
     onPrevious,
     onNext,
     disabled = false,
+    showNewExperimentFormLayout = false,
 }: VariantsPanelProps): JSX.Element {
     const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic({ experiment, disabled }))
     const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic({ experiment, disabled }))
@@ -43,8 +45,6 @@ export function VariantsPanel({
         selectExistingFeatureFlagModalLogic
     )
     const { reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
-
-    const showNewExperimentFormLayout = true
 
     if (showNewExperimentFormLayout) {
         return (
@@ -76,6 +76,7 @@ export function VariantsPanel({
                             experiment={experiment}
                             onChange={updateFeatureFlag}
                             disabled={disabled}
+                            showNewExperimentFormLayout={showNewExperimentFormLayout}
                         />
                     ))
                     .with('link', () => (
@@ -136,6 +137,7 @@ export function VariantsPanel({
                         experiment={experiment}
                         onChange={updateFeatureFlag}
                         disabled={disabled}
+                        showNewExperimentFormLayout={showNewExperimentFormLayout}
                     />
                 ))
                 .with('link', () => (

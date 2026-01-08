@@ -10,6 +10,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { alphabet } from 'lib/utils'
 
@@ -47,12 +48,14 @@ interface VariantsPanelCreateFeatureFlagProps {
         }
     }) => void
     disabled?: boolean
+    showNewExperimentFormLayout?: boolean
 }
 
 export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
     disabled = false,
+    showNewExperimentFormLayout = false,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
     const { featureFlagKeyValidation, featureFlagKeyValidationLoading } = useValues(
         variantsPanelLogic({ experiment, disabled })
@@ -190,7 +193,9 @@ export const VariantsPanelCreateFeatureFlag = ({
 
             <LemonField.Pure
                 label="Variant keys"
-                help="The rollout percentage of experiment variants must add up to 100%"
+                {...(!showNewExperimentFormLayout
+                    ? { help: 'The rollout percentage of experiment variants must add up to 100%' }
+                    : {})}
             >
                 <div className="text-sm border border-primary rounded p-4">
                     <div className="grid grid-cols-24 gap-2 font-bold mb-2 items-center">
@@ -330,9 +335,23 @@ export const VariantsPanelCreateFeatureFlag = ({
                     }
                 />
                 <div className="text-secondary text-sm pl-6 mt-2">
-                    If your feature flag is evaluated for anonymous users, use this option to ensure the flag value
-                    remains consistent after the user logs in. Note that this feature requires creating profiles for
-                    anonymous users.
+                    {showNewExperimentFormLayout ? (
+                        <>
+                            This is only relevant if your feature flag is shown to both logged out AND logged in users.{' '}
+                            <Link
+                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                target="_blank"
+                            >
+                                Learn more
+                            </Link>
+                        </>
+                    ) : (
+                        <>
+                            If your feature flag is evaluated for anonymous users, use this option to ensure the flag
+                            value remains consistent after the user logs in. Note that this feature requires creating
+                            profiles for anonymous users.
+                        </>
+                    )}
                 </div>
             </div>
         </div>
