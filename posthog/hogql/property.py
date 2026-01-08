@@ -86,6 +86,11 @@ class AggregationFinder(TraversingVisitor):
 
 
 def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
+    if value is True:
+        value = "true"
+    elif value is False:
+        value = "false"
+
     if value != "true" and value != "false":
         return value
     if property.type == "person":
@@ -178,30 +183,11 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.IS_NOT_SET:
-        exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=expr,
-                right=ast.Constant(value=None),
-            )
-        ]
-
-        if is_json_field:
-            if not isinstance(expr, ast.Field):
-                raise Exception(f"Requires a Field expression")
-
-            field = ast.Field(chain=expr.chain[:-1])
-
-            exprs.append(
-                ast.Not(
-                    expr=ast.Call(
-                        name="JSONHas",
-                        args=[field, ast.Constant(value=property.key)],
-                    )
-                )
-            )
-
-        return ast.Or(exprs=exprs)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=expr,
+            right=ast.Constant(value=None),
+        )
     elif operator == PropertyOperator.ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.ILike,
@@ -334,7 +320,9 @@ def property_to_expr(
         | LogPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"] = "event",
+    scope: Literal[
+        "event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics", "log_resource"
+    ] = "event",
     strict: bool = False,
 ) -> ast.Expr:
     if isinstance(property, dict):
@@ -519,13 +507,15 @@ def property_to_expr(
         elif property.type == "log":
             chain = [property.key]
             property.key = ""
-        elif property.type == "log_attribute":
-            chain = ["attributes"]
-        elif property.type == "log_resource_attribute":
+        elif scope == "log_resource":
             # log resource attributes are stored in a separate table as `attribute_key` and `attribute_value`
             # columns. The `attribute_key` filter needs to be added separately outside of property_to_expr
             chain = ["attribute_value"]
             property.key = ""
+        elif property.type == "log_attribute":
+            chain = ["attributes"]
+        elif property.type == "log_resource_attribute":
+            chain = ["resource_attributes"]
         elif property.type == "revenue_analytics":
             *chain, property.key = property.key.split(".")
         elif property.type == "workflow_variable":

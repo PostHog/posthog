@@ -5,6 +5,8 @@ import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -15,8 +17,9 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +30,10 @@ import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { createPlaylist } from './playlist/playlistUtils'
+import {
+    SessionRecordingPlaylistLogicProps,
+    sessionRecordingsPlaylistLogic,
+} from './playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
@@ -65,15 +72,24 @@ function Header(): JSX.Element {
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonButton
-                        type="primary"
-                        onClick={(e) => newPlaylistHandler.onEvent?.(e)}
-                        data-attr="save-recordings-playlist-button"
-                        loading={newPlaylistHandler.loading}
-                        size="small"
+                    <AppShortcut
+                        name="NewRecordingCollection"
+                        keybind={[keyBinds.new]}
+                        intent="New collection"
+                        interaction="click"
+                        scope={Scene.Replay}
                     >
-                        New collection
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
+                            data-attr="save-recordings-playlist-button"
+                            loading={newPlaylistHandler.loading}
+                            size="small"
+                            tooltip="New collection"
+                        >
+                            New collection
+                        </LemonButton>
+                    </AppShortcut>
                 </AccessControlAction>
             )}
         </div>
@@ -161,8 +177,15 @@ function Warnings(): JSX.Element {
     )
 }
 
-function MainPanel(): JSX.Element {
+function MainPanel({ tabId }: { tabId: string }): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
+
+    const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
+        logicKey: `scene-${tabId}`,
+        updateSearchParams: true,
+    }
+
+    useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic({ tabId }))
 
     return (
         <SceneContent>
@@ -172,7 +195,7 @@ function MainPanel(): JSX.Element {
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper">
-                    <SessionRecordingsPlaylist updateSearchParams />
+                    <SessionRecordingsPlaylist {...playlistLogicProps} />
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
@@ -255,7 +278,7 @@ export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX
         <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
             <SceneContent className="h-full">
                 <SessionRecordingsPageTabs />
-                <MainPanel />
+                <MainPanel tabId={tabId} />
             </SceneContent>
         </BindLogic>
     )

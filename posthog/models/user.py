@@ -71,6 +71,7 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
+            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
             user.set_password(password)
         user.save()
         return user
@@ -205,6 +206,32 @@ class User(AbstractUser, UUIDTClassicModel):
     username = None
 
     objects: UserManager = UserManager()
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        """
+        Track the original is_active value when loading from the database.
+
+        This allows signal handlers to detect when is_active actually changes,
+        avoiding unnecessary cache warming on unrelated user saves. The
+        _original_is_active attribute is compared against the current is_active
+        value in the user_saved signal handler.
+        """
+        instance = super().from_db(db, field_names, values)
+        instance._original_is_active = instance.is_active
+        return instance
+
+    def refresh_from_db(self, using=None, fields=None, from_queryset=None):
+        """
+        Update _original_is_active when refreshing from the database.
+
+        This ensures the tracking stays accurate after explicit refresh calls.
+        The from_queryset parameter is accepted for django-stubs compatibility
+        but not passed to super() since Django 4.2 doesn't support it yet.
+        """
+        super().refresh_from_db(using=using, fields=fields)
+        if fields is None or "is_active" in fields:
+            self._original_is_active = self.is_active
 
     @property
     def is_superuser(self) -> bool:

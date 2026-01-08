@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
-import { IconCorrelationAnalysis, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconCorrelationAnalysis, IconPencil, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
@@ -20,6 +21,9 @@ import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
+
+const srmFailureTooltipText =
+    "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
 
 interface MicroChartProps {
     exposures: ExperimentExposureQueryResponse
@@ -138,7 +142,8 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 }
 
 export function Exposures(): JSX.Element {
-    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft } = useValues(experimentLogic)
+    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft, featureFlags } =
+        useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(modalsLogic)
     const colors = useChartColors()
 
@@ -162,6 +167,9 @@ export function Exposures(): JSX.Element {
             })
         }
     }
+
+    // Detect sample ratio mismatch (p < 0.001 is significant)
+    const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
 
     const { canvasRef } = useChart({
         getConfig: () => {
@@ -287,6 +295,11 @@ export function Exposures(): JSX.Element {
                                         ))}
                                     </div>
                                 )}
+                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SAMPLE_RATIO_MISMATCH] && hasSRM && (
+                                    <Tooltip title={srmFailureTooltipText}>
+                                        <IconWarning className="text-warning text-lg" />
+                                    </Tooltip>
+                                )}
                             </>
                         )}
                     </div>
@@ -336,127 +349,151 @@ export function Exposures(): JSX.Element {
                                 </div>
                             )}
 
-                            {/* Exposure Criteria & Total Exposures Section */}
-                            <div>
-                                <div className="flex justify-between mb-4">
-                                    <div>
-                                        <h3 className="card-secondary">Exposure criteria</h3>
-                                        <div className="flex items-center gap-2">
-                                            <div className="text-sm font-semibold">
-                                                {getExposureCriteriaLabel(exposureCriteria)}
-                                            </div>
-                                            <LemonButton
-                                                icon={<IconPencil fontSize="12" />}
-                                                size="xsmall"
-                                                className="flex items-center gap-2"
-                                                type="secondary"
-                                                onClick={() => openExposureCriteriaModal()}
-                                            />
-                                        </div>
+                            {/* Exposure Criteria Section */}
+                            <div className="mb-4">
+                                <h3 className="card-secondary">Exposure criteria</h3>
+                                <div className="flex items-center gap-2">
+                                    <div className="text-sm font-semibold">
+                                        {getExposureCriteriaLabel(exposureCriteria)}
                                     </div>
+                                    <LemonButton
+                                        icon={<IconPencil fontSize="12" />}
+                                        size="xsmall"
+                                        className="flex items-center gap-2"
+                                        type="secondary"
+                                        onClick={() => openExposureCriteriaModal()}
+                                    />
                                 </div>
-                                {exposures?.timeseries.length > 0 && (
-                                    <div>
-                                        <h3 className="card-secondary">Total exposures</h3>
-                                        <div>
-                                            <LemonTable
-                                                dataSource={[
-                                                    ...(exposures?.timeseries || []),
-                                                    // Add total row
-                                                    { variant: '__total__', isTotal: true },
-                                                ]}
-                                                columns={[
-                                                    {
-                                                        title: 'Variant',
-                                                        key: 'variant',
-                                                        render: function Variant(_, series) {
-                                                            if (series.isTotal) {
-                                                                return <span className="font-semibold">Total</span>
+                            </div>
+                            {exposures?.timeseries.length > 0 && (
+                                <div>
+                                    <h3 className="card-secondary">Total exposures</h3>
+                                    <LemonTable
+                                        dataSource={[
+                                            ...(exposures?.timeseries || []),
+                                            { variant: '__total__', isTotal: true },
+                                        ]}
+                                        columns={[
+                                            {
+                                                title: 'Variant',
+                                                key: 'variant',
+                                                render: function Variant(_, series) {
+                                                    if (series.isTotal) {
+                                                        return <span className="font-semibold">Total</span>
+                                                    }
+                                                    return <VariantTag variantKey={series.variant} />
+                                                },
+                                            },
+                                            {
+                                                title: 'Exposures',
+                                                key: 'exposures',
+                                                render: function Exposures(_, series) {
+                                                    if (series.isTotal) {
+                                                        return (
+                                                            <span className="font-semibold">
+                                                                {humanFriendlyNumber(totalExposures)}
+                                                            </span>
+                                                        )
+                                                    }
+                                                    return humanFriendlyNumber(
+                                                        exposures?.total_exposures[series.variant]
+                                                    )
+                                                },
+                                            },
+                                            {
+                                                title: '%',
+                                                key: 'percentage',
+                                                render: function Percentage(_, series) {
+                                                    if (series.isTotal) {
+                                                        let totalPercentage = 0
+                                                        let total = 0
+                                                        if (exposures?.total_exposures) {
+                                                            for (const [_, value] of Object.entries(
+                                                                exposures.total_exposures
+                                                            )) {
+                                                                total += Number(value)
                                                             }
-                                                            return <VariantTag variantKey={series.variant} />
-                                                        },
-                                                    },
-                                                    {
-                                                        title: 'Exposures',
-                                                        key: 'exposures',
-                                                        render: function Exposures(_, series) {
-                                                            if (series.isTotal) {
-                                                                return (
-                                                                    <span className="font-semibold">
-                                                                        {humanFriendlyNumber(totalExposures)}
-                                                                    </span>
-                                                                )
-                                                            }
-                                                            return humanFriendlyNumber(
-                                                                exposures?.total_exposures[series.variant]
-                                                            )
-                                                        },
-                                                    },
-                                                    {
-                                                        title: '%',
-                                                        key: 'percentage',
-                                                        render: function Percentage(_, series) {
-                                                            if (series.isTotal) {
-                                                                // Calculate sum of all individual percentages
-                                                                let totalPercentage = 0
-                                                                let total = 0
-                                                                if (exposures?.total_exposures) {
-                                                                    for (const [_, value] of Object.entries(
-                                                                        exposures.total_exposures
-                                                                    )) {
-                                                                        total += Number(value)
-                                                                    }
-                                                                    if (total > 0) {
-                                                                        for (const [_, count] of Object.entries(
-                                                                            exposures.total_exposures
-                                                                        )) {
-                                                                            totalPercentage +=
-                                                                                (Number(count) / total) * 100
-                                                                        }
-                                                                    }
-                                                                }
-                                                                return (
-                                                                    <span className="font-semibold">
-                                                                        {totalPercentage
-                                                                            ? `${totalPercentage.toFixed(1)}%`
-                                                                            : '-%'}
-                                                                    </span>
-                                                                )
-                                                            }
-                                                            let total = 0
-                                                            if (exposures?.total_exposures) {
-                                                                for (const [_, value] of Object.entries(
+                                                            if (total > 0) {
+                                                                for (const [_, count] of Object.entries(
                                                                     exposures.total_exposures
                                                                 )) {
-                                                                    total += Number(value)
+                                                                    totalPercentage += (Number(count) / total) * 100
                                                                 }
                                                             }
-                                                            return (
+                                                        }
+                                                        return (
+                                                            <span className="font-semibold">
+                                                                {totalPercentage
+                                                                    ? `${totalPercentage.toFixed(1)}%`
+                                                                    : '-%'}
+                                                            </span>
+                                                        )
+                                                    }
+                                                    let total = 0
+                                                    if (exposures?.total_exposures) {
+                                                        for (const [_, value] of Object.entries(
+                                                            exposures.total_exposures
+                                                        )) {
+                                                            total += Number(value)
+                                                        }
+                                                    }
+                                                    return (
+                                                        <span className="font-semibold">
+                                                            {total ? (
+                                                                <>
+                                                                    {(
+                                                                        (exposures?.total_exposures[series.variant] /
+                                                                            total) *
+                                                                        100
+                                                                    ).toFixed(1)}
+                                                                    %
+                                                                </>
+                                                            ) : (
+                                                                <>-%</>
+                                                            )}
+                                                        </span>
+                                                    )
+                                                },
+                                            },
+                                        ]}
+                                    />
+                                    {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SAMPLE_RATIO_MISMATCH] &&
+                                        exposures?.sample_ratio_mismatch != null && (
+                                            <div className="flex items-center gap-1 text-xs mt-2">
+                                                {hasSRM ? (
+                                                    <>
+                                                        <Tooltip title={srmFailureTooltipText}>
+                                                            <span className="flex items-center gap-1 text-warning cursor-pointer">
+                                                                <IconWarning className="text-sm" />
                                                                 <span className="font-semibold">
-                                                                    {total ? (
-                                                                        <>
-                                                                            {(
-                                                                                (exposures?.total_exposures[
-                                                                                    series.variant
-                                                                                ] /
-                                                                                    total) *
-                                                                                100
-                                                                            ).toFixed(1)}
-                                                                            %
-                                                                        </>
-                                                                    ) : (
-                                                                        <>-%</>
-                                                                    )}
+                                                                    Sample ratio mismatch detected
                                                                 </span>
-                                                            )
-                                                        },
-                                                    },
-                                                ]}
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
+                                                            </span>
+                                                        </Tooltip>
+                                                        <span className="text-muted">
+                                                            (p ={' '}
+                                                            {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
+                                                        </span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
+                                                            <span className="flex items-center gap-1 text-success cursor-pointer">
+                                                                <IconCheckCircle className="text-sm" />
+                                                                <span>
+                                                                    Exposure distribution matches rollout percentages
+                                                                </span>
+                                                            </span>
+                                                        </Tooltip>
+                                                        <span className="text-muted">
+                                                            (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+                                </div>
+                            )}
                         </div>
                     ),
                 },

@@ -54,11 +54,13 @@ import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriend
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { GithubIntegration } from './environment/Integrations'
+import { LinearIntegration } from './environment/Integrations'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { ReplayIntegrations } from './environment/ReplayIntegrations'
 import {
     NetworkCaptureSettings,
     ReplayAuthorizedDomains,
@@ -83,6 +85,8 @@ import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersCo
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
+import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
+import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationAI } from './organization/OrgAI'
@@ -99,7 +103,7 @@ import { ProjectMove } from './project/ProjectMove'
 import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
-import { ChangePassword } from './user/ChangePassword'
+import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
@@ -443,6 +447,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
                 component: <ReplayDataRetentionSettings />,
             },
+            {
+                id: 'replay-integrations',
+                title: 'Integrations',
+                component: <ReplayIntegrations />,
+                flag: 'REPLAY_LINEAR_INTEGRATION',
+            },
         ],
     },
     {
@@ -575,9 +585,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <GithubIntegration />,
             },
             {
+                id: 'integration-linear',
+                title: 'Linear integration',
+                component: <LinearIntegration />,
+            },
+            {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: <IntegrationsList omitKinds={['slack', 'github']} />,
+                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
             },
             {
                 id: 'integration-ip-allowlist',
@@ -808,6 +823,27 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-approvals',
+        title: 'Approvals',
+        flag: 'APPROVALS',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        settings: [
+            {
+                id: 'approval-policies',
+                title: 'Policies',
+                description: 'Configure which actions require approval before being applied',
+                component: <ApprovalPolicies />,
+            },
+            {
+                id: 'change-requests',
+                title: 'Change requests',
+                description: 'Review and approve pending change requests',
+                component: <ChangeRequestsList />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -850,7 +886,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'change-password',
-                title: 'Change password',
+                title: <ChangePasswordTitle />,
                 component: <ChangePassword />,
             },
             {
@@ -916,6 +952,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'allow-impersonation',
                 title: 'Support access',
                 component: <AllowImpersonation />,
+                flag: 'CONTROL_SUPPORT_LOGIN',
             },
             {
                 id: 'hedgehog-mode',

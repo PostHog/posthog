@@ -387,6 +387,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "viewers": [],
                 "ongoing": True,
                 "activity_score": ANY,
+                "external_references": [],
             },
         ]
 
@@ -627,6 +628,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "snapshot_source": "web",
             "ongoing": None,
             "activity_score": None,
+            "external_references": [],
         }
 
     def test_get_single_session_recording_viewed_stats_someone_else_viewed(self):
@@ -1633,3 +1635,85 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # Verify no PostgreSQL record was created (since it wasn't found)
         assert not SessionRecording.objects.filter(team=self.team, session_id=session_id_2).exists()
+
+    @parameterized.expand(
+        [
+            (
+                "recording_on_later_page_is_included_when_matches_filters",
+                # Create 5 recordings, request page 1 with limit 2, but ask for session_recording_id from page 3
+                # The requested recording matches date filters, so should be included
+                {
+                    "recordings": [
+                        {"session_id": "session_1", "days_ago": 1},
+                        {"session_id": "session_2", "days_ago": 1},
+                        {"session_id": "session_3", "days_ago": 1},
+                        {"session_id": "session_4", "days_ago": 1},
+                        {"session_id": "session_5", "days_ago": 1},
+                    ],
+                    "date_from": "-3d",
+                    "limit": 2,
+                    "session_recording_id": "session_5",
+                },
+                # session_5 matches the date filter (-3d) even though it would be on a later page
+                # so it should be prepended to results
+                ["session_5"],  # must be in results
+                [],  # must NOT be in results
+            ),
+            (
+                "recording_outside_date_range_is_excluded",
+                # Create a recording from 10 days ago, request with date_from=-3d
+                # The recording doesn't match the date filter, so should NOT be included
+                {
+                    "recordings": [
+                        {"session_id": "recent_session", "days_ago": 1},
+                        {"session_id": "old_session", "days_ago": 10},
+                    ],
+                    "date_from": "-3d",
+                    "session_recording_id": "old_session",
+                },
+                ["recent_session"],  # must be in results
+                ["old_session"],  # must NOT be in results - doesn't match date filter
+            ),
+        ]
+    )
+    def test_session_recording_id_respects_filters(
+        self,
+        _name: str,
+        config: dict,
+        must_be_in_results: list[str],
+        must_not_be_in_results: list[str],
+    ):
+        """
+        Test that session_recording_id only includes recordings that match the current filters.
+
+        A recording should be prepended to results if:
+        - It matches all filters (date range, properties, etc.) but is on a different page
+
+        A recording should NOT be included if:
+        - It doesn't match the filters (e.g., outside date range)
+        """
+        base_time = now()
+
+        for rec in config["recordings"]:
+            recording_time = base_time - relativedelta(days=rec["days_ago"])
+            self.produce_replay_summary("user1", rec["session_id"], recording_time)
+
+        params = {"date_from": config["date_from"]}
+        if "limit" in config:
+            params["limit"] = config["limit"]
+        if "session_recording_id" in config:
+            params["session_recording_id"] = config["session_recording_id"]
+
+        params_string = urlencode(params)
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        session_ids = [r["id"] for r in response_data["results"]]
+
+        for expected in must_be_in_results:
+            assert expected in session_ids, f"Expected {expected} to be in results, but got {session_ids}"
+
+        for unexpected in must_not_be_in_results:
+            assert unexpected not in session_ids, f"Expected {unexpected} to NOT be in results, but got {session_ids}"

@@ -21,6 +21,7 @@ export type SurveyFeatureRequirement = {
     sdkVersions: SdkVersionRequirements
     feature: string
     docsUrl?: string
+    unsupportedSdks?: SurveySdkType[]
 }
 
 // list of survey things that require specific sdk version(s)
@@ -35,6 +36,11 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         feature: 'URL targeting with exact match',
         sdkVersions: { 'posthog-js': '1.82.0' },
         check: (s) => s.conditions?.urlMatchType === SurveyMatchType.Exact,
+    },
+    {
+        feature: 'Device types targeting',
+        sdkVersions: { 'posthog-js': '1.214.0' },
+        check: (s) => (s.conditions?.deviceTypes?.length ?? 0) > 0,
     },
     {
         feature: 'Custom font selection',
@@ -54,11 +60,13 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     {
         feature: 'Partial response collection',
         sdkVersions: { 'posthog-js': '1.240.0' },
+        unsupportedSdks: ['posthog-ios', 'posthog-android', 'posthog-react-native'],
         check: (s) => s.enable_partial_responses === true,
     },
     {
         feature: 'Auto-submit on selection',
         sdkVersions: { 'posthog-js': '1.244.0' },
+        unsupportedSdks: ['posthog-ios', 'posthog-android', 'posthog-react-native'],
         check: (s) =>
             s.questions.some(
                 (q) =>
@@ -83,7 +91,8 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Event trigger property filters',
-        sdkVersions: { 'posthog-js': '1.268.0' },
+        sdkVersions: { 'posthog-js': '1.268.0', 'posthog-react-native': '4.15.0' },
+        unsupportedSdks: ['posthog-ios', 'posthog-android'],
         check: (s) =>
             (s.conditions?.events?.values?.length ?? 0) > 0 &&
             !!s.conditions?.events?.values?.some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
@@ -96,17 +105,28 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     {
         feature: 'Cancellation events',
         sdkVersions: { 'posthog-js': '1.299.0' },
+        unsupportedSdks: ['posthog-ios', 'posthog-android', 'posthog-react-native'],
         check: (s) => (s.conditions?.cancelEvents?.values?.length ?? 0) > 0,
     },
     {
         feature: 'Targeting with actions',
-        sdkVersions: { 'posthog-js': '1.299.0' },
+        sdkVersions: { 'posthog-js': '1.301.0' },
+        unsupportedSdks: ['posthog-ios', 'posthog-android', 'posthog-react-native'],
         check: (s) => (s.conditions?.actions?.values?.length ?? 0) > 0,
     },
     {
         feature: 'Styling input appearance',
         sdkVersions: { 'posthog-js': '1.300.0' },
         check: (s) => s.appearance?.inputBackground !== undefined || s.appearance?.inputTextColor !== undefined,
+    },
+    {
+        feature: 'Custom text colors',
+        sdkVersions: { 'posthog-js': '1.310.1', 'posthog-react-native': '4.17.0' },
+        unsupportedSdks: ['posthog-ios', 'posthog-android'],
+        check: (s) =>
+            s.appearance?.textColor !== undefined ||
+            s.appearance?.inputTextColor !== undefined ||
+            s.appearance?.submitButtonTextColor !== undefined,
     },
 ]
 
@@ -123,35 +143,41 @@ export function meetsVersionRequirement(version: string | null | undefined, minV
 
 export type TeamSdkVersions = Partial<Record<SurveySdkType, string | null>>
 
-export type SurveyVersionWarning = {
+export type SurveyFeatureWarning = {
     feature: string
-    sdkType: SurveySdkType
-    currentVersion: string
-    minVersion: string
-    docsUrl?: string
+    versionIssues: { sdkType: SurveySdkType; currentVersion: string; minVersion: string }[]
+    unsupportedSdks: SurveySdkType[]
 }
 
-export function getSurveyVersionWarnings(survey: Survey, teamSdkVersions: TeamSdkVersions): SurveyVersionWarning[] {
-    const warnings: SurveyVersionWarning[] = []
+export function getSurveyWarnings(survey: Survey, teamSdkVersions: TeamSdkVersions): SurveyFeatureWarning[] {
+    const warnings: SurveyFeatureWarning[] = []
+    const activeTeamSdkTypes = Object.keys(teamSdkVersions) as SurveySdkType[]
 
     for (const req of SURVEY_SDK_REQUIREMENTS) {
         if (!req.check(survey)) {
             continue
         }
 
+        const versionIssues: SurveyFeatureWarning['versionIssues'] = []
+        const unsupportedSdks: SurveySdkType[] = []
+
         for (const [sdkType, minVersion] of Object.entries(req.sdkVersions) as [SurveySdkType, string][]) {
             const teamVersion = teamSdkVersions[sdkType]
-
-            // only warn if we've seen the team use this sdk AND it's outdated
             if (teamVersion && !meetsVersionRequirement(teamVersion, minVersion)) {
-                warnings.push({
-                    feature: req.feature,
-                    sdkType,
-                    currentVersion: teamVersion,
-                    minVersion,
-                    docsUrl: req.docsUrl,
-                })
+                versionIssues.push({ sdkType, currentVersion: teamVersion, minVersion })
             }
+        }
+
+        if (req.unsupportedSdks) {
+            for (const sdk of req.unsupportedSdks) {
+                if (activeTeamSdkTypes.includes(sdk)) {
+                    unsupportedSdks.push(sdk)
+                }
+            }
+        }
+
+        if (versionIssues.length > 0 || unsupportedSdks.length > 0) {
+            warnings.push({ feature: req.feature, versionIssues, unsupportedSdks })
         }
     }
 

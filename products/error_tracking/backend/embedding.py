@@ -7,6 +7,7 @@ from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 
 DOCUMENT_EMBEDDINGS = "posthog_document_embeddings"
 SHARDED_DOCUMENT_EMBEDDINGS = f"sharded_{DOCUMENT_EMBEDDINGS}"
+PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS = f"partitioned_sharded_{DOCUMENT_EMBEDDINGS}"
 DISTRIBUTED_DOCUMENT_EMBEDDINGS = f"distributed_{DOCUMENT_EMBEDDINGS}"
 DOCUMENT_EMBEDDING_WRITABLE = f"writable_{DOCUMENT_EMBEDDINGS}"
 KAFKA_DOCUMENT_EMBEDDINGS = f"kafka_{DOCUMENT_EMBEDDINGS}"
@@ -23,7 +24,8 @@ CREATE TABLE IF NOT EXISTS {table_name}
     document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
     timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
     inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
-    content String{default_clause}, -- The actual text content that was embedded
+    content String{content_default}, -- The actual text content that was embedded
+    metadata String{metadata_default}, -- JSON metadata for the document, stored as a string
     embedding Array(Float64) -- The embedding itself
     {extra_fields}
 ) ENGINE = {engine}
@@ -45,18 +47,21 @@ def DOCUMENT_EMBEDDINGS_TABLE_SQL():
     --  - people will /always/ provide a date range
     --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
     --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
+    PARTITION BY toMonday(timestamp)
     ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
-    SETTINGS index_granularity = 512
+    TTL timestamp + INTERVAL 3 MONTH
+    SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
     """
     ).format(
-        table_name=SHARDED_DOCUMENT_EMBEDDINGS,
+        table_name=PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS,
         engine=ReplacingMergeTree(
-            SHARDED_DOCUMENT_EMBEDDINGS, ver="inserted_at", replication_scheme=ReplicationScheme.SHARDED
+            PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS, ver="inserted_at", replication_scheme=ReplicationScheme.SHARDED
         ),
-        default_clause=" DEFAULT ''",
+        content_default=" DEFAULT ''",
+        metadata_default=" DEFAULT '{}'",
         extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
-    , {index_by_kafka_timestamp(SHARDED_DOCUMENT_EMBEDDINGS)}
+    , {index_by_kafka_timestamp(PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS)}
     """,
     )
 
@@ -67,10 +72,11 @@ def DISTRIBUTED_DOCUMENT_EMBEDDINGS_TABLE_SQL():
     return DOCUMENT_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name=DISTRIBUTED_DOCUMENT_EMBEDDINGS,
         engine=Distributed(
-            data_table=SHARDED_DOCUMENT_EMBEDDINGS,
+            data_table=PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS,
             sharding_key="cityHash64(document_id)",
         ),
-        default_clause=" DEFAULT ''",
+        content_default=" DEFAULT ''",
+        metadata_default=" DEFAULT '{}'",
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     )
 
@@ -79,10 +85,11 @@ def DOCUMENT_EMBEDDINGS_WRITABLE_TABLE_SQL():
     return DOCUMENT_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name=DOCUMENT_EMBEDDING_WRITABLE,
         engine=Distributed(
-            data_table=SHARDED_DOCUMENT_EMBEDDINGS,
+            data_table=PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS,
             sharding_key="cityHash64(document_id)",
         ),
-        default_clause=" DEFAULT ''",
+        content_default=" DEFAULT ''",
+        metadata_default=" DEFAULT '{}'",
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     )
 
@@ -91,7 +98,8 @@ def KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL():
     return DOCUMENT_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name=KAFKA_DOCUMENT_EMBEDDINGS,
         engine=kafka_engine(KAFKA_DOCUMENT_EMBEDDINGS_TOPIC, group="clickhouse_document_embeddings"),
-        default_clause="",
+        content_default="",
+        metadata_default="",
         extra_fields="",
     )
 
@@ -112,6 +120,7 @@ document_id,
 timestamp,
 _timestamp as inserted_at,
 coalesce(content, '') as content,
+coalesce(metadata, '{{}}') as metadata,
 embedding,
 _timestamp,
 _offset,
@@ -126,4 +135,19 @@ FROM {database}.{kafka_table}
 
 
 def TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {SHARDED_DOCUMENT_EMBEDDINGS} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    return (
+        f"TRUNCATE TABLE IF EXISTS {PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    )
+
+
+# Migration helpers for transitioning to partitioned tables
+def DROP_DOCUMENT_EMBEDDINGS_MV_SQL():
+    return f"DROP TABLE IF EXISTS {DOCUMENT_EMBEDDINGS_MV}"
+
+
+def DROP_DISTRIBUTED_DOCUMENT_EMBEDDINGS_SQL():
+    return f"DROP TABLE IF EXISTS {DISTRIBUTED_DOCUMENT_EMBEDDINGS}"
+
+
+def DROP_DOCUMENT_EMBEDDINGS_WRITABLE_SQL():
+    return f"DROP TABLE IF EXISTS {DOCUMENT_EMBEDDING_WRITABLE}"

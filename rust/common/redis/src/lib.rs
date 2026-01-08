@@ -215,6 +215,14 @@ pub trait Client {
         format: RedisValueFormat,
     ) -> Result<String, CustomRedisError>;
     async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError>;
+    /// Set raw bytes directly without any serialization or compression.
+    /// Used primarily for tests that need to write pickle-formatted data.
+    async fn set_bytes(
+        &self,
+        k: String,
+        v: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError>;
     async fn set_with_format(
         &self,
@@ -232,9 +240,36 @@ pub trait Client {
         seconds: u64,
         format: RedisValueFormat,
     ) -> Result<bool, CustomRedisError>;
+    async fn batch_incr_by_expire_nx(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+
+    /// Like batch_incr_by_expire_nx but always sets the TTL (no NX flag).
+    /// Compatible with Redis 6.x which doesn't support EXPIRE ... NX.
+    async fn batch_incr_by_expire(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError>;
+    async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError>;
+    async fn batch_sadd_expire(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+    async fn batch_set_nx_ex(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<Vec<bool>, CustomRedisError>;
+    async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
 }
 
 // Module declarations

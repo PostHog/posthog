@@ -41,7 +41,6 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ra
 from posthog.schema import (
     MatchedRecordingEvent,
     MatchingEventsResponse,
-    NodeKind,
     ProductIntentContext,
     ProductKey,
     PropertyFilterType,
@@ -215,6 +214,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
     person = MinimalPersonSerializer(required=False)
+    external_references = serializers.SerializerMethodField()
 
     ongoing = serializers.SerializerMethodField()
     viewed = serializers.SerializerMethodField()
@@ -234,6 +234,21 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
 
     def get_activity_score(self, obj: SessionRecording) -> float | None:
         return getattr(obj, "activity_score", None)
+
+    def get_external_references(self, obj: SessionRecording) -> list[dict]:
+        """Load external references (linked issues) for this recording"""
+
+        # Skip loading in list views to prevent N+1 queries
+        view = self.context.get("view")
+        if view and getattr(view, "action", None) == "list":
+            return []
+
+        from posthog.session_recordings.session_recording_external_reference_api import (
+            SessionRecordingExternalReferenceSerializer,
+        )
+
+        references = obj.external_references.select_related("integration").all()
+        return list(SessionRecordingExternalReferenceSerializer(references, many=True, context=self.context).data)
 
     class Meta:
         model = SessionRecording
@@ -261,6 +276,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "snapshot_source",
             "ongoing",
             "activity_score",
+            "external_references",
         ]
 
         read_only_fields = [
@@ -475,6 +491,7 @@ def clean_referer_url(current_url: str | None) -> str:
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
+@extend_schema(tags=["replay"])
 class SessionRecordingViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
 ):
@@ -1390,6 +1407,51 @@ class SessionRecordingViewSet(
         return Response(response_data)
 
 
+@tracer.start_as_current_span("load_recording_if_matches_filters")
+def _load_recording_if_matches_filters(
+    session_id: str,
+    query: RecordingsQuery,
+    team: Team,
+    allow_event_property_expansion: bool,
+) -> SessionRecording | None:
+    """
+    Check if a specific recording matches the current filters (ignoring pagination).
+    Returns the recording if it matches, None otherwise.
+    """
+    prepend_check_query = query.model_copy(
+        update={
+            "session_ids": [session_id],
+            "session_recording_id": None,
+            "limit": 1,
+            "offset": 0,
+            "after": None,
+        }
+    )
+    ch_query_result = SessionRecordingListFromQuery(
+        query=prepend_check_query,
+        team=team,
+        hogql_query_modifiers=None,
+        allow_event_property_expansion=allow_event_property_expansion,
+    ).run()
+
+    if not ch_query_result.results:
+        return None
+
+    s3_persisted_recording = (
+        SessionRecording.objects.filter(team=team, session_id=session_id)
+        .exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
+        .first()
+    )
+    if s3_persisted_recording:
+        return s3_persisted_recording
+
+    prepend_recordings = SessionRecording.get_or_build_from_clickhouse(team, ch_query_result.results)
+    if prepend_recordings and not prepend_recordings[0].deleted:
+        return prepend_recordings[0]
+
+    return None
+
+
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
     query: RecordingsQuery, user: User | None, team: Team, allow_event_property_expansion: bool = False
@@ -1423,37 +1485,15 @@ def list_recordings_from_query(
             ]
         else:
             # We need to fetch this specific recording alongside the filtered results
-            # Create a separate query to fetch just this recording
-            with timer("load_prepend_recording"), tracer.start_as_current_span("load_prepend_recording"):
-                s3_persisted_recording = (
-                    SessionRecording.objects.filter(team=team, session_id=session_recording_id_to_prepend)
-                    .exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
-                    .first()
+            with timer("load_prepend_recording"):
+                prepend_recording = _load_recording_if_matches_filters(
+                    session_recording_id_to_prepend,
+                    query,
+                    team,
+                    allow_event_property_expansion,
                 )
-
-                if s3_persisted_recording:
-                    recordings.append(s3_persisted_recording)
-                else:
-                    # Try to load from ClickHouse
-                    # Optimize query by searching only within the team's retention period
-                    retention_period = team.session_recording_retention_period or "90d"
-                    ch_query_result = SessionRecordingListFromQuery(
-                        query=RecordingsQuery(
-                            kind=NodeKind.RECORDINGS_QUERY,
-                            session_ids=[session_recording_id_to_prepend],
-                            date_from=f"-{retention_period}",
-                            date_to=None,
-                        ),
-                        team=team,
-                        hogql_query_modifiers=None,
-                        allow_event_property_expansion=allow_event_property_expansion,
-                    ).run()
-                    if ch_query_result.results:
-                        prepend_recordings = SessionRecording.get_or_build_from_clickhouse(
-                            team, ch_query_result.results
-                        )
-                        if prepend_recordings and not prepend_recordings[0].deleted:
-                            recordings.append(prepend_recordings[0])
+                if prepend_recording:
+                    recordings.append(prepend_recording)
 
     if all_session_ids:
         with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):

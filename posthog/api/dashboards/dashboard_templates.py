@@ -1,11 +1,14 @@
 import json
 from pathlib import Path
+from typing import NoReturn
 
+from django.db import IntegrityError
 from django.db.models import Q
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -52,6 +55,14 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             "availability_contexts",
         ]
 
+    def _handle_integrity_error(self, exc: IntegrityError) -> NoReturn:
+        error_str = str(exc)
+        if "unique_template_name_per_team" in error_str:
+            raise ValidationError(
+                {"template_name": ["A dashboard template with this name already exists for this project."]}
+            ) from exc
+        raise exc
+
     def create(self, validated_data: dict, *args, **kwargs) -> DashboardTemplate:
         if not validated_data["tiles"]:
             raise ValidationError(detail="You need to provide tiles for the template.")
@@ -61,16 +72,23 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             validated_data["scope"] = DashboardTemplate.Scope.ONLY_TEAM
 
         validated_data["team_id"] = self.context["team_id"]
-        return super().create(validated_data, *args, **kwargs)
+        try:
+            return super().create(validated_data, *args, **kwargs)
+        except IntegrityError as exc:
+            self._handle_integrity_error(exc)
 
     def update(self, instance: DashboardTemplate, validated_data: dict, *args, **kwargs) -> DashboardTemplate:
         # if the original request was to make the template scope to team only, and the template is none then deny the request
         if validated_data.get("scope") == "team" and instance.scope == "global" and not instance.team_id:
             raise ValidationError(detail="The original templates cannot be made private as they would be lost.")
 
-        return super().update(instance, validated_data, *args, **kwargs)
+        try:
+            return super().update(instance, validated_data, *args, **kwargs)
+        except IntegrityError as exc:
+            self._handle_integrity_error(exc)
 
 
+@extend_schema(tags=["core"])
 class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "dashboard_template"
     permission_classes = [OnlyStaffCanEditDashboardTemplate]

@@ -319,6 +319,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
         limit: universalFilters.limit,
+        session_ids: universalFilters.session_ids,
     }
 }
 
@@ -1031,7 +1032,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         values.selectedRecordingsIds.length > 1 ? 's' : ''
                     } to the collection...`,
                 },
-                {},
                 {
                     button: {
                         label: 'View collection',

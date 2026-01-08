@@ -185,8 +185,18 @@ def validated_request(
             if strict_response_validation or settings.DEBUG:
                 if response_config is None:
                     return result
-                serializer_class = response_config.response
+                response_serializer = response_config.response
+                if response_serializer is None:
+                    return result
+
                 context: dict[str, Any] = getattr(self, "get_serializer_context", lambda: {})()
+
+                # Handle both class and instance to match DRF Spectacular's behavior
+                serializer_class = (
+                    type(response_serializer)
+                    if isinstance(response_serializer, serializers.Serializer)
+                    else response_serializer
+                )
                 serialized = serializer_class(data=data, context=context)
 
                 if not serialized.is_valid(raise_exception=strict_response_validation):

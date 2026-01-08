@@ -2,9 +2,13 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     CompareFilter,
+    DataVisualizationNode,
+    HogQLQuery,
     InsightVizNode,
     NodeKind,
     QuerySchema,
@@ -14,7 +18,14 @@ import {
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    InsightLogicProps,
+    IntervalType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import {
     DeviceTab,
@@ -77,6 +88,58 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
     ]
 }
 
+const INTERVAL_FUNCTIONS: Record<IntervalType, string> = {
+    second: 'toStartOfSecond',
+    minute: 'toStartOfMinute',
+    hour: 'toStartOfHour',
+    day: 'toStartOfDay',
+    week: 'toStartOfWeek',
+    month: 'toStartOfMonth',
+}
+
+const getIntervalFunction = (interval: IntervalType): string => INTERVAL_FUNCTIONS[interval] ?? INTERVAL_FUNCTIONS.day
+
+const createAvgTimeOnPageHogQLQuery = (
+    host: string,
+    pathname: string,
+    filterTestAccounts: boolean,
+    interval: IntervalType,
+    dateRange: { date_from: string | null; date_to: string | null }
+): HogQLQuery => {
+    const intervalFn = getIntervalFunction(interval)
+    return {
+        kind: NodeKind.HogQLQuery,
+        query: `
+SELECT
+    ${intervalFn}(ts) as period,
+    avg(session_avg_duration) as avg_time_on_page
+FROM (
+    SELECT
+        e.session.session_id as session_id,
+        min(e.timestamp) as ts,
+        avg(toFloat(e.properties.$prev_pageview_duration)) as session_avg_duration
+    FROM events as e
+    ANY LEFT JOIN events as prev
+        ON e.properties.$prev_pageview_id = toString(prev.uuid)
+    WHERE
+        e.event IN ('$pageview', '$pageleave', '$screen')
+        AND e.properties.$prev_pageview_pathname = {pathname}
+        AND prev.properties.$host = {host}
+    GROUP BY e.session.session_id
+)
+GROUP BY period
+ORDER BY period`,
+        filters: {
+            filterTestAccounts,
+            dateRange,
+        },
+        values: {
+            pathname,
+            host,
+        },
+    }
+}
+
 export const pageReportsLogic = kea<pageReportsLogicType>({
     path: ['scenes', 'web-analytics', 'pageReportsLogic'],
 
@@ -91,6 +154,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 'webAnalyticsFilters',
                 'isPathCleaningEnabled',
             ],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [webAnalyticsLogic, ['setDates']],
     },
@@ -128,7 +193,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         isInitialLoad: [
             true,
             {
-                loadPagesSuccess: () => false,
+                loadPagesUrlsSuccess: () => false,
             },
         ],
         tileVisualizations: [
@@ -216,6 +281,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         timezonesQuery: undefined,
                         languagesQuery: undefined,
                         topEventsQuery: undefined,
+                        avgTimeOnPageTrendQuery: undefined,
                     }
                 }
 
@@ -300,6 +366,34 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     showActions: true,
                 }
 
+                const parsedUrl = parseWebAnalyticsURL(pageUrl)
+                const avgTimeOnPageTrendQuery: DataVisualizationNode | undefined =
+                    parsedUrl.isValid && parsedUrl.host && parsedUrl.pathname
+                        ? {
+                              kind: NodeKind.DataVisualizationNode,
+                              source: createAvgTimeOnPageHogQLQuery(
+                                  parsedUrl.host,
+                                  parsedUrl.pathname,
+                                  shouldFilterTestAccounts,
+                                  dateFilter.interval,
+                                  dateRange
+                              ),
+                              display: ChartDisplayType.ActionsLineGraph,
+                              chartSettings: {
+                                  xAxis: { column: 'period' },
+                                  yAxis: [
+                                      {
+                                          column: 'avg_time_on_page',
+                                          settings: {
+                                              display: { label: 'Average time' },
+                                              formatting: { suffix: ' seconds', decimalPlaces: 2 },
+                                          },
+                                      },
+                                  ],
+                              },
+                          }
+                        : undefined
+
                 return {
                     // Path queries
                     entryPathsQuery: getQuery(TileId.PATHS, PathTab.INITIAL_PATH),
@@ -329,6 +423,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     languagesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.LANGUAGES),
 
                     topEventsQuery: getTopEventsQuery(),
+                    avgTimeOnPageTrendQuery,
                 }
             },
         ],
@@ -385,7 +480,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         tiles: [
-            (s) => [s.queries, s.pageUrl, s.createInsightProps, s.combinedMetricsQuery, s.dateFilter],
+            (s) => [s.queries, s.pageUrl, s.createInsightProps, s.combinedMetricsQuery, s.dateFilter, s.featureFlags],
             (
                 queries: Record<string, QuerySchema | undefined>,
                 pageUrl: string | null,
@@ -393,7 +488,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 combinedMetricsQuery: (
                     dateFilter: typeof webAnalyticsLogic.values.dateFilter
                 ) => InsightVizNode<TrendsQuery>,
-                dateFilter: typeof webAnalyticsLogic.values.dateFilter
+                dateFilter: typeof webAnalyticsLogic.values.dateFilter,
+                featureFlags: Record<string, boolean | string>
             ): SectionTile[] => {
                 if (!pageUrl) {
                     return []
@@ -451,7 +547,25 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                     description: 'Key metrics for this page over time',
                                 },
                             },
-                        ],
+                            queries.avgTimeOnPageTrendQuery &&
+                            featureFlags[FEATURE_FLAGS.PAGE_REPORTS_AVERAGE_PAGE_VIEW]
+                                ? {
+                                      kind: 'query',
+                                      tileId: TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND,
+                                      title: 'Average time on page',
+                                      query: queries.avgTimeOnPageTrendQuery,
+                                      insightProps: createInsightProps(TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND),
+                                      layout: {
+                                          className: 'w-full min-h-[300px]',
+                                      },
+                                      docs: {
+                                          title: 'Average time on page',
+                                          description: 'Average time visitors spend on this page',
+                                      },
+                                      canOpenModal: false,
+                                  }
+                                : null,
+                        ].filter(Boolean) as WebAnalyticsTile[],
                         layout: {
                             className: 'w-full',
                         },

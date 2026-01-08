@@ -1,6 +1,7 @@
 import { Node } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
+    isEndpointsUsageTableQuery,
     isEventsQuery,
     isGroupsQuery,
     isHogQLQuery,
@@ -91,6 +92,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     if (isPersonsNode(query) || isActorsQuery(query)) {
         features.add(QueryFeature.personPropertyFilters)
         features.add(QueryFeature.personsSearch)
+        features.add(QueryFeature.columnConfigurator)
 
         if (isActorsQuery(query)) {
             features.add(QueryFeature.selectAndOrderByColumns)
@@ -143,6 +145,13 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.testAccountFilters)
         features.add(QueryFeature.supportTracesFilters)
         features.add(QueryFeature.columnConfigurator)
+    }
+
+    if (isEndpointsUsageTableQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.hideLoadNextButton)
     }
 
     return features

@@ -31,10 +31,15 @@ import {
     BreakdownType,
     ChartDisplayType,
     CommonActorType,
+    FilterLogicalOperator,
     GroupActorType,
     IntervalType,
     PersonActorType,
     PropertiesTimelineFilterType,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+    UniversalFilterValue,
 } from '~/types'
 
 import type { personsModalLogicType } from './personsModalLogicType'
@@ -408,6 +413,105 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 }
 
                 return urls.insightNew({ query })
+            },
+        ],
+        sessionIdsFromLoadedActors: [
+            (s) => [s.actors],
+            (actors: ActorType[]): string[] => {
+                // Extract all session IDs from loaded actors' matched_recordings
+                const sessionIds: string[] = []
+                actors.forEach((actor: ActorType) => {
+                    if (actor.matched_recordings) {
+                        actor.matched_recordings.forEach((recording) => {
+                            if (recording.session_id) {
+                                sessionIds.push(recording.session_id)
+                            }
+                        })
+                    }
+                })
+                return sessionIds
+            },
+        ],
+        recordingFilters: [
+            (s) => [s.actorsQuery, s.propertiesTimelineFilterFromUrl, s.sessionIdsFromLoadedActors],
+            (
+                actorsQuery: ActorsQuery | null,
+                propertiesTimelineFilter: PropertiesTimelineFilterType,
+                sessionIds: string[]
+            ): Partial<RecordingUniversalFilters> => {
+                if (!actorsQuery || !actorsQuery.source) {
+                    return {}
+                }
+
+                const source = actorsQuery.source
+
+                // For FunnelsActorsQuery with session IDs, use ONLY session IDs for efficient lookup
+                // No need for additional event/property filters since we already have the exact list of sessions
+                if (source.kind === 'FunnelsActorsQuery' && sessionIds.length > 0) {
+                    return {
+                        session_ids: sessionIds,
+                        // Use minimal valid structure required by conversion functions
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: [] }],
+                        },
+                        duration: [], // Empty duration means no duration filtering (we have explicit session IDs)
+                    }
+                }
+
+                // For non-funnel queries or funnels without session IDs, use filter-based approach
+                const filters: UniversalFilterValue[] = []
+
+                // For FunnelsActorsQuery, the actual query is nested at source.source
+                let insightQuery = source
+                if (source.kind === 'FunnelsActorsQuery' && 'source' in source && source.source) {
+                    insightQuery = source.source as any
+                }
+
+                // Add breakdown filters if present
+                if ('breakdown' in source && source.breakdown && propertiesTimelineFilter?.breakdown) {
+                    const breakdownFilter = {
+                        key: propertiesTimelineFilter.breakdown,
+                        value: source.breakdown,
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    }
+                    filters.push(breakdownFilter as UniversalFilterValue)
+                }
+
+                // Add global properties from the insight query
+                if (
+                    'properties' in insightQuery &&
+                    Array.isArray(insightQuery.properties) &&
+                    insightQuery.properties.length > 0
+                ) {
+                    filters.push(...insightQuery.properties)
+                }
+
+                // Extract date range from insight query
+                let date_from = propertiesTimelineFilter?.date_from
+                let date_to = propertiesTimelineFilter?.date_to
+
+                if ('dateRange' in insightQuery && insightQuery.dateRange) {
+                    const dateRange = insightQuery.dateRange as any
+                    date_from = dateRange.date_from || date_from
+                    date_to = dateRange.date_to || date_to
+                }
+
+                // Build the result for non-funnel or fallback cases
+                return {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: filters,
+                            },
+                        ],
+                    },
+                    date_from,
+                    date_to,
+                }
             },
         ],
     }),

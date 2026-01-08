@@ -47,9 +47,11 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: FeatureFlagsPythonInstructions,
     [SDKKey.REACT]: FeatureFlagsReactInstructions,
     [SDKKey.REACT_NATIVE]: FeatureFlagsRNInstructions,
+    [SDKKey.TANSTACK_START]: FeatureFlagsReactInstructions,
     [SDKKey.REMIX]: FeatureFlagsRemixJSInstructions,
     [SDKKey.RUBY]: FeatureFlagsRubyInstructions,
     [SDKKey.SVELTE]: FeatureFlagsSvelteInstructions,
+    [SDKKey.VITE]: FeatureFlagsReactInstructions,
     [SDKKey.VUE_JS]: FeatureFlagsVueInstructions,
     [SDKKey.WEBFLOW]: FeatureFlagsWebflowInstructions,
 }

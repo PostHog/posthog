@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_geoip::GeoIpClient;
+use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{
     Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig, RedisClient,
 };
@@ -126,6 +127,15 @@ where
         db_monitor.start_monitoring().await;
     });
 
+    // Start cohort cache monitoring
+    let cohort_cache_clone = cohort_cache.clone();
+    let cohort_cache_monitor_interval = config.cohort_cache_monitor_interval_secs;
+    tokio::spawn(async move {
+        cohort_cache_clone
+            .start_monitoring(cohort_cache_monitor_interval)
+            .await;
+    });
+
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
         Duration::from_secs(config.billing_limiter_cache_ttl_secs),
         redis_client.clone(), // Limiter only reads from redis, ReadWriteClient automatically routes reads to replica
@@ -170,6 +180,35 @@ where
         redis_cookieless_client.clone(),
     ));
 
+    // Create HyperCacheReader for feature flags at startup
+    // This avoids per-request AWS SDK initialization overhead
+    let flags_redis_client = dedicated_redis_client
+        .clone()
+        .unwrap_or_else(|| redis_client.clone());
+
+    let mut hypercache_config = HyperCacheConfig::new(
+        "feature_flags".to_string(),
+        "flags.json".to_string(),
+        config.object_storage_region.clone(),
+        config.object_storage_bucket.clone(),
+    );
+
+    if !config.object_storage_endpoint.is_empty() {
+        hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
+    }
+
+    let flags_hypercache_reader =
+        match HyperCacheReader::new(flags_redis_client, hypercache_config).await {
+            Ok(reader) => {
+                tracing::info!("Created HyperCacheReader for feature flags");
+                Arc::new(reader)
+            }
+            Err(e) => {
+                tracing::error!("Failed to create HyperCacheReader: {:?}", e);
+                return;
+            }
+        };
+
     let app = router::router(
         redis_client,
         dedicated_redis_client,
@@ -180,6 +219,7 @@ where
         feature_flags_billing_limiter,
         session_replay_billing_limiter,
         cookieless_manager,
+        flags_hypercache_reader,
         config,
     );
 

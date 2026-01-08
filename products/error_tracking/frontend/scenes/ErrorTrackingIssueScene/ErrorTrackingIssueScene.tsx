@@ -11,6 +11,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconRobot } from 'lib/lemon-ui/icons'
 import {
@@ -22,6 +23,7 @@ import {
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
@@ -73,36 +75,59 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
-                            <>
-                                <div className="px-4">
-                                    <SceneTitleSection
-                                        canEdit
-                                        name={issue.name}
-                                        onNameChange={updateName}
-                                        description={null}
-                                        resourceType={{ type: 'error_tracking' }}
-                                        actions={
-                                            <div className="flex items-center gap-1">
-                                                <StatusIndicator status={issue.status} withTooltip />
-                                                <IssueAssigneeSelect
-                                                    assignee={issue.assignee}
-                                                    onChange={updateAssignee}
-                                                    disabled={issue.status != 'active'}
-                                                />
-                                                <IssueStatusButton status={issue.status} onChange={updateStatus} />
-                                            </div>
-                                        }
-                                    />
-                                </div>
+                            <div className="flex flex-col h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))]">
+                                <SceneTitleSection
+                                    canEdit
+                                    name={issue.name}
+                                    onNameChange={updateName}
+                                    description={null}
+                                    resourceType={{ type: 'error_tracking' }}
+                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0"
+                                    actions={
+                                        <div className="flex items-center gap-1">
+                                            <StatusIndicator status={issue.status} withTooltip />
+                                            <IssueAssigneeSelect
+                                                assignee={issue.assignee}
+                                                onChange={updateAssignee}
+                                                disabled={issue.status != 'active'}
+                                            />
+                                            <ViewRecordingsPlaylistButton
+                                                filters={{
+                                                    filter_group: {
+                                                        type: FilterLogicalOperator.And,
+                                                        values: [
+                                                            {
+                                                                type: FilterLogicalOperator.And,
+                                                                values: [
+                                                                    {
+                                                                        key: '$exception_issue_id',
+                                                                        type: PropertyFilterType.Event,
+                                                                        operator: PropertyOperator.Exact,
+                                                                        value: [issue.id],
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ],
+                                                    },
+                                                }}
+                                                size="small"
+                                                type="secondary"
+                                                data-attr="error-tracking-issue-view-recordings"
+                                            />
+                                            <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                        </div>
+                                    }
+                                />
+
                                 <ErrorTrackingIssueScenePanel issue={issue} />
 
-                                <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
+                                <div className="ErrorTrackingIssue flex flex-grow">
                                     <div className="flex flex-1 h-full w-full">
                                         <LeftHandColumn />
                                         <RightHandColumn />
                                     </div>
                                 </div>
-                            </>
+                            </div>
                         )}
                     </BindLogic>
                 </BindLogic>
@@ -120,6 +145,7 @@ const RightHandColumn = (): JSX.Element => {
             <PostHogSDKIssueBanner event={selectedEvent} />
             <ExceptionCard
                 issueId={issue?.id ?? 'no-issue'}
+                issueName={issue?.name ?? null}
                 loading={issueLoading || initialEventLoading}
                 event={selectedEvent ?? undefined}
                 label={tagRenderer(selectedEvent)}

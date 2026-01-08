@@ -18,10 +18,11 @@ from products.notebooks.backend.models import Notebook
 LIMIT = 25
 
 
-class EntityConfig(TypedDict):
+class EntityConfig(TypedDict, total=False):
     klass: type[Model]
     search_fields: dict[str, Literal["A", "B", "C"]]
     extra_fields: list[str]
+    filters: dict[str, Any]
 
 
 ENTITY_MAP: dict[str, EntityConfig] = {
@@ -130,6 +131,7 @@ def search_entities(
             query=query,
             search_fields=entity_meta["search_fields"],
             extra_fields=entity_meta["extra_fields"],
+            filters=entity_meta.get("filters"),
         )
         qs = qs.union(klass_qs)
         counts[entity_name] = klass_qs.count()
@@ -152,6 +154,7 @@ def class_queryset(
     query: str | None,
     search_fields: dict[str, Literal["A", "B", "C"]],
     extra_fields: list[str] | None,
+    filters: dict[str, Any] | None = None,
 ):
     """Builds a queryset for the class."""
     entity_type = class_to_entity_name(klass)
@@ -159,7 +162,13 @@ def class_queryset(
 
     qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
+
+    # Apply entity-specific filters
+    if filters:
+        qs = qs.filter(**filters)
+
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (entity_type from code-controlled model class names)
     qs = qs.extra(select={"type": f"'{entity_type}'"})  # entity type
 
     # entity id

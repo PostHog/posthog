@@ -15,4 +15,15 @@
             opacity: 0.75;
         }
     }
+
+    &--muted {
+        .Link,
+        .Link--subtle {
+            color: var(--text-secondary);
+
+            &:not(:disabled):hover {
+                color: var(--text-3000);
+            }
+        }
+    }
 }

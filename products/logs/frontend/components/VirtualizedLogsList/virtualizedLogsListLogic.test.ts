@@ -19,7 +19,7 @@ describe('virtualizedLogsListLogic', () => {
         ])(
             'stopIndex=%i, dataLength=%i, hasMore=%s, isLoading=%s → %s (%s)',
             (stopIndex, dataLength, hasMore, isLoading, expected) => {
-                const logic = virtualizedLogsListLogic()
+                const logic = virtualizedLogsListLogic({ tabId: 'test-tab' })
                 logic.mount()
 
                 expect(logic.values.shouldLoadMore(stopIndex, dataLength, hasMore, isLoading)).toBe(expected)
@@ -27,7 +27,7 @@ describe('virtualizedLogsListLogic', () => {
         )
 
         it('respects custom scrollThreshold', () => {
-            const logic = virtualizedLogsListLogic({ scrollThreshold: 50 })
+            const logic = virtualizedLogsListLogic({ tabId: 'test-tab', scrollThreshold: 50 })
             logic.mount()
 
             // With threshold 50: dataLength 200 - 50 = 150, so stopIndex 149 should NOT load

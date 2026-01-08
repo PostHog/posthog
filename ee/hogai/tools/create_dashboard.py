@@ -32,7 +32,9 @@ class CreateDashboardTool(MaxTool):
     description: str = CREATE_DASHBOARD_TOOL_PROMPT
     context_prompt_template: str = "Creates a dashboard based on the user's request"
     args_schema: type[BaseModel] = CreateDashboardToolArgs
-    show_tool_call_message: bool = False
+
+    def get_required_resource_access(self):
+        return [("dashboard", "editor")]
 
     async def _arun_impl(
         self, search_insights_queries: list[InsightQuery], dashboard_name: str

@@ -18,6 +18,7 @@ export const customProductsLogic = kea<customProductsLogicType>([
             {
                 loadCustomProducts: async (): Promise<UserProductListItem[]> => {
                     const response = await api.userProductList.list()
+
                     return response.results ?? []
                 },
                 seed: async (): Promise<UserProductListItem[]> => {

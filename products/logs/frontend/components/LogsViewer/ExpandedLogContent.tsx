@@ -5,6 +5,7 @@ import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -20,8 +21,9 @@ export interface ExpandedLogContentProps {
 }
 
 export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): JSX.Element {
-    const { expandedAttributeBreakdowns, tabId, cursorIndex, cursorAttributeIndex } = useValues(logsViewerLogic)
-    const { addFilter, toggleAttributeBreakdown, recomputeRowHeights, userSetCursorAttribute } =
+    const { expandedAttributeBreakdowns, tabId, cursorIndex, cursorAttributeIndex, isAttributeColumn } =
+        useValues(logsViewerLogic)
+    const { addFilter, toggleAttributeBreakdown, toggleAttributeColumn, recomputeRowHeights, userSetCursorAttribute } =
         useActions(logsViewerLogic)
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -46,8 +48,8 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
 
     const expandedBreakdownsForThisLog = expandedAttributeBreakdowns[log.uuid] || []
 
-    const rows = [
-        ...Object.entries(log.resource_attributes).map(([key, value], index) => ({
+    const rows: { key: string; value: string; type: PropertyFilterType; index: number }[] = [
+        ...Object.entries(log.resource_attributes as Record<string, string>).map(([key, value], index) => ({
             key,
             value,
             type: PropertyFilterType.LogResourceAttribute,
@@ -62,7 +64,7 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
     ]
 
     return (
-        <div ref={containerRef} className="px-2 py-1 bg-bg-light border-t border-border">
+        <div ref={containerRef} className="bg-primary border-t border-border">
             <LemonTable
                 embedded
                 showHeader={false}
@@ -110,6 +112,18 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                                     }}
                                 >
                                     <IconFilter />
+                                </LemonButton>
+                                <LemonButton
+                                    tooltip={isAttributeColumn(record.key) ? 'Remove from columns' : 'Add as column'}
+                                    size="xsmall"
+                                    active={isAttributeColumn(record.key)}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        toggleAttributeColumn(record.key)
+                                    }}
+                                    className={isAttributeColumn(record.key) ? '' : 'opacity-30'}
+                                >
+                                    <IconTableChart />
                                 </LemonButton>
                             </div>
                         ),

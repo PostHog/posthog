@@ -9,7 +9,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -20,6 +20,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     RevenueAnalyticsEventItem,
     RevenueCurrencyPropertyConfig,
+    SubscriptionDropoffMode,
     TrendsQuery,
 )
 
@@ -48,10 +49,12 @@ CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_
 
 
 @snapshot_clickhouse_queries
-class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
+class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
     PURCHASE_EVENT_NAME = "purchase"
     REVENUE_PROPERTY = "revenue"
+    SUBSCRIPTION_PROPERTY = "subscription_id"
     QUERY_TIMESTAMP = "2025-05-30"
+    EVENT_TIMESTAMP = "2025-05-29"  # One day before the query timestamp
     MODIFIERS = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
 
     def tearDown(self):
@@ -75,14 +78,14 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             team=self.team,
             distinct_id=self.distinct_id,
-            timestamp=self.QUERY_TIMESTAMP,
+            timestamp=self.EVENT_TIMESTAMP,
         )
 
         _create_event(
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
             distinct_id=self.distinct_id,
-            timestamp=self.QUERY_TIMESTAMP,
+            timestamp=self.EVENT_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 10000},
         )
 
@@ -90,8 +93,43 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
             distinct_id=self.distinct_id,
-            timestamp=self.QUERY_TIMESTAMP,
+            timestamp=self.EVENT_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 25042},
+        )
+
+    def setup_events_with_subscriptions(self):
+        self.person_id = "00000000-0000-0000-0000-000000000000"
+        self.distinct_id = "distinct_id"
+
+        _create_person(
+            uuid=self.person_id,
+            team_id=self.team.pk,
+            distinct_ids=[self.distinct_id],
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.EVENT_TIMESTAMP,
+        )
+
+        # Non-recurring event (no subscription_id)
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.EVENT_TIMESTAMP,
+            properties={self.REVENUE_PROPERTY: 10042},
+        )
+
+        # Recurring event (with subscription_id) - contributes to MRR
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.EVENT_TIMESTAMP,
+            properties={self.REVENUE_PROPERTY: 25042, self.SUBSCRIPTION_PROPERTY: "sub_1"},
         )
 
     def setup_schema_sources(self):
@@ -401,19 +439,135 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(response.results, [(Decimal("283.8496260553"),), (None,)])
 
-    def test_query_revenue_analytics_table(self):
+    def test_query_revenue_analytics_table_sources(self):
         self.setup_schema_sources()
-        self.join.source_table_key = "email"
+        self.join.source_table_key = "id"
         self.join.save()
+
+        # Create persons matching customer IDs from the stripe data
+        distinct_id_to_person_id: dict[str, str] = {}
+        for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
+            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            distinct_id_to_person_id[distinct_id] = person.uuid
 
         with freeze_time(self.QUERY_TIMESTAMP):
             results = execute_hogql_query(
-                parse_select("SELECT * FROM persons_revenue_analytics ORDER BY person_id ASC"),
+                parse_select(
+                    "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
+                ),
                 self.team,
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(results.results, [(ANY, Decimal("9471.9595034005"), ANY)])
+            self.assertEqual(
+                results.results,
+                [
+                    (distinct_id_to_person_id["cus_3"], Decimal("4161.34422"), Decimal("1546.59444")),
+                    (distinct_id_to_person_id["cus_6"], Decimal("2796.37014"), Decimal("1459.02008")),
+                    (distinct_id_to_person_id["cus_4"], Decimal("254.12345"), Decimal("83.16695")),
+                    (distinct_id_to_person_id["cus_5"], Decimal("1494.0562"), Decimal("43.82703")),
+                    (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452"), Decimal("40.8052916666")),
+                    (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553"), Decimal("22.9631447238")),
+                ],
+            )
+
+    def test_query_revenue_analytics_table_sources_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self.setup_schema_sources()
+            self.join.source_table_key = "id"
+            self.join.save()
+            self.create_managed_viewsets()
+
+            # Create persons matching customer IDs from the stripe data
+            distinct_id_to_person_id: dict[str, str] = {}
+            for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
+                person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+                distinct_id_to_person_id[distinct_id] = person.uuid
+
+            with freeze_time(self.QUERY_TIMESTAMP):
+                results = execute_hogql_query(
+                    parse_select(
+                        "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
+                    ),
+                    self.team,
+                    modifiers=self.MODIFIERS,
+                )
+
+                self.assertEqual(
+                    results.results,
+                    [
+                        (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452"), Decimal("16.3052916666")),
+                        (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553"), Decimal("4.1397346665")),
+                        (distinct_id_to_person_id["cus_3"], Decimal("4161.34422"), 0),
+                        (distinct_id_to_person_id["cus_6"], Decimal("2796.37014"), 0),
+                        (distinct_id_to_person_id["cus_5"], Decimal("1494.0562"), 0),
+                        (distinct_id_to_person_id["cus_4"], Decimal("254.12345"), 0),
+                    ],
+                )
+
+    def test_query_revenue_analytics_table_events(self):
+        self.setup_events_with_subscriptions()
+
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=self.PURCHASE_EVENT_NAME,
+                revenueProperty=self.REVENUE_PROPERTY,
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                currencyAwareDecimal=True,
+                subscriptionProperty=self.SUBSCRIPTION_PROPERTY,
+                subscriptionDropoffMode=SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD,  # Better default for tests
+            )
+        ]
+        self.team.revenue_analytics_config.save()
+        self.team.save()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            results = execute_hogql_query(
+                parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
+
+            # MRR is calculated from recurring events (those with subscription_id)
+            # Total revenue = 100.42 + 250.42 = 350.84, MRR = 250.42 (only the recurring event)
+            self.assertEqual(
+                results.results,
+                [(self.person_id, Decimal("350.84"), Decimal("250.42"))],
+            )
+
+    def test_query_revenue_analytics_table_events_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self.setup_events_with_subscriptions()
+
+            self.team.revenue_analytics_config.events = [
+                RevenueAnalyticsEventItem(
+                    eventName=self.PURCHASE_EVENT_NAME,
+                    revenueProperty=self.REVENUE_PROPERTY,
+                    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                    currencyAwareDecimal=True,
+                    subscriptionProperty=self.SUBSCRIPTION_PROPERTY,
+                    subscriptionDropoffMode=SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD,  # Better default for tests
+                )
+            ]
+            self.team.revenue_analytics_config.save()
+            self.team.save()
+
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self.create_managed_viewsets()  # Make sure this runs inside the freeze_time context
+
+                results = execute_hogql_query(
+                    parse_select(
+                        "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"
+                    ),
+                    self.team,
+                    modifiers=self.MODIFIERS,
+                )
+
+                # MRR is calculated from recurring events (those with subscription_id)
+                self.assertEqual(
+                    results.results,
+                    [(self.person_id, Decimal("350.84"), Decimal("250.42"))],
+                )
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
     def test_virtual_property_in_trend(self, mode):
