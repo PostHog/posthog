@@ -198,6 +198,11 @@ func WaitForHealth(timeout time.Duration) error {
 		} else {
 			logger.WriteString(fmt.Sprintf("Health check %d: waiting...\n", attempt))
 		}
+
+		if (attempt % 5) == 0 {
+			logger.WriteString("Waiting for PostHog to be healthy, this might take several minutes...\n")
+		}
+
 		time.Sleep(5 * time.Second)
 	}
 
