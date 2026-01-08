@@ -288,6 +288,10 @@ where
             .map(|p| self.async_setup_single_partition(p));
         join_all(setup_futures).await;
 
+        // Clear rebalancing flag now that all stores are created/checkpoints imported
+        // This allows orphan cleanup to resume safely
+        self.store_manager.set_rebalancing(false);
+
         Ok(())
     }
 
@@ -377,6 +381,9 @@ where
         // Set rebalancing flag to prevent offset commits during rebalance
         self.offset_tracker.set_rebalancing(true);
 
+        // Set rebalancing flag on store manager to prevent orphan cleanup during rebalance
+        self.store_manager.set_rebalancing(true);
+
         Ok(())
     }
 
@@ -385,6 +392,9 @@ where
 
         // Clear rebalancing flag to allow offset commits again
         self.offset_tracker.set_rebalancing(false);
+
+        // Note: store_manager.set_rebalancing(false) is called at the end of
+        // async_setup_assigned_partitions to avoid race with checkpoint download
 
         // Log current stats
         let store_count = self.store_manager.stores().len();

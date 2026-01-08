@@ -243,7 +243,7 @@ class LogsQueryRunnerMixin(QueryRunner):
             timezone_info=ZoneInfo("UTC"),
         )
 
-    def where(self):
+    def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
 
         if self.query.serviceNames:

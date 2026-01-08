@@ -76,6 +76,7 @@ export { ChartDisplayCategory }
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
+    GroupNode = 'GroupNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
@@ -757,6 +758,17 @@ export interface ActionsNode extends EntityNode {
 
 export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
 
+export interface GroupNode extends EntityNode {
+    kind: NodeKind.GroupNode
+    /** Group of entities combined with AND/OR operator */
+    operator: FilterLogicalOperator
+    /** Entities to combine in this group */
+    nodes: AnyEntityNode[]
+    limit?: integer
+    /** Columns to order by */
+    orderBy?: string[]
+}
+
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
     k: string
@@ -1331,7 +1343,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -2436,11 +2448,6 @@ export interface ErrorTrackingIssueImpactToolOutput {
     events: string[]
 }
 
-export interface ErrorTrackingExplainIssueToolContext {
-    stacktrace: string
-    issue_name: string
-}
-
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
 
 export interface ErrorTrackingIssueAssignee {
@@ -2648,6 +2655,9 @@ export interface LogMessage {
     new?: boolean
 }
 
+/** Field to break down sparkline data by */
+export type LogsSparklineBreakdownBy = 'severity' | 'service'
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -2661,6 +2671,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     liveLogsCheckpoint?: string
     /** Cursor for fetching the next page of results */
     after?: string
+    /** Field to break down sparkline data by (used only by sparkline endpoint) */
+    sparklineBreakdownBy?: LogsSparklineBreakdownBy
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -5196,6 +5208,7 @@ export enum ProductIntentContext {
 
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
+    LOGS_SET_FILTERS = 'logs_set_filters',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
@@ -5273,3 +5286,19 @@ export enum ProductIntentContext {
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
 }
+
+// Known prod_interest values from posthog.com
+export type WebsiteBrowsingHistoryProdInterest =
+    | 'product-analytics'
+    | 'web-analytics'
+    | 'session-replay'
+    | 'feature-flags'
+    | 'experiments'
+    | 'error-tracking'
+    | 'surveys'
+    | 'data-warehouse'
+    | 'llm-analytics'
+    | 'revenue-analytics'
+    | 'workflows'
+    | 'logs'
+    | 'endpoints'

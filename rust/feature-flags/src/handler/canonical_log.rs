@@ -110,8 +110,16 @@ pub struct FlagsCanonicalLogLine {
     pub group_properties_not_cached: bool,
     pub cohorts_evaluated: usize,
     pub flags_errored: usize,
+    /// Number of errors encountered during dependency graph construction.
+    /// These errors (like missing dependencies or cycles) set errors_while_computing_flags=true
+    /// in the response but don't increment flags_errored.
+    pub dependency_graph_errors: usize,
     pub hash_key_override_attempted: bool,
     pub hash_key_override_succeeded: bool,
+    /// True when experience continuity lookup was skipped due to optimization.
+    /// This is set when flags have experience continuity enabled but don't need
+    /// a hash key lookup (100% rollout with no multivariate variants).
+    pub hash_key_override_skipped: bool,
 
     // Rate limiting
     pub rate_limited: bool,
@@ -148,8 +156,10 @@ impl Default for FlagsCanonicalLogLine {
             group_properties_not_cached: false,
             cohorts_evaluated: 0,
             flags_errored: 0,
+            dependency_graph_errors: 0,
             hash_key_override_attempted: false,
             hash_key_override_succeeded: false,
+            hash_key_override_skipped: false,
             rate_limited: false,
             http_status: 200,
             error_code: None,
@@ -199,8 +209,10 @@ impl FlagsCanonicalLogLine {
             group_properties_not_cached = self.group_properties_not_cached,
             cohorts_evaluated = self.cohorts_evaluated,
             flags_errored = self.flags_errored,
+            dependency_graph_errors = self.dependency_graph_errors,
             hash_key_override_attempted = self.hash_key_override_attempted,
             hash_key_override_succeeded = self.hash_key_override_succeeded,
+            hash_key_override_skipped = self.hash_key_override_skipped,
             rate_limited = self.rate_limited,
             error_code = ?self.error_code,
             "canonical_log_line"
@@ -253,8 +265,10 @@ mod tests {
         assert!(!log.group_properties_not_cached);
         assert_eq!(log.cohorts_evaluated, 0);
         assert_eq!(log.flags_errored, 0);
+        assert_eq!(log.dependency_graph_errors, 0);
         assert!(!log.hash_key_override_attempted);
         assert!(!log.hash_key_override_succeeded);
+        assert!(!log.hash_key_override_skipped);
         assert!(!log.rate_limited);
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
@@ -343,6 +357,22 @@ mod tests {
         assert_eq!(final_log.cohorts_evaluated, 5);
         assert!(final_log.hash_key_override_attempted);
         assert!(final_log.hash_key_override_succeeded);
+    }
+
+    #[tokio::test]
+    async fn test_dependency_graph_errors_is_tracked() {
+        let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+
+        let graph_errors_count = 2;
+        let (_, final_log) = run_with_canonical_log(log, async {
+            with_canonical_log(|l| l.dependency_graph_errors = graph_errors_count);
+        })
+        .await;
+
+        assert_eq!(
+            final_log.dependency_graph_errors, graph_errors_count,
+            "dependency_graph_errors should track the count of graph construction errors"
+        );
     }
 
     #[test]

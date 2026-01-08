@@ -97,13 +97,13 @@ async fn process_request_inner(
     };
 
     let result = async {
+        // Use the pre-initialized HyperCacheReader from state
+        // This avoids per-request AWS SDK initialization overhead
         let flag_service = FlagService::new(
             context.state.redis_client.clone(),
-            context.state.dedicated_redis_client.clone(),
             context.state.database_pools.non_persons_reader.clone(),
             context.state.config.team_cache_ttl_seconds,
-            context.state.config.flags_cache_ttl_seconds,
-            context.state.config.clone(),
+            context.state.flags_hypercache_reader.clone(),
         );
 
         let (original_distinct_id, verified_token, request) =
@@ -166,14 +166,6 @@ async fn process_request_inner(
             .await?;
 
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
-
-            // Count flags with experience continuity for canonical logging
-            let experience_continuity_count = filtered_flags
-                .flags
-                .iter()
-                .filter(|f| f.ensure_experience_continuity.unwrap_or(false))
-                .count();
-            with_canonical_log(|log| log.flags_experience_continuity = experience_continuity_count);
 
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 

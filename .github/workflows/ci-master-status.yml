@@ -4,12 +4,10 @@ on:
     workflow_run:
         workflows:
             - 'Backend CI'
-            - 'Container Images CI'
             - 'Node.js CI'
             - 'Frontend CI'
             - 'Storybook'
             - 'Security'
-            - 'shellcheck'
             - 'Dagster CI'
             - 'E2E CI Playwright'
             - 'Rust CI'
@@ -19,7 +17,7 @@ on:
 env:
     SLACK_CHANNEL: 'C09ADEV3AJD'
     # Keep in sync with workflow_run.workflows trigger above
-    REQUIRED_WORKFLOWS: 'Backend CI,Container Images CI,Node.js CI,Frontend CI,Storybook,Security,shellcheck,Dagster CI,E2E CI Playwright,Rust CI'
+    REQUIRED_WORKFLOWS: 'Backend CI,Node.js CI,Frontend CI,Storybook,Security,Dagster CI,E2E CI Playwright,Rust CI'
 
 permissions:
     contents: read
@@ -30,13 +28,15 @@ jobs:
         runs-on: ubuntu-latest
         if: github.event.workflow_run.event == 'push'
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Restore incident state
-              uses: actions/cache/restore@v4
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .master-ci-incident
-                  key: master-ci-incident
+                  # Use prefix matching to get the most recently saved cache
+                  key: master-ci-incident-${{ github.run_id }}
+                  restore-keys: master-ci-incident-
 
             - name: Read incident state
               id: incident
@@ -51,7 +51,7 @@ jobs:
 
             - name: Process workflow event
               id: process
-              uses: actions/github-script@v7
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
                       const script = require('./.github/scripts/master-ci-status.js');
@@ -59,7 +59,7 @@ jobs:
 
             - name: Get commit info
               id: commit
-              uses: actions/github-script@v7
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
                       const sha = '${{ github.event.workflow_run.head_sha }}';
@@ -227,29 +227,13 @@ jobs:
                       thread_ts: "${{ steps.process.outputs.ts }}"
                       text: ":white_check_mark: Resolved: *${{ github.event.workflow_run.name }}* passed (${{ steps.commit.outputs.short_sha }})"
 
-            - name: Clear state on full resolution
-              if: steps.process.outputs.resolved == 'true'
-              run: rm -f .master-ci-incident
-
             # ============ CACHE ============
-
-            - name: Delete old cache
-              if: steps.process.outputs.save_cache == 'true'
-              continue-on-error: true
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: gh cache delete master-ci-incident || true
+            # Use unique keys to avoid race conditions where concurrent runs
+            # delete the cache before saving (see logs showing "Cache not found")
 
             - name: Save incident to cache
               if: steps.process.outputs.save_cache == 'true'
-              uses: actions/cache/save@v4
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .master-ci-incident
-                  key: master-ci-incident
-
-            - name: Delete cache on full resolution
-              if: steps.process.outputs.resolved == 'true'
-              continue-on-error: true
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: gh cache delete master-ci-incident || true
+                  key: master-ci-incident-${{ github.run_id }}

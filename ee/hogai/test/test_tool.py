@@ -356,7 +356,6 @@ class TestToolAccessControlDeclarations(BaseTest):
         "generate_hogql_query",
         "fix_hogql_query",
         "analyze_user_interviews",
-        "search_error_tracking_issues",
     }
 
     def test_all_tools_have_access_control_or_are_exempt(self):

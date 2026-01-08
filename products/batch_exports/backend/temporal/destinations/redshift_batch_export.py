@@ -311,7 +311,10 @@ class RedshiftClient(PostgreSQLClient):
         merge_query = sql.SQL(
             """\
         MERGE INTO {final_table}
-        USING (SELECT {select_stage_table_fields} FROM {stage_table}) AS stage
+        USING (
+            SELECT {select_stage_table_fields}
+            FROM {stage_table}
+        ) AS stage
         ON {merge_condition}
         """
         ).format(
@@ -347,6 +350,7 @@ class RedshiftClient(PostgreSQLClient):
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
+                await cursor.execute(sql.SQL("LOCK TABLE {final_table}").format(final_table=final_table_identifier))
                 try:
                     await cursor.execute(delete_query)
                 except psycopg.errors.UndefinedFunction:
@@ -1295,10 +1299,15 @@ async def upload_manifest_file(
 
         manifest = {"entries": entries}
 
+        optional_kwargs = {}
+        if endpoint_url is None:
+            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+
         await client.put_object(
             Bucket=bucket,
             Key=manifest_key,
             Body=json.dumps(manifest),
+            **optional_kwargs,  # type: ignore
         )
 
 
