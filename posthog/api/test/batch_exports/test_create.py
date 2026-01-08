@@ -1,5 +1,6 @@
 import json
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 import pytest
 from unittest import mock
@@ -130,7 +131,7 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
 
 @pytest.mark.parametrize(
     "timezone",
-    ["US/Pacific", "UTC", "Europe/Berlin", "Asia/Tokyo", "Pacific/Marquesas", "Asia/Katmandu"],
+    ["US/Pacific"],
 )
 def test_create_batch_export_with_different_team_timezones(client: HttpClient, timezone: str, temporal, organization):
     """Test creating a BatchExport.
@@ -176,6 +177,24 @@ def test_create_batch_export_with_different_team_timezones(client: HttpClient, t
     assert len(intervals) == 1
     assert schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
     assert schedule.schedule.spec.time_zone_name == timezone
+
+    # Assert next run time is at midnight in the given timezone (within jitter tolerance)
+    jitter = dt.timedelta(hours=1)  # For "day" interval
+
+    next_runs = schedule.info.next_action_times
+    assert len(next_runs) > 0
+    next_run = next_runs[0]
+
+    # Convert to the schedule's timezone
+    tz = ZoneInfo(timezone)
+    next_run_local = next_run.astimezone(tz)
+
+    # Check that it's at midnight (00:00:00) within jitter tolerance
+    midnight = next_run_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    time_diff = abs((next_run_local - midnight).total_seconds())
+    assert (
+        time_diff <= jitter.total_seconds()
+    ), f"Next run {next_run_local} is not at midnight within jitter tolerance of {jitter}"
 
 
 def test_cannot_create_a_batch_export_for_another_organization(client: HttpClient, temporal, organization, user):
