@@ -57,7 +57,6 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         seekBackward,
         seekForward,
         setSpeed,
-        setSkipInactivitySetting,
         closeExplorer,
         setIsHovering,
         allowPlayerChromeToHide,
@@ -91,12 +90,6 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const hidePlayerElements =
         mode === SessionRecordingPlayerMode.Screenshot || mode === SessionRecordingPlayerMode.Video
-
-    useEffect(() => {
-        if (hidePlayerElements) {
-            setSkipInactivitySetting(false)
-        }
-    }, [mode, setSkipInactivitySetting, hidePlayerElements])
 
     useEffect(
         () => {

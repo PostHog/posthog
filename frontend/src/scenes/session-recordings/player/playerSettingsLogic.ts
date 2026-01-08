@@ -191,14 +191,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         },
         ['**/exporter']: (_, searchParams) => {
             const playerSpeed = Number(searchParams.playerSpeed ?? 1)
-            if (values.speed !== playerSpeed) {
-                actions.setSpeed(playerSpeed)
-            }
+            actions.setSpeed(playerSpeed)
             const showMetadataFooter =
                 'showMetadataFooter' in searchParams && (searchParams.showMetadataFooter ?? false)
-            if (values.showMetadataFooter !== showMetadataFooter) {
-                actions.setShowMetadataFooter(showMetadataFooter)
-            }
+            actions.setSkipInactivitySetting(showMetadataFooter)
+            actions.setShowMetadataFooter(showMetadataFooter)
         },
         // Putting `*` last to match it only if more specific routes don't match, as the matching seems to be exclusive
         '*': (_, searchParams, hashParams) => {
