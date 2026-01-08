@@ -93,7 +93,7 @@ class TestClickHouseResultParsing:
     def test_parses_mixed_set_and_set_once(self):
         """Test parsing when both set_diff and set_once_diff have values."""
         # Values are raw JSON strings from JSONExtractKeysAndValuesRaw
-        mock_rows = [
+        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
             (
                 "018d1234-5678-0000-0000-000000000003",
                 [("email", '"updated@example.com"', datetime(2024, 1, 15, 12, 0, 0))],  # set_diff
@@ -126,7 +126,7 @@ class TestClickHouseResultParsing:
     def test_handles_multiple_persons(self):
         """Test parsing results for multiple persons."""
         # Values are raw JSON strings from JSONExtractKeysAndValuesRaw
-        mock_rows = [
+        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
             (
                 "018d1234-0000-0000-0000-000000000001",
                 [("prop1", '"val1"', datetime(2024, 1, 15, 12, 0, 0))],
@@ -197,7 +197,7 @@ class TestClickHouseResultParsing:
         # - numbers are unquoted: 123, 3.14
         # - booleans are lowercase: true, false
         # - null is literal: null
-        mock_rows = [
+        mock_rows: list[tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]]]] = [
             (
                 "018d1234-5678-0000-0000-000000000001",
                 [
