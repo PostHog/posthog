@@ -283,6 +283,9 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     if table_name:
         resources_to_check = [r for r in resources_to_check if r.get("name") == table_name]
 
+    if table_name and len(resources_to_check) == 0:
+        raise StripePermissionError({table_name: f"{table_name} does not exist"})
+
     for resource in resources_to_check:
         try:
             # This will raise an exception if we don't have access

@@ -6,7 +6,11 @@ from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import ACCOUNT_RESOURCE_NAME
-from posthog.temporal.data_imports.sources.stripe.stripe import StripeResumeConfig, validate_credentials
+from posthog.temporal.data_imports.sources.stripe.stripe import (
+    StripePermissionError,
+    StripeResumeConfig,
+    validate_credentials,
+)
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
@@ -278,3 +282,45 @@ def test_validate_credentials_with_table_name():
         mock_client.subscriptions.list.assert_not_called()
         mock_client.refunds.list.assert_not_called()
         mock_client.credit_notes.list.assert_not_called()
+
+
+def test_validate_credentials_with_missing_table_name():
+    mock_client = mock.MagicMock()
+
+    # Mock each resource's list method
+    mock_client.accounts.list = mock.MagicMock()
+    mock_client.balance_transactions.list = mock.MagicMock()
+    mock_client.charges.list = mock.MagicMock()
+    mock_client.customers.list = mock.MagicMock()
+    mock_client.disputes.list = mock.MagicMock()
+    mock_client.invoice_items.list = mock.MagicMock()
+    mock_client.invoices.list = mock.MagicMock()
+    mock_client.payouts.list = mock.MagicMock()
+    mock_client.prices.list = mock.MagicMock()
+    mock_client.products.list = mock.MagicMock()
+    mock_client.subscriptions.list = mock.MagicMock()
+    mock_client.refunds.list = mock.MagicMock()
+    mock_client.credit_notes.list = mock.MagicMock()
+
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        pytest.raises(StripePermissionError) as e,
+    ):
+        validate_credentials("api_key", "bad_table")
+
+    # No endpoint should be called
+    mock_client.accounts.list.assert_not_called()
+    mock_client.balance_transactions.list.assert_not_called()
+    mock_client.charges.list.assert_not_called()
+    mock_client.customers.list.assert_not_called()
+    mock_client.disputes.list.assert_not_called()
+    mock_client.invoice_items.list.assert_not_called()
+    mock_client.invoices.list.assert_not_called()
+    mock_client.payouts.list.assert_not_called()
+    mock_client.prices.list.assert_not_called()
+    mock_client.products.list.assert_not_called()
+    mock_client.subscriptions.list.assert_not_called()
+    mock_client.refunds.list.assert_not_called()
+    mock_client.credit_notes.list.assert_not_called()
+
+    assert "bad_table" in str(e)
