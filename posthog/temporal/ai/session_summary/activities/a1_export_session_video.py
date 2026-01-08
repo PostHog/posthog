@@ -122,7 +122,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             id=f"session-video-summary-export_{inputs.session_id}",
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+            # Allow duplicates for testing purposes - this shouldn't happen in prod anyway
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         )
 
         logger.debug(
