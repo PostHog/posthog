@@ -720,7 +720,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
         setEditingNodeId: () => {
-            values.editingNodeLogic?.actions.selectNode()
+            values.editingNodeLogic?.actions.selectNode(false)
         },
 
         setTextSelection: ({ selection }) => {

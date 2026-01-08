@@ -58,7 +58,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setPreviousNode: (node: RichContentNode | null) => ({ node }),
         setNextNode: (node: RichContentNode | null) => ({ node }),
         deleteNode: true,
-        selectNode: true,
+        selectNode: (scroll?: boolean) => ({ scroll }),
         toggleEditing: (visible?: boolean) => ({ visible }),
         scrollIntoView: true,
         initializeNode: true,
@@ -256,7 +256,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             }
         },
 
-        selectNode: () => {
+        selectNode: ({ scroll }) => {
             const pos = props.getPos?.()
             if (!pos) {
                 return
@@ -265,7 +265,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
             if (editor) {
                 editor.setSelection(pos)
-                editor.scrollToSelection()
+                if (scroll ?? true) {
+                    editor.scrollToSelection()
+                }
             }
         },
 
