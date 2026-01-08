@@ -43,7 +43,15 @@ class Migration(migrations.Migration):
                         to="posthog.team",
                     ),
                 ),
-                ("property_name", models.CharField(max_length=400)),
+                (
+                    "property_definition",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="materialized_column_slots",
+                        related_query_name="materialized_column_slot",
+                        to="posthog.propertydefinition",
+                    ),
+                ),
                 (
                     "property_type",
                     models.CharField(
@@ -80,8 +88,8 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="materializedcolumnslot",
             constraint=models.UniqueConstraint(
-                fields=("team", "property_name"),
-                name="unique_team_property_name",
+                fields=("team", "property_definition"),
+                name="unique_team_property_definition",
             ),
         ),
         migrations.AddConstraint(
@@ -105,7 +113,7 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="materializedcolumnslot",
             index=models.Index(
-                fields=["team", "property_name"],
+                fields=["team", "property_definition"],
                 name="posthog_mat_team_pr_idx",
             ),
         ),
