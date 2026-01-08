@@ -986,6 +986,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
+@extend_schema(tags=["core"])
 class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer

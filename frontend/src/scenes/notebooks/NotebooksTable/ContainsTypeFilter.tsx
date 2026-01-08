@@ -24,6 +24,7 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Image]: 'Images',
     [NotebookNodeType.Person]: 'Persons',
     [NotebookNodeType.Query]: 'Queries',
+    [NotebookNodeType.Python]: 'Python',
     [NotebookNodeType.Recording]: 'Session recordings',
     [NotebookNodeType.RecordingPlaylist]: 'Session replay playlists',
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',

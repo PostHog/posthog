@@ -31,7 +31,7 @@ class TeamCustomerAnalyticsConfig(models.Model):
 
 
 @receiver(post_save, sender=Team)
-def create_team_revenue_analytics_config(sender, instance, created, **kwargs):
+def create_team_customer_analytics_config(sender, instance, created, **kwargs):
     try:
         if created:
             TeamCustomerAnalyticsConfig.objects.get_or_create(

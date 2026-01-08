@@ -18,7 +18,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
-from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY, USER_QUERY_ERRORS
+from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY, USER_QUERY_ERRORS, record_export_failure
 from posthog.utils import wait_for_parallel_celery_group
 
 logger = structlog.get_logger(__name__)
@@ -247,9 +247,7 @@ async def generate_assets_async(
                         team_id=resource.team_id,
                     )
 
-                asset.exception = str(e)
-                asset.exception_type = type(e).__name__
-                await database_sync_to_async(asset.save, thread_sensitive=False)()
+                await database_sync_to_async(record_export_failure, thread_sensitive=False)(asset, e)
 
         # Reserve buffer time for email/Slack delivery after exports
         buffer_seconds = 120  # 2 minutes
