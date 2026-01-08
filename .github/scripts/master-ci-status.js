@@ -123,8 +123,10 @@ function handleSuccess(state, event, commitTs, core, fs) {
     core.setOutput('since', state.since);
     core.setOutput('channel', state.channel || '');
     core.setOutput('ts', state.ts || '');
-    // Only save cache when state changes meaningfully (resolve/resolved)
-    // Don't save on 'none' to prevent creating divergent cache branches
+    // Only save cache when state changes meaningfully:
+    //   - when a failing workflow recovers (wasFailing => action='resolve'), or
+    //   - when the incident becomes fully resolved (resolved=true)
+    // Avoid saving on plain 'none' to prevent creating divergent cache branches.
     core.setOutput('save_cache', wasFailing || resolved ? 'true' : 'false');
 
     console.log(`Action: ${wasFailing ? 'resolve' : 'none'}`);
