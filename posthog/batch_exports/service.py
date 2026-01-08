@@ -15,9 +15,11 @@ from temporalio.client import (
     Client,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleCalendarSpec,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
+    ScheduleRange,
     ScheduleSpec,
     ScheduleState,
 )
@@ -795,6 +797,50 @@ async def acount_failed_batch_export_runs(batch_export_id: UUID, last_n: int) ->
     return count_of_failures
 
 
+def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
+    # if daily or weekly interval, use ScheduleCalendarSpec so we can set the time of day to run (and ensure timezones
+    # are respected)
+    if batch_export.interval == "day":
+        return ScheduleSpec(
+            start_at=batch_export.start_at,
+            end_at=batch_export.end_at,
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at midnight local time",
+                    hour=[ScheduleRange(start=0, end=0)],
+                )
+            ],
+            jitter=batch_export.jitter,
+            time_zone_name=batch_export.team.timezone,
+        )
+    elif batch_export.interval == "week":
+        # Use team's week start day, defaulting to 0 (Sunday) - 0-6, 0 is Sunday
+        week_start_day = batch_export.team.week_start_day or 0
+
+        return ScheduleSpec(
+            start_at=batch_export.start_at,
+            end_at=batch_export.end_at,
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Weekly at midnight local time",
+                    day_of_week=[ScheduleRange(start=week_start_day, end=week_start_day)],
+                    hour=[ScheduleRange(start=0, end=0)],
+                )
+            ],
+            jitter=batch_export.jitter,
+            time_zone_name=batch_export.team.timezone,
+        )
+    # for other intervals, use ScheduleIntervalSpec
+    else:
+        return ScheduleSpec(
+            start_at=batch_export.start_at,
+            end_at=batch_export.end_at,
+            intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
+            jitter=batch_export.jitter,
+            time_zone_name=batch_export.team.timezone,
+        )
+
+
 def sync_batch_export(batch_export: BatchExport, created: bool):
     workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
     state = ScheduleState(
@@ -850,13 +896,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 non_retryable_error_types=["ActivityError", "ApplicationError", "CancelledError"],
             ),
         ),
-        spec=ScheduleSpec(
-            start_at=batch_export.start_at,
-            end_at=batch_export.end_at,
-            intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=batch_export.jitter,
-            time_zone_name=batch_export.team.timezone,
-        ),
+        spec=_get_schedule_spec(batch_export),
         state=state,
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
