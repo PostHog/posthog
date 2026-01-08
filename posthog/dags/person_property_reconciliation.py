@@ -88,13 +88,14 @@ def get_person_property_updates_from_clickhouse(
 
     This query:
     1. Joins events with person_distinct_id_overrides to resolve merged persons
-    2. Extracts $set (argMax for latest) and $set_once (argMin for first) properties
+    2. Extracts $set (argMax for latest), $set_once (argMin for first), and $unset properties
     3. Compares with current person properties in ClickHouse
-    4. Returns only persons where properties differ or are missing
+    4. Returns only persons where properties differ, are missing, or need removal
 
     Returns:
         set_diff: Array of (key, value, timestamp) tuples for $set properties that differ
         set_once_diff: Array of (key, value, timestamp) tuples for $set_once properties missing
+        unset_diff: Array of (key, timestamp) tuples for $unset properties that exist
     """
     query = """
     SELECT
@@ -111,7 +112,12 @@ def get_person_property_updates_from_clickhouse(
         arrayFilter(
             kv -> indexOf(keys2, kv.1) = 0,
             arrayMap(i -> (set_once_keys[i], set_once_values[i], set_once_timestamps[i]), arrayEnumerate(set_once_keys))
-        ) AS set_once_diff
+        ) AS set_once_diff,
+        -- For $unset: only include keys that EXIST in person properties (need removal)
+        arrayFilter(
+            kv -> indexOf(keys2, kv.1) > 0,
+            arrayMap(i -> (unset_keys[i], unset_timestamps[i]), arrayEnumerate(unset_keys))
+        ) AS unset_diff
     FROM (
         SELECT
             merged.person_id,
@@ -121,6 +127,8 @@ def get_person_property_updates_from_clickhouse(
             merged.set_once_keys,
             merged.set_once_values,
             merged.set_once_timestamps,
+            merged.unset_keys,
+            merged.unset_timestamps,
             arrayMap(x -> x.1, JSONExtractKeysAndValues(p.person_properties, 'String')) AS keys2,
             arrayMap(x -> x.2, JSONExtractKeysAndValues(p.person_properties, 'String')) AS vals2
         FROM (
@@ -133,7 +141,9 @@ def get_person_property_updates_from_clickhouse(
                 arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_timestamps,
                 arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_keys,
                 arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_values,
-                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_timestamps
+                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_timestamps,
+                arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_keys,
+                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_timestamps
             FROM (
                 SELECT
                     person_id,
@@ -143,13 +153,13 @@ def get_person_property_updates_from_clickhouse(
                         if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
                         kv_tuple.2 AS key,
                         kv_tuple.1 AS prop_type,
-                        -- $set: newest event wins, $set_once: first event wins
+                        -- $set: newest event wins, $set_once: first event wins, $unset: newest event wins
                         -- Filter out null/empty values with argMaxIf/argMinIf
                         if(kv_tuple.1 = 'set',
                             argMaxIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != ''),
                             argMinIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != '')
                         ) AS value,
-                        if(kv_tuple.1 = 'set', max(e.timestamp), min(e.timestamp)) AS kv_timestamp
+                        if(kv_tuple.1 = 'set_once', min(e.timestamp), max(e.timestamp)) AS kv_timestamp
                     FROM events e
                     LEFT OUTER JOIN (
                         SELECT
@@ -160,7 +170,7 @@ def get_person_property_updates_from_clickhouse(
                         GROUP BY person_distinct_id_overrides.distinct_id
                         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
                     ) AS overrides ON e.distinct_id = overrides.distinct_id
-                    -- Extract $set and $set_once properties, filtering out null/empty values
+                    -- Extract $set, $set_once, and $unset properties, filtering out null/empty values
                     ARRAY JOIN
                         arrayConcat(
                             arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null',
@@ -172,12 +182,17 @@ def get_person_property_updates_from_clickhouse(
                                 arrayMap(x -> tuple('set_once', x.1, toString(x.2)),
                                     arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set_once'))
                                 )
+                            ),
+                            -- $unset is an array of keys, not key-value pairs
+                            -- Parse keys with JSON_VALUE to get plain strings (consistent with $set/$set_once)
+                            arrayMap(x -> tuple('unset', JSON_VALUE(x, '$'), ''),
+                                JSONExtractArrayRaw(e.properties, '$unset')
                             )
                         ) AS kv_tuple
                     WHERE e.team_id = %(team_id)s
                       AND e.timestamp > %(bug_window_start)s
                       AND e.timestamp < %(bug_window_end)s
-                      AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '')
+                      AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
                     GROUP BY person_id, kv_tuple.2, kv_tuple.1
                 )
                 GROUP BY person_id
@@ -194,7 +209,7 @@ def get_person_property_updates_from_clickhouse(
             GROUP BY id
         ) AS p ON p.id = merged.person_id
     ) AS with_person_props
-    WHERE length(set_diff) > 0 OR length(set_once_diff) > 0
+    WHERE length(set_diff) > 0 OR length(set_once_diff) > 0 OR length(unset_diff) > 0
     ORDER BY with_person_props.person_id
     SETTINGS
         readonly=2,
@@ -221,7 +236,7 @@ def get_person_property_updates_from_clickhouse(
 
     results: list[PersonPropertyUpdates] = []
     for row in rows:
-        person_id, set_diff, set_once_diff = row
+        person_id, set_diff, set_once_diff, unset_diff = row
 
         updates: list[PropertyUpdate] = []
 
@@ -247,6 +262,18 @@ def get_person_property_updates_from_clickhouse(
                 )
             )
 
+        # Add $unset operations (tuples of key, timestamp - no value)
+        # Keys are already parsed in the query with JSON_VALUE (consistent with $set/$set_once)
+        for key, timestamp in unset_diff:
+            updates.append(
+                PropertyUpdate(
+                    key=key,
+                    value=None,
+                    timestamp=timestamp,
+                    operation="unset",
+                )
+            )
+
         if updates:
             results.append(PersonPropertyUpdates(person_id=str(person_id), updates=updates))
 
@@ -263,6 +290,7 @@ def reconcile_person_properties(
     The CH query pre-filters to only return:
     - $set properties where the CH value differs from current person state
     - $set_once properties that are missing from current person state
+    - $unset properties that exist in current person state
 
     Args:
         person: From Postgres with uuid, properties, properties_last_updated_at, properties_last_operation
@@ -293,13 +321,23 @@ def reconcile_person_properties(
                 properties_last_updated_at[key] = event_ts_str
                 properties_last_operation[key] = "set_once"
                 changed = True
-        else:
+        elif operation == "set":
             # set: create or update property if CH timestamp is newer (or no existing timestamp)
             if existing_ts_str is None or event_ts > parse_datetime(existing_ts_str, person["uuid"], key):
                 properties[key] = value
                 properties_last_updated_at[key] = event_ts_str
                 properties_last_operation[key] = "set"
                 changed = True
+        elif operation == "unset":
+            # unset: remove property if it exists AND CH timestamp is newer
+            if key in properties:
+                if existing_ts_str is None or event_ts > parse_datetime(existing_ts_str, person["uuid"], key):
+                    del properties[key]
+                    if key in properties_last_updated_at:
+                        del properties_last_updated_at[key]
+                    if key in properties_last_operation:
+                        del properties_last_operation[key]
+                    changed = True
 
     if changed:
         return {
