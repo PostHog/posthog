@@ -172,6 +172,13 @@ class SecretAlert(APIView):
                 "label": "false_positive",
             }
 
+            # Debug info while token lookups continue to fail
+            token_debug = {
+                "token_length": len(token),
+                "token_prefix": token[:10] if len(token) > 10 else "[REDACTED]",
+                "token_suffix": token[-8:] if len(token) > 8 else "[REDACTED]",
+            }
+
             if item["type"] == "posthog_personal_api_key":
                 key_lookup = find_personal_api_key(token)
                 posthoganalytics.capture(
@@ -182,6 +189,7 @@ class SecretAlert(APIView):
                         "source": item["source"],
                         "url": item["url"],
                         "found": key_lookup is not None,
+                        **token_debug,
                     },
                 )
 
@@ -220,6 +228,7 @@ class SecretAlert(APIView):
                         "source": item["source"],
                         "url": item["url"],
                         "found": found,
+                        **token_debug,
                     },
                 )
 
