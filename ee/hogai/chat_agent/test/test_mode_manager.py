@@ -15,6 +15,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import (
+    AgentMode,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
@@ -150,6 +151,46 @@ class TestAgentToolkit(BaseTest):
                 self.assertIn(expected, tool_names)
             for unexpected in unexpected_tools:
                 self.assertNotIn(unexpected, tool_names)
+
+    @parameterized.expand(
+        [
+            # (error_tracking_flag, expected_modes, unexpected_modes)
+            [False, ["product_analytics", "sql", "session_replay"], ["error_tracking"]],
+            [True, ["product_analytics", "sql", "session_replay", "error_tracking"], []],
+        ]
+    )
+    def test_mode_registry_based_on_feature_flags(self, error_tracking_flag, expected_modes, unexpected_modes):
+        with patch(
+            "ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag", return_value=error_tracking_flag
+        ):
+            node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+            context_manager = AssistantContextManager(
+                team=self.team, user=self.user, config=RunnableConfig(configurable={})
+            )
+            mode_manager = ChatAgentModeManager(
+                team=self.team, user=self.user, node_path=node_path, context_manager=context_manager
+            )
+            mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
+
+            for expected in expected_modes:
+                self.assertIn(expected, mode_names)
+            for unexpected in unexpected_modes:
+                self.assertNotIn(unexpected, mode_names)
+
+    def test_unavailable_mode_falls_back_to_product_analytics(self):
+        with patch("ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag", return_value=False):
+            node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+            context_manager = AssistantContextManager(
+                team=self.team, user=self.user, config=RunnableConfig(configurable={})
+            )
+            mode_manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=node_path,
+                context_manager=context_manager,
+                mode=AgentMode.ERROR_TRACKING,
+            )
+            self.assertEqual(mode_manager.mode, AgentMode.PRODUCT_ANALYTICS)
 
 
 class TestAgentNode(ClickhouseTestMixin, BaseTest):

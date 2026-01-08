@@ -11,14 +11,14 @@ import { WorkflowTemplateLogicProps, workflowTemplateLogic } from './workflowTem
 export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX.Element {
     const { user } = useValues(userLogic)
     const logic = workflowTemplateLogic(props)
-    const { saveAsTemplateModalVisible, isTemplateFormSubmitting, templateForm } = useValues(logic)
+    const { saveAsTemplateModalVisible, isTemplateFormSubmitting, templateForm, isEditMode } = useValues(logic)
     const { hideSaveAsTemplateModal, submitTemplateForm } = useActions(logic)
 
     return (
         <LemonModal
             onClose={hideSaveAsTemplateModal}
             isOpen={saveAsTemplateModalVisible}
-            title="Save as template"
+            title={isEditMode ? 'Update template' : 'Save as template'}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={hideSaveAsTemplateModal}>
@@ -30,7 +30,7 @@ export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX
                         loading={isTemplateFormSubmitting}
                         disabledReason={!templateForm.name ? 'Name is required' : undefined}
                     >
-                        Save template
+                        {isEditMode ? 'Update template' : 'Save template'}
                     </LemonButton>
                 </>
             }

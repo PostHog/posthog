@@ -2,9 +2,8 @@ import { Counter, Histogram } from 'prom-client'
 
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 
-import { Hub } from '../../types'
-import { PostgresUse } from '../../utils/db/postgres'
-import { GeoIp } from '../../utils/geoip'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { GeoIPService, GeoIp } from '../../utils/geoip'
 import { parseJSON } from '../../utils/json-parse'
 import { FetchOptions, FetchResponse } from '../../utils/request'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
@@ -47,9 +46,13 @@ export type PluginState = {
 const pluginConfigCheckCache: Record<string, boolean> = {}
 
 export class LegacyPluginExecutorService {
-    constructor(private hub: Hub) {}
     private pluginState: Record<string, PluginState> = {}
     private cachedGeoIp?: GeoIp
+
+    constructor(
+        private postgres: PostgresRouter,
+        private geoipService: GeoIPService
+    ) {}
 
     private legacyStorage(teamId: number, pluginConfigId?: number | string): Pick<StorageExtension, 'get' | 'set'> {
         if (!pluginConfigId) {
@@ -60,7 +63,7 @@ export class LegacyPluginExecutorService {
         }
 
         const get = async (key: string, defaultValue: unknown): Promise<unknown> => {
-            const result = await this.hub.postgres.query(
+            const result = await this.postgres.query(
                 PostgresUse.PLUGIN_STORAGE_RW,
                 `SELECT * FROM posthog_pluginstorage as ps 
                    JOIN posthog_pluginconfig as pc ON ps."plugin_config_id" = pc."id" 
@@ -77,7 +80,7 @@ export class LegacyPluginExecutorService {
 
             if (typeof pluginConfigCheckCache[cacheKey] === 'undefined') {
                 // Check if the plugin config for that team exists
-                const result = await this.hub.postgres.query(
+                const result = await this.postgres.query(
                     PostgresUse.COMMON_READ,
                     `SELECT * FROM posthog_pluginconfig as pc 
                    WHERE pc."team_id" = $1 AND pc."id" = $2
@@ -93,7 +96,7 @@ export class LegacyPluginExecutorService {
                 throw new Error(`Plugin config ${pluginConfigId} for team ${teamId} not found`)
             }
 
-            await this.hub.postgres.query(
+            await this.postgres.query(
                 PostgresUse.PLUGIN_STORAGE_RW,
                 `
                     INSERT INTO posthog_pluginstorage ("plugin_config_id", "key", "value")
@@ -168,7 +171,7 @@ export class LegacyPluginExecutorService {
 
             if (!state) {
                 if (!this.cachedGeoIp) {
-                    this.cachedGeoIp = await this.hub.geoipService.get()
+                    this.cachedGeoIp = await this.geoipService.get()
                 }
                 const geoip = this.cachedGeoIp
 

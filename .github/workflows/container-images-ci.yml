@@ -44,7 +44,7 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Build and cache Docker image in Depot
               id: build
@@ -87,14 +87,14 @@ jobs:
         runs-on: ubuntu-24.04
         steps:
             - name: Check out
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 0
                   filter: blob:none
 
             - name: Check if any Dockerfile has changed
               id: changed-files
-              uses: step-security/changed-files@3dbe17c78367e7d60f00d78ae6781a35be47b4a1 # v45
+              uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
               with:
                   files: |
                       **/Dockerfile
@@ -103,7 +103,7 @@ jobs:
                   separator: ' '
 
             - name: Lint changed Dockerfile(s) with Hadolint
-              uses: jbergstroem/hadolint-gh-action@39e57273ed8f513872326b228217828be6a42730 # v1
+              uses: jbergstroem/hadolint-gh-action@2b00b87f8a56783930b6a4749837d7c45c567ff2 # v1.13.0
               if: steps.changed-files.outputs.any_changed == 'true'
               with:
                   dockerfile: '${{ steps.changed-files.outputs.all_modified_files }}'

@@ -2,6 +2,9 @@ import express from 'ultimate-express'
 
 import { HealthCheckResultOk, Hub, PluginServerService } from '../types'
 
+/** Narrowed Hub type for ServerCommands */
+export type ServerCommandsHub = Pick<Hub, 'pubSub'>
+
 /**
  * We have various use cases where an external service like django needs to communicate with the node services
  *
@@ -10,7 +13,7 @@ import { HealthCheckResultOk, Hub, PluginServerService } from '../types'
  * don't need access to the pubsub redis
  */
 export class ServerCommands {
-    constructor(private hub: Hub) {}
+    constructor(private hub: ServerCommandsHub) {}
 
     public get service(): PluginServerService {
         return {

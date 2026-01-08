@@ -81,8 +81,9 @@ def wrap_query_error(err: Exception) -> Exception:
 
     meta = look_up_error_code_meta(err)
 
-    if meta.name in CLICKHOUSE_SPECIFIC_ERROR_LOOKUP:
-        return CLICKHOUSE_SPECIFIC_ERROR_LOOKUP[meta.name]
+    specific_error = get_specific_clickhouse_error(meta.name, err.message, err.code)
+    if specific_error is not None:
+        return specific_error
 
     name = f"CHQueryError{meta.label}"
     processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
@@ -111,31 +112,87 @@ class CHQueryErrorS3Error(InternalCHQueryError):
     pass
 
 
-CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
-    "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
-        "Too many simultaneous queries. Try again later.", code=202
-    ),
-    "CANNOT_SCHEDULE_TASK": CHQueryErrorCannotScheduleTask("Cannot schedule task. Try again later.", code=439),
-    "S3_ERROR": CHQueryErrorS3Error("S3 error occurred. Try again later.", code=499),
-}
+# User query errors - these are errors caused by user input/queries
+class CHQueryErrorIllegalTypeOfArgument(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorNoCommonType(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorNotAnAggregate(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorUnknownFunction(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorTypeMismatch(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorIllegalAggregation(ExposedCHQueryError):
+    pass
+
+
+def get_specific_clickhouse_error(meta_name: str, original_message: str, code: int) -> InternalCHQueryError | None:
+    lookup: dict[str, InternalCHQueryError] = {
+        # Infrastructure errors - custom messages to hide internals
+        "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
+            "Too many simultaneous queries. Try again later.", code=code
+        ),
+        "CANNOT_SCHEDULE_TASK": CHQueryErrorCannotScheduleTask("Cannot schedule task. Try again later.", code=code),
+        "S3_ERROR": CHQueryErrorS3Error("S3 error occurred. Try again later.", code=code),
+        # User query errors - pass through original message with proper code_name
+        "ILLEGAL_TYPE_OF_ARGUMENT": CHQueryErrorIllegalTypeOfArgument(
+            original_message, code=code, code_name="illegal_type_of_argument"
+        ),
+        "NO_COMMON_TYPE": CHQueryErrorNoCommonType(original_message, code=code, code_name="no_common_type"),
+        "NOT_AN_AGGREGATE": CHQueryErrorNotAnAggregate(original_message, code=code, code_name="not_an_aggregate"),
+        "UNKNOWN_FUNCTION": CHQueryErrorUnknownFunction(original_message, code=code, code_name="unknown_function"),
+        "TYPE_MISMATCH": CHQueryErrorTypeMismatch(original_message, code=code, code_name="type_mismatch"),
+        "ILLEGAL_AGGREGATION": CHQueryErrorIllegalAggregation(
+            original_message, code=code, code_name="illegal_aggregation"
+        ),
+    }
+    return lookup.get(meta_name)
+
 
 #
-# From https://github.com/ClickHouse/ClickHouse/blob/23.12/src/Common/ErrorCodes.cpp#L16-L622
+# From https://github.com/ClickHouse/ClickHouse/blob/v25.8.11.66-lts/src/Common/ErrorCodes.cpp#L17-L650
 #
 # Please keep this list up to date at each ClickHouse upgrade.
 #
 # You can fetch and print an updated list of error codes with something like:
 #
-# import json
+# ```py
 # import re
 # import requests
-# output = {}
-# resp = requests.get('https://raw.githubusercontent.com/ClickHouse/ClickHouse/refs/heads/25.4/src/Common/ErrorCodes.cpp')
+#
+# TAG = "v25.8.11.66-lts"
+# URL = f"https://raw.githubusercontent.com/ClickHouse/ClickHouse/refs/tags/{TAG}/src/Common/ErrorCodes.cpp"
+#
+# resp = requests.get(URL, timeout=30)
+# resp.raise_for_status()
+#
+# seen = set()
+#
 # for line in resp.text.split("\n"):
-#     result = re.search(r"^M\(([0-9]+), (\S+)\).*$", line.strip())
-#     if result is not None:
-#         output[int(result.group(1))] = result.group(2)
-# print(json.dumps(output, sort_keys=True, indent=4))
+#     s = line.strip()
+#     match = re.search(r"^M\((\d+),\s*([A-Z0-9_]+)\)", s)
+#     if match:
+#         code = int(match.group(1))
+#         name = match.group(2)
+#
+#         # avoid accidental duplicates if the macro list appears more than once
+#         if code in seen:
+#             continue
+#         seen.add(code)
+#
+#         print(f'    {code}: ErrorCodeMeta("{name}"),')
+# ```
 #
 # Remember to add back the `user_safe` args though!
 CLICKHOUSE_UNKNOWN_EXCEPTION = ErrorCodeMeta("UNKNOWN_EXCEPTION")
@@ -377,6 +434,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     290: ErrorCodeMeta("LIMIT_EXCEEDED"),
     291: ErrorCodeMeta("DATABASE_ACCESS_DENIED"),
     293: ErrorCodeMeta("MONGODB_CANNOT_AUTHENTICATE"),
+    294: ErrorCodeMeta("CANNOT_WRITE_TO_FILE"),
     295: ErrorCodeMeta("RECEIVED_EMPTY_DATA"),
     297: ErrorCodeMeta("SHARD_HAS_NO_CONNECTIONS"),
     298: ErrorCodeMeta("CANNOT_PIPE"),
@@ -401,7 +459,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     345: ErrorCodeMeta("TABLE_DIFFERS_TOO_MUCH"),
     346: ErrorCodeMeta("CANNOT_CONVERT_CHARSET"),
     347: ErrorCodeMeta("CANNOT_LOAD_CONFIG"),
-    349: ErrorCodeMeta("CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN"),
+    349: ErrorCodeMeta("CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN", user_safe=True),
     352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME"),
     353: ErrorCodeMeta("INDEX_OF_POSITIONAL_ARGUMENT_IS_OUT_OF_RANGE", user_safe=True),
     354: ErrorCodeMeta("ZLIB_INFLATE_FAILED"),
@@ -508,7 +566,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     467: ErrorCodeMeta("CANNOT_PARSE_BOOL"),
     468: ErrorCodeMeta("CANNOT_PTHREAD_ATTR"),
     469: ErrorCodeMeta("VIOLATED_CONSTRAINT"),
-    470: ErrorCodeMeta("QUERY_IS_NOT_SUPPORTED_IN_LIVE_VIEW"),
     471: ErrorCodeMeta("INVALID_SETTING_VALUE"),
     472: ErrorCodeMeta("READONLY_SETTING"),
     473: ErrorCodeMeta("DEADLOCK_AVOIDED"),
@@ -716,7 +773,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     705: ErrorCodeMeta("TABLE_NOT_EMPTY"),
     706: ErrorCodeMeta("LIBSSH_ERROR"),
     707: ErrorCodeMeta("GCP_ERROR"),
-    708: ErrorCodeMeta("ILLEGAL_STATISTIC"),
+    708: ErrorCodeMeta("ILLEGAL_STATISTICS"),
     709: ErrorCodeMeta("CANNOT_GET_REPLICATED_DATABASE_SNAPSHOT"),
     710: ErrorCodeMeta("FAULT_INJECTED"),
     711: ErrorCodeMeta("FILECACHE_ACCESS_DENIED"),
@@ -753,6 +810,17 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     743: ErrorCodeMeta("ICEBERG_SPECIFICATION_VIOLATION"),
     744: ErrorCodeMeta("SESSION_ID_EMPTY"),
     745: ErrorCodeMeta("SERVER_OVERLOADED"),
+    746: ErrorCodeMeta("DEPENDENCIES_NOT_FOUND"),
+    747: ErrorCodeMeta("FILECACHE_CANNOT_WRITE_THROUGH_CACHE_WITH_CONCURRENT_READS"),
+    748: ErrorCodeMeta("AVRO_EXCEPTION"),
+    749: ErrorCodeMeta("TCP_CONNECTION_LIMIT_REACHED"),
+    750: ErrorCodeMeta("ARROWFLIGHT_INTERNAL_ERROR"),
+    751: ErrorCodeMeta("ARROWFLIGHT_CONNECTION_FAILURE"),
+    752: ErrorCodeMeta("ARROWFLIGHT_FETCH_SCHEMA_ERROR"),
+    753: ErrorCodeMeta("ARROWFLIGHT_WRITE_ERROR"),
+    754: ErrorCodeMeta("UDF_EXECUTION_FAILED"),
+    755: ErrorCodeMeta("TOO_LARGE_LIGHTWEIGHT_UPDATES"),
+    756: ErrorCodeMeta("CANNOT_PARSE_PROMQL_QUERY"),
     900: ErrorCodeMeta("DISTRIBUTED_CACHE_ERROR"),
     901: ErrorCodeMeta("CANNOT_USE_DISTRIBUTED_CACHE"),
     902: ErrorCodeMeta("PROTOCOL_VERSION_MISMATCH"),
@@ -762,4 +830,5 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     1001: ErrorCodeMeta("STD_EXCEPTION"),
     1002: CLICKHOUSE_UNKNOWN_EXCEPTION,
     1003: ErrorCodeMeta("SSH_EXCEPTION"),
+    1004: ErrorCodeMeta("STARTUP_SCRIPTS_ERROR"),
 }

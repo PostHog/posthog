@@ -29,12 +29,7 @@ export class CyclotronJobQueueKafka {
      */
     public async startAsProducer() {
         // NOTE: For producing we use different values dedicated for Cyclotron as this is typically using its own Kafka cluster
-        this.kafkaProducer = await KafkaProducerWrapper.create(
-            {
-                ...this.config,
-            },
-            'CDP_PRODUCER'
-        )
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
     }
 
     public async startAsConsumer() {

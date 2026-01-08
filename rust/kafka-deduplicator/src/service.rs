@@ -106,6 +106,10 @@ impl KafkaDeduplicatorService {
             s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
             s3_key_prefix: config.s3_key_prefix.clone(),
             aws_region: config.aws_region.clone(),
+            s3_endpoint: config.s3_endpoint.clone(),
+            s3_access_key_id: config.s3_access_key_id.clone(),
+            s3_secret_access_key: config.s3_secret_access_key.clone(),
+            s3_force_path_style: config.s3_force_path_style,
             max_concurrent_checkpoints: config.max_concurrent_checkpoints,
             checkpoint_gate_interval: config.checkpoint_gate_interval(),
             checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
@@ -113,7 +117,6 @@ impl KafkaDeduplicatorService {
             s3_operation_timeout: config.s3_operation_timeout(),
             s3_attempt_timeout: config.s3_attempt_timeout(),
             checkpoint_import_attempt_depth: config.checkpoint_import_attempt_depth,
-            test_s3_endpoint: None,
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
@@ -121,11 +124,18 @@ impl KafkaDeduplicatorService {
 
         // create exporter conditionally if S3 config is populated
         let exporter = if config.checkpoint_export_enabled() {
-            let uploader = Box::new(
-                S3Uploader::new(checkpoint_config.clone())
-                    .await
-                    .context("Failed to create S3 uploader")?,
-            );
+            let uploader = match S3Uploader::new(checkpoint_config.clone()).await {
+                Ok(uploader) => Box::new(uploader),
+                Err(e) => {
+                    error!(
+                        error = ?e,
+                        bucket = %config.s3_bucket.as_deref().unwrap_or(""),
+                        region = %config.aws_region.as_deref().unwrap_or(""),
+                        "Failed to initialize S3 client for checkpoint uploads"
+                    );
+                    return Err(e.context("S3 uploader: client initialization failed"));
+                }
+            };
             Some(Arc::new(CheckpointExporter::new(uploader)))
         } else {
             None
@@ -133,11 +143,18 @@ impl KafkaDeduplicatorService {
 
         // if checkpoint import is enabled, create and configure the importer
         let importer = if config.checkpoint_import_enabled() {
-            let downloader = Box::new(
-                S3Downloader::new(&checkpoint_config)
-                    .await
-                    .context("Failed to create S3 downloader")?,
-            );
+            let downloader = match S3Downloader::new(&checkpoint_config).await {
+                Ok(downloader) => Box::new(downloader),
+                Err(e) => {
+                    error!(
+                        error = ?e,
+                        bucket = %config.s3_bucket.as_deref().unwrap_or(""),
+                        region = %config.aws_region.as_deref().unwrap_or(""),
+                        "Failed to initialize S3 client for checkpoint downloads"
+                    );
+                    return Err(e.context("S3 downloader: client initialization failed"));
+                }
+            };
             Some(Arc::new(CheckpointImporter::new(
                 downloader,
                 store_config.path.clone(),
