@@ -5,7 +5,9 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
-from ee.models.assistant import CoreMemory
+from posthog.schema import DocumentArtifactContent, VisualizationArtifactContent
+
+from ee.models.assistant import AgentArtifact, Conversation, CoreMemory
 
 
 class TestCoreMemory(BaseTest):
@@ -95,3 +97,38 @@ class TestCoreMemory(BaseTest):
         await self.core_memory.aset_core_memory(long_text)
         self.assertEqual(len(self.core_memory.formatted_text), 5001)
         self.assertEqual(self.core_memory.formatted_text, long_text[:2500] + "…" + long_text[-2500:])
+
+
+class TestAgentArtifact(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+    def test_content_property_with_visualization(self):
+        artifact = AgentArtifact.objects.create(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Chart",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={
+                "query": {"kind": "TrendsQuery", "series": []},
+                "name": "Test Chart",
+                "description": "A test visualization",
+            },
+        )
+        content = artifact.content
+        assert isinstance(content, VisualizationArtifactContent)
+        assert content.name == "Test Chart"
+        assert content.description == "A test visualization"
+
+    def test_content_property_with_document(self):
+        artifact = AgentArtifact.objects.create(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Document",
+            type=AgentArtifact.Type.NOTEBOOK,
+            data={"blocks": []},
+        )
+        content = artifact.content
+        assert isinstance(content, DocumentArtifactContent)
+        assert content.blocks == []

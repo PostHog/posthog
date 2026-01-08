@@ -1,4 +1,6 @@
+import pytest
 from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 from django.conf import settings
 
@@ -24,18 +26,25 @@ class TestEntitySearchContext(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
+            ("insight", "test_insight_id", "/project/{team_id}/insights/test_insight_id"),
             ("dashboard", "test_dashboard_id", "/project/{team_id}/dashboard/test_dashboard_id"),
             ("experiment", "test_experiment_id", "/project/{team_id}/experiments/test_experiment_id"),
             ("feature_flag", "test_flag_id", "/project/{team_id}/feature_flags/test_flag_id"),
             ("action", "test_action_id", "/project/{team_id}/data-management/actions/test_action_id"),
             ("cohort", "test_cohort_id", "/project/{team_id}/cohorts/test_cohort_id"),
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
+            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
+            ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):
         url = self.context._build_url(entity_type, result_id, self.team.id)
         expected_url = f"{settings.SITE_URL}{expected_path.format(team_id=self.team.id)}"
         assert url == expected_url
+
+    def test_build_url_unknown_entity_raises_value_error(self):
+        with pytest.raises(ValueError, match="Unknown entity type"):
+            self.context._build_url("unknown_type", "123", self.team.id)
 
     def test_format_entities_single_type(self):
         entities = [
@@ -237,3 +246,103 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "deleted action" not in result_names
         assert "deleted cohort" not in result_names
         assert "archived survey" not in result_names
+
+    async def test_list_entities_insight(self):
+        await Insight.objects.acreate(
+            team=self.team, name="List Insight 1", deleted=False, saved=True, created_by=self.user
+        )
+        await Insight.objects.acreate(
+            team=self.team, name="List Insight 2", deleted=False, saved=True, created_by=self.user
+        )
+
+        entities, total = await self.context.list_entities("insight", limit=10, offset=0)
+
+        assert len(entities) == 2
+        assert total == 2
+        entity_names = [e["extra_fields"].get("name", "") for e in entities]
+        assert "List Insight 1" in entity_names
+        assert "List Insight 2" in entity_names
+
+    async def test_list_entities_dashboard(self):
+        await Dashboard.objects.acreate(team=self.team, name="List Dashboard", deleted=False, created_by=self.user)
+
+        entities, total = await self.context.list_entities("dashboard", limit=10, offset=0)
+
+        assert len(entities) == 1
+        assert total == 1
+        assert entities[0]["extra_fields"]["name"] == "List Dashboard"
+
+    async def test_list_entities_pagination(self):
+        for i in range(5):
+            await Insight.objects.acreate(
+                team=self.team, name=f"Paginated Insight {i}", deleted=False, saved=True, created_by=self.user
+            )
+
+        entities_page1, total = await self.context.list_entities("insight", limit=2, offset=0)
+        assert len(entities_page1) == 2
+        assert total == 5
+
+        entities_page2, total = await self.context.list_entities("insight", limit=2, offset=2)
+        assert len(entities_page2) == 2
+        assert total == 5
+
+        entities_page3, total = await self.context.list_entities("insight", limit=2, offset=4)
+        assert len(entities_page3) == 1
+        assert total == 5
+
+    async def test_list_entities_artifact_delegates_to_artifacts_manager(self):
+        mock_artifacts_manager = MagicMock()
+        mock_artifact = MagicMock()
+        mock_artifact.short_id = "abc123"
+        mock_content = MagicMock()
+        mock_content.name = "Test Artifact"
+        mock_content.description = "Test description"
+        mock_artifact.content = mock_content
+        mock_artifacts_manager.aget_conversation_artifacts = AsyncMock(return_value=([mock_artifact], 1))
+
+        self.context_manager.artifacts = mock_artifacts_manager
+
+        entities, total = await self.context.list_entities("artifact", limit=10, offset=0)
+
+        mock_artifacts_manager.aget_conversation_artifacts.assert_called_once_with(10, 0)
+        assert len(entities) == 1
+        assert total == 1
+        assert entities[0]["type"] == "artifact"
+        assert entities[0]["result_id"] == "abc123"
+        assert entities[0]["extra_fields"]["name"] == "Test Artifact"
+
+    async def test_list_entities_artifact_handles_document_content(self):
+        from posthog.schema import DocumentArtifactContent
+
+        mock_artifacts_manager = MagicMock()
+        mock_artifact = MagicMock()
+        mock_artifact.short_id = "doc123"
+        mock_artifact.content = DocumentArtifactContent(blocks=[])
+        mock_artifacts_manager.aget_conversation_artifacts = AsyncMock(return_value=([mock_artifact], 1))
+
+        self.context_manager.artifacts = mock_artifacts_manager
+
+        entities, total = await self.context.list_entities("artifact", limit=10, offset=0)
+
+        assert len(entities) == 1
+        assert total == 1
+        assert entities[0]["type"] == "artifact"
+        assert entities[0]["result_id"] == "doc123"
+        assert entities[0]["extra_fields"] == {}
+
+    async def test_list_entities_artifact_skips_invalid_content(self):
+        from pydantic import ValidationError
+
+        mock_artifacts_manager = MagicMock()
+        mock_artifact = MagicMock()
+        mock_artifact.short_id = "invalid123"
+
+        type(mock_artifact).content = PropertyMock(side_effect=ValidationError.from_exception_data("test", []))
+        mock_artifacts_manager.aget_conversation_artifacts = AsyncMock(return_value=([mock_artifact], 1))
+
+        self.context_manager.artifacts = mock_artifacts_manager
+
+        entities, total = await self.context.list_entities("artifact", limit=10, offset=0)
+
+        assert len(entities) == 0
+        assert total == 1
