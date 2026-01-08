@@ -1,16 +1,20 @@
 package core
 
 import (
-	"io"
+	"fmt"
+	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 const maxLogLines = 100
+const logFilePath = "posthog-hobby.log"
 
 type LogBuffer struct {
-	mu    sync.RWMutex
-	lines []string
+	mu      sync.RWMutex
+	lines   []string
+	logFile *os.File
 }
 
 var globalLog = &LogBuffer{lines: make([]string, 0, maxLogLines)}
@@ -19,14 +23,30 @@ func GetLogger() *LogBuffer {
 	return globalLog
 }
 
-func (l *LogBuffer) Write(p []byte) (n int, err error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+func InitLogFile() error {
+	f, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	globalLog.mu.Lock()
+	globalLog.logFile = f
+	globalLog.mu.Unlock()
+	globalLog.Info("=== PostHog Hobby Installer started at %s ===", time.Now().Format(time.RFC3339))
+	return nil
+}
 
-	text := string(p)
-	newLines := strings.Split(text, "\n")
+func CloseLogFile() {
+	globalLog.mu.Lock()
+	defer globalLog.mu.Unlock()
+	if globalLog.logFile != nil {
+		globalLog.logFile.Close()
+		globalLog.logFile = nil
+	}
+}
 
-	for _, line := range newLines {
+func (l *LogBuffer) writeToBuffer(s string) {
+	lines := strings.Split(s, "\n")
+	for _, line := range lines {
 		line = strings.TrimRight(line, "\r")
 		if line == "" {
 			continue
@@ -36,11 +56,52 @@ func (l *LogBuffer) Write(p []byte) (n int, err error) {
 			l.lines = l.lines[1:]
 		}
 	}
+}
+
+func (l *LogBuffer) writeToFile(s string) {
+	if l.logFile != nil {
+		l.logFile.WriteString(s)
+		if !strings.HasSuffix(s, "\n") {
+			l.logFile.WriteString("\n")
+		}
+	}
+}
+
+func (l *LogBuffer) Write(p []byte) (n int, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	s := string(p)
+	l.writeToBuffer(s)
+	l.writeToFile(s)
 	return len(p), nil
 }
 
 func (l *LogBuffer) WriteString(s string) {
-	_, _ = io.WriteString(l, s)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.writeToBuffer(s)
+	l.writeToFile(s)
+}
+
+func (l *LogBuffer) Info(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if !strings.HasSuffix(msg, "\n") {
+		msg += "\n"
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.writeToBuffer(msg)
+	l.writeToFile("[INFO] " + msg)
+}
+
+func (l *LogBuffer) Debug(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if !strings.HasSuffix(msg, "\n") {
+		msg += "\n"
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.writeToFile("[DEBUG] " + msg)
 }
 
 func (l *LogBuffer) GetLines(n int) []string {

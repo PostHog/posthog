@@ -89,12 +89,14 @@ func checkMemory() CheckResult {
 	scale := int64(1024 * 1024)
 	cmd := exec.Command("sh", "-c", "grep MemTotal /proc/meminfo | awk '{print $2}'")
 	out, err := cmd.Output()
+	logger.Debug("Memory check /proc/meminfo: out=%q, err=%v", strings.TrimSpace(string(out)), err)
 
 	if err != nil || string(out) == "" {
 		scale = int64(1024 * 1024 * 1024)
 		logger.WriteString("$ sysctl -n hw.memsize\n")
 		cmd = exec.Command("sysctl", "-n", "hw.memsize")
 		out, err = cmd.Output()
+		logger.Debug("Memory check sysctl: out=%q, err=%v", strings.TrimSpace(string(out)), err)
 
 		if err != nil || string(out) == "" {
 			logger.WriteString("⚠ Could not check memory\n")
@@ -104,6 +106,7 @@ func checkMemory() CheckResult {
 
 	memKB, _ := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
 	memGB := memKB / scale
+	logger.Debug("Memory: raw=%d, scale=%d, GB=%d", memKB, scale, memGB)
 	logger.WriteString(fmt.Sprintf("Memory: %dGB\n", memGB))
 
 	if memGB < 8 {
@@ -144,7 +147,10 @@ func checkNetwork() CheckResult {
 
 	cmd := exec.Command("curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--connect-timeout", "5", "https://github.com")
 	out, err := cmd.Output()
-	if err != nil || strings.TrimSpace(string(out)) != "200" {
+	httpCode := strings.TrimSpace(string(out))
+	logger.Debug("Network check: http_code=%q, err=%v", httpCode, err)
+
+	if err != nil || httpCode != "200" {
 		logger.WriteString("✗ Cannot reach github.com\n")
 		return CheckResult{Passed: false, Err: fmt.Errorf("cannot reach github.com")}
 	}
@@ -156,12 +162,14 @@ func checkDockerVolumes() CheckResult {
 	logger := GetLogger()
 
 	if !DirExists("posthog") {
+		logger.Debug("posthog directory not found, skipping volume check")
 		logger.WriteString("New installation, skipping volume check\n")
 		return CheckResult{Passed: true, Detail: "new install"}
 	}
 
 	logger.WriteString("Checking for named Docker volumes...\n")
 	hasPostgres, hasClickhouse := CheckDockerVolumes()
+	logger.Debug("Docker volumes: postgres=%v, clickhouse=%v", hasPostgres, hasClickhouse)
 
 	if hasPostgres && hasClickhouse {
 		logger.WriteString("✓ Named volumes found\n")
@@ -169,6 +177,7 @@ func checkDockerVolumes() CheckResult {
 	}
 
 	warning := GetVolumeWarning()
+	logger.Debug("Volume warning: %q", warning)
 	if warning != "" {
 		logger.WriteString("⚠ " + warning + "\n")
 		return CheckResult{Passed: true, Warning: true, Detail: "volumes may be anonymous (pre-1.39)"}

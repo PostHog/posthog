@@ -21,32 +21,42 @@ func RequireRoot(operation string) error {
 }
 
 func IsDockerInstalled() bool {
-	_, err := exec.LookPath("docker")
-	return err == nil
+	path, err := exec.LookPath("docker")
+	installed := err == nil
+	GetLogger().Debug("IsDockerInstalled: %v (path=%s, err=%v)", installed, path, err)
+	return installed
 }
 
 func IsDockerRunning() bool {
 	cmd := exec.Command("docker", "info")
-	return cmd.Run() == nil
+	err := cmd.Run()
+	running := err == nil
+	GetLogger().Debug("IsDockerRunning: %v (err=%v)", running, err)
+	return running
 }
 
 func StartDockerDaemon() error {
+	logger := GetLogger()
+	logger.Debug("StartDockerDaemon called, checking root access")
 	if err := RequireRoot("start Docker daemon"); err != nil {
 		return err
 	}
 
-	GetLogger().WriteString("Starting Docker daemon...\n")
+	logger.WriteString("Starting Docker daemon...\n")
+	logger.Debug("Running: systemctl start docker")
 	cmd := exec.Command("systemctl", "start", "docker")
 
 	if err := cmd.Run(); err != nil {
+		logger.Debug("systemctl start docker failed: %v", err)
 		return fmt.Errorf("failed to start docker daemon: %w", err)
 	}
 
 	// Wait up to a minute for daemon to be ready
-	GetLogger().WriteString("Waiting for Docker daemon to start...\n")
+	logger.WriteString("Waiting for Docker daemon to start...\n")
 	for i := 0; i < 60; i++ {
+		logger.Debug("Waiting for docker daemon, attempt %d/60", i+1)
 		if IsDockerRunning() {
-			GetLogger().WriteString("Docker daemon started\n")
+			logger.WriteString("Docker daemon started\n")
 			return nil
 		}
 		time.Sleep(1 * time.Second)
@@ -56,11 +66,13 @@ func StartDockerDaemon() error {
 }
 
 func InstallDocker() error {
+	logger := GetLogger()
+	logger.Debug("InstallDocker called")
 	if err := RequireRoot("install Docker"); err != nil {
 		return err
 	}
 
-	GetLogger().WriteString("Installing Docker...\n")
+	logger.WriteString("Installing Docker...\n")
 
 	commands := [][]string{
 		{"apt", "update"},
@@ -71,15 +83,19 @@ func InstallDocker() error {
 		{"apt", "install", "-y", "docker-ce"},
 	}
 
-	for _, cmdArgs := range commands {
+	for i, cmdArgs := range commands {
+		logger.Debug("InstallDocker step %d/%d: %v", i+1, len(commands), cmdArgs)
 		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 		if err := cmd.Run(); err != nil {
+			logger.Debug("InstallDocker step %d failed: %v", i+1, err)
 			return fmt.Errorf("failed to run %v: %w", cmdArgs, err)
 		}
 	}
 
+	logger.Debug("Docker installed, adding user to docker group")
 	if err := AddCurrentUserToDockerGroup(); err != nil {
-		GetLogger().WriteString("Warning: could not add user to docker group\n")
+		logger.Debug("AddCurrentUserToDockerGroup failed: %v", err)
+		logger.WriteString("Warning: could not add user to docker group\n")
 	}
 
 	return nil
@@ -96,9 +112,14 @@ func InstallDockerCompose() error {
 }
 
 func GetDockerComposeCommand() (string, []string) {
+	logger := GetLogger()
+
 	if _, err := exec.LookPath("docker-compose"); err == nil {
+		logger.Debug("Using docker-compose binary")
 		return "docker-compose", nil
 	}
+
+	logger.Debug("Using docker compose plugin")
 	return "docker", []string{"compose"}
 }
 
@@ -174,6 +195,7 @@ func RunAsyncMigrationsCheck() error {
 func WaitForHealth(timeout time.Duration) error {
 	logger := GetLogger()
 	logger.WriteString("Waiting for PostHog to start...\n")
+	logger.Debug("WaitForHealth timeout=%v", timeout)
 
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -186,11 +208,14 @@ func WaitForHealth(timeout time.Duration) error {
 			_ = resp.Body.Close()
 			if resp.StatusCode == 200 {
 				logger.WriteString("PostHog is healthy!\n")
+				logger.Debug("Health check passed after %d attempts", attempt)
 				return nil
 			}
 			logger.WriteString(fmt.Sprintf("Health check %d: status %d\n", attempt, resp.StatusCode))
+			logger.Debug("Health check %d: HTTP %d", attempt, resp.StatusCode)
 		} else {
 			logger.WriteString(fmt.Sprintf("Health check %d: waiting...\n", attempt))
+			logger.Debug("Health check %d error: %v", attempt, err)
 		}
 
 		if (attempt % 5) == 0 {
@@ -200,6 +225,7 @@ func WaitForHealth(timeout time.Duration) error {
 		time.Sleep(5 * time.Second)
 	}
 
+	logger.Debug("WaitForHealth timed out after %d attempts", attempt)
 	return fmt.Errorf("timeout waiting for PostHog to be healthy")
 }
 
@@ -223,14 +249,22 @@ func AddUserToDockerGroup(user string) error {
 }
 
 func AddCurrentUserToDockerGroup() error {
-	user := os.Getenv("SUDO_USER")
-	if user == "" {
-		user = os.Getenv("USER")
+	logger := GetLogger()
+
+	sudoUser := os.Getenv("SUDO_USER")
+	user := os.Getenv("USER")
+	logger.Debug("AddCurrentUserToDockerGroup: SUDO_USER=%q, USER=%q", sudoUser, user)
+
+	targetUser := sudoUser
+	if targetUser == "" {
+		targetUser = user
 	}
-	if user == "" || user == "root" {
+	if targetUser == "" || targetUser == "root" {
+		logger.Debug("No valid user found to add to docker group")
 		return fmt.Errorf("cannot find user to add to docker group")
 	}
-	return AddUserToDockerGroup(user)
+	logger.Debug("Adding user %q to docker group", targetUser)
+	return AddUserToDockerGroup(targetUser)
 }
 
 func DockerVolumeRemove(name string) error {

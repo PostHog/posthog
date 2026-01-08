@@ -60,6 +60,10 @@ func runTUI() error {
 
 func main() {
 	defer core.CloseTelemetry()
+	if err := core.InitLogFile(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not create log file: %v\n", err)
+	}
+	defer core.CloseLogFile()
 
 	cfg := parseArgs()
 

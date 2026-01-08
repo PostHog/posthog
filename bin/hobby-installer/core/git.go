@@ -45,16 +45,23 @@ func UpdatePostHog() error {
 }
 
 func CheckoutVersion(version string) error {
+	logger := GetLogger()
+	logger.Debug("CheckoutVersion called with version=%q", version)
+
 	if !DirExists("posthog") {
+		logger.Debug("posthog directory not found")
 		return fmt.Errorf("posthog directory not found")
 	}
 
 	switch version {
 	case "latest":
+		logger.Debug("Checking out latest (HEAD of current branch)")
 		return checkoutLatest()
 	case "latest-release":
+		logger.Debug("Checking out latest release tag")
 		return checkoutLatestRelease()
 	default:
+		logger.Debug("Checking out specific version: %s", version)
 		return checkoutSpecific(version)
 	}
 }
@@ -120,9 +127,13 @@ func GetCurrentCommit() (string, error) {
 }
 
 func CopyComposeFiles(version string) error {
+	logger := GetLogger()
+	logger.Debug("CopyComposeFiles version=%q", version)
+
 	_ = os.Remove("docker-compose.yml") // Ignore error if file doesn't exist
 
 	if err := copyFile("posthog/docker-compose.base.yml", "docker-compose.base.yml"); err != nil {
+		logger.Debug("Failed to copy docker-compose.base.yml: %v", err)
 		return err
 	}
 
@@ -130,8 +141,10 @@ func CopyComposeFiles(version string) error {
 }
 
 func copyFileWithEnvSubst(src, dst, version string) error {
+	logger := GetLogger()
 	data, err := os.ReadFile(src)
 	if err != nil {
+		logger.Debug("Failed to read %s: %v", src, err)
 		return err
 	}
 
@@ -148,6 +161,8 @@ func copyFileWithEnvSubst(src, dst, version string) error {
 	if version == "" {
 		version = "latest"
 	}
+
+	logger.Debug("copyFileWithEnvSubst: REGISTRY_URL=%q, POSTHOG_APP_TAG=%q", registryURL, version)
 
 	content = strings.ReplaceAll(content, "${REGISTRY_URL}", registryURL)
 	content = strings.ReplaceAll(content, "$REGISTRY_URL", registryURL)
@@ -210,9 +225,14 @@ loop()
 }
 
 func SetupGit() error {
+	logger := GetLogger()
+
 	if _, err := exec.LookPath("git"); err == nil {
+		logger.Debug("git already installed")
 		return nil
 	}
-	cmd := exec.Command("sudo", "apt", "install", "-y", "git")
+
+	logger.Debug("Installing git")
+	cmd := exec.Command("apt", "install", "-y", "git")
 	return cmd.Run()
 }

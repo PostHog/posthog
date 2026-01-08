@@ -39,8 +39,10 @@ func RunCommand(name string, args ...string) (string, error) {
 	cmd.Stderr = io.MultiWriter(&stderr, log)
 	err := cmd.Run()
 	if err != nil {
+		log.Debug("Command failed: %s %s\nstderr: %s", name, strings.Join(args, " "), stderr.String())
 		return "", fmt.Errorf("%s: %s", err.Error(), stderr.String())
 	}
+	log.Debug("Command succeeded: %s (stdout len=%d)", name, len(stdout.String()))
 	return stdout.String(), nil
 }
 
@@ -55,8 +57,10 @@ func RunCommandWithDir(dir string, name string, args ...string) (string, error) 
 	cmd.Stderr = io.MultiWriter(&stderr, log)
 	err := cmd.Run()
 	if err != nil {
+		log.Debug("Command failed in %s: %s %s\nstderr: %s", dir, name, strings.Join(args, " "), stderr.String())
 		return "", fmt.Errorf("%s: %s", err.Error(), stderr.String())
 	}
+	log.Debug("Command succeeded in %s: %s (stdout len=%d)", dir, name, len(stdout.String()))
 	return stdout.String(), nil
 }
 
@@ -74,8 +78,12 @@ func DirExists(path string) bool {
 }
 
 func AptUpdate() error {
-	GetLogger().WriteString("Updating apt cache...\n")
-	cmd := exec.Command("sudo", "apt", "update")
+	logger := GetLogger()
+
+	logger.WriteString("Updating apt cache...\n")
+	logger.Debug("Running apt update")
+
+	cmd := exec.Command("apt", "update")
 	return cmd.Run()
 }
 
