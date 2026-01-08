@@ -123,12 +123,14 @@ def generate_assets(
             raise Exception("There are no insights to be sent for this Subscription")
 
         # Create all the assets we need
+        expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
         assets = [
             ExportedAsset(
                 team=resource.team,
                 export_format=ExportedAsset.ExportFormat.PNG,
                 insight=insight,
                 dashboard=resource.dashboard,
+                expires_after=expiry,
             )
             for insight in insights[:max_asset_count]
         ]
@@ -182,12 +184,14 @@ async def generate_assets_async(
             raise Exception("There are no insights to be sent for this Subscription")
 
         # Create all the assets we need
+        expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
         assets = [
             ExportedAsset(
                 team=resource.team,
                 export_format=ExportedAsset.ExportFormat.PNG,
                 insight=insight,
                 dashboard=resource.dashboard,
+                expires_after=expiry,
             )
             for insight in insights[:max_asset_count]
         ]

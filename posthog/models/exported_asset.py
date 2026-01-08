@@ -1,5 +1,5 @@
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 
 from django.conf import settings
@@ -100,27 +100,27 @@ class ExportedAsset(models.Model):
     objects_including_ttl_deleted: models.Manager["ExportedAsset"] = models.Manager()
 
     def save(self, *args, **kwargs):
-        # Only set expires_after on initial creation or when it's explicitly being updated
-        update_fields = kwargs.get("update_fields")
-        if not self.expires_after and (update_fields is None or "expires_after" in update_fields):
-            expiry_delta = SIX_MONTHS
+        if not self.expires_after:
+            self.expires_after = self.compute_expires_after(self.export_format)
 
-            if self.export_format in (self.ExportFormat.CSV, self.ExportFormat.XLSX):
-                expiry_delta = SEVEN_DAYS
-            elif self.export_format in (
-                self.ExportFormat.MP4,
-                self.ExportFormat.WEBM,
-                self.ExportFormat.GIF,
-            ):
-                expiry_delta = TWELVE_MONTHS
-
-            expiry_datetime = now() + expiry_delta
-            self.expires_after = expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            if update_fields is not None and "expires_after" not in update_fields:
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
                 kwargs["update_fields"] = {*update_fields, "expires_after"}
 
         super().save(*args, **kwargs)
+
+    @classmethod
+    def get_expiry_delta(cls, export_format: str) -> timedelta:
+        if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX):
+            return SEVEN_DAYS
+        elif export_format in (cls.ExportFormat.MP4, cls.ExportFormat.WEBM, cls.ExportFormat.GIF):
+            return TWELVE_MONTHS
+        return SIX_MONTHS
+
+    @classmethod
+    def compute_expires_after(cls, export_format: str) -> datetime:
+        expiry_datetime = now() + cls.get_expiry_delta(export_format)
+        return expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
 
     @property
     def has_content(self):
