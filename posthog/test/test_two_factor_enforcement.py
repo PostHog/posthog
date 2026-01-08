@@ -564,3 +564,26 @@ class TestTwoFactorSecurityFixes(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data.get("backup_codes", [])), 10)
+
+    @patch("posthog.rate_limit.TwoFactorThrottle.rate", new="3/minute")
+    def test_two_factor_viewset_rate_limiting(self):
+        """Test that TwoFactorViewSet is rate limited per user"""
+        from django.core.cache import cache
+
+        cache.clear()
+
+        # Set up valid session state
+        session = self.client.session
+        session["user_authenticated_but_no_2fa"] = self.user.pk
+        session["user_authenticated_time"] = time.time()
+        session.save()
+
+        # Make requests up to the limit (3 with patched rate)
+        for i in range(3):
+            response = self.client.post("/api/login/token/", {"token": "123456"})
+            # Should get 400 (invalid token) not 429 (throttled)
+            self.assertEqual(response.status_code, 400, f"Request {i+1} should not be throttled")
+
+        # Next request should be throttled
+        response = self.client.post("/api/login/token/", {"token": "123456"})
+        self.assertEqual(response.status_code, 429)
