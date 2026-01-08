@@ -99,7 +99,6 @@ const team: Team = {
     timezone: 'UTC',
     available_features: [],
     drop_events_older_than_seconds: null,
-    materialized_column_slots: [],
 }
 
 const pipelineEvent: PipelineEvent = {

@@ -6,12 +6,12 @@ import { Properties } from '@posthog/plugin-scaffold'
 import {
     EAVEventProperty,
     Element,
+    MaterializedColumnSlot,
     PROPERTY_TYPE_TO_COLUMN_SUFFIX,
     Person,
     PersonMode,
     PreIngestionEvent,
     RawKafkaEvent,
-    Team,
     TimestampFormat,
 } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
@@ -64,7 +64,7 @@ export function createEvent(
     processPerson: boolean,
     historicalMigration: boolean,
     capturedAt: Date | null,
-    team?: Team | null
+    materializedColumnSlots: MaterializedColumnSlot[] = []
 ): CreateEventResult {
     const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
@@ -127,21 +127,22 @@ export function createEvent(
         ...(historicalMigration ? { historical_migration: true } : {}),
     }
 
-    let eavProperties: EAVEventProperty[] = []
-    if (team) {
-        extractDynamicMaterializedColumns(rawEvent, properties, team)
-        eavProperties = extractEAVProperties(preIngestionEvent, properties, team)
-    }
+    extractDynamicMaterializedColumns(rawEvent, properties, materializedColumnSlots)
+    const eavProperties = extractEAVProperties(preIngestionEvent, properties, materializedColumnSlots)
 
     return { event: rawEvent, eavProperties }
 }
 
-function extractDynamicMaterializedColumns(rawEvent: RawKafkaEvent, properties: Properties, team: Team): void {
-    if (!team.materialized_column_slots || team.materialized_column_slots.length === 0) {
+function extractDynamicMaterializedColumns(
+    rawEvent: RawKafkaEvent,
+    properties: Properties,
+    slots: MaterializedColumnSlot[]
+): void {
+    if (slots.length === 0) {
         return
     }
 
-    for (const slot of team.materialized_column_slots) {
+    for (const slot of slots) {
         // Only process DMAT slots in READY or BACKFILL state
         if (slot.materialization_type !== 'dmat') {
             continue
@@ -168,9 +169,9 @@ function extractDynamicMaterializedColumns(rawEvent: RawKafkaEvent, properties: 
 function extractEAVProperties(
     preIngestionEvent: PreIngestionEvent,
     properties: Properties,
-    team: Team
+    slots: MaterializedColumnSlot[]
 ): EAVEventProperty[] {
-    if (!team.materialized_column_slots || team.materialized_column_slots.length === 0) {
+    if (slots.length === 0) {
         return []
     }
 
@@ -178,7 +179,7 @@ function extractEAVProperties(
     const { eventUuid: uuid, event, teamId, distinctId, timestamp } = preIngestionEvent
     const timestampStr = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
 
-    for (const slot of team.materialized_column_slots) {
+    for (const slot of slots) {
         // Only process EAV slots in READY or BACKFILL state
         if (slot.materialization_type !== 'eav') {
             continue

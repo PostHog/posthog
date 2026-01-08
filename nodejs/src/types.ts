@@ -15,6 +15,7 @@ import type { CookielessManager } from './ingestion/cookieless/cookieless-manage
 import { KafkaProducerWrapper } from './kafka/producer'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
+import { MaterializedColumnSlotManager } from './utils/materialized-column-slot-manager'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
@@ -483,6 +484,7 @@ export interface Hub extends PluginsServerConfig {
     kafkaProducer: KafkaProducerWrapper
     // tools
     teamManager: TeamManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
@@ -651,8 +653,6 @@ export interface Team {
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
-    // This is parsed as a join from the materialized column slots table
-    materialized_column_slots: MaterializedColumnSlot[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

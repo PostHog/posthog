@@ -4,6 +4,7 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PipelineEvent } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
@@ -41,6 +42,7 @@ export interface JoinedIngestionPipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupId: string
+    materializedColumnSlotManager: MaterializedColumnSlotManager
 }
 
 export interface JoinedIngestionPipelineInput {
@@ -97,6 +99,7 @@ export function createJoinedIngestionPipeline<
         teamManager,
         groupTypeManager,
         groupId,
+        materializedColumnSlotManager,
     } = config
 
     const preprocessingConfig: PreprocessingPipelineConfig = {
@@ -126,6 +129,7 @@ export function createJoinedIngestionPipeline<
         personsStore,
         kafkaProducer,
         groupId,
+        materializedColumnSlotManager,
     }
 
     return (

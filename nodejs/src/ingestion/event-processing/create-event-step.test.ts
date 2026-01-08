@@ -4,21 +4,41 @@ import { Message } from 'node-rdkafka'
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createTestTeam } from '../../../tests/helpers/team'
-import { Person, PersonMode, PreIngestionEvent, ProjectId, Team, TimestampFormat } from '../../types'
+import {
+    MaterializedColumnSlot,
+    Person,
+    PersonMode,
+    PreIngestionEvent,
+    ProjectId,
+    Team,
+    TimestampFormat,
+} from '../../types'
 import { parseJSON } from '../../utils/json-parse'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isOkResult } from '../pipelines/results'
-import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
+import { CreateEventStepConfig, CreateEventStepInput, createCreateEventStep } from './create-event-step'
+
+// Mock MaterializedColumnSlotManager
+const createMockSlotManager = (slots: MaterializedColumnSlot[] = []): MaterializedColumnSlotManager => {
+    return {
+        getSlots: jest.fn().mockResolvedValue(slots),
+        getSlotsForTeams: jest.fn().mockResolvedValue({}),
+        markForRefresh: jest.fn(),
+    } as unknown as MaterializedColumnSlotManager
+}
 
 describe('create-event-step', () => {
     let mockPerson: Person
     let mockPreparedEvent: PreIngestionEvent
     let mockMessage: Message
     let mockTeam: Team
+    let mockConfig: CreateEventStepConfig
 
     beforeEach(() => {
         mockMessage = createTestMessage()
         mockTeam = createTestTeam()
+        mockConfig = { materializedColumnSlotManager: createMockSlotManager() }
         mockPerson = {
             team_id: 1,
             properties: { email: 'test@example.com', name: 'Test User' },
@@ -40,7 +60,7 @@ describe('create-event-step', () => {
 
     describe('createCreateEventStep', () => {
         it('should create event with processPerson=true', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(mockConfig)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -76,7 +96,7 @@ describe('create-event-step', () => {
         })
 
         it('should create event with processPerson=false', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(mockConfig)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -109,7 +129,7 @@ describe('create-event-step', () => {
                 force_upgrade: true,
             }
 
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(mockConfig)
             const input = {
                 person: personWithForceUpgrade,
                 preparedEvent: mockPreparedEvent,
@@ -143,7 +163,7 @@ describe('create-event-step', () => {
                 },
             }
 
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(mockConfig)
             const input = {
                 person: mockPerson,
                 preparedEvent: eventWithSetProperties,
@@ -174,7 +194,7 @@ describe('create-event-step', () => {
         })
 
         it('should preserve event properties as JSON string', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(mockConfig)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -211,7 +231,7 @@ describe('create-event-step', () => {
                 },
             }
 
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(mockConfig)
             const input = {
                 person: mockPerson,
                 preparedEvent: eventWithElements,
@@ -242,7 +262,7 @@ describe('create-event-step', () => {
                 lastStep: string
             }
 
-            const step = createCreateEventStep<CustomInput>()
+            const step = createCreateEventStep<CustomInput>(mockConfig)
             const input: CustomInput = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -264,7 +284,7 @@ describe('create-event-step', () => {
         })
 
         it('should set correct timestamps', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(mockConfig)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -300,7 +320,7 @@ describe('create-event-step', () => {
                     event: eventName,
                 }
 
-                const step = createCreateEventStep()
+                const step = createCreateEventStep(mockConfig)
                 const input = {
                     person: mockPerson,
                     preparedEvent: eventWithType,
@@ -327,7 +347,7 @@ describe('create-event-step', () => {
 
         describe('historicalMigration flag', () => {
             it('should include historical_migration in event when historicalMigration=true', async () => {
-                const step = createCreateEventStep()
+                const step = createCreateEventStep(mockConfig)
                 const input = {
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
@@ -352,7 +372,7 @@ describe('create-event-step', () => {
             })
 
             it('should not include historical_migration in event when historicalMigration=false', async () => {
-                const step = createCreateEventStep()
+                const step = createCreateEventStep(mockConfig)
                 const input = {
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
@@ -388,7 +408,7 @@ describe('create-event-step', () => {
                     force_upgrade: config.force_upgrade,
                 }
 
-                const step = createCreateEventStep()
+                const step = createCreateEventStep(mockConfig)
                 const input = {
                     person,
                     preparedEvent: mockPreparedEvent,

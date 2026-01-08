@@ -138,7 +138,9 @@ describe('processEvent', () => {
         const res = await runner.runEventPipeline(pluginEvent, team)
         if (isOkResult(res)) {
             // Create the event
-            const createEventStep = createCreateEventStep()
+            const createEventStep = createCreateEventStep({
+                materializedColumnSlotManager: hub.materializedColumnSlotManager,
+            })
             const { person, preparedEvent, processPerson, historicalMigration, team: resultTeam } = res.value
             const createResult = await createEventStep({
                 person,
@@ -298,7 +300,9 @@ describe('processEvent', () => {
         const res = await runner.runEventPipeline(event, team)
         if (isOkResult(res)) {
             // Create the event
-            const createEventStep = createCreateEventStep()
+            const createEventStep = createCreateEventStep({
+                materializedColumnSlotManager: hub.materializedColumnSlotManager,
+            })
             const { person, preparedEvent, processPerson, historicalMigration, team: resultTeam } = res.value
             const createResult = await createEventStep({
                 person,
