@@ -9,14 +9,13 @@ import (
 	"time"
 )
 
-func CanSudo() bool {
-	cmd := exec.Command("sudo", "-n", "true")
-	return cmd.Run() == nil
+func IsRoot() bool {
+	return os.Geteuid() == 0
 }
 
-func RequireSudo(operation string) error {
-	if !CanSudo() {
-		return fmt.Errorf("sudo access required to %s. Please run with sudo or ensure passwordless sudo is configured", operation)
+func RequireRoot(operation string) error {
+	if !IsRoot() {
+		return fmt.Errorf("root access required to %s. Please run this installer with sudo", operation)
 	}
 	return nil
 }
@@ -32,12 +31,12 @@ func IsDockerRunning() bool {
 }
 
 func StartDockerDaemon() error {
-	if err := RequireSudo("start Docker daemon"); err != nil {
+	if err := RequireRoot("start Docker daemon"); err != nil {
 		return err
 	}
 
 	GetLogger().WriteString("Starting Docker daemon...\n")
-	cmd := exec.Command("sudo", "systemctl", "start", "docker")
+	cmd := exec.Command("systemctl", "start", "docker")
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to start docker daemon: %w", err)
@@ -53,11 +52,11 @@ func StartDockerDaemon() error {
 		time.Sleep(1 * time.Second)
 	}
 
-	return fmt.Errorf("docker daemon started but not responding")
+	return fmt.Errorf("docker daemon started but not responding. Maybe you need to run this with sudo to access the Docker daemon?")
 }
 
 func InstallDocker() error {
-	if err := RequireSudo("install Docker"); err != nil {
+	if err := RequireRoot("install Docker"); err != nil {
 		return err
 	}
 
@@ -73,7 +72,7 @@ func InstallDocker() error {
 	}
 
 	for _, cmdArgs := range commands {
-		cmd := exec.Command("sudo", cmdArgs...)
+		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("failed to run %v: %w", cmdArgs, err)
 		}
@@ -87,11 +86,11 @@ func InstallDocker() error {
 }
 
 func InstallDockerCompose() error {
-	if err := RequireSudo("install Docker Compose"); err != nil {
+	if err := RequireRoot("install Docker Compose"); err != nil {
 		return err
 	}
 
-	cmd := exec.Command("sudo", "sh", "-c",
+	cmd := exec.Command("sh", "-c",
 		`curl -L "https://github.com/docker/compose/releases/download/v2.33.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose`)
 	return cmd.Run()
 }
@@ -164,16 +163,11 @@ func DockerComposeUpDB() error {
 }
 
 func RunAsyncMigrationsCheck() error {
-	if err := RequireSudo("run async migrations check"); err != nil {
-		return err
-	}
-
 	GetLogger().WriteString("Checking async migrations...\n")
 
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "run", "asyncmigrationscheck")
-	sudoArgs := append([]string{"-E", cmd}, fullArgs...)
-	_, err := RunCommand("sudo", sudoArgs...)
+	_, err := RunCommand(cmd, fullArgs...)
 	return err
 }
 
@@ -222,16 +216,19 @@ func CheckDockerVolumes() (bool, bool) {
 }
 
 func AddUserToDockerGroup(user string) error {
-	if err := RequireSudo("add user to docker group"); err != nil {
+	if err := RequireRoot("add user to docker group"); err != nil {
 		return err
 	}
-	return exec.Command("sudo", "usermod", "-aG", "docker", user).Run()
+	return exec.Command("usermod", "-aG", "docker", user).Run()
 }
 
 func AddCurrentUserToDockerGroup() error {
-	user := os.Getenv("USER")
+	user := os.Getenv("SUDO_USER")
 	if user == "" {
-		return nil
+		user = os.Getenv("USER")
+	}
+	if user == "" || user == "root" {
+		return fmt.Errorf("cannot find user to add to docker group")
 	}
 	return AddUserToDockerGroup(user)
 }
