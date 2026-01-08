@@ -17,11 +17,17 @@ export function useKeyHeld(key: string, deps?: DependencyList): boolean {
     useEventListener(
         'keydown',
         (event) => {
-            const key = event.key
-            const keysHeldCopy = new Set(keysHeldRef.current)
-            keysHeldCopy.add(key)
-            keysHeldRef.current = keysHeldCopy
-            checkKeysHeld()
+            const eventKey = event.key
+            // Only update state if this is the key we're watching
+            if (eventKey !== key) {
+                return
+            }
+            if (!keysHeldRef.current.has(eventKey)) {
+                const keysHeldCopy = new Set(keysHeldRef.current)
+                keysHeldCopy.add(eventKey)
+                keysHeldRef.current = keysHeldCopy
+                checkKeysHeld()
+            }
         },
         undefined,
         [...(deps || [])]
@@ -30,11 +36,17 @@ export function useKeyHeld(key: string, deps?: DependencyList): boolean {
     useEventListener(
         'keyup',
         (event) => {
-            const key = event.key
-            const keysHeldCopy = new Set(keysHeldRef.current)
-            keysHeldCopy.delete(key)
-            keysHeldRef.current = keysHeldCopy
-            checkKeysHeld()
+            const eventKey = event.key
+            // Only update state if this is the key we're watching
+            if (eventKey !== key) {
+                return
+            }
+            if (keysHeldRef.current.has(eventKey)) {
+                const keysHeldCopy = new Set(keysHeldRef.current)
+                keysHeldCopy.delete(eventKey)
+                keysHeldRef.current = keysHeldCopy
+                checkKeysHeld()
+            }
         },
         undefined,
         [...(deps || [])]

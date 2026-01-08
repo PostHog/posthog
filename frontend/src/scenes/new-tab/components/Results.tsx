@@ -19,7 +19,7 @@ import {
 import { Label } from 'lib/ui/Label/Label'
 import { ListBox, ListBoxGroupHandle, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { NEW_TAB_CATEGORY_ITEMS, NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -73,24 +73,24 @@ export const formatRelativeTimeShort = (date: string | number | Date | Dayjs | n
     const hours = now.diff(parsedDate, 'hour')
 
     if (hours < 24) {
-        return `${hours} hr${hours === 1 ? '' : 's'} ago`
+        return `${pluralize(hours, 'hr')} ago`
     }
 
     const days = now.diff(parsedDate, 'day')
 
     if (days < 30) {
-        return `${days} day${days === 1 ? '' : 's'} ago`
+        return `${pluralize(days, 'day')} ago`
     }
 
     const months = now.diff(parsedDate, 'month') || 1
 
     if (months < 12) {
-        return `${months} mo${months === 1 ? '' : 's'} ago`
+        return `${pluralize(months, 'mo')} ago`
     }
 
     const years = now.diff(parsedDate, 'year') || 1
 
-    return `${years} yr${years === 1 ? '' : 's'} ago`
+    return `${pluralize(years, 'yr')} ago`
 }
 
 // Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage

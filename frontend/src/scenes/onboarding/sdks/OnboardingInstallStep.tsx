@@ -10,33 +10,32 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTag } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'
-import { onboardingLogic } from '../onboardingLogic'
+import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
 import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import { SDKSnippet } from './SDKSnippet'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
 import { sdksLogic } from './sdksLogic'
+
+interface SDKInstructionsModalProps {
+    isOpen: boolean
+    onClose: () => void
+    sdk?: SDK
+    sdkInstructionMap: SDKInstructionsMap
+    verifyingProperty?: string
+    verifyingName?: string
+}
 
 export function SDKInstructionsModal({
     isOpen,
     onClose,
     sdk,
     sdkInstructionMap,
-    productKey,
     verifyingProperty = 'ingested_event',
     verifyingName = 'event',
-}: {
-    isOpen: boolean
-    onClose: () => void
-    sdk?: SDK
-    sdkInstructionMap: SDKInstructionsMap
-    productKey: ProductKey
-    verifyingProperty?: string
-    verifyingName?: string
-}): JSX.Element {
+}: SDKInstructionsModalProps): JSX.Element {
     const installationComplete = useInstallationComplete(verifyingProperty)
 
     const sdkInstructions = sdkInstructionMap[sdk?.key as keyof typeof sdkInstructionMap] as
@@ -55,7 +54,7 @@ export function SDKInstructionsModal({
                         </LemonButton>
                     </header>
                     <div className="flex-grow overflow-y-auto px-4 py-2">
-                        <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} productKey={productKey} />
+                        <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
                     </div>
                     <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
                         <RealtimeCheckIndicator
@@ -70,21 +69,17 @@ export function SDKInstructionsModal({
     )
 }
 
-export type SDKsProps = {
+interface OnboardingInstallStepProps {
     sdkInstructionMap: SDKInstructionsMap
-    productKey: ProductKey
-    stepKey?: OnboardingStepKey
     listeningForName?: string
     teamPropertyToVerify?: string
 }
 
-export function OnboardingInstallStep({
+export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstallStepProps> = ({
     sdkInstructionMap,
-    productKey,
-    stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-}: SDKsProps): JSX.Element {
+}) => {
     const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)
@@ -105,7 +100,7 @@ export function OnboardingInstallStep({
     return (
         <OnboardingStep
             title="Install"
-            stepKey={stepKey}
+            stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
             showSkip={showSkipAtBottom}
             actions={
@@ -165,16 +160,40 @@ export function OnboardingInstallStep({
                                     setInstructionsModalOpen(true)
                                 }}
                             >
-                                {typeof sdk.image === 'string' ? (
-                                    <img src={sdk.image} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
-                                ) : typeof sdk.image === 'object' && 'default' in sdk.image ? (
-                                    <img src={sdk.image.default} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
-                                ) : (
-                                    sdk.image
-                                )}
+                                <div className="w-8 h-8 mb-2">
+                                    {typeof sdk.image === 'string' ? (
+                                        <img src={sdk.image} className="w-8 h-8" alt={`${sdk.name} logo`} />
+                                    ) : typeof sdk.image === 'object' && 'default' in sdk.image ? (
+                                        <img src={sdk.image.default} className="w-8 h-8" alt={`${sdk.name} logo`} />
+                                    ) : (
+                                        sdk.image
+                                    )}
+                                </div>
+
                                 <strong>{sdk.name}</strong>
                             </LemonCard>
                         ))}
+
+                        {/* This will open a survey to collect feedback on the SDKs we don't support yet */}
+                        {/* https://us.posthog.com/project/2/surveys/019b47ab-5f19-0000-7f31-4f9681cde589 */}
+                        {searchTerm && (
+                            <LemonCard className="p-4 cursor-pointer flex flex-col items-start justify-center col-span-1 sm:col-span-2">
+                                <div className="flex flex-col items-start gap-2">
+                                    <span className="mb-2 text-muted">
+                                        Don&apos;t see your SDK listed? We are always looking to expand our list of
+                                        supported SDKs.
+                                    </span>
+                                    <LemonButton
+                                        data-attr="onboarding-reach-out-to-us-button"
+                                        type="secondary"
+                                        size="small"
+                                        targetBlank
+                                    >
+                                        Reach out to us
+                                    </LemonButton>
+                                </div>
+                            </LemonCard>
+                        )}
                     </div>
                 </div>
             </div>
@@ -185,7 +204,6 @@ export function OnboardingInstallStep({
                     onClose={() => setInstructionsModalOpen(false)}
                     sdk={selectedSDK}
                     sdkInstructionMap={sdkInstructionMap}
-                    productKey={productKey}
                     verifyingProperty={teamPropertyToVerify}
                     verifyingName={listeningForName}
                 />
@@ -193,6 +211,8 @@ export function OnboardingInstallStep({
         </OnboardingStep>
     )
 }
+
+OnboardingInstallStep.stepKey = OnboardingStepKey.INSTALL
 
 interface NextButtonProps {
     installationComplete: boolean

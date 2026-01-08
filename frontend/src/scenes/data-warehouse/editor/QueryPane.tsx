@@ -9,7 +9,6 @@ import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import MaxTool from 'scenes/max/MaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
@@ -25,7 +24,6 @@ interface QueryPaneProps {
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
-    const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
     const { queryPaneHeight, queryPaneResizerProps } = useValues(editorSizingLogic)
     const {
         setSuggestedQueryInput,
@@ -77,7 +75,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                     </div>
                     <div className="absolute bottom-6 right-4">
                         <MaxTool
-                            identifier={hasAgentModesFeatureFlag ? 'execute_sql' : 'generate_hogql_query'}
+                            identifier="execute_sql"
                             context={{
                                 current_query: props.queryInput,
                             }}

@@ -1,14 +1,13 @@
 import { useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconInfo, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
-import { urls } from 'scenes/urls'
 
 import {
     ExperimentFunnelsQuery,
@@ -21,7 +20,6 @@ import {
     FunnelExperimentVariant,
     InsightType,
     RecordingUniversalFilters,
-    ReplayTabs,
     TrendExperimentVariant,
 } from '~/types'
 
@@ -353,39 +351,39 @@ export function SummaryTable({
                 ? getViewRecordingFiltersLegacy(metric, experiment.feature_flag_key, variantKey)
                 : getViewRecordingFilters(experiment, metric, variantKey)
 
+            const filterGroup: Partial<RecordingUniversalFilters> = {
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: filters,
+                        },
+                    ],
+                },
+                date_from: experiment?.start_date,
+                date_to: experiment?.end_date,
+                filter_test_accounts:
+                    metric.kind === NodeKind.ExperimentMetric
+                        ? (experiment.exposure_criteria?.filterTestAccounts ?? false)
+                        : metric.kind === NodeKind.ExperimentTrendsQuery
+                          ? metric.count_query.filterTestAccounts
+                          : metric.funnels_query.filterTestAccounts,
+            }
+
             return (
-                <LemonButton
+                <ViewRecordingsPlaylistButton
+                    filters={filterGroup}
                     size="xsmall"
-                    icon={<IconRewindPlay />}
-                    tooltip="Watch recordings of people who were exposed to this variant."
-                    disabledReason={filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined}
                     type="secondary"
+                    tooltip="Watch recordings of people who were exposed to this variant."
+                    disabled={filters.length === 0}
+                    disabledReason={filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined}
+                    data-attr="experiment-summary-view-recordings"
                     onClick={() => {
-                        const filterGroup: Partial<RecordingUniversalFilters> = {
-                            filter_group: {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    {
-                                        type: FilterLogicalOperator.And,
-                                        values: filters,
-                                    },
-                                ],
-                            },
-                            date_from: experiment?.start_date,
-                            date_to: experiment?.end_date,
-                            filter_test_accounts:
-                                metric.kind === NodeKind.ExperimentMetric
-                                    ? (experiment.exposure_criteria?.filterTestAccounts ?? false)
-                                    : metric.kind === NodeKind.ExperimentTrendsQuery
-                                      ? metric.count_query.filterTestAccounts
-                                      : metric.funnels_query.filterTestAccounts,
-                        }
-                        router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
                         posthog.capture('viewed recordings from experiment', { variant: variantKey })
                     }}
-                >
-                    View recordings
-                </LemonButton>
+                />
             )
         },
     })

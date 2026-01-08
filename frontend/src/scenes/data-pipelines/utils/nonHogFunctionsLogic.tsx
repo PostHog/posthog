@@ -125,6 +125,7 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                     const hogFunctions: HogFunctionType[] = []
 
                     for (const batchExport of results) {
+                        // TODO - exclude Workflows from here
                         hogFunctions.push({
                             id: `batch-export-${batchExport.id}`,
                             name: batchExport.name,

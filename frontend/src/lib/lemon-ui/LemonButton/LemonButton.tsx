@@ -24,6 +24,7 @@ export interface LemonButtonPropsBase
         | 'tabIndex'
         | 'form'
         | 'onMouseDown'
+        | 'onMouseUp'
         | 'onMouseEnter'
         | 'onMouseLeave'
         | 'onKeyDown'
@@ -44,6 +45,8 @@ export interface LemonButtonPropsBase
     disableClientSideRouting?: boolean
     /** If set clicking this button will open the page in a new tab. */
     targetBlank?: boolean
+    /** Disable automatically displaying an external link icon when targetBlank is set */
+    hideExternalLinkIcon?: boolean
 
     /** Icon displayed on the left. */
     icon?: React.ReactElement | null
@@ -154,6 +157,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 noPadding,
                 to,
                 targetBlank,
+                hideExternalLinkIcon,
                 disableClientSideRouting,
                 onClick,
                 truncate = false,
@@ -269,7 +273,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         {children ? <span className="LemonButton__content">{children}</span> : null}
                         {sideIcon ? (
                             <span className="LemonButton__icon">{sideIcon}</span>
-                        ) : targetBlank ? (
+                        ) : targetBlank && !hideExternalLinkIcon ? (
                             <IconExternal />
                         ) : null}
                     </span>

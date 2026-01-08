@@ -39,7 +39,7 @@ class InsightVariablePagination(pagination.PageNumberPagination):
 
 
 class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "insight_variable"
     queryset = InsightVariable.objects.all()
     pagination_class = InsightVariablePagination
     serializer_class = InsightVariableSerializer

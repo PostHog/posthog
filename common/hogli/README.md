@@ -38,7 +38,7 @@ New to PostHog development? Run `hogli quickstart` to see the essential commands
 
 ### Common workflows
 
-To launch the full development stack (backend, plugin server, workers, frontend):
+To launch the full development stack (backend, nodejs services, workers, frontend):
 
 ```bash
 hogli start

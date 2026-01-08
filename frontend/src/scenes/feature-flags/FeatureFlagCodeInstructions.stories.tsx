@@ -2,7 +2,13 @@ import { Meta } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType, SDKKey } from '~/types'
+import {
+    AccessControlLevel,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagType,
+    SDKKey,
+} from '~/types'
 import { AvailableFeature } from '~/types'
 
 import { OPTIONS } from './FeatureFlagCodeOptions'
@@ -27,8 +33,6 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     experiment_set: [],
     is_simple_flag: false,
     ensure_experience_continuity: false,
-    rollback_conditions: [],
-    performed_rollback: false,
     can_edit: true,
     user_access_level: AccessControlLevel.Editor,
     tags: [],
@@ -40,6 +44,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     evaluation_tags: [],
+    bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
 }
 
 const GROUP_FEATURE_FLAG: FeatureFlagType = {

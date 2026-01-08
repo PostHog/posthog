@@ -17,7 +17,7 @@ const GOAL_SUGGESTIONS = [
 export function TourGoalModal(): JSX.Element | null {
     const { theme } = useValues(toolbarLogic)
     const { goalModalOpen, aiGoal } = useValues(productToursLogic)
-    const { closeGoalModal, setAIGoal, startSelectionMode } = useActions(productToursLogic)
+    const { closeGoalModal, setAIGoal, startFromGoalModal } = useActions(productToursLogic)
 
     const canProceed = aiGoal.trim().length > 0
 
@@ -34,7 +34,7 @@ export function TourGoalModal(): JSX.Element | null {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={startSelectionMode}
+                        onClick={startFromGoalModal}
                         disabledReason={!canProceed ? 'Enter a goal first' : undefined}
                     >
                         Start building
