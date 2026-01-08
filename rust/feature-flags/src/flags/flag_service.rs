@@ -14,11 +14,12 @@ use common_redis::Client as RedisClient;
 use common_types::TeamId;
 use std::sync::Arc;
 
-/// Result of fetching feature flags, including cache hit status
+/// Result of fetching feature flags, including cache source information.
 #[derive(Debug, Clone)]
 pub struct FlagResult {
     pub flag_list: FeatureFlagList,
-    pub was_cache_hit: bool,
+    /// The source of the flags data (Redis, S3, or Fallback/PostgreSQL).
+    pub cache_source: common_hypercache::CacheSource,
 }
 
 /// Service layer for handling feature flag operations
@@ -139,11 +140,10 @@ impl FlagService {
 
         // Parse the result (from cache or fallback)
         let flags = FeatureFlagList::parse_hypercache_value(data, team_id)?;
-        let was_cache_hit = !matches!(source, common_hypercache::CacheSource::Fallback);
 
         Ok(FlagResult {
             flag_list: FeatureFlagList { flags },
-            was_cache_hit,
+            cache_source: source,
         })
     }
 }
@@ -373,7 +373,10 @@ mod tests {
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
         assert!(result.is_ok());
         let flag_result = result.unwrap();
-        assert!(flag_result.was_cache_hit);
+        assert!(!matches!(
+            flag_result.cache_source,
+            common_hypercache::CacheSource::Fallback
+        ));
         assert_eq!(flag_result.flag_list.flags.len(), mock_flags.flags.len());
 
         // Verify the contents of the fetched flags
@@ -513,7 +516,10 @@ mod tests {
 
         let flag_result = result.unwrap();
         assert!(
-            flag_result.was_cache_hit,
+            !matches!(
+                flag_result.cache_source,
+                common_hypercache::CacheSource::Fallback
+            ),
             "Expected cache hit for compressed data"
         );
         assert_eq!(
@@ -562,7 +568,10 @@ mod tests {
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
         assert!(result.is_ok());
         let flag_result = result.unwrap();
-        assert!(!flag_result.was_cache_hit);
+        assert!(matches!(
+            flag_result.cache_source,
+            common_hypercache::CacheSource::Fallback
+        ));
     }
 
     #[tokio::test]
@@ -598,7 +607,10 @@ mod tests {
         // Should succeed by falling back to PostgreSQL
         assert!(result.is_ok());
         let flag_result = result.unwrap();
-        assert!(!flag_result.was_cache_hit);
+        assert!(matches!(
+            flag_result.cache_source,
+            common_hypercache::CacheSource::Fallback
+        ));
     }
 
     #[tokio::test]
@@ -637,7 +649,10 @@ mod tests {
         // Should succeed by falling back to PostgreSQL
         assert!(result.is_ok());
         let flag_result = result.unwrap();
-        assert!(!flag_result.was_cache_hit);
+        assert!(matches!(
+            flag_result.cache_source,
+            common_hypercache::CacheSource::Fallback
+        ));
     }
 
     #[tokio::test]

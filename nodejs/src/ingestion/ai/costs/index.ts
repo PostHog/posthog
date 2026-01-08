@@ -2,6 +2,7 @@ import bigDecimal from 'js-big-decimal'
 
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
+import { aiCostLookupCounter } from '../metrics'
 import {
     CostModelResult,
     CostModelSource,
@@ -123,6 +124,7 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
         event.properties['$ai_cost_model_source'] = CostModelSource.Custom
         event.properties['$ai_cost_model_provider'] = 'custom'
 
+        aiCostLookupCounter.labels({ status: 'custom' }).inc()
         return event
     }
 
@@ -147,6 +149,7 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
     const costResult: CostModelResult | undefined = findCostFromModel(parsedModel, event.properties)
 
     if (!costResult) {
+        aiCostLookupCounter.labels({ status: 'not_found' }).inc()
         return event
     }
 
@@ -158,6 +161,7 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
     event.properties['$ai_cost_model_source'] = source
     event.properties['$ai_cost_model_provider'] = cost.provider
 
+    aiCostLookupCounter.labels({ status: 'found' }).inc()
     return event
 }
 

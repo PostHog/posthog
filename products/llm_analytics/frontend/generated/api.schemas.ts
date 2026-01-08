@@ -7,7 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -44,171 +43,10 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
-export interface PaginatedDatasetItemListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DatasetItemApi[]
-}
-
 /**
  * @nullable
  */
-export type DatasetItemApiInput = unknown | null
-
-/**
- * @nullable
- */
-export type DatasetItemApiOutput = unknown | null
-
-/**
- * @nullable
- */
-export type DatasetItemApiMetadata = unknown | null
-
-export interface DatasetItemApi {
-    readonly id: string
-    dataset: string
-    /** @nullable */
-    input?: DatasetItemApiInput
-    /** @nullable */
-    output?: DatasetItemApiOutput
-    /** @nullable */
-    metadata?: DatasetItemApiMetadata
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly created_by: UserBasicApi
-    readonly team: number
-}
-
-/**
- * @nullable
- */
-export type PatchedDatasetItemApiInput = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedDatasetItemApiOutput = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedDatasetItemApiMetadata = unknown | null
-
-export interface PatchedDatasetItemApi {
-    readonly id?: string
-    dataset?: string
-    /** @nullable */
-    input?: PatchedDatasetItemApiInput
-    /** @nullable */
-    output?: PatchedDatasetItemApiOutput
-    /** @nullable */
-    metadata?: PatchedDatasetItemApiMetadata
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    readonly created_by?: UserBasicApi
-    readonly team?: number
-}
-
-export interface PaginatedDatasetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DatasetApi[]
-}
-
-/**
- * @nullable
- */
-export type DatasetApiMetadata = unknown | null
-
-export interface DatasetApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    description?: string | null
-    /** @nullable */
-    metadata?: DatasetApiMetadata
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by: UserBasicApi
-    readonly team: number
-}
-
-/**
- * @nullable
- */
-export type PatchedDatasetApiMetadata = unknown | null
-
-export interface PatchedDatasetApi {
-    readonly id?: string
-    /** @maxLength 400 */
-    name?: string
-    /** @nullable */
-    description?: string | null
-    /** @nullable */
-    metadata?: PatchedDatasetApiMetadata
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by?: UserBasicApi
-    readonly team?: number
-}
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type UserBasicApiRoleAtOrganization =
-    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
-    | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -228,8 +66,111 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+}
+
+export interface DatasetItemApi {
+    readonly id: string
+    dataset: string
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_trace_id?: string | null
     /** @nullable */
-    role_at_organization?: UserBasicApiRoleAtOrganization
+    ref_timestamp?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedDatasetItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DatasetItemApi[]
+}
+
+export interface PatchedDatasetItemApi {
+    readonly id?: string
+    dataset?: string
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_trace_id?: string | null
+    /** @nullable */
+    ref_timestamp?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    readonly created_by?: UserBasicApi
+    readonly team?: number
+}
+
+export interface DatasetApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    description?: string | null
+    metadata?: unknown
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedDatasetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DatasetApi[]
+}
+
+export interface PatchedDatasetApi {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    description?: string | null
+    metadata?: unknown
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly team?: number
 }
 
 export type EnvironmentsDatasetItemsListParams = {
