@@ -163,14 +163,17 @@ class SecretAlert(APIView):
 
         results = []
         for item in items:
+            # Strip whitespace from token in case GitHub sends it with extra formatting
+            token = item["token"].strip()
+
             result = {
-                "token_hash": sha256(item["token"].encode("utf-8")).hexdigest(),
+                "token_hash": sha256(token.encode("utf-8")).hexdigest(),
                 "token_type": item["type"],
                 "label": "false_positive",
             }
 
             if item["type"] == "posthog_personal_api_key":
-                key_lookup = find_personal_api_key(item["token"])
+                key_lookup = find_personal_api_key(token)
                 posthoganalytics.capture(
                     distinct_id=None,
                     event="github_secret_alert",
@@ -199,7 +202,7 @@ class SecretAlert(APIView):
             elif item["type"] == "posthog_feature_flags_secure_api_key":
                 found = False
                 try:
-                    _ = Team.objects.get(Q(secret_api_token=item["token"]) | Q(secret_api_token_backup=item["token"]))
+                    _ = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                     found = True
                     # TODO send email to team members
                     result["label"] = "true_positive"
