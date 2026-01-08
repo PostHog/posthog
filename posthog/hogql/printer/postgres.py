@@ -6,7 +6,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
-from posthog.hogql.printer import HogQLPrinter
+from posthog.hogql.printer.base import HogQLPrinter
 
 
 class PostgresPrinter(HogQLPrinter):
