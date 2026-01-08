@@ -38,6 +38,7 @@ export type NotebookType = NotebookListItemType &
 export enum NotebookNodeType {
     Mention = RichContentNodeType.Mention,
     Query = 'ph-query',
+    Python = 'ph-python',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
@@ -69,6 +70,8 @@ export type NotebookNodeResource = {
     attrs: Record<string, any>
     type: NotebookNodeType
 }
+
+export type NotebookNodeSettingsPlacement = 'inline' | 'left'
 
 export enum NotebookTarget {
     Popover = 'popover',
@@ -112,6 +115,7 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         autoHideMetadata?: boolean
         /** Expand the node if the component is clicked */
         expandOnClick?: boolean
+        settingsPlacement?: NotebookNodeSettingsPlacement
     }
 
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {

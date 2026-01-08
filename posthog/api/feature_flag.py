@@ -20,7 +20,7 @@ from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
-from posthog.schema import PropertyOperator
+from posthog.schema import ProductKey, PropertyOperator
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.dashboards.dashboard import Dashboard
@@ -1361,6 +1361,7 @@ def _evaluate_flags_with_fallback(
         return get_all_feature_flags(team, distinct_id, groups)
 
 
+@extend_schema(tags=[ProductKey.FEATURE_FLAGS])
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,

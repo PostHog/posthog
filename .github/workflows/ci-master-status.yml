@@ -34,7 +34,9 @@ jobs:
               uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .master-ci-incident
-                  key: master-ci-incident
+                  # Use prefix matching to get the most recently saved cache
+                  key: master-ci-incident-${{ github.run_id }}
+                  restore-keys: master-ci-incident-
 
             - name: Read incident state
               id: incident
@@ -225,29 +227,13 @@ jobs:
                       thread_ts: "${{ steps.process.outputs.ts }}"
                       text: ":white_check_mark: Resolved: *${{ github.event.workflow_run.name }}* passed (${{ steps.commit.outputs.short_sha }})"
 
-            - name: Clear state on full resolution
-              if: steps.process.outputs.resolved == 'true'
-              run: rm -f .master-ci-incident
-
             # ============ CACHE ============
-
-            - name: Delete old cache
-              if: steps.process.outputs.save_cache == 'true'
-              continue-on-error: true
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: gh cache delete master-ci-incident || true
+            # Use unique keys to avoid race conditions where concurrent runs
+            # delete the cache before saving (see logs showing "Cache not found")
 
             - name: Save incident to cache
               if: steps.process.outputs.save_cache == 'true'
               uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .master-ci-incident
-                  key: master-ci-incident
-
-            - name: Delete cache on full resolution
-              if: steps.process.outputs.resolved == 'true'
-              continue-on-error: true
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: gh cache delete master-ci-incident || true
+                  key: master-ci-incident-${{ github.run_id }}

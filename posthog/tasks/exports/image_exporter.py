@@ -11,7 +11,6 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
-from pydantic import BaseModel
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
@@ -21,13 +20,12 @@ from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
-from posthog.hogql.constants import LimitContext
-
 from posthog.api.insight_variable import map_stale_to_latest
-from posthog.api.services.query import process_query_dict
+from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import InsightVariable
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.exporter import EXPORT_TIMER
@@ -35,12 +33,6 @@ from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reach
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
-
-
-def _extract_cache_key(result: dict | BaseModel) -> str | None:
-    if isinstance(result, BaseModel):
-        return getattr(result, "cache_key", None)
-    return result.get("cache_key")
 
 
 def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str:
@@ -369,25 +361,33 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                     insight_id=exported_asset.insight.id,
                     dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
                 )
+
+                # When exporting a single insight from a dashboard, apply the tile's filter overrides and dashboard variables
                 dashboard_variables = None
-                if exported_asset.dashboard and exported_asset.dashboard.variables:
-                    variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
-                    dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
+                tile_filters_override = None
+                if exported_asset.dashboard:
+                    if exported_asset.dashboard.variables:
+                        variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                        dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
+                    tile = DashboardTile.objects.filter(
+                        dashboard=exported_asset.dashboard,
+                        insight=exported_asset.insight,
+                    ).first()
+                    if tile:
+                        tile_filters_override = tile.filters_overrides
 
                 with upgrade_query(exported_asset.insight):
-                    result = process_query_dict(
-                        exported_asset.team,
-                        exported_asset.insight.query,
-                        dashboard_filters_json=exported_asset.dashboard.filters if exported_asset.dashboard else None,
-                        variables_override_json=dashboard_variables,
-                        limit_context=LimitContext.QUERY_ASYNC,
+                    result = calculate_for_query_based_insight(
+                        exported_asset.insight,
+                        team=exported_asset.team,
+                        dashboard=exported_asset.dashboard,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                        insight_id=exported_asset.insight.id,
-                        dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
+                        user=None,
+                        variables_override=dashboard_variables,
+                        tile_filters_override=tile_filters_override,
                     )
-                    cache_key = _extract_cache_key(result)
-                    if cache_key:
-                        insight_cache_keys[exported_asset.insight.id] = cache_key
+                    if result.cache_key:
+                        insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
                 logger.info(
                     "export_image.calculate_dashboard_insights",
@@ -403,24 +403,23 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                     .filter(insight__isnull=False, insight__deleted=False)
                     .all()
                 )
-                insights_to_update = [tile.insight for tile in tiles if tile.insight]
-                for insight in insights_to_update:
-                    if not insight.query:
+                for tile in tiles:
+                    insight = tile.insight
+                    if not insight or not insight.query:
                         continue
+
                     with upgrade_query(insight):
-                        result = process_query_dict(
-                            exported_asset.team,
-                            insight.query,
-                            dashboard_filters_json=exported_asset.dashboard.filters,
-                            variables_override_json=dashboard_variables,
-                            limit_context=LimitContext.QUERY_ASYNC,
+                        result = calculate_for_query_based_insight(
+                            insight,
+                            team=exported_asset.team,
+                            dashboard=exported_asset.dashboard,
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                            insight_id=insight.id,
-                            dashboard_id=exported_asset.dashboard.id,
+                            user=None,
+                            variables_override=dashboard_variables,
+                            tile_filters_override=tile.filters_overrides,
                         )
-                        cache_key = _extract_cache_key(result)
-                        if cache_key:
-                            insight_cache_keys[insight.id] = cache_key
+                        if result.cache_key:
+                            insight_cache_keys[insight.id] = result.cache_key
 
             if exported_asset.export_format == "image/png":
                 with EXPORT_TIMER.labels(type=exported_asset.export_format).time():

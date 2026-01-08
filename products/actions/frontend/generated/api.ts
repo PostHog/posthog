@@ -1,0 +1,276 @@
+/**
+ * Auto-generated from the Django backend OpenAPI schema.
+ * To modify these types, update the Django serializers or views, then run:
+ *   hogli build:openapi
+ * Questions or issues? #team-devex on Slack
+ *
+ * PostHog API - generated
+ * OpenAPI spec version: 1.0.0
+ */
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
+import type {
+    ActionApi,
+    ActionsCreateParams,
+    ActionsDestroyParams,
+    ActionsListParams,
+    ActionsPartialUpdateParams,
+    ActionsRetrieveParams,
+    ActionsUpdateParams,
+    PaginatedActionListApi,
+    PatchedActionApi,
+} from './api.schemas'
+
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
+
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
+
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
+
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
+
+export type actionsListResponse200 = {
+    data: PaginatedActionListApi
+    status: 200
+}
+
+export type actionsListResponseSuccess = actionsListResponse200 & {
+    headers: Headers
+}
+export type actionsListResponse = actionsListResponseSuccess
+
+export const getActionsListUrl = (projectId: string, params?: ActionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/actions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/actions/`
+}
+
+export const actionsList = async (
+    projectId: string,
+    params?: ActionsListParams,
+    options?: RequestInit
+): Promise<actionsListResponse> => {
+    return apiMutator<actionsListResponse>(getActionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type actionsCreateResponse201 = {
+    data: ActionApi
+    status: 201
+}
+
+export type actionsCreateResponseSuccess = actionsCreateResponse201 & {
+    headers: Headers
+}
+export type actionsCreateResponse = actionsCreateResponseSuccess
+
+export const getActionsCreateUrl = (projectId: string, params?: ActionsCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/actions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/actions/`
+}
+
+export const actionsCreate = async (
+    projectId: string,
+    actionApi: NonReadonly<ActionApi>,
+    params?: ActionsCreateParams,
+    options?: RequestInit
+): Promise<actionsCreateResponse> => {
+    return apiMutator<actionsCreateResponse>(getActionsCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(actionApi),
+    })
+}
+
+export type actionsRetrieveResponse200 = {
+    data: ActionApi
+    status: 200
+}
+
+export type actionsRetrieveResponseSuccess = actionsRetrieveResponse200 & {
+    headers: Headers
+}
+export type actionsRetrieveResponse = actionsRetrieveResponseSuccess
+
+export const getActionsRetrieveUrl = (projectId: string, id: number, params?: ActionsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/actions/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/actions/${id}/`
+}
+
+export const actionsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: ActionsRetrieveParams,
+    options?: RequestInit
+): Promise<actionsRetrieveResponse> => {
+    return apiMutator<actionsRetrieveResponse>(getActionsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type actionsUpdateResponse200 = {
+    data: ActionApi
+    status: 200
+}
+
+export type actionsUpdateResponseSuccess = actionsUpdateResponse200 & {
+    headers: Headers
+}
+export type actionsUpdateResponse = actionsUpdateResponseSuccess
+
+export const getActionsUpdateUrl = (projectId: string, id: number, params?: ActionsUpdateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/actions/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/actions/${id}/`
+}
+
+export const actionsUpdate = async (
+    projectId: string,
+    id: number,
+    actionApi: NonReadonly<ActionApi>,
+    params?: ActionsUpdateParams,
+    options?: RequestInit
+): Promise<actionsUpdateResponse> => {
+    return apiMutator<actionsUpdateResponse>(getActionsUpdateUrl(projectId, id, params), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(actionApi),
+    })
+}
+
+export type actionsPartialUpdateResponse200 = {
+    data: ActionApi
+    status: 200
+}
+
+export type actionsPartialUpdateResponseSuccess = actionsPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type actionsPartialUpdateResponse = actionsPartialUpdateResponseSuccess
+
+export const getActionsPartialUpdateUrl = (projectId: string, id: number, params?: ActionsPartialUpdateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/actions/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/actions/${id}/`
+}
+
+export const actionsPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedActionApi: NonReadonly<PatchedActionApi>,
+    params?: ActionsPartialUpdateParams,
+    options?: RequestInit
+): Promise<actionsPartialUpdateResponse> => {
+    return apiMutator<actionsPartialUpdateResponse>(getActionsPartialUpdateUrl(projectId, id, params), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedActionApi),
+    })
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export type actionsDestroyResponse405 = {
+    data: void
+    status: 405
+}
+export type actionsDestroyResponseError = actionsDestroyResponse405 & {
+    headers: Headers
+}
+
+export type actionsDestroyResponse = actionsDestroyResponseError
+
+export const getActionsDestroyUrl = (projectId: string, id: number, params?: ActionsDestroyParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/actions/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/actions/${id}/`
+}
+
+export const actionsDestroy = async (
+    projectId: string,
+    id: number,
+    params?: ActionsDestroyParams,
+    options?: RequestInit
+): Promise<actionsDestroyResponse> => {
+    return apiMutator<actionsDestroyResponse>(getActionsDestroyUrl(projectId, id, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
