@@ -6,7 +6,9 @@ export const RudderstackInstallation = (): JSX.Element => {
     return (
         <>
             <Markdown>
-                {`RudderStack is an open-source customer data platform that can route your analytics data to PostHog and other destinations. In your RudderStack dashboard, go to **Destinations** > **Add Destination** and search for **PostHog**.`}
+                RudderStack is an open-source customer data platform that can route your analytics data to PostHog and
+                other destinations. In your RudderStack dashboard, go to **Destinations** &gt; **Add Destination** and
+                search for **PostHog**.
             </Markdown>
             <Markdown>Enter your PostHog project API key:</Markdown>
             <CodeBlock
@@ -33,7 +35,8 @@ export const RudderstackInstallation = (): JSX.Element => {
                 ]}
             />
             <Markdown>
-                {`Connect your source to the PostHog destination. RudderStack will now forward \`track\`, \`identify\`, \`page\`, and \`group\` calls to PostHog.`}
+                Connect your source to the PostHog destination. RudderStack will now forward `track`, `identify`,
+                `page`, and `group` calls to PostHog.
             </Markdown>
             <CalloutBox type="fyi" title="Learn more">
                 <Markdown>

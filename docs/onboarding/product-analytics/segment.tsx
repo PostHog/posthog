@@ -6,7 +6,9 @@ export const SegmentInstallation = (): JSX.Element => {
     return (
         <>
             <Markdown>
-                {`Segment is a customer data platform that can route your analytics data to PostHog and other destinations. In your Segment workspace, go to **Connections** > **Catalog** and search for **PostHog**. Click **Add Destination** and select the source you want to connect.`}
+                Segment is a customer data platform that can route your analytics data to PostHog and other
+                destinations. In your Segment workspace, go to **Connections** &gt; **Catalog** and search for
+                **PostHog**. Click **Add Destination** and select the source you want to connect.
             </Markdown>
             <Markdown>Enter your PostHog project API key:</Markdown>
             <CodeBlock
@@ -33,7 +35,7 @@ export const SegmentInstallation = (): JSX.Element => {
                 ]}
             />
             <Markdown>
-                {`Segment will now forward \`track\`, \`identify\`, \`page\`, and \`group\` calls to PostHog.`}
+                Segment will now forward `track`, `identify`, `page`, and `group` calls to PostHog.
             </Markdown>
             <CalloutBox type="fyi" title="Learn more">
                 <Markdown>

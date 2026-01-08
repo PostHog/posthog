@@ -7,7 +7,10 @@ export const ZapierInstallation = (): JSX.Element => {
         <Steps>
             <Step title="Connect PostHog to Zapier" badge="required">
                 <Markdown>
-                    {`Zapier lets you connect PostHog to thousands of other apps. You can use it to send events to PostHog from other services or trigger actions based on PostHog events. Go to the [PostHog integration page](https://zapier.com/apps/posthog/integrations) on Zapier and click **Connect PostHog**. When prompted, enter your PostHog project API key:`}
+                    Zapier lets you connect PostHog to thousands of other apps. You can use it to send events to
+                    PostHog from other services or trigger actions based on PostHog events. Go to the [PostHog
+                    integration page](https://zapier.com/apps/posthog/integrations) on Zapier and click **Connect
+                    PostHog**. When prompted, enter your PostHog project API key:
                 </Markdown>
                 <CodeBlock
                     blocks={[
