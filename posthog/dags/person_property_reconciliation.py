@@ -635,14 +635,14 @@ def get_team_ids_to_reconcile(
     """
 
     context.log.info(
-        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}"
+        f"Querying for team_ids with property events between {config.bug_window_start} and {bug_window_end}"
     )
 
     results = sync_execute(
         query,
         {
             "bug_window_start": config.bug_window_start,
-            "bug_window_end": config.bug_window_end,
+            "bug_window_end": bug_window_end,
         },
     )
 
@@ -720,6 +720,8 @@ def reconcile_team_chunk(
         start_time = time.time()
 
         # Query ClickHouse for all persons with property updates in this team
+        from datetime import UTC
+
         person_property_diffs = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=config.bug_window_start,
