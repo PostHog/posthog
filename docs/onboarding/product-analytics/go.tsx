@@ -1,7 +1,5 @@
 import { ReactNode } from 'react'
-
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-
 import { PersonProfiles } from './_snippets/person-profiles'
 
 export interface StepDefinition {

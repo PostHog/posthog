@@ -1,5 +1,4 @@
 import { ReactNode } from 'react'
-
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export interface StepDefinition {
