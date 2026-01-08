@@ -1,5 +1,5 @@
 import {
-    type PublicKeyCredentialDescriptorJSON,
+    PublicKeyCredentialRequestOptionsJSON,
     type UserVerificationRequirement,
     startAuthentication,
 } from '@simplewebauthn/browser'
@@ -21,14 +21,6 @@ import type { timeSensitiveAuthenticationLogicType } from './timeSensitiveAuthen
 export interface ReauthenticationForm {
     password: string
     token?: string
-}
-
-export interface Passkey2FABeginResponse {
-    challenge: string
-    timeout: number
-    rpId: string
-    allowCredentials: PublicKeyCredentialDescriptorJSON[]
-    userVerification: string
 }
 
 export interface TwoFAMethodsResponse {
@@ -105,7 +97,8 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                     breakpoint()
                     try {
                         // Step 1: Get authentication options from server
-                        const beginResponse = await api.create<Passkey2FABeginResponse>('api/login/2fa/passkey/begin/')
+                        const beginResponse =
+                            await api.create<PublicKeyCredentialRequestOptionsJSON>('api/login/2fa/passkey/begin/')
 
                         // Step 2: Use SimpleWebAuthn to get assertion from authenticator
                         const assertion = await startAuthentication({
