@@ -136,13 +136,7 @@ export class TeamManager {
                         json_build_object(
                             'property_name', slots.property_name,
                             'slot_index', slots.slot_index,
-                            'slot_property_type', CASE
-                                WHEN slots.property_type = 'String' THEN 'string'
-                                WHEN slots.property_type = 'Numeric' THEN 'numeric'
-                                WHEN slots.property_type = 'Boolean' THEN 'bool'
-                                WHEN slots.property_type = 'DateTime' THEN 'datetime'
-                                ELSE LOWER(slots.property_type)
-                            END,
+                            'property_type', slots.property_type,
                             'state', slots.state,
                             'materialization_type', COALESCE(slots.materialization_type, 'dmat')
                         ) ORDER BY slots.slot_index

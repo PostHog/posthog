@@ -611,11 +611,19 @@ export interface RawOrganization {
 // NOTE: We don't need to list all options here - only the ones we use
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
 
+/** Mapping from property type to column suffix for dmat columns. */
+export const PROPERTY_TYPE_TO_COLUMN_SUFFIX: Record<string, string> = {
+    String: 'string',
+    Numeric: 'numeric',
+    Boolean: 'bool',
+    DateTime: 'datetime',
+}
+
 /** Materialized column slot assignment for a team. */
 export interface MaterializedColumnSlot {
     property_name: string
     slot_index: number
-    slot_property_type: 'string' | 'numeric' | 'bool' | 'datetime'
+    property_type: 'String' | 'Numeric' | 'Boolean' | 'DateTime'
     state: 'READY' | 'BACKFILL' | 'ERROR'
     materialization_type: 'dmat' | 'eav'
 }

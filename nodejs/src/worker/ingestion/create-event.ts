@@ -6,6 +6,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import {
     EAVEventProperty,
     Element,
+    PROPERTY_TYPE_TO_COLUMN_SUFFIX,
     Person,
     PersonMode,
     PreIngestionEvent,
@@ -154,8 +155,9 @@ function extractDynamicMaterializedColumns(rawEvent: RawKafkaEvent, properties: 
             continue
         }
 
-        const columnName = `dmat_${slot.slot_property_type}_${slot.slot_index}` as keyof RawKafkaEvent
-        const convertedValue = convertPropertyValue(propertyValue, slot.slot_property_type)
+        const columnSuffix = PROPERTY_TYPE_TO_COLUMN_SUFFIX[slot.property_type]
+        const columnName = `dmat_${columnSuffix}_${slot.slot_index}` as keyof RawKafkaEvent
+        const convertedValue = convertPropertyValue(propertyValue, slot.property_type)
 
         if (convertedValue !== null) {
             ;(rawEvent as any)[columnName] = convertedValue
@@ -204,17 +206,17 @@ function extractEAVProperties(
         }
 
         // Set the appropriate value column based on property type
-        switch (slot.slot_property_type) {
-            case 'string':
+        switch (slot.property_type) {
+            case 'String':
                 eavProperty.value_string = String(propertyValue)
                 break
-            case 'numeric':
+            case 'Numeric':
                 const numValue = parseFloat(propertyValue)
                 if (!isNaN(numValue)) {
                     eavProperty.value_numeric = numValue
                 }
                 break
-            case 'bool':
+            case 'Boolean':
                 const strValue = String(propertyValue).toLowerCase()
                 if (strValue === 'true' || strValue === '1') {
                     eavProperty.value_bool = 1
@@ -222,7 +224,7 @@ function extractEAVProperties(
                     eavProperty.value_bool = 0
                 }
                 break
-            case 'datetime':
+            case 'DateTime':
                 eavProperty.value_datetime = String(propertyValue)
                 break
         }
@@ -235,16 +237,16 @@ function extractEAVProperties(
 
 function convertPropertyValue(
     value: any,
-    propertyType: 'string' | 'numeric' | 'bool' | 'datetime'
+    propertyType: 'String' | 'Numeric' | 'Boolean' | 'DateTime'
 ): string | number | null {
     try {
         switch (propertyType) {
-            case 'string':
+            case 'String':
                 return String(value)
-            case 'numeric':
+            case 'Numeric':
                 const numValue = parseFloat(value)
                 return isNaN(numValue) ? null : numValue
-            case 'bool':
+            case 'Boolean':
                 const strValue = String(value).toLowerCase()
                 if (strValue === 'true' || strValue === '1') {
                     return 1
@@ -253,7 +255,7 @@ function convertPropertyValue(
                     return 0
                 }
                 return null
-            case 'datetime':
+            case 'DateTime':
                 return value
             default:
                 return null
