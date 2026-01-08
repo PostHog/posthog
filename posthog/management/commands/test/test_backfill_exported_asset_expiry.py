@@ -85,3 +85,20 @@ class TestBackfillExportedAssetExpiry(BaseTest):
         expiry_delta = ExportedAsset.get_expiry_delta(asset.export_format)
         expected_expiry = (created_at + expiry_delta).replace(hour=0, minute=0, second=0, microsecond=0)
         assert asset.expires_after == expected_expiry
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_bulk_update_across_multiple_batches(self) -> None:
+        """Verify that bulk_update works correctly with multiple batches including a partial final batch."""
+        assets = [self._create_asset_without_expiry() for _ in range(5)]
+
+        out = StringIO()
+        call_command("backfill_exported_asset_expiry", "--live-run", "--batch-size=2", stdout=out)
+
+        expected_expiry = (datetime(2024, 6, 15, tzinfo=UTC) + SIX_MONTHS).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        for asset in assets:
+            asset.refresh_from_db()
+            assert asset.expires_after == expected_expiry
+
+        assert "Updated 5 ExportedAssets" in out.getvalue()

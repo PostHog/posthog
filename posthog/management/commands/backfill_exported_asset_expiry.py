@@ -47,15 +47,18 @@ class Command(BaseCommand):
 
         updated = 0
         start_time = time.time()
+        batch: list[ExportedAsset] = []
 
         for asset in queryset.iterator(chunk_size=batch_size):
             expiry_datetime = asset.created_at + ExportedAsset.get_expiry_delta(asset.export_format)
             asset.expires_after = expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
-            asset.save(update_fields=["expires_after"])
+            batch.append(asset)
 
-            updated += 1
+            if len(batch) >= batch_size:
+                ExportedAsset.objects_including_ttl_deleted.bulk_update(batch, ["expires_after"])
+                updated += len(batch)
+                batch = []
 
-            if updated % batch_size == 0:
                 elapsed = time.time() - start_time
                 rate = updated / elapsed if elapsed > 0 else 0
                 remaining = (total - updated) / rate if rate > 0 else 0
@@ -64,6 +67,10 @@ class Command(BaseCommand):
                     f"{rate:.1f} records/sec - ~{remaining:.0f}s remaining"
                 )
                 time.sleep(sleep_interval)
+
+        if batch:
+            ExportedAsset.objects_including_ttl_deleted.bulk_update(batch, ["expires_after"])
+            updated += len(batch)
 
         elapsed = time.time() - start_time
         self.stdout.write(self.style.SUCCESS(f"Done! Updated {updated} ExportedAssets in {elapsed:.1f}s"))
