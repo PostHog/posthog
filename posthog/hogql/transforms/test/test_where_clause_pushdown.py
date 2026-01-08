@@ -215,8 +215,10 @@ class TestWhereClausePushdown(BaseTest):
     def _apply_pushdown(self, query: str) -> tuple[str, str]:
         """Parse query, apply pushdown, return (before, after) HogQL strings."""
         outer = parse_select(query)
+        assert isinstance(outer, ast.SelectQuery)
         before = outer.to_hogql()
 
+        assert outer.select_from is not None
         inner = outer.select_from.table
         assert isinstance(inner, ast.SelectQuery)
 

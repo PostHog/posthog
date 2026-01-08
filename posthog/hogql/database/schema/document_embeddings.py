@@ -54,9 +54,11 @@ def is_vector_distance_call(expr: ast.Expr) -> bool:
     expr = unwrap_alias(expr)
     if not isinstance(expr, ast.Call) or expr.name not in VECTOR_DISTANCE_FUNCTIONS:
         return False
-    return any(
-        isinstance(unwrap_alias(arg), ast.Field) and unwrap_alias(arg).chain[-1] == "embedding" for arg in expr.args
-    )
+    for arg in expr.args:
+        unwrapped = unwrap_alias(arg)
+        if isinstance(unwrapped, ast.Field) and unwrapped.chain[-1] == "embedding":
+            return True
+    return False
 
 
 def is_vector_distance_order_by(order_expr: ast.OrderExpr, node: ast.SelectQuery) -> bool:
