@@ -13,11 +13,13 @@ jest.mock('./metrics', () => ({
     },
 }))
 
+jest.mock('../../utils/token-bucket')
+
 describe('SessionFilter', () => {
     let sessionFilter: SessionFilter
     let mockRedis: { set: jest.Mock; exists: jest.Mock }
     let mockRedisPool: jest.Mocked<RedisPool>
-    let mockSessionLimiter: jest.Mocked<Limiter>
+    let mockConsume: jest.Mock
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -32,13 +34,15 @@ describe('SessionFilter', () => {
             release: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<RedisPool>
 
-        mockSessionLimiter = {
-            consume: jest.fn().mockReturnValue(true),
-        } as unknown as jest.Mocked<Limiter>
+        mockConsume = jest.fn().mockReturnValue(true)
+        ;(Limiter as jest.Mock).mockImplementation(() => ({
+            consume: mockConsume,
+        }))
 
         sessionFilter = new SessionFilter({
             redisPool: mockRedisPool,
-            sessionLimiter: mockSessionLimiter,
+            bucketCapacity: 1000,
+            bucketReplenishRate: 1,
             rateLimitEnabled: true,
             localCacheTtlMs: 5 * 60 * 1000,
         })
@@ -46,7 +50,7 @@ describe('SessionFilter', () => {
 
     describe('blocking via handleNewSession', () => {
         it('should set a key in Redis with TTL when rate limited', async () => {
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
 
             await sessionFilter.handleNewSession(1, 'session-123')
 
@@ -59,7 +63,7 @@ describe('SessionFilter', () => {
         })
 
         it('should increment metrics when blocking a session', async () => {
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
 
             await sessionFilter.handleNewSession(1, 'session-123')
 
@@ -67,7 +71,7 @@ describe('SessionFilter', () => {
         })
 
         it('should acquire and release Redis connection', async () => {
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
 
             await sessionFilter.handleNewSession(1, 'session-123')
 
@@ -76,7 +80,7 @@ describe('SessionFilter', () => {
         })
 
         it('should fail open on Redis error but still block locally', async () => {
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
             mockRedis.set.mockRejectedValue(new Error('Redis error'))
 
             // Should not throw - fails open
@@ -141,7 +145,7 @@ describe('SessionFilter', () => {
         })
 
         it('should cache blocked sessions locally after blocking via handleNewSession', async () => {
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
             await sessionFilter.handleNewSession(1, 'session-123')
 
             // Now check if blocked - should hit local cache
@@ -209,7 +213,7 @@ describe('SessionFilter', () => {
 
     describe('key generation', () => {
         it('should generate unique keys for different teams', async () => {
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
 
             await sessionFilter.handleNewSession(1, 'session-123')
             await sessionFilter.handleNewSession(2, 'session-123')
@@ -229,7 +233,7 @@ describe('SessionFilter', () => {
         })
 
         it('should generate unique keys for different sessions', async () => {
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
 
             await sessionFilter.handleNewSession(1, 'session-123')
             await sessionFilter.handleNewSession(1, 'session-456')
@@ -254,7 +258,8 @@ describe('SessionFilter', () => {
             // Create with very short TTL
             const shortTtlFilter = new SessionFilter({
                 redisPool: mockRedisPool,
-                sessionLimiter: mockSessionLimiter,
+                bucketCapacity: 1000,
+                bucketReplenishRate: 1,
                 rateLimitEnabled: true,
                 localCacheTtlMs: 10, // 10ms TTL
             })
@@ -276,16 +281,16 @@ describe('SessionFilter', () => {
 
     describe('handleNewSession', () => {
         it('should not block when limiter allows the session', async () => {
-            mockSessionLimiter.consume.mockReturnValue(true)
+            mockConsume.mockReturnValue(true)
 
             await sessionFilter.handleNewSession(1, 'session-123')
 
-            expect(mockSessionLimiter.consume).toHaveBeenCalledWith('1', 1)
+            expect(mockConsume).toHaveBeenCalledWith('1', 1)
             expect(mockRedis.set).not.toHaveBeenCalled()
         })
 
         it('should block when limiter denies and rate limiting is enabled', async () => {
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
 
             await sessionFilter.handleNewSession(1, 'session-123')
 
@@ -297,11 +302,12 @@ describe('SessionFilter', () => {
         it('should only increment metric but not block when rate limiting is disabled', async () => {
             const disabledFilter = new SessionFilter({
                 redisPool: mockRedisPool,
-                sessionLimiter: mockSessionLimiter,
+                bucketCapacity: 1000,
+                bucketReplenishRate: 1,
                 rateLimitEnabled: false,
                 localCacheTtlMs: 5 * 60 * 1000,
             })
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
 
             await disabledFilter.handleNewSession(1, 'session-123')
 
@@ -310,7 +316,7 @@ describe('SessionFilter', () => {
         })
 
         it('should fail open on Redis acquire error during blocking', async () => {
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
             mockRedisPool.acquire.mockRejectedValue(new Error('Pool exhausted'))
 
             // Should not throw
@@ -323,19 +329,19 @@ describe('SessionFilter', () => {
         })
 
         it('should consume from limiter on each call even for same session', async () => {
-            mockSessionLimiter.consume.mockReturnValue(false)
+            mockConsume.mockReturnValue(false)
 
             await sessionFilter.handleNewSession(1, 'session-123')
             await sessionFilter.handleNewSession(1, 'session-123')
 
             // Limiter is consumed each time - the limiter handles deduplication if needed
-            expect(mockSessionLimiter.consume).toHaveBeenCalledTimes(2)
+            expect(mockConsume).toHaveBeenCalledTimes(2)
             // Redis set is also called twice - this is fine since SET is idempotent at Redis level
             expect(mockRedis.set).toHaveBeenCalledTimes(2)
         })
 
         it('should not increment rate limited metric when limiter allows', async () => {
-            mockSessionLimiter.consume.mockReturnValue(true)
+            mockConsume.mockReturnValue(true)
 
             await sessionFilter.handleNewSession(1, 'session-123')
 
@@ -348,7 +354,8 @@ describe('SessionFilter', () => {
         it('should use custom cache max size', async () => {
             const smallCacheFilter = new SessionFilter({
                 redisPool: mockRedisPool,
-                sessionLimiter: mockSessionLimiter,
+                bucketCapacity: 1000,
+                bucketReplenishRate: 1,
                 rateLimitEnabled: true,
                 localCacheTtlMs: 5 * 60 * 1000,
                 localCacheMaxSize: 2,

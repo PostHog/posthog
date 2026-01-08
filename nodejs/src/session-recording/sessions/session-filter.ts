@@ -10,7 +10,8 @@ const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
 
 export interface SessionFilterConfig {
     redisPool: RedisPool
-    sessionLimiter: Limiter
+    bucketCapacity: number
+    bucketReplenishRate: number
     rateLimitEnabled: boolean
     localCacheTtlMs: number
     localCacheMaxSize?: number
@@ -42,7 +43,7 @@ export class SessionFilter {
 
     constructor(config: SessionFilterConfig) {
         this.redisPool = config.redisPool
-        this.sessionLimiter = config.sessionLimiter
+        this.sessionLimiter = new Limiter(config.bucketCapacity, config.bucketReplenishRate)
         this.rateLimitEnabled = config.rateLimitEnabled
 
         this.localCache = new LRUCache({

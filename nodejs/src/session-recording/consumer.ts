@@ -20,7 +20,6 @@ import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restr
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
-import { Limiter } from '../utils/token-bucket'
 import { captureIngestionWarning } from '../worker/ingestion/utils'
 import {
     KAFKA_CONSUMER_GROUP_ID,
@@ -213,13 +212,10 @@ export class SessionRecordingIngester {
             this.redisPool,
             this.hub.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
         )
-        const sessionLimiter = new Limiter(
-            this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
-            this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE
-        )
         const sessionFilter = new SessionFilter({
             redisPool: this.redisPool,
-            sessionLimiter,
+            bucketCapacity: this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
+            bucketReplenishRate: this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
             rateLimitEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_RATE_LIMIT_ENABLED,
             localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
         })
