@@ -334,7 +334,6 @@ def publish_person_to_kafka(person_data: dict, producer: _KafkaProducer) -> None
         "is_deleted": int(person_data.get("is_deleted", 0)),
         "created_at": created_at_str,
         "version": person_data["version"],
-        "_timestamp": now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
     producer.produce(topic=KAFKA_PERSON, data=kafka_data)
