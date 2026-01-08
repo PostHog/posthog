@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 import gspread
 
@@ -68,7 +68,9 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             else None,
         )
 
-    def validate_credentials(self, config: GoogleSheetsSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: GoogleSheetsSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         client = google_sheets_client()
         try:
             client.open_by_url(config.spreadsheet_url)

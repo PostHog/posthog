@@ -17,8 +17,8 @@ export const defaultConversionGoalFilter: ConversionGoalFilter = {
 }
 
 export const conversionGoalDescription =
-    'Select which core events to use as conversion goals for marketing attribution.'
+    'Define conversion goals by selecting events or data warehouse tables. These goals can be used to track and analyze user conversions in your marketing analytics. '
 
 export const conversionGoalNamePlaceholder = 'Conversion goal name, e.g. purchase, sign up, download'
 
-export const getConfiguredConversionGoalsLabel = (count: number): string => `Enabled core events (${count})`
+export const getConfiguredConversionGoalsLabel = (count: number): string => `Configured conversion goals (${count})`

@@ -438,6 +438,75 @@ impl Client for RedisClient {
         let results: Vec<Option<Vec<u8>>> = conn.mget(&keys).await?;
         Ok(results)
     }
+
+    async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut pipe = redis::pipe();
+        for k in &keys {
+            pipe.scard(k);
+        }
+        let mut conn = self.connection.clone();
+        let results: Vec<u64> = pipe.query_async(&mut conn).await?;
+        Ok(results)
+    }
+
+    async fn batch_sadd_expire(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let mut pipe = redis::pipe();
+        for (k, member) in items {
+            pipe.sadd(&k, &member).ignore();
+            pipe.cmd("EXPIRE")
+                .arg(&k)
+                .arg(ttl_seconds)
+                .arg("NX")
+                .ignore();
+        }
+        let mut conn = self.connection.clone();
+        pipe.query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+
+    async fn batch_set_nx_ex(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<Vec<bool>, CustomRedisError> {
+        if items.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut pipe = redis::pipe();
+        for (k, v) in &items {
+            pipe.cmd("SET")
+                .arg(k)
+                .arg(v)
+                .arg("NX")
+                .arg("EX")
+                .arg(ttl_seconds);
+        }
+        let mut conn = self.connection.clone();
+        let results: Vec<Option<String>> = pipe.query_async(&mut conn).await?;
+        Ok(results.into_iter().map(|r| r.is_some()).collect())
+    }
+
+    async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.connection.clone();
+        redis::cmd("DEL")
+            .arg(&keys)
+            .query_async::<()>(&mut conn)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
