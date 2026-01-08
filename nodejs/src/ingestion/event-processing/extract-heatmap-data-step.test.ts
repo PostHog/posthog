@@ -199,6 +199,38 @@ describe('createExtractHeatmapDataStep', () => {
                 pointer_target_fixed: false,
             })
         })
+
+        it('extracts scroll depth data from $pageleave event WITHOUT $heatmap_data', async () => {
+            // This test verifies the fix for the bug where events without
+            // $heatmap_data were skipped entirely, even if they had scroll
+            // depth data ($prev_pageview_pathname)
+            const event = createTestEvent()
+            delete event.properties.$heatmap_data // No heatmap data, like a $pageleave event
+            event.properties = {
+                ...event.properties,
+                $prev_pageview_pathname: '/about',
+                $prev_pageview_max_scroll: 500,
+            }
+
+            const result = await step({ preparedEvent: event })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+
+            const topicMessages = mockProducer.queueMessages.mock.calls[0][0]
+            const queuedMessages = Array.isArray(topicMessages) ? topicMessages[0].messages : topicMessages.messages
+            expect(queuedMessages).toHaveLength(1) // Only scroll depth, no heatmap data
+
+            const scrollDepthMessage = queuedMessages[0]
+            const scrollData = parseJSON(scrollDepthMessage.value as string)
+            expect(scrollData).toMatchObject({
+                type: 'scrolldepth',
+                x: 0,
+                y: 31, // 500 / 16
+                current_url: 'http://localhost:3000/about',
+                pointer_target_fixed: false,
+            })
+        })
     })
 
     describe('validation', () => {
