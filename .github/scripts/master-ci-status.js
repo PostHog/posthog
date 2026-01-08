@@ -75,6 +75,8 @@ function handleFailure(state, event, commitTs, core, fs) {
     core.setOutput('failing_count', String(failing.length));
     core.setOutput('commit_count', String(Object.keys(state.sha_ts).length));
     core.setOutput('save_cache', 'true');
+    // Delete old caches when creating new incident to prevent divergent cache branches
+    core.setOutput('delete_old_caches', isNew ? 'true' : 'false');
 
     console.log(`Action: ${isNew ? 'create' : 'update'}`);
     console.log(`Failing workflows: ${failing.join(', ')}`);
@@ -121,7 +123,11 @@ function handleSuccess(state, event, commitTs, core, fs) {
     core.setOutput('since', state.since);
     core.setOutput('channel', state.channel || '');
     core.setOutput('ts', state.ts || '');
-    core.setOutput('save_cache', 'true');
+    // Only save cache when state changes meaningfully:
+    //   - when a failing workflow recovers (wasFailing => action='resolve'), or
+    //   - when the incident becomes fully resolved (resolved=true)
+    // Avoid saving on plain 'none' to prevent creating divergent cache branches.
+    core.setOutput('save_cache', wasFailing || resolved ? 'true' : 'false');
 
     console.log(`Action: ${wasFailing ? 'resolve' : 'none'}`);
     console.log(`Recovered: ${wasFailing ? event.name : 'none'}`);

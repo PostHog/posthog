@@ -138,8 +138,10 @@ from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
+from .marketing_analytics_goal_mapping import MarketingAnalyticsGoalMappingViewSet
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
+from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -967,6 +969,12 @@ environments_router.register(
     "environment_web_vitals",
     ["team_id"],
 )
+environments_router.register(
+    r"web_analytics_filter_presets",
+    WebAnalyticsFilterPresetViewSet,
+    "environment_web_analytics_filter_preset",
+    ["team_id"],
+)
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
@@ -1144,5 +1152,12 @@ environments_router.register(
     r"core_events",
     CoreEventViewSet,
     "environment_core_events",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"marketing_analytics/goal_mappings",
+    MarketingAnalyticsGoalMappingViewSet,
+    "environment_marketing_analytics_goal_mappings",
     ["team_id"],
 )

@@ -21,7 +21,6 @@ from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.api.external_data_source import SimpleExternalDataSourceSerializers
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
 from products.data_warehouse.backend.models.table import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
@@ -331,23 +330,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Create the table record
         try:
-            # Create credential if object storage is available
-            credential = None
-            if hasattr(settings, "AIRBYTE_BUCKET_KEY") and hasattr(settings, "AIRBYTE_BUCKET_SECRET"):
-                credential = get_or_create_datawarehouse_credential(
-                    team_id=team_id,
-                    access_key=settings.AIRBYTE_BUCKET_KEY,
-                    access_secret=settings.AIRBYTE_BUCKET_SECRET,
-                )
-            else:
-                capture_exception(
-                    Exception("Object storage keys not found: AIRBYTE_BUCKET_KEY or AIRBYTE_BUCKET_SECRET")
-                )
-                return response.Response(
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    data={"message": "An unexpected error occurred. Please try again later."},
-                )
-
             # Create the table if it doesn't exist, otherwise use existing one
             if table is None:
                 table = DataWarehouseTable.objects.create(
@@ -355,15 +337,14 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     name=table_name,
                     format=file_format,
                     created_by=request.user,
-                    credential=credential,  # type: ignore
                 )
 
             # Generate URL pattern and store file in object storage
-            if credential and settings.DATAWAREHOUSE_BUCKET:
+            if settings.DATAWAREHOUSE_BUCKET:
                 s3 = boto3.client(
                     "s3",
-                    aws_access_key_id=credential.access_key,
-                    aws_secret_access_key=credential.access_secret,
+                    aws_access_key_id=settings.AIRBYTE_BUCKET_KEY,
+                    aws_secret_access_key=settings.AIRBYTE_BUCKET_SECRET,
                     endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
                 )
                 s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{file.name}")
@@ -371,9 +352,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # Set the URL pattern for the table
                 table.url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/managed/team_{team_id}/{file.name}"
                 table.format = file_format
-
-                if table.credential is None:
-                    table.credential = credential
 
                 # Try to determine columns from the file
                 table.columns = table.get_columns()

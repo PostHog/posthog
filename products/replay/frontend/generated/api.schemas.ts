@@ -7,23 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-
-/**
- * * `collection` - Collection
- * `filters` - Filters
- */
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionRecordingPlaylistTypeEnumApi = {
-    collection: 'collection',
-    filters: 'filters',
-} as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnumApi = {} as const
-
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -55,28 +38,57 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type SessionRecordingPlaylistTypeEnumApi =
-    (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
-
-export interface PaginatedSessionRecordingPlaylistListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SessionRecordingPlaylistApi[]
-}
-
-export type SessionRecordingPlaylistApiRecordingsCounts = { [key: string]: { [key: string]: number | boolean | null } }
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionRecordingPlaylistApiType = { ...SessionRecordingPlaylistTypeEnumApi, ...NullEnumApi } as const
+export const NullEnumApi = {} as const
+
+export type UserBasicApiHedgehogConfigAnyOf = { [key: string]: unknown }
+
 /**
  * @nullable
  */
-export type SessionRecordingPlaylistApiType =
-    | (typeof SessionRecordingPlaylistApiType)[keyof typeof SessionRecordingPlaylistApiType]
-    | null
+export type UserBasicApiHedgehogConfig = UserBasicApiHedgehogConfigAnyOf | null | null
+
+export type UserBasicApiRoleAtOrganization = RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: UserBasicApiRoleAtOrganization
+}
+
+/**
+ * * `collection` - Collection
+ * `filters` - Filters
+ */
+export type SessionRecordingPlaylistTypeEnumApi =
+    (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const SessionRecordingPlaylistTypeEnumApi = {
+    collection: 'collection',
+    filters: 'filters',
+} as const
+
+export type SessionRecordingPlaylistApiRecordingsCounts = { [key: string]: { [key: string]: number | boolean } }
+
+export type SessionRecordingPlaylistApiType = SessionRecordingPlaylistTypeEnumApi | NullEnumApi
 
 export interface SessionRecordingPlaylistApi {
     readonly id: number
@@ -100,28 +112,24 @@ export interface SessionRecordingPlaylistApi {
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly recordings_counts: SessionRecordingPlaylistApiRecordingsCounts
-    /** @nullable */
     readonly type: SessionRecordingPlaylistApiType
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
 }
 
-export type PatchedSessionRecordingPlaylistApiRecordingsCounts = {
-    [key: string]: { [key: string]: number | boolean | null }
+export interface PaginatedSessionRecordingPlaylistListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SessionRecordingPlaylistApi[]
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedSessionRecordingPlaylistApiType = {
-    ...SessionRecordingPlaylistTypeEnumApi,
-    ...NullEnumApi,
-} as const
-/**
- * @nullable
- */
-export type PatchedSessionRecordingPlaylistApiType =
-    | (typeof PatchedSessionRecordingPlaylistApiType)[keyof typeof PatchedSessionRecordingPlaylistApiType]
-    | null
+export type PatchedSessionRecordingPlaylistApiRecordingsCounts = { [key: string]: { [key: string]: number | boolean } }
+
+export type PatchedSessionRecordingPlaylistApiType = SessionRecordingPlaylistTypeEnumApi | NullEnumApi
 
 export interface PatchedSessionRecordingPlaylistApi {
     readonly id?: number
@@ -145,21 +153,22 @@ export interface PatchedSessionRecordingPlaylistApi {
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
     readonly recordings_counts?: PatchedSessionRecordingPlaylistApiRecordingsCounts
-    /** @nullable */
     readonly type?: PatchedSessionRecordingPlaylistApiType
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string
 }
 
-export interface PaginatedSessionRecordingListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SessionRecordingApi[]
+export interface MinimalPersonApi {
+    readonly id: number
+    readonly name: string
+    readonly distinct_ids: string
+    properties?: unknown
+    readonly created_at: string
+    readonly uuid: string
 }
+
+export type SessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
 
 export interface SessionRecordingApi {
     readonly id: string
@@ -200,7 +209,20 @@ export interface SessionRecordingApi {
     readonly ongoing: boolean
     /** @nullable */
     readonly activity_score: number | null
+    /** Load external references (linked issues) for this recording */
+    readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
 }
+
+export interface PaginatedSessionRecordingListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SessionRecordingApi[]
+}
+
+export type PatchedSessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
 
 export interface PatchedSessionRecordingApi {
     readonly id?: string
@@ -241,51 +263,8 @@ export interface PatchedSessionRecordingApi {
     readonly ongoing?: boolean
     /** @nullable */
     readonly activity_score?: number | null
-}
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type UserBasicApiRoleAtOrganization =
-    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
-    | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    /** @nullable */
-    role_at_organization?: UserBasicApiRoleAtOrganization
-}
-
-export interface MinimalPersonApi {
-    readonly id: number
-    readonly name: string
-    readonly distinct_ids: string
-    properties?: unknown
-    readonly created_at: string
-    readonly uuid: string
+    /** Load external references (linked issues) for this recording */
+    readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
 }
 
 export type EnvironmentsSessionRecordingPlaylistsListParams = {

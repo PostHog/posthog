@@ -1,6 +1,6 @@
 import bigDecimal from 'js-big-decimal'
 
-import { EventWithProperties } from './process-ai-event'
+import { EventWithProperties } from '../process-ai-event'
 import { ResolvedModelCost } from './providers/types'
 
 export const calculateRequestCost = (event: EventWithProperties, cost: ResolvedModelCost): string => {
