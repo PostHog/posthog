@@ -140,7 +140,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/logout/",
-            admin.site.admin_view(impersonated_session_logout),
+            impersonated_session_logout,
             name="loginas-logout",
         ),
         path("admin/login/user/<str:user_id>/", loginas_user, name="loginas-user-login"),

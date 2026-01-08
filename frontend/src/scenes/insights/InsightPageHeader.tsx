@@ -413,11 +413,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     LemonDialog.openForm({
                                         title: 'Save as static cohort',
                                         description: (
-                                            <div className="mt-2">
-                                                Your query must export a <code>person_id</code>, <code>actor_id</code>{' '}
-                                                or <code>id</code> column, which must match the <code>id</code> of the{' '}
-                                                <code>persons</code> table
-                                            </div>
+                                            <>
+                                                <div className="mt-2">
+                                                    Your query must export a <code>person_id</code>,{' '}
+                                                    <code>actor_id</code>, <code>id</code>, or <code>distinct_id</code>{' '}
+                                                    column. The <code>person_id</code>, <code>actor_id</code>, and{' '}
+                                                    <code>id</code> columns must match the <code>id</code> of the{' '}
+                                                    <code>persons</code> table, while <code>distinct_id</code> will be
+                                                    automatically resolved to the corresponding person.
+                                                </div>
+                                            </>
                                         ),
                                         initialValues: {
                                             name: '',

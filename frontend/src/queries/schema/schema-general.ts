@@ -5197,6 +5197,7 @@ export enum ProductIntentContext {
 
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
+    LOGS_SET_FILTERS = 'logs_set_filters',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
@@ -5274,3 +5275,19 @@ export enum ProductIntentContext {
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
 }
+
+// Known prod_interest values from posthog.com
+export type WebsiteBrowsingHistoryProdInterest =
+    | 'product-analytics'
+    | 'web-analytics'
+    | 'session-replay'
+    | 'feature-flags'
+    | 'experiments'
+    | 'error-tracking'
+    | 'surveys'
+    | 'data-warehouse'
+    | 'llm-analytics'
+    | 'revenue-analytics'
+    | 'workflows'
+    | 'logs'
+    | 'endpoints'

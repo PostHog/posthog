@@ -3,7 +3,15 @@ from collections.abc import Mapping
 from typing import Any, Literal, Optional, cast
 
 import pytest
-from posthog.test.base import APIBaseTest, BaseTest, _create_event, clean_varying_query_parts, materialized
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    _create_event,
+    _create_person,
+    clean_varying_query_parts,
+    cleanup_materialized_columns,
+    materialized,
+)
 from unittest import mock
 from unittest.mock import patch
 
@@ -28,6 +36,7 @@ from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -38,6 +47,8 @@ from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 class TestPrinter(BaseTest):
@@ -3237,6 +3248,148 @@ class TestMaterializedColumnOptimization(BaseTest):
             )
             self.assertEqual(optimized_neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
             self.assertEqual(unoptimized_neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
+
+    @parameterized.expand(
+        [
+            ("materialized_joined", True, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            ("materialized_on_events", True, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+            ("not_materialized_joined", False, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            ("not_materialized_on_events", False, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+        ]
+    )
+    def test_person_property_is_not_set_behavior(
+        self, _name: str, is_materialized: bool, poe_mode: PersonsOnEventsMode
+    ):
+        """
+        Test that is_not_set behaves consistently across materialized/non-materialized columns
+        and different PersonsOnEventsMode settings.
+
+        Expected behavior:
+        - with_email: is_not_set=0 - property has a value
+        - test_with_empty_string: is_not_set=0 - property has a value
+        - with_null: is_not_set=1 - null is treated as "not set"
+        - without: is_not_set=1 - property doesn't exist
+
+        the clickhouse SQL should NOT include JSON operations
+        """
+        self.addCleanup(cleanup_materialized_columns)
+
+        if is_materialized:
+            materialize("events", "email", table_column="person_properties")
+            materialize("person", "email")
+
+        # Generate unique IDs to avoid collision with previous test runs
+        distinct_id_with_email = f"test_with_email"
+        distinct_id_with_empty = f"test_with_empty_string"
+        distinct_id_with_null = f"test_with_null"
+        distinct_id_without = f"test_without"
+        event_name = f"is_not_set_test"
+
+        # Create four persons with different email property states:
+        # 1. email set to a real value
+        _create_person(
+            distinct_ids=[distinct_id_with_email],
+            team=self.team,
+            properties={"email": "test@example.com"},
+            immediate=True,
+        )
+        # 2. email set to empty string
+        _create_person(
+            distinct_ids=[distinct_id_with_empty],
+            team=self.team,
+            properties={"email": ""},
+            immediate=True,
+        )
+        # 3. email set to null
+        _create_person(
+            distinct_ids=[distinct_id_with_null],
+            team=self.team,
+            properties={"email": None},
+            immediate=True,
+        )
+        # 4. email not set at all
+        _create_person(
+            distinct_ids=[distinct_id_without],
+            team=self.team,
+            properties={},
+            immediate=True,
+        )
+
+        # Create events for each person
+        _create_event(team=self.team, event=event_name, distinct_id=distinct_id_with_email)
+        _create_event(team=self.team, event=event_name, distinct_id=distinct_id_with_empty)
+        _create_event(team=self.team, event=event_name, distinct_id=distinct_id_with_null)
+        _create_event(team=self.team, event=event_name, distinct_id=distinct_id_without)
+
+        # Build the is_not_set expression using property_to_expr
+        is_not_set_expr = property_to_expr(
+            {"type": "person", "key": "email", "operator": "is_not_set"},
+            team=self.team,
+            scope="event",
+        )
+
+        # Build the full query AST
+        query_ast = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="distinct_id", expr=ast.Field(chain=["distinct_id"])),
+                ast.Alias(alias="email_value", expr=ast.Field(chain=["person", "properties", "email"])),
+                ast.Alias(alias="is_not_set_result", expr=is_not_set_expr),
+                ast.Alias(
+                    alias="is_not_set_result_historical",
+                    expr=ast.Or(
+                        exprs=[
+                            is_not_set_expr,
+                            ast.Not(
+                                expr=ast.Call(
+                                    name="JSONHas",
+                                    args=[ast.Field(chain=["person", "properties"]), ast.Constant(value="email")],
+                                )
+                            ),
+                        ]
+                    ),
+                ),  # this is the historical behaviour for is_not_set, was removed in https://github.com/PostHog/posthog/pull/44346 but test for equivalence here
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=event_name),
+            ),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["distinct_id"]))],
+        )
+
+        result = execute_hogql_query(
+            team=self.team,
+            query=query_ast,
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=poe_mode),
+        )
+        assert result.clickhouse
+
+        # Note: When columns are materialized, empty strings become NULL due to nullIf(nullIf(..., ''), 'null') wrapping - this is known inconsistent behaviour for materialized properties
+        expected_results = {
+            (distinct_id_with_email, "test@example.com", 0, 0),
+            # Empty string behavior differs: becomes null when materialized
+            (
+                distinct_id_with_empty,
+                None if is_materialized else "",
+                1 if is_materialized else 0,
+                1 if is_materialized else 0,
+            ),
+            (distinct_id_with_null, None, 1, 1),
+            (distinct_id_without, None, 1, 1),
+        }
+        self.assertEqual(set(result.results), expected_results)
+
+        # The query should never touch the json properties object if we are using the materialized column, these asserts protect against regression of the performance the bug fixed in
+        # https://posthog.slack.com/archives/C09B0SSQEDA/p1767698123669229?thread_ts=1767672165.250289&cid=C09B0SSQEDA
+        sql_lower = result.clickhouse.lower()
+        # JSONHas is used in calculating is_not_set_result_historical, but nowhere else
+        assert sql_lower.count("jsonhas") == 1
+        if is_materialized:
+            # the materialized version should not use any JSON operation, or any other Has operation (e.g. the Array/Set function `has`)
+            assert sql_lower.count("json") == 1
+            assert sql_lower.count("has") == 1
+            assert sql_lower.count("contains") == 0
 
 
 class TestPrinted(APIBaseTest):
