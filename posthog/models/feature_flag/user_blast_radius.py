@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Optional
 
 from rest_framework.exceptions import ValidationError
 
@@ -6,9 +6,24 @@ from posthog.schema import PropertyOperator
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex
+from posthog.models.property import GroupTypeIndex, Property
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
+
+
+def _normalize_property_value(prop: Property) -> None:
+    """
+    Normalize property values to strings to match JSON-stored properties in ClickHouse.
+    Skip special properties like $group_key which refer to columns, not JSON properties.
+    """
+    if prop.key == "$group_key":
+        return  # Don't normalize $group_key - it's a column reference
+
+    if prop.type in ("person", "group"):
+        if isinstance(prop.value, list):
+            prop.value = [str(v) for v in prop.value]
+        elif not isinstance(prop.value, str | list | dict | type(None)):
+            prop.value = str(prop.value)
 
 
 def replace_proxy_properties(team: Team, feature_flag_condition: dict):
@@ -19,19 +34,8 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict):
             relative_date = relative_date_parse_for_feature_flag_matching(str(prop.value))
             if relative_date:
                 prop.value = relative_date.strftime("%Y-%m-%d %H:%M:%S")
-        # Normalize property values to strings to match JSON-stored properties
-        # This maintains compatibility with how properties are stored in ClickHouse
-        # Skip special properties like $group_key which refer to columns, not JSON properties
-        elif prop.type in ("person", "group") and prop.key != "$group_key" and isinstance(prop.value, list):
-            # Convert all list values to strings for consistent type matching
-            prop.value = [str(v) for v in prop.value]
-        elif (
-            prop.type in ("person", "group")
-            and prop.key != "$group_key"
-            and not isinstance(prop.value, str | list | dict | type(None))
-        ):
-            # Convert single non-string values to strings
-            prop.value = str(prop.value)
+        else:
+            _normalize_property_value(prop)
 
     return Filter(data={"properties": prop_groups.to_dict()}, team=team)
 
@@ -181,10 +185,18 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
 
     # Add $group_key filters directly as column comparisons
     for prop in group_key_properties:
-        operator = prop.operator or "exact"
+        # Normalize operator to PropertyOperator enum for consistent comparisons
+        operator = PropertyOperator(prop.operator) if prop.operator else PropertyOperator.EXACT
         value = prop.value
 
-        if operator in (PropertyOperator.EXACT, "exact"):
+        # Convert values to strings for consistency (groups.key is a String column)
+        # Handles both single values and lists, preserving None
+        if isinstance(value, list):
+            value = [str(v) if v is not None else None for v in value]
+        elif value is not None:
+            value = str(value)
+
+        if operator == PropertyOperator.EXACT:
             where_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
@@ -192,7 +204,7 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
                     right=ast.Constant(value=value),
                 )
             )
-        elif operator in (PropertyOperator.IS_NOT, "is_not"):
+        elif operator == PropertyOperator.IS_NOT:
             where_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq,
@@ -200,29 +212,25 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
                     right=ast.Constant(value=value),
                 )
             )
-        elif operator in (PropertyOperator.IN_, "in"):
-            # Convert all values to strings for group key comparison
-            in_values_list = cast(list, value if isinstance(value, list) else [value])  # type: ignore[list-item]
-            in_str_values: list[str] = [str(v) for v in in_values_list]
+        elif operator == PropertyOperator.IN_:
+            values_list = value if isinstance(value, list) else [value]
             where_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["groups", "key"]),
-                    right=ast.Tuple(exprs=[ast.Constant(value=v) for v in in_str_values]),
+                    right=ast.Tuple(exprs=[ast.Constant(value=v) for v in values_list]),
                 )
             )
-        elif operator in (PropertyOperator.NOT_IN, "not_in"):
-            # Convert all values to strings for group key comparison
-            not_in_values_list = cast(list, value if isinstance(value, list) else [value])  # type: ignore[list-item]
-            not_in_str_values: list[str] = [str(v) for v in not_in_values_list]
+        elif operator == PropertyOperator.NOT_IN:
+            values_list = value if isinstance(value, list) else [value]
             where_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotIn,
                     left=ast.Field(chain=["groups", "key"]),
-                    right=ast.Tuple(exprs=[ast.Constant(value=v) for v in not_in_str_values]),
+                    right=ast.Tuple(exprs=[ast.Constant(value=v) for v in values_list]),
                 )
             )
-        elif operator in (PropertyOperator.ICONTAINS, "icontains"):
+        elif operator == PropertyOperator.ICONTAINS:
             where_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
@@ -230,7 +238,7 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
                     right=ast.Constant(value=f"%{value}%"),
                 )
             )
-        elif operator in (PropertyOperator.NOT_ICONTAINS, "not_icontains"):
+        elif operator == PropertyOperator.NOT_ICONTAINS:
             where_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotILike,
@@ -238,7 +246,7 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
                     right=ast.Constant(value=f"%{value}%"),
                 )
             )
-        elif operator in (PropertyOperator.REGEX, "regex"):
+        elif operator == PropertyOperator.REGEX:
             where_exprs.append(
                 ast.Call(
                     name="match",
@@ -248,7 +256,7 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
                     ],
                 )
             )
-        elif operator in (PropertyOperator.NOT_REGEX, "not_regex"):
+        elif operator == PropertyOperator.NOT_REGEX:
             where_exprs.append(
                 ast.Call(
                     name="not",
@@ -262,6 +270,12 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
                         )
                     ],
                 )
+            )
+        else:
+            # Unsupported operator for $group_key
+            raise ValidationError(
+                f"Operator '{operator}' is not supported for $group_key property. "
+                f"Supported operators: exact, is_not, in, not_in, icontains, not_icontains, regex, not_regex"
             )
 
     # Add regular property filters using property_to_expr (only if there are any)

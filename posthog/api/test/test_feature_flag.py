@@ -8189,6 +8189,37 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             response_json.items(),
         )
 
+    def test_user_blast_radius_with_group_key_unsupported_operator(self):
+        """Test that unsupported operators on $group_key raise validation errors"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="test-org", properties={})
+
+        # Test with unsupported operator (e.g., 'gt' - greater than)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "5",
+                            "operator": "gt",  # Greater than is not supported for $group_key
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not supported", response.json()["detail"].lower())
+
 
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):
