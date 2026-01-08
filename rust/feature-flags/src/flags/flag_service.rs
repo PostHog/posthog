@@ -96,13 +96,7 @@ impl FlagService {
         let team = Team::from_hypercache_value(data)?;
         let cache_hit = !matches!(source, CacheSource::Fallback);
 
-        // Convert CacheSource to static string for canonical log
-        let source_str: &'static str = match source {
-            CacheSource::Redis => "redis",
-            CacheSource::S3 => "s3",
-            CacheSource::Fallback => "pg",
-        };
-        with_canonical_log(|log| log.team_cache_source = Some(source_str));
+        with_canonical_log(|log| log.team_cache_source = Some(source.as_log_str()));
 
         inc(
             TEAM_CACHE_HIT_COUNTER,
@@ -704,7 +698,10 @@ mod tests {
         assert!(result.is_ok());
         let flag_result = result.unwrap();
         assert!(
-            matches!(flag_result.cache_source, common_hypercache::CacheSource::Fallback),
+            matches!(
+                flag_result.cache_source,
+                common_hypercache::CacheSource::Fallback
+            ),
             "Expected fallback to PostgreSQL since mock returned NotFound"
         );
 

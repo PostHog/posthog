@@ -127,7 +127,7 @@ pub struct FlagsCanonicalLogLine {
     pub rate_limited: bool,
 
     // Cache sources (populated during data fetching)
-    /// Where team metadata was fetched from: "redis", "s3", "pg", or None if not fetched
+    /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
     pub team_cache_source: Option<&'static str>,
 
     // Outcome (populated at response time)
@@ -305,7 +305,7 @@ mod tests {
         log.flags_experience_continuity = 2;
         log.flags_disabled = false;
         log.quota_limited = true;
-        log.flags_cache_source = Some("Redis");
+        log.flags_cache_source = Some("redis");
         log.db_property_fetches = 3;
         log.property_cache_hits = 5;
         log.property_cache_misses = 2;
