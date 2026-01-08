@@ -54,6 +54,9 @@ export class SessionFilter {
     /**
      * Block a session so all future messages are dropped.
      *
+     * Fails open: if Redis is unavailable, the session won't be persisted
+     * to the blocklist but will still be blocked locally for this consumer.
+     *
      * @param teamId - The team ID
      * @param sessionId - The session ID to block
      */
@@ -61,11 +64,12 @@ export class SessionFilter {
         const key = this.generateKey(teamId, sessionId)
 
         // Add to local cache immediately for fast lookups
+        // This ensures blocking works even if Redis fails
         this.localCache.set(key, true)
 
-        const client = await this.redisPool.acquire()
-
+        let client
         try {
+            client = await this.redisPool.acquire()
             await client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
 
             SessionBatchMetrics.incrementSessionsBlocked()
@@ -74,13 +78,26 @@ export class SessionFilter {
                 teamId,
                 sessionId,
             })
+        } catch (error) {
+            // Fail open: log the error but don't throw
+            // The session is still blocked locally via the cache
+            logger.warn('session_filter_block_session_redis_error', {
+                teamId,
+                sessionId,
+                error: String(error),
+            })
+            SessionBatchMetrics.incrementSessionFilterRedisErrors()
         } finally {
-            await this.redisPool.release(client)
+            if (client) {
+                await this.redisPool.release(client)
+            }
         }
     }
 
     /**
      * Check if a session is blocked.
+     *
+     * Fails open: if Redis is unavailable, assumes the session is not blocked.
      *
      * @param teamId - The team ID
      * @param sessionId - The session ID
@@ -101,9 +118,9 @@ export class SessionFilter {
 
         SessionBatchMetrics.incrementSessionFilterCacheMiss()
 
-        const client = await this.redisPool.acquire()
-
+        let client
         try {
+            client = await this.redisPool.acquire()
             const exists = await client.exists(key)
             const isBlocked = exists === 1
 
@@ -116,8 +133,19 @@ export class SessionFilter {
             }
 
             return isBlocked
+        } catch (error) {
+            // Fail open: if Redis is unavailable, allow the session through
+            logger.warn('session_filter_is_blocked_redis_error', {
+                teamId,
+                sessionId,
+                error: String(error),
+            })
+            SessionBatchMetrics.incrementSessionFilterRedisErrors()
+            return false
         } finally {
-            await this.redisPool.release(client)
+            if (client) {
+                await this.redisPool.release(client)
+            }
         }
     }
 

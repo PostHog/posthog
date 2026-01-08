@@ -10,6 +10,7 @@ jest.mock('./metrics', () => ({
         incrementSessionFilterCacheHit: jest.fn(),
         incrementSessionFilterCacheMiss: jest.fn(),
         incrementNewSessionsRateLimited: jest.fn(),
+        incrementSessionFilterRedisErrors: jest.fn(),
     },
 }))
 
@@ -75,13 +76,20 @@ describe('SessionFilter', () => {
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedis)
         })
 
-        it('should release Redis connection even on error', async () => {
+        it('should fail open on Redis error but still block locally', async () => {
             mockSessionLimiter.consume.mockReturnValue(false)
             mockRedis.set.mockRejectedValue(new Error('Redis error'))
 
-            await expect(sessionFilter.handleNewSession(1, 'session-123')).rejects.toThrow('Redis error')
+            // Should not throw - fails open
+            await sessionFilter.handleNewSession(1, 'session-123')
 
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedis)
+            expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalled()
+
+            // Session should still be blocked locally (via cache set before Redis call)
+            const isBlocked = await sessionFilter.isBlocked(1, 'session-123')
+            expect(isBlocked).toBe(true)
+            expect(SessionBatchMetrics.incrementSessionFilterCacheHit).toHaveBeenCalled()
         })
     })
 
@@ -163,12 +171,15 @@ describe('SessionFilter', () => {
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedis)
         })
 
-        it('should release Redis connection even on error', async () => {
+        it('should fail open and return false on Redis error', async () => {
             mockRedis.exists.mockRejectedValue(new Error('Redis error'))
 
-            await expect(sessionFilter.isBlocked(1, 'session-123')).rejects.toThrow('Redis error')
+            // Should not throw - fails open and returns false
+            const result = await sessionFilter.isBlocked(1, 'session-123')
 
+            expect(result).toBe(false)
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedis)
+            expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalled()
         })
     })
 

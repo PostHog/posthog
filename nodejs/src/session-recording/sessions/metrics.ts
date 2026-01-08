@@ -108,6 +108,11 @@ export class SessionBatchMetrics {
         help: 'Number of session filter local cache misses (required Redis call)',
     })
 
+    private static readonly sessionFilterRedisErrors = new Counter({
+        name: 'recording_blob_ingestion_v2_session_filter_redis_errors_total',
+        help: 'Number of Redis errors in session filter (failed open)',
+    })
+
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
@@ -191,5 +196,9 @@ export class SessionBatchMetrics {
 
     public static incrementSessionFilterCacheMiss(count: number = 1): void {
         this.sessionFilterCacheMiss.inc(count)
+    }
+
+    public static incrementSessionFilterRedisErrors(count: number = 1): void {
+        this.sessionFilterRedisErrors.inc(count)
     }
 }
