@@ -8,12 +8,11 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { MaterializationType, PropertyDefinition, materializedColumnsLogic } from './materializedColumnsLogic'
+import { PropertyDefinition, materializedColumnsLogic } from './materializedColumnsLogic'
 
 export function CreateSlotModal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -22,7 +21,6 @@ export function CreateSlotModal(): JSX.Element {
     const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null)
     const [searchTerm, setSearchTerm] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
-    const [materializationType, setMaterializationType] = useState<MaterializationType>(MaterializationType.DMAT)
 
     const handleSubmit = async (): Promise<void> => {
         if (!currentTeam || !selectedPropertyId) {
@@ -33,7 +31,7 @@ export function CreateSlotModal(): JSX.Element {
         try {
             await api.create(`api/environments/${currentTeam.id}/materialized_column_slots/assign_slot/`, {
                 property_definition_id: selectedPropertyId,
-                materialization_type: materializationType,
+                materialization_type: 'eav',
             })
             lemonToast.success('Slot assigned successfully')
             setShowCreateModal(false)
@@ -144,41 +142,6 @@ export function CreateSlotModal(): JSX.Element {
                             </div>
                         </div>
                     )}
-                </div>
-
-                <div>
-                    <LemonLabel>Materialization Type</LemonLabel>
-                    <LemonSelect
-                        fullWidth
-                        value={materializationType}
-                        onChange={(value) => setMaterializationType(value as MaterializationType)}
-                        options={[
-                            {
-                                value: MaterializationType.DMAT,
-                                label: 'Dynamic Materialized Column (DMAT)',
-                                labelInMenu: (
-                                    <div>
-                                        <div className="font-medium">Dynamic Materialized Column (DMAT)</div>
-                                        <div className="text-xs text-muted">
-                                            Stores value in a dedicated column on the events table
-                                        </div>
-                                    </div>
-                                ),
-                            },
-                            {
-                                value: MaterializationType.EAV,
-                                label: 'EAV Table',
-                                labelInMenu: (
-                                    <div>
-                                        <div className="font-medium">EAV Table</div>
-                                        <div className="text-xs text-muted">
-                                            Stores value in a separate key-value table (better for high-cardinality)
-                                        </div>
-                                    </div>
-                                ),
-                            },
-                        ]}
-                    />
                 </div>
 
                 {availableProperties.length === 0 && !availablePropertiesLoading && (

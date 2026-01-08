@@ -1,5 +1,6 @@
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_EVENT_PROPERTIES
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 EVENT_PROPERTIES_TABLE = "event_properties"
@@ -109,7 +110,7 @@ SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kaf
 """.format(
         table_name=EVENT_PROPERTIES_KAFKA_TABLE,
         columns=EVENT_PROPERTIES_COLUMNS,
-        engine=kafka_engine(topic="clickhouse_event_properties", group="clickhouse_event_properties"),
+        engine=kafka_engine(topic=KAFKA_CLICKHOUSE_EVENT_PROPERTIES, group="clickhouse_event_properties"),
     )
 
 

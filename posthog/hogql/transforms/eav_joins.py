@@ -135,9 +135,10 @@ def add_eav_joins(node: ast.SelectQuery, context: HogQLContext) -> ast.SelectQue
     # Create aliases for each EAV property
     eav_aliases: dict[str, str] = {}
     for property_name in sorted(finder.eav_properties.keys()):
-        # Create unique alias like "eav_plan", "eav_previous_plan"
+        # Create unique alias with index to avoid collisions
+        # (e.g., "my-prop" and "my_prop" both sanitize to "my_prop")
         safe_name = property_name.replace("$", "_").replace("-", "_")
-        eav_aliases[property_name] = f"eav_{safe_name}"
+        eav_aliases[property_name] = f"eav_{safe_name}_{len(eav_aliases)}"
 
     # Store EAV join info in context for the printer to use
     # The printer will generate the actual JOIN SQL
