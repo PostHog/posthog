@@ -535,8 +535,8 @@ tools:
         bin_script: posthog-node
         description: Start the posthog-node service (old plugin-server)
         hidden: true
-    posthog:hobby-installer:
-        bin_script: hobby-installer
+    posthog:hobby-installer-linux:
+        bin_script: hobby-installer-linux
         description: Run the hobby-installer installation script for Linux, don't use
             it on your MacOS development environment
         hidden: true

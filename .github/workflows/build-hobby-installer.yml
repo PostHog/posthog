@@ -45,7 +45,7 @@ jobs:
 
                   # Versioned release for history
                   gh release create "$VERSION" \
-                      bin/hobby-installer \
+                      bin/hobby-installer-linux \
                       --title "Hobby Installer $VERSION" \
                       --notes "Build from commit ${{ github.sha }}" \
                       --latest=false
@@ -54,7 +54,7 @@ jobs:
                   gh release delete hobby-latest --yes || true
                   git push origin :refs/tags/hobby-latest || true
                   gh release create hobby-latest \
-                      bin/hobby-installer \
+                      bin/hobby-installer-linux \
                       --title "Hobby Installer (Latest)" \
                       --notes "Latest hobby installer build - same as $VERSION
 
