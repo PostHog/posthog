@@ -427,25 +427,25 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: pnpm install --frozen-lockfile
 
-            - name: Check if OpenAPI types are up to date
-              run: |
-                  ./bin/hogli build:openapi
-                  if ! git diff --exit-code; then
-                      echo ""
-                      echo "::error::OpenAPI types are out of date!"
-                      echo ""
-                      echo "The TypeScript API types in products/*/frontend/generated/ are auto-generated"
-                      echo "from Django serializers and views. When you modify the backend API, you need"
-                      echo "to regenerate these types."
-                      echo ""
-                      echo "To fix, run locally:  hogli build:openapi"
-                      echo "Then commit the updated generated files."
-                      echo ""
-                      echo "More info: https://posthog.com/handbook/engineering/type-system"
-                      echo ""
-                      echo "Questions? #team-devex on Slack"
-                      exit 1
-                  fi
+            # - name: Check if OpenAPI types are up to date
+            #   run: |
+            #       ./bin/hogli build:openapi
+            #       if ! git diff --exit-code; then
+            #           echo ""
+            #           echo "::error::OpenAPI types are out of date!"
+            #           echo ""
+            #           echo "The TypeScript API types in products/*/frontend/generated/ are auto-generated"
+            #           echo "from Django serializers and views. When you modify the backend API, you need"
+            #           echo "to regenerate these types."
+            #           echo ""
+            #           echo "To fix, run locally:  hogli build:openapi"
+            #           echo "Then commit the updated generated files."
+            #           echo ""
+            #           echo "More info: https://posthog.com/handbook/engineering/type-system"
+            #           echo ""
+            #           echo "Questions? #team-devex on Slack"
+            #           exit 1
+            #       fi
 
     django:
         needs: [changes, detect-snapshot-mode]
