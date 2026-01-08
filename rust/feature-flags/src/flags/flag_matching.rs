@@ -256,6 +256,9 @@ impl FeatureFlagMatcher {
 
         // Track graph construction errors for the response (errors already logged in build_dependency_graph)
         let has_graph_errors = !graph_errors.is_empty();
+        if has_graph_errors {
+            with_canonical_log(|log| log.dependency_graph_errors = graph_errors.len());
+        }
 
         // Compute experience continuity stats from the filtered graph.
         // This considers all flags that will actually be evaluated (including dependencies).

@@ -327,9 +327,6 @@ export const AIConsent = (): JSX.Element => {
 
     return <App />
 }
-AIConsent.parameters = {
-    featureFlags: [FEATURE_FLAGS.ONBOARDING_AI_CONSENT_STEP],
-}
 
 export const TellUsMore = (): JSX.Element => {
     useMountedLogic(onboardingLogic)

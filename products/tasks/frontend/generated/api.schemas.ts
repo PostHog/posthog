@@ -7,6 +7,24 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Serializer for extracted tasks
+ */
+export interface TaskApi {
+    title: string
+    description?: string
+    /** @nullable */
+    assignee?: string | null
+}
+
+export interface PaginatedTaskListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskApi[]
+}
 
 /**
  * * `error_tracking` - Error Tracking
@@ -62,30 +80,35 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
-export interface PaginatedTaskListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskApi[]
-}
+export type UserBasicApiHedgehogConfigAnyOf = { [key: string]: unknown }
 
 /**
- * Serializer for extracted tasks
- */
-export interface TaskApi {
-    title: string
-    description?: string
-    /** @nullable */
-    assignee?: string | null
-}
-
-/**
- * JSON schema for the task. This is used to validate the output of the task.
  * @nullable
  */
-export type PatchedTaskApiJsonSchema = unknown | null
+export type UserBasicApiHedgehogConfig = UserBasicApiHedgehogConfigAnyOf | null | null
+
+export type UserBasicApiRoleAtOrganization = RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: UserBasicApiRoleAtOrganization
+}
 
 export interface PatchedTaskApi {
     readonly id?: string
@@ -106,54 +129,19 @@ export interface PatchedTaskApi {
      * @nullable
      */
     github_integration?: number | null
-    /**
-     * JSON schema for the task. This is used to validate the output of the task.
-     * @nullable
-     */
-    json_schema?: PatchedTaskApiJsonSchema
+    /** JSON schema for the task. This is used to validate the output of the task. */
+    json_schema?: unknown
     readonly latest_run?: string
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
 }
 
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type UserBasicApiRoleAtOrganization =
-    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
-    | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    /** @nullable */
-    role_at_organization?: UserBasicApiRoleAtOrganization
-}
-
 export type TasksListParams = {
+    /**
+     * Filter by creator user ID
+     */
+    created_by?: number
     /**
      * Number of results to return per page.
      */
