@@ -7984,6 +7984,157 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         # Should match 10 groups that have "org:" in their key
         self.assertLessEqual({"users_affected": 10, "total_users": 11}.items(), response_json.items())
 
+    def test_user_blast_radius_with_integer_property_values(self):
+        """Test that integer property values are correctly normalized to strings for matching"""
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"age": 25, "score": 100},
+        )
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"age": "25", "score": "100"},
+        )
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"age": 30, "score": 200},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": "age", "type": "person", "value": [25], "operator": "exact"},
+                    ],
+                    "rollout_percentage": 100,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Both p1 (int 25) and p2 (string "25") should match
+        self.assertEqual(response_json["users_affected"], 2)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_group_key_regex(self):
+        """Test $group_key with regex operator"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-prod-001", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-staging-002", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="workspace-test-003", properties={})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "^org-(prod|staging)-\\d+$",
+                            "operator": "regex",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match 2 org- groups but not workspace- group
+        self.assertEqual(response_json["users_affected"], 2)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_group_key_and_regular_properties(self):
+        """Test combining $group_key with regular group properties"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="org:premium", properties={"plan": "enterprise"}
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:free", properties={"plan": "free"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="workspace:premium",
+            properties={"plan": "enterprise"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "org:",
+                            "operator": "icontains",
+                            "group_type_index": 0,
+                        },
+                        {
+                            "key": "plan",
+                            "type": "group",
+                            "value": "enterprise",
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match only "org:premium" (has both org: prefix AND enterprise plan)
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_dynamic_cohort(self):
+        """Test that dynamic cohorts are evaluated correctly"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Dynamic cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}],
+                }
+            },
+        )
+
+        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"email": "user@posthog.com"})
+        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"email": "user@example.com"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "id", "type": "cohort", "value": cohort.id}],
+                    "rollout_percentage": 100,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 2)
+
     def test_user_blast_radius_with_groups_incorrect_group_type(self):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
