@@ -1,8 +1,9 @@
 import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
-import { actions, afterMount, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
@@ -15,8 +16,8 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { humanFriendlyDetailedTime, parseTagsFilter } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Params } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     DateRange,
@@ -24,6 +25,8 @@ import {
     LogSeverityLevel,
     LogsQuery,
     LogsSparklineBreakdownBy,
+    ProductIntentContext,
+    ProductKey,
 } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import {
@@ -73,6 +76,9 @@ export const logsLogic = kea<logsLogicType>([
     props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsLogic']),
     tabAwareScene(),
+    connect(() => ({
+        actions: [teamLogic, ['addProductIntent']],
+    })),
     tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (params.dateRange) {
@@ -193,18 +199,16 @@ export const logsLogic = kea<logsLogicType>([
 
         return {
             fetchLogsSuccess: () => clearInitialLogsLimit(),
-            setDateRange: () => buildUrlAndRunQuery(),
-            setFilterGroup: () => buildUrlAndRunQuery(),
-            setSearchTerm: () => buildUrlAndRunQuery(),
-            setSeverityLevels: () => buildUrlAndRunQuery(),
-            setServiceNames: () => buildUrlAndRunQuery(),
-            setOrderBy: () => buildUrlAndRunQuery(),
-            setLogsPageSize: () => updateUrlWithPageSize(),
-            setHighlightedLogId: () => updateHighlightURL(),
+            syncUrlAndRunQuery: () => buildUrlAndRunQuery(),
+            syncUrlWithPageSize: () => updateUrlWithPageSize(),
+            syncUrlWithHighlight: () => updateHighlightURL(),
         }
     }),
 
     actions({
+        syncUrlAndRunQuery: true,
+        syncUrlWithPageSize: true,
+        syncUrlWithHighlight: true,
         runQuery: (debounce?: integer) => ({ debounce }),
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
@@ -245,9 +249,6 @@ export const logsLogic = kea<logsLogicType>([
             operator,
             propertyType,
         }),
-        togglePinLog: (logId: string) => ({ logId }),
-        pinLog: (log: LogMessage) => ({ log }),
-        unpinLog: (logId: string) => ({ logId }),
         setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
         setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
         setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
@@ -388,14 +389,6 @@ export const logsLogic = kea<logsLogicType>([
             [] as string[],
             {
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
-            },
-        ],
-        pinnedLogs: [
-            [] as LogMessage[],
-            { persist: true },
-            {
-                pinLog: (state, { log }) => [...state, log],
-                unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
             },
         ],
         liveTailRunning: [
@@ -613,31 +606,6 @@ export const logsLogic = kea<logsLogicType>([
                 return result
             },
         ],
-        pinnedParsedLogs: [
-            (s) => [s.pinnedLogs],
-            (pinnedLogs: LogMessage[]): ParsedLogMessage[] => {
-                return pinnedLogs.map((log: LogMessage) => {
-                    const cleanBody = colors.unstyle(log.body)
-                    let parsedBody: JsonType | null = null
-                    try {
-                        parsedBody = JSON.parse(cleanBody)
-                    } catch {
-                        // Not JSON, that's fine
-                    }
-                    return {
-                        ...log,
-                        attributes: stringifyLogAttributes(log.attributes),
-                        cleanBody,
-                        parsedBody,
-                        originalLog: log,
-                    }
-                })
-            },
-        ],
-        isPinned: [
-            (s) => [s.pinnedLogs],
-            (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
-        ],
         visibleLogsTimeRange: [
             (s) => [s.parsedLogs, s.orderBy],
             (
@@ -746,9 +714,105 @@ export const logsLogic = kea<logsLogicType>([
                 lemonToast.error(`Failed to load more logs: ${error}`)
             }
         },
+        fetchLogsSuccess: ({ logs }) => {
+            if (logs.length === 0) {
+                posthog.capture('logs no results returned')
+            } else {
+                posthog.capture('logs results returned', { count: logs.length })
+            }
+        },
+        fetchNextLogsPage: () => {
+            posthog.capture('logs load more requested')
+        },
+        setSearchTerm: ({ searchTerm }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', {
+                    filter_type: 'search',
+                    search_term_length: searchTerm?.length ?? 0,
+                })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setFilterGroup: () => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', { filter_type: 'attributes' })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setSeverityLevels: ({ severityLevels }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', {
+                    filter_type: 'severity',
+                    severity_levels: severityLevels ?? [],
+                })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setServiceNames: ({ serviceNames }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', {
+                    filter_type: 'service',
+                    service_count: serviceNames?.length ?? 0,
+                })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setDateRange: () => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', { filter_type: 'date_range' })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setOrderBy: () => {
+            actions.syncUrlAndRunQuery()
+        },
+        setLogsPageSize: () => {
+            actions.syncUrlWithPageSize()
+        },
+        setHighlightedLogId: () => {
+            actions.syncUrlWithHighlight()
+        },
+        setLiveTailRunning: async ({ enabled }) => {
+            if (enabled) {
+                posthog.capture('logs live tail started')
+                actions.pollForNewLogs()
+            } else {
+                actions.cancelInProgressLiveTail(null)
+                actions.expireLiveTail()
+            }
+        },
         runQuery: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(debounce)
+            }
+            // Track query execution (skip initial page load)
+            if (values.hasRunQuery) {
+                posthog.capture('logs query executed', {
+                    has_search_term: !!values.searchTerm,
+                    has_filters: values.filterGroup.values.length > 0,
+                    severity_count: values.severityLevels?.length ?? 0,
+                    service_count: values.serviceNames?.length ?? 0,
+                })
             }
             actions.clearLogs()
             actions.fetchLogs()
@@ -822,17 +886,6 @@ export const logsLogic = kea<logsLogicType>([
 
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
         },
-        togglePinLog: ({ logId }) => {
-            const isPinned = values.pinnedLogs.some((log) => log.uuid === logId)
-            if (isPinned) {
-                actions.unpinLog(logId)
-            } else {
-                const logToPin = values.logs.find((log) => log.uuid === logId)
-                if (logToPin) {
-                    actions.pinLog(logToPin)
-                }
-            }
-        },
         applyLogsPageSize: ({ logsPageSize }) => {
             const currentCount = values.logs.length
 
@@ -875,14 +928,6 @@ export const logsLogic = kea<logsLogicType>([
                 actions.setHighlightedLogId(logs[logs.length - 1].uuid)
             } else if (currentIndex > 0) {
                 actions.setHighlightedLogId(logs[currentIndex - 1].uuid)
-            }
-        },
-        setLiveTailRunning: async ({ enabled }) => {
-            if (enabled) {
-                actions.pollForNewLogs()
-            } else {
-                actions.cancelInProgressLiveTail(null)
-                actions.expireLiveTail()
             }
         },
         pollForNewLogs: async () => {
@@ -1001,24 +1046,6 @@ export const logsLogic = kea<logsLogicType>([
                     .sort((a, b) => dayjs(a.time).diff(dayjs(b.time)) || a.severity.localeCompare(b.severity))
                     .filter((item) => latest_time_bucket.diff(dayjs(item.time), 'seconds') <= sparklineTimeWindow)
             )
-        },
-        copyLinkToLog: ({ logId }: { logId: string }) => {
-            const url = new URL(window.location.href)
-            url.searchParams.set('highlightedLogId', logId)
-            if (values.visibleLogsTimeRange) {
-                url.searchParams.set(
-                    'dateRange',
-                    JSON.stringify({
-                        date_from: values.visibleLogsTimeRange.date_from,
-                        date_to: values.visibleLogsTimeRange.date_to,
-                        explicitDate: true,
-                    })
-                )
-            }
-            if (values.logs.length > 0) {
-                url.searchParams.set('initialLogsLimit', String(values.logs.length))
-            }
-            void copyToClipboard(url.toString(), 'link to log')
         },
     })),
 

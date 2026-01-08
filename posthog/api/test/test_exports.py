@@ -232,18 +232,18 @@ class TestExports(APIBaseTest):
         # look at the page the screenshot will be taken of
         exported_asset = ExportedAsset.objects.get(pk=data["id"])
 
-        with patch("posthog.tasks.exports.image_exporter.process_query_dict") as mock_process_query_dict:
+        with patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight") as mock_calculate:
             # Request does not calculate the result and cache is not warmed up
             context = {"is_shared": True}
             InsightSerializer(self.insight, many=False, context=context)
 
-            mock_process_query_dict.assert_not_called()
+            mock_calculate.assert_not_called()
 
             # Should warm up the cache
             export_image(exported_asset)
             mock_export_to_png.assert_called_once_with(exported_asset, max_height_pixels=None, insight_cache_keys=ANY)
 
-            mock_process_query_dict.assert_called_once()
+            mock_calculate.assert_called_once()
 
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})

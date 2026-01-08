@@ -459,7 +459,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     345: ErrorCodeMeta("TABLE_DIFFERS_TOO_MUCH"),
     346: ErrorCodeMeta("CANNOT_CONVERT_CHARSET"),
     347: ErrorCodeMeta("CANNOT_LOAD_CONFIG"),
-    349: ErrorCodeMeta("CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN"),
+    349: ErrorCodeMeta("CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN", user_safe=True),
     352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME"),
     353: ErrorCodeMeta("INDEX_OF_POSITIONAL_ARGUMENT_IS_OUT_OF_RANGE", user_safe=True),
     354: ErrorCodeMeta("ZLIB_INFLATE_FAILED"),
