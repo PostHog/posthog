@@ -29,7 +29,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
@@ -52,7 +52,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=other_team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
@@ -99,7 +99,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             )
             MaterializedColumnSlot.objects.create(
                 team=self.team,
-                property_definition=prop_def,
+                property_name=prop_def.name,
                 property_type=prop_type,
                 slot_index=slot_index,
                 state=MaterializedColumnSlotState.READY,
@@ -122,7 +122,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             )
             MaterializedColumnSlot.objects.create(
                 team=self.team,
-                property_definition=prop_def,
+                property_name=prop_def.name,
                 property_type=PropertyType.String,
                 slot_index=i,
                 state=MaterializedColumnSlotState.READY,
@@ -168,7 +168,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=already_materialized,
+            property_name=already_materialized.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
@@ -291,7 +291,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             )
             MaterializedColumnSlot.objects.create(
                 team=self.team,
-                property_definition=prop_def,
+                property_name=prop_def.name,
                 property_type=PropertyType.String,
                 slot_index=slot_index,
                 state=MaterializedColumnSlotState.READY,
@@ -326,7 +326,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             )
             MaterializedColumnSlot.objects.create(
                 team=self.team,
-                property_definition=prop_def,
+                property_name=prop_def.name,
                 property_type=PropertyType.String,
                 slot_index=i,
                 state=MaterializedColumnSlotState.READY,
@@ -363,7 +363,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Property must have a type set" in response.json()["error"]
+        assert "property_type is required" in response.json()["error"]
 
     def test_assign_slot_duration_type(self):
         """Test error when trying to materialize Duration property."""
@@ -449,7 +449,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
@@ -484,7 +484,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert "Failed to start backfill workflow" in response.json()["error"]
 
         # Slot should still exist in BACKFILL state
-        slot = MaterializedColumnSlot.objects.get(property_definition=prop_def)
+        slot = MaterializedColumnSlot.objects.get(property_name=prop_def.name)
         assert slot.state == MaterializedColumnSlotState.BACKFILL
 
     @patch("posthog.api.materialized_column_slot.async_to_sync")
@@ -500,7 +500,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.ERROR,
@@ -530,7 +530,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=current_state,
@@ -553,7 +553,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
@@ -576,7 +576,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.BACKFILL,  # In progress!
@@ -600,7 +600,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=1,
             state=MaterializedColumnSlotState.READY,
@@ -621,7 +621,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=2,
             state=MaterializedColumnSlotState.ERROR,

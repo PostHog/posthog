@@ -601,7 +601,6 @@ export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' 
 
 /** Materialized column slot assignment for a team. */
 export interface MaterializedColumnSlot {
-    property_definition_id: string
     property_name: string
     slot_index: number
     slot_property_type: 'string' | 'numeric' | 'bool' | 'datetime'

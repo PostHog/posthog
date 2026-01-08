@@ -25,7 +25,7 @@ async def aeav_slot(ateam, aeav_property_definition):
     """Create a test EAV materialized column slot (async)."""
     return await sync_to_async(MaterializedColumnSlot.objects.create)(
         team=ateam,
-        property_definition=aeav_property_definition,
+        property_name=aeav_property_definition.name,
         property_type=aeav_property_definition.property_type,
         slot_index=0,
         state=MaterializedColumnSlotState.BACKFILL,

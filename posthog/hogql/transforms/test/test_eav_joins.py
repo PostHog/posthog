@@ -24,7 +24,7 @@ class TestEAVJoins(BaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
@@ -57,7 +57,7 @@ class TestEAVJoins(BaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def1,
+            property_name=prop_def1.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
@@ -72,7 +72,7 @@ class TestEAVJoins(BaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def2,
+            property_name=prop_def2.name,
             property_type=PropertyType.String,
             slot_index=1,
             state=MaterializedColumnSlotState.READY,
@@ -105,7 +105,7 @@ class TestEAVJoins(BaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.Numeric,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
@@ -134,7 +134,7 @@ class TestEAVJoins(BaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,

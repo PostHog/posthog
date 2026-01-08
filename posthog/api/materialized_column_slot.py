@@ -14,8 +14,9 @@ from rest_framework.decorators import action
 from temporalio.common import RetryPolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import MaterializationType, MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import MaterializationType, MaterializedColumnSlot, MaterializedColumnSlotState
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.property_definition import PropertyDefinition
 from posthog.permissions import IsStaffUserOrImpersonating
 from posthog.settings import EE_AVAILABLE
 from posthog.temporal.backfill_materialized_property.activities import (
@@ -45,7 +46,9 @@ def get_auto_materialized_property_names() -> set[str]:
         return set()
 
 
-class PropertyDefinitionSerializer(serializers.ModelSerializer):
+class AvailablePropertySerializer(serializers.ModelSerializer):
+    """Serializer for property definitions available for materialization."""
+
     class Meta:
         model = PropertyDefinition
         fields = ["id", "name", "property_type", "type"]
@@ -53,15 +56,12 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
 
 
 class MaterializedColumnSlotSerializer(serializers.ModelSerializer):
-    property_definition_details = PropertyDefinitionSerializer(source="property_definition", read_only=True)
-
     class Meta:
         model = MaterializedColumnSlot
         fields = [
             "id",
             "team",
-            "property_definition",
-            "property_definition_details",
+            "property_name",
             "property_type",
             "slot_index",
             "state",
@@ -80,7 +80,7 @@ class MaterializedColumnSlotSerializer(serializers.ModelSerializer):
 
 class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = MaterializedColumnSlot.objects.all().select_related("property_definition", "team")
+    queryset = MaterializedColumnSlot.objects.all().select_related("team")
     permission_classes = [IsStaffUserOrImpersonating]
     serializer_class = MaterializedColumnSlotSerializer
 
@@ -116,33 +116,31 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         Only returns custom properties and feature flag properties.
         Excludes PostHog system properties and properties already auto-materialized.
         """
-        already_materialized = MaterializedColumnSlot.objects.filter(team_id=self.team_id).values_list(
-            "property_definition_id", flat=True
+        already_materialized_names = set(
+            MaterializedColumnSlot.objects.filter(team_id=self.team_id).values_list("property_name", flat=True)
         )
         auto_materialized_property_names = get_auto_materialized_property_names()
 
-        available_properties = (
-            PropertyDefinition.objects.filter(
-                team_id=self.team_id,
-                property_type__isnull=False,
-                property_type__in=MATERIALIZABLE_PROPERTY_TYPES,
-                type=PropertyDefinition.Type.EVENT,
-            )
-            .exclude(id__in=already_materialized)
-            .order_by("property_type", "name")
-        )
+        available_properties = PropertyDefinition.objects.filter(
+            team_id=self.team_id,
+            property_type__isnull=False,
+            property_type__in=MATERIALIZABLE_PROPERTY_TYPES,
+            type=PropertyDefinition.Type.EVENT,
+        ).order_by("property_type", "name")
 
         # Filter out:
         # 1. PostHog system properties (starting with $) except feature flags ($feature/)
         # 2. Properties already auto-materialized by PostHog
+        # 3. Properties already materialized by user
         filtered_properties = [
             prop
             for prop in available_properties
             if (not prop.name.startswith("$") or prop.name.startswith("$feature/"))
             and prop.name not in auto_materialized_property_names
+            and prop.name not in already_materialized_names
         ]
 
-        return response.Response(PropertyDefinitionSerializer(filtered_properties, many=True).data)
+        return response.Response(AvailablePropertySerializer(filtered_properties, many=True).data)
 
     @action(methods=["GET"], detail=False)
     def auto_materialized(self, request, **kwargs):
@@ -182,20 +180,21 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     def _validate_property_for_materialization(
         self,
-        property_definition: PropertyDefinition,
+        property_name: str,
+        property_type: str | None,
         existing_slots: list[MaterializedColumnSlot],
         auto_materialized_names: set[str],
     ) -> str | None:
         """Returns error message if property cannot be materialized, None if valid."""
-        if not property_definition.property_type:
+        if not property_type:
             return "Property must have a type set to be materialized"
-        if property_definition.property_type not in MATERIALIZABLE_PROPERTY_TYPES:
-            return f"Property type '{property_definition.property_type}' cannot be materialized"
-        if property_definition.name.startswith("$") and not property_definition.name.startswith("$feature/"):
+        if property_type not in MATERIALIZABLE_PROPERTY_TYPES:
+            return f"Property type '{property_type}' cannot be materialized"
+        if property_name.startswith("$") and not property_name.startswith("$feature/"):
             return "PostHog system properties cannot be materialized"
-        if property_definition.name in auto_materialized_names:
-            return f"Property '{property_definition.name}' is already auto-materialized by PostHog"
-        if any(slot.property_definition_id == property_definition.id for slot in existing_slots):
+        if property_name in auto_materialized_names:
+            return f"Property '{property_name}' is already auto-materialized by PostHog"
+        if any(slot.property_name == property_name for slot in existing_slots):
             return "Property is already materialized"
         return None
 
@@ -291,15 +290,33 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             item_id=str(slot.id),
             scope="DataManagement",
             activity="materialized_column_created",
-            detail=Detail(name=slot.property_definition.name),
+            detail=Detail(name=slot.property_name),
         )
 
     @action(methods=["POST"], detail=False)
     def assign_slot(self, request, **kwargs):
-        """Assign a property to an available slot."""
+        """Assign a property to an available slot.
+
+        Accepts either property_name + property_type directly, or property_definition_id
+        to look up the name and type from the property definition.
+        """
+        property_name = request.data.get("property_name")
+        property_type = request.data.get("property_type")
         property_definition_id = request.data.get("property_definition_id")
-        if not property_definition_id:
-            return response.Response({"error": "property_definition_id is required"}, status=400)
+
+        # Support both direct property_name/property_type and legacy property_definition_id
+        if property_definition_id and not property_name:
+            try:
+                property_definition = PropertyDefinition.objects.get(id=property_definition_id, team_id=self.team_id)
+                property_name = property_definition.name
+                property_type = property_definition.property_type
+            except PropertyDefinition.DoesNotExist:
+                return response.Response({"error": "Property definition not found"}, status=404)
+
+        if not property_name:
+            return response.Response({"error": "property_name is required"}, status=400)
+        if not property_type:
+            return response.Response({"error": "property_type is required"}, status=400)
 
         # Parse materialization type, default to DMAT for backwards compatibility
         materialization_type_str = request.data.get("materialization_type", MaterializationType.DMAT)
@@ -316,21 +333,13 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         try:
             with transaction.atomic():
-                # Fetch all data we need upfront
-                property_definition = PropertyDefinition.objects.select_for_update().get(
-                    id=property_definition_id, team_id=self.team_id
-                )
-                existing_slots = list(MaterializedColumnSlot.objects.filter(team_id=self.team_id))
+                existing_slots = list(MaterializedColumnSlot.objects.select_for_update().filter(team_id=self.team_id))
 
                 validation_error = self._validate_property_for_materialization(
-                    property_definition, existing_slots, auto_materialized_names
+                    property_name, property_type, existing_slots, auto_materialized_names
                 )
                 if validation_error:
                     return response.Response({"error": validation_error}, status=400)
-
-                # Validation ensures property_type is set
-                property_type = property_definition.property_type
-                assert property_type is not None
 
                 # For DMAT, we need a slot index. For EAV, slot_index is not used (set to 0)
                 if materialization_type == MaterializationType.DMAT:
@@ -346,7 +355,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
                 slot = MaterializedColumnSlot.objects.create(
                     team=self.team,
-                    property_definition=property_definition,
+                    property_name=property_name,
                     property_type=property_type,
                     slot_index=slot_index,
                     state=MaterializedColumnSlotState.BACKFILL,
@@ -354,8 +363,6 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                     created_by=request.user,
                 )
 
-        except PropertyDefinition.DoesNotExist:
-            return response.Response({"error": "Property definition not found"}, status=404)
         except IntegrityError:
             return response.Response(
                 {"error": "Conflict detected. Please refresh and try again."},
@@ -365,7 +372,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         # Start workflow outside transaction (idempotent, slot already committed)
         workflow_error = self._start_backfill_workflow(
             slot,
-            property_name=property_definition.name,
+            property_name=property_name,
             property_type=property_type,
         )
         if workflow_error:
@@ -385,7 +392,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 status=http_status.HTTP_400_BAD_REQUEST,
             )
 
-        property_name = slot.property_definition.name
+        property_name = slot.property_name
 
         log_activity(
             organization_id=slot.team.organization_id,
@@ -421,7 +428,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 status=http_status.HTTP_400_BAD_REQUEST,
             )
 
-        property_name = slot.property_definition.name
+        property_name = slot.property_name
         property_type = slot.property_type
 
         # Update state back to BACKFILL and clear error message

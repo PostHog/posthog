@@ -58,7 +58,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
 
-    # Load event property definitions with their materialized slots in a single query
+    # Load event property definitions
     event_property_definitions = (
         PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
@@ -68,25 +68,28 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             name__in=property_finder.event_properties,
             type__in=[None, PropertyDefinition.Type.EVENT],
         )
-        .prefetch_related(
-            models.Prefetch(
-                "materialized_column_slots",
-                queryset=MaterializedColumnSlot.objects.filter(
-                    team_id=context.team_id, state=MaterializedColumnSlotState.READY
-                ),
-            )
-        )
+        .values_list("name", "property_type")
         if property_finder.event_properties
         else []
     )
 
+    # Load materialized slots for event properties (separate query)
+    materialized_slots_by_name: dict[str, MaterializedColumnSlot] = {}
+    if property_finder.event_properties:
+        slots = MaterializedColumnSlot.objects.filter(
+            team_id=context.team_id,
+            state=MaterializedColumnSlotState.READY,
+            property_name__in=property_finder.event_properties,
+        )
+        materialized_slots_by_name = {slot.property_name: slot for slot in slots}
+
     event_properties: dict[str, dict[str, str | None]] = {}
-    for prop_def in event_property_definitions:
-        if not prop_def.property_type:
+    for name, property_type in event_property_definitions:
+        if not property_type:
             continue
 
-        prop_info: dict[str, str | None] = {"type": prop_def.property_type}
-        slot = prop_def.materialized_column_slots.first()
+        prop_info: dict[str, str | None] = {"type": property_type}
+        slot = materialized_slots_by_name.get(name)
         if slot:
             if slot.materialization_type == MaterializationType.DMAT:
                 type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type)
@@ -97,7 +100,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
                 if eav_column:
                     prop_info["eav"] = eav_column
 
-        event_properties[prop_def.name] = prop_info
+        event_properties[name] = prop_info
 
     person_property_values = (
         PropertyDefinition.objects.alias(

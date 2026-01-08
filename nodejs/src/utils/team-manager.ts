@@ -134,8 +134,7 @@ export class TeamManager {
                 (
                     SELECT COALESCE(json_agg(
                         json_build_object(
-                            'property_definition_id', slots.property_definition_id,
-                            'property_name', pd.name,
+                            'property_name', slots.property_name,
                             'slot_index', slots.slot_index,
                             'slot_property_type', CASE
                                 WHEN slots.property_type = 'String' THEN 'string'
@@ -149,7 +148,6 @@ export class TeamManager {
                         ) ORDER BY slots.slot_index
                     ), '[]'::json)
                     FROM posthog_materializedcolumnslot slots
-                    JOIN posthog_propertydefinition pd ON pd.id = slots.property_definition_id
                     WHERE slots.team_id = t.id
                         AND slots.state IN ('READY', 'BACKFILL')
                 ) as materialized_column_slots

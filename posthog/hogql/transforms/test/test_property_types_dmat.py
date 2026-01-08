@@ -35,7 +35,7 @@ class TestDmatIntegration(BaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.Numeric,
             slot_index=3,
             state=MaterializedColumnSlotState.READY,
@@ -82,7 +82,7 @@ class TestDmatIntegration(BaseTest):
         )
         MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.Numeric,
             slot_index=0,
             state=MaterializedColumnSlotState.BACKFILL,
@@ -258,7 +258,7 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
         for tc in TEST_CASES:
             MaterializedColumnSlot.objects.create(
                 team=self.team,
-                property_definition=prop_defs[tc.name],
+                property_name=prop_defs[tc.name].name,
                 property_type=tc.type,
                 slot_index=slot_mapping[tc.name]["slot_idx"],
                 state=MaterializedColumnSlotState.READY,
