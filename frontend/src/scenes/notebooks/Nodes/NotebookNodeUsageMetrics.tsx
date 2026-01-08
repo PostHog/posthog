@@ -128,7 +128,6 @@ export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsag
     titlePlaceholder: 'Usage',
     Component,
     Settings,
-    settingsIcon: 'gear',
     resizeable: false,
     expandable: true,
     startExpanded: true,

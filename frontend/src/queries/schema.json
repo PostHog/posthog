@@ -19334,7 +19334,15 @@
                     },
                     "type": "object"
                 },
+                "conversion_goal_mappings": {
+                    "description": "Mappings to team-level conversion goals with optional schema_map for DW goals",
+                    "items": {
+                        "$ref": "#/definitions/MarketingConversionGoalMapping"
+                    },
+                    "type": "array"
+                },
                 "conversion_goals": {
+                    "deprecated": "Use conversion_goal_mappings instead. Kept for backwards compatibility.",
                     "items": {
                         "$ref": "#/definitions/ConversionGoalFilter"
                     },
@@ -19612,6 +19620,22 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "MarketingConversionGoalMapping": {
+            "additionalProperties": false,
+            "description": "Maps a CoreEvent to marketing analytics with optional UTM field mappings",
+            "properties": {
+                "core_event_id": {
+                    "description": "Reference to the CoreEvent.id",
+                    "type": "string"
+                },
+                "schema_map": {
+                    "$ref": "#/definitions/SchemaMap",
+                    "description": "UTM field mappings - required for DataWarehouseNode, optional otherwise"
+                }
+            },
+            "required": ["core_event_id"],
             "type": "object"
         },
         "MarketingIntegrationConfig": {
@@ -22085,6 +22109,7 @@
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
                 "logs_docs_viewed",
+                "logs_set_filters",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -29353,6 +29378,41 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "SessionRecordingExternalReference": {
+            "additionalProperties": false,
+            "properties": {
+                "external_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "integration": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "display_name": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "number"
+                        },
+                        "kind": {
+                            "$ref": "#/definitions/IntegrationKind"
+                        }
+                    },
+                    "required": ["id", "kind", "display_name"],
+                    "type": "object"
+                },
+                "issue_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "integration", "external_url", "title", "issue_id"],
+            "type": "object"
+        },
         "SessionRecordingType": {
             "additionalProperties": false,
             "properties": {
@@ -29388,6 +29448,13 @@
                 "expiry_time": {
                     "description": "When the recording expires, in ISO format.",
                     "type": "string"
+                },
+                "external_references": {
+                    "description": "External references to third party issues.",
+                    "items": {
+                        "$ref": "#/definitions/SessionRecordingExternalReference"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "type": "string"

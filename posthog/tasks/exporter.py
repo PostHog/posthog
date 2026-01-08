@@ -33,19 +33,9 @@ from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
-EXPORT_QUEUED_COUNTER = Counter(
-    "exporter_task_queued",
-    "An export task was queued",
-    labelnames=["type"],
-)
 EXPORT_SUCCEEDED_COUNTER = Counter(
     "exporter_task_succeeded",
     "An export task succeeded",
-    labelnames=["type"],
-)
-EXPORT_ASSET_UNKNOWN_COUNTER = Counter(
-    "exporter_task_unknown_asset",
-    "An export task was for an unknown asset",
     labelnames=["type"],
 )
 EXPORT_FAILED_COUNTER = Counter(
@@ -100,6 +90,7 @@ def record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
     exported_asset.exception = str(e)
     exported_asset.exception_type = type(e).__name__
     exported_asset.save()
+    EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_format).inc()
 
 
 def _is_final_export_attempt(exception: Exception, current_retries: int, max_retries: int) -> bool:
@@ -185,10 +176,9 @@ def export_asset_direct(
     try:
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit)
-            EXPORT_QUEUED_COUNTER.labels(type="csv").inc()
         else:
             image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels)
-            EXPORT_QUEUED_COUNTER.labels(type="image").inc()
+        EXPORT_SUCCEEDED_COUNTER.labels(type=exported_asset.export_format).inc()
 
         logger.info(
             "export_asset.succeeded",
