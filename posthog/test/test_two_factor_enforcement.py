@@ -520,44 +520,32 @@ class TestUserTwoFactorSessionIntegration(TestCase):
         response = self.client.get("/api/schema/")
         self.assertEqual(response.status_code, 200)
 
-
-class TestTwoFactorSecurityFixes(TestCase):
-    """Tests for security fixes in 2FA implementation"""
-
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.user = User.objects.create_and_join(
-            self.organization, "test@posthog.com", "testpassword", first_name="Test"
-        )
-        self.client = APIClient()
-
     def test_two_factor_viewset_invalid_session_returns_error(self):
-        """Test that TwoFactorViewSet returns error when session keys are missing"""
-        # Attempt 2FA verification without proper session setup
-        response = self.client.post("/api/login/token/", {"token": "123456"})
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        response = client.post("/api/login/token/", {"token": "123456"})
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data.get("code"), "invalid_2fa_session")
 
     def test_two_factor_viewset_user_not_found_returns_error(self):
-        """Test that TwoFactorViewSet handles deleted user gracefully"""
-        # Set up session with non-existent user
-        session = self.client.session
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        session = client.session
         session["user_authenticated_but_no_2fa"] = 99999
         session["user_authenticated_time"] = time.time()
         session.save()
 
-        response = self.client.post("/api/login/token/", {"token": "123456"})
+        response = client.post("/api/login/token/", {"token": "123456"})
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data.get("code"), "invalid_2fa_session")
 
     def test_backup_codes_generates_ten_codes(self):
-        """Test that backup codes endpoint generates 10 codes (industry standard)"""
         from django_otp.plugins.otp_totp.models import TOTPDevice
 
-        self.client.force_login(self.user)
-        # First enable 2FA
         TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
 
         response = self.client.post(f"/api/users/@me/two_factor_backup_codes/")
@@ -567,23 +555,21 @@ class TestTwoFactorSecurityFixes(TestCase):
 
     @patch("posthog.rate_limit.TwoFactorThrottle.rate", new="3/minute")
     def test_two_factor_viewset_rate_limiting(self):
-        """Test that TwoFactorViewSet is rate limited per user"""
         from django.core.cache import cache
+
+        from rest_framework.test import APIClient
 
         cache.clear()
 
-        # Set up valid session state
-        session = self.client.session
+        client = APIClient()
+        session = client.session
         session["user_authenticated_but_no_2fa"] = self.user.pk
         session["user_authenticated_time"] = time.time()
         session.save()
 
-        # Make requests up to the limit (3 with patched rate)
         for i in range(3):
-            response = self.client.post("/api/login/token/", {"token": "123456"})
-            # Should get 400 (invalid token) not 429 (throttled)
+            response = client.post("/api/login/token/", {"token": "123456"})
             self.assertEqual(response.status_code, 400, f"Request {i+1} should not be throttled")
 
-        # Next request should be throttled
-        response = self.client.post("/api/login/token/", {"token": "123456"})
+        response = client.post("/api/login/token/", {"token": "123456"})
         self.assertEqual(response.status_code, 429)
