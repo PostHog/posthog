@@ -277,6 +277,12 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub db_monitor_interval_secs: u64,
 
+    // How often to report cohort cache metrics (seconds)
+    // - Decrease for more granular monitoring (e.g., 10-15)
+    // - Increase to reduce metric volume (e.g., 60-120)
+    #[envconfig(default = "30")]
+    pub cohort_cache_monitor_interval_secs: u64,
+
     // Pool utilization percentage that triggers warnings (0.0-1.0)
     // - Lower values (e.g., 0.7) provide earlier warnings
     // - Higher values (e.g., 0.9) reduce alert noise
@@ -469,6 +475,21 @@ pub struct Config {
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_ip_rate_limit_log_only: FlexBool,
 
+    // How often to clean up stale rate limiter entries (seconds)
+    // The governor crate's keyed rate limiters accumulate entries for every unique key.
+    // Without periodic cleanup, this leads to unbounded memory growth.
+    // This interval controls how often retain_recent() is called to remove stale entries.
+    #[envconfig(from = "RATE_LIMITER_CLEANUP_INTERVAL_SECS", default = "60")]
+    pub rate_limiter_cleanup_interval_secs: u64,
+
+    // Experience continuity optimization
+    // When enabled, skip hash key override lookups for flags that don't need them:
+    // - Flags at 100% rollout with no multivariate variants OR where a single variant is at 100%
+    // These flags return the same value regardless of user bucketing, so the lookup is wasted work.
+    // Disabled by default for safe rollout - enable after validation.
+    #[envconfig(from = "OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS", default = "false")]
+    pub optimize_experience_continuity_lookups: FlexBool,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -557,6 +578,7 @@ impl Config {
             persons_reader_statement_timeout_ms: 5000,
             writer_statement_timeout_ms: 5000,
             db_monitor_interval_secs: 30,
+            cohort_cache_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
             health_check_interval_secs: 30,
@@ -596,8 +618,10 @@ impl Config {
             flags_ip_replenish_rate: 100.0,
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
+            rate_limiter_cleanup_interval_secs: 60,
             redis_compression_enabled: FlexBool(true),
             redis_client_retry_count: 3,
+            optimize_experience_continuity_lookups: FlexBool(false),
         }
     }
 

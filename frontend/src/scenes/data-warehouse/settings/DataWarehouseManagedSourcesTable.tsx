@@ -60,9 +60,14 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                             <LemonTableLink
                                 to={urls.dataWarehouseSource(`managed-${source.id}`)}
                                 title={availableSources[source.source_type]?.label ?? source.source_type}
-                                description={source.prefix}
+                                description={source.description}
                             />
                         ),
+                    },
+                    {
+                        title: 'Table prefix',
+                        key: 'prefix',
+                        render: (_, source) => source.prefix || '-',
                     },
                     {
                         title: 'Last Successful Run',

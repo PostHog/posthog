@@ -4,7 +4,7 @@ import { ErrorPropertyTabEvent, EventPropertyTabs } from 'lib/components/EventPr
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { SurveyResponseDisplay } from 'lib/components/SurveyResponseDisplay/SurveyResponseDisplay'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
@@ -48,9 +48,10 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                             sessionId={properties.$session_id}
                                             recordingStatus={properties.$recording_status}
                                             timestamp={event.timestamp}
-                                            inModal={false}
+                                            hasRecording={properties.has_recording as boolean | undefined}
                                             size="small"
                                             type="secondary"
+                                            openPlayerIn={RecordingPlayerType.NewTab}
                                             data-attr="conversation-view-session-recording-button"
                                         />
                                     </div>

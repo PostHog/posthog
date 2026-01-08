@@ -1,6 +1,5 @@
 import clsx from 'clsx'
-import { useActions } from 'kea'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -12,6 +11,8 @@ import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 
+import { multitabEditorLogic } from '../multitabEditorLogic'
+
 const documentationUrl = 'https://posthog.com/docs/sql/variables'
 
 export function QueryVariables(): JSX.Element {
@@ -20,17 +21,22 @@ export function QueryVariables(): JSX.Element {
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { variableOverridesAreSet } = useValues(dataNodeLogic)
     const { openExistingVariableModal } = useActions(variableModalLogic)
+    const { insertTextAtCursor } = useActions(multitabEditorLogic)
 
     return (
-        <div className="flex flex-col gap-1.5" data-attr="sql-editor-sidebar-query-variables-pane">
-            <div className="flex flex-col items-start">
+        <div className="overflow-auto" data-attr="sql-editor-sidebar-query-variables-pane">
+            <div className="flex flex-row items-center gap-2">
                 <h3 className="mb-0">Query variables</h3>
-                <span className="text-xs">
-                    Query variables let you dynamically set values in your SQL query.{' '}
+            </div>
+            <div className="space-y-2">
+                <p className="text-xs">
+                    Query variables let you dynamically set values in your SQL query. Add a variable and then use it in
+                    your HogQL query. The value you set here can be changed when viewing the insight or dashboard.
+                    <br />
                     <Link to={documentationUrl} target="_blank">
-                        Learn more
+                        Learn more about variables
                     </Link>
-                </span>
+                </p>
             </div>
             <div
                 className={clsx(
@@ -44,6 +50,7 @@ export function QueryVariables(): JSX.Element {
                         variable={n}
                         showEditingUI={showEditingUI}
                         onChange={updateVariableValue}
+                        onInsertAtCursor={insertTextAtCursor}
                         onRemove={removeVariable}
                         variableOverridesAreSet={variableOverridesAreSet}
                         variableSettingsOnClick={() => openExistingVariableModal(n)}

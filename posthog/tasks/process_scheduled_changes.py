@@ -1,20 +1,33 @@
 import os
 import json
 import socket
+from datetime import datetime
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import IntegrityError, OperationalError, transaction
 from django.utils import timezone
 
+import structlog
 from celery import current_task
+from dateutil.relativedelta import relativedelta
+from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, ScheduledChange
+
+logger = structlog.get_logger(__name__)
 
 models = {"FeatureFlag": FeatureFlag}
 
 # Maximum number of retry attempts before marking as permanently failed
 MAX_RETRY_ATTEMPTS = 5
+
+# Prometheus metric for tracking missed scheduled executions
+SCHEDULED_CHANGE_MISSED_EXECUTIONS = Counter(
+    "posthog_scheduled_change_missed_executions_total",
+    "Number of scheduled change executions that were skipped due to delayed processing",
+    ["interval"],
+)
 
 
 def is_unrecoverable_error(exception: Exception) -> bool:
@@ -59,6 +72,37 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     return isinstance(exception, unrecoverable_types)
 
 
+def compute_next_run(current: datetime, interval: str) -> datetime:
+    """
+    Compute the next scheduled run time based on recurrence interval.
+
+    Uses relativedelta for reliable date arithmetic:
+    - Daily: adds exactly 1 day
+    - Weekly: adds exactly 7 days
+    - Monthly: adds 1 month, handling month-end edge cases
+      (e.g., Jan 31 + 1 month = Feb 28/29, not Mar 3)
+
+    Args:
+        current: The current scheduled_at datetime
+        interval: One of 'daily', 'weekly', 'monthly' (validated at API layer via
+            ScheduledChange.RecurrenceInterval). We use str instead of Literal here
+            because Django's TextChoices fields return str at runtime, not the enum type.
+
+    Returns:
+        The next scheduled datetime
+
+    Raises:
+        ValueError: If interval is not a recognized value
+    """
+    if interval == "daily":
+        return current + relativedelta(days=1)
+    elif interval == "weekly":
+        return current + relativedelta(weeks=1)
+    elif interval == "monthly":
+        return current + relativedelta(months=1)
+    raise ValueError(f"Unknown recurrence interval: {interval}")
+
+
 def process_scheduled_changes() -> None:
     try:
         with transaction.atomic():
@@ -72,6 +116,12 @@ def process_scheduled_changes() -> None:
             )
 
             for scheduled_change in scheduled_changes:
+                # Skip paused recurring schedules (is_recurring=false but has recurrence_interval)
+                # These are "paused" and should not execute until resumed
+                is_paused = not scheduled_change.is_recurring and scheduled_change.recurrence_interval
+                if is_paused:
+                    continue
+
                 try:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]
@@ -80,9 +130,53 @@ def process_scheduled_changes() -> None:
                         scheduled_change.payload, scheduled_change.created_by, scheduled_change_id=scheduled_change.id
                     )
 
-                    # Mark scheduled change completed
-                    scheduled_change.executed_at = timezone.now()
-                    scheduled_change.save()
+                    # Handle recurring vs one-time schedules
+                    if scheduled_change.is_recurring and scheduled_change.recurrence_interval:
+                        # Compute next run time, handling delayed execution
+                        next_run = compute_next_run(
+                            scheduled_change.scheduled_at,
+                            scheduled_change.recurrence_interval,
+                        )
+                        # If task execution was delayed and next_run is still in the past, skip ahead
+                        # to avoid immediate re-trigger or missed executions piling up
+                        now = timezone.now()
+                        skipped_count = 0
+                        while next_run <= now:
+                            next_run = compute_next_run(next_run, scheduled_change.recurrence_interval)
+                            skipped_count += 1
+
+                        # Log and track if we skipped executions due to delayed processing
+                        # (skipped_count > 1 means we skipped more than just advancing to the next run)
+                        if skipped_count > 1:
+                            missed_count = skipped_count - 1
+                            logger.warning(
+                                "Recurring schedule skipped executions due to delayed processing",
+                                scheduled_change_id=scheduled_change.id,
+                                missed_count=missed_count,
+                                interval=scheduled_change.recurrence_interval,
+                                next_run=next_run.isoformat(),
+                            )
+                            SCHEDULED_CHANGE_MISSED_EXECUTIONS.labels(
+                                interval=scheduled_change.recurrence_interval
+                            ).inc(missed_count)
+
+                        # Check if end_date has passed - if so, mark as completed
+                        if scheduled_change.end_date and next_run > scheduled_change.end_date:
+                            scheduled_change.executed_at = now
+                            scheduled_change.last_executed_at = now
+                            scheduled_change.save()
+                        else:
+                            scheduled_change.scheduled_at = next_run
+                            scheduled_change.last_executed_at = now
+                            scheduled_change.save()
+                    else:
+                        # One-time schedule: mark as completed
+                        # Note: We intentionally don't set last_executed_at for one-time schedules
+                        # because executed_at already serves as the completion timestamp. last_executed_at
+                        # is an audit field for recurring schedules to track "when did the last recurrence run"
+                        # while executed_at=NULL (schedule still active).
+                        scheduled_change.executed_at = timezone.now()
+                        scheduled_change.save()
 
                 except Exception as e:
                     # Build comprehensive failure context (only info not already in ScheduledChange columns)

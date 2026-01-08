@@ -11,6 +11,7 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor } from '~/types'
@@ -122,6 +123,11 @@ type SceneMainTitleProps = {
      * @default undefined
      */
     forceBackTo?: Breadcrumb
+
+    /**
+     * Additional class name for the title section
+     */
+    className?: string
 }
 
 export function SceneTitleSection({
@@ -139,8 +145,10 @@ export function SceneTitleSection({
     noBorder = false,
     actions,
     forceBackTo,
+    className,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
 
@@ -170,6 +178,11 @@ export function SceneTitleSection({
     ) : (
         iconForType(resourceType.type ? (resourceType.type as FileSystemIconType) : undefined)
     )
+
+    if (zenMode) {
+        return null
+    }
+
     return (
         <>
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
@@ -182,7 +195,8 @@ export function SceneTitleSection({
                 className={cn(
                     'bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
-                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent'
+                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
+                    className
                 )}
             >
                 <div

@@ -12,11 +12,9 @@ Endpoints:
 import time
 from typing import cast
 
-from django.conf import settings
 from django.core.cache import cache
 
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, extend_schema
@@ -35,11 +33,8 @@ from posthog.rate_limit import (
     LLMAnalyticsSummarizationSustainedThrottle,
 )
 
-from products.llm_analytics.backend.summarization.constants import (
-    EARLY_ADOPTERS_FEATURE_FLAG,
-    SUMMARIZATION_FEATURE_FLAG,
-)
 from products.llm_analytics.backend.summarization.llm import summarize
+from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
     format_event_text_repr,
@@ -56,8 +51,8 @@ class SummarizeRequestSerializer(serializers.Serializer):
         help_text="Type of entity to summarize",
     )
     mode = serializers.ChoiceField(
-        choices=["minimal", "detailed"],
-        default="minimal",
+        choices=[m.value for m in SummarizationMode],
+        default=SummarizationMode.MINIMAL.value,
         help_text="Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points",
     )
     data = serializers.JSONField(  # type: ignore[assignment]
@@ -67,6 +62,20 @@ class SummarizeRequestSerializer(serializers.Serializer):
         default=False,
         required=False,
         help_text="Force regenerate summary, bypassing cache",
+    )
+    provider = serializers.ChoiceField(
+        choices=[p.value for p in SummarizationProvider],
+        default=None,
+        required=False,
+        allow_null=True,
+        help_text="LLM provider to use (defaults to 'openai')",
+    )
+    model = serializers.CharField(
+        default=None,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="LLM model to use (defaults based on provider)",
     )
 
 
@@ -109,9 +118,23 @@ class BatchCheckRequestSerializer(serializers.Serializer):
         max_length=100,
     )
     mode = serializers.ChoiceField(
-        choices=["minimal", "detailed"],
-        default="minimal",
+        choices=[m.value for m in SummarizationMode],
+        default=SummarizationMode.MINIMAL.value,
         help_text="Summary detail level to check for",
+    )
+    provider = serializers.ChoiceField(
+        choices=[p.value for p in SummarizationProvider],
+        default=None,
+        required=False,
+        allow_null=True,
+        help_text="LLM provider to check for (defaults to 'openai')",
+    )
+    model = serializers.CharField(
+        default=None,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="LLM model to check for (defaults based on provider)",
     )
 
 
@@ -143,54 +166,35 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         ]
 
     def _validate_feature_access(self, request: Request) -> None:
-        """Validate that the user has access to the summarization feature."""
+        """Validate that the user is authenticated and AI data processing is approved."""
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
 
-        if settings.DEBUG:
-            return
-
-        user = cast(User, request.user)
-        distinct_id = str(user.distinct_id)
-        organization_id = str(self.team.organization_id)
-
-        # Include person properties for cohort-based targeting and
-        # groups/group_properties for organization-level targeting (including Early Access Features)
-        person_properties = {"email": user.email}
-        groups = {"organization": organization_id}
-        group_properties = {"organization": {"id": organization_id}}
-
-        if not (
-            posthoganalytics.feature_enabled(
-                SUMMARIZATION_FEATURE_FLAG,
-                distinct_id,
-                person_properties=person_properties,
-                groups=groups,
-                group_properties=group_properties,
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
+        if not self.organization.is_ai_data_processing_approved:
+            raise exceptions.PermissionDenied(
+                "AI data processing must be approved by your organization before using summarization"
             )
-            or posthoganalytics.feature_enabled(
-                EARLY_ADOPTERS_FEATURE_FLAG,
-                distinct_id,
-                person_properties=person_properties,
-                groups=groups,
-                group_properties=group_properties,
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        ):
-            raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this user")
 
-    def _get_cache_key(self, summarize_type: str, entity_id: str, mode: str) -> str:
+    def _get_cache_key(
+        self,
+        summarize_type: str,
+        entity_id: str,
+        mode: str,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> str:
         """Generate cache key for summary results.
 
         Args:
             summarize_type: 'trace' or 'event'
             entity_id: Unique identifier for the entity being summarized
             mode: Summary detail level ('minimal' or 'detailed')
+            provider: LLM provider (defaults to 'openai')
+            model: LLM model (defaults based on provider)
         """
-        return f"llm_summary:{self.team_id}:{summarize_type}:{entity_id}:{mode}"
+        provider_key = provider or "default"
+        model_key = model or "default"
+        return f"llm_summary:{self.team_id}:{summarize_type}:{entity_id}:{mode}:{provider_key}:{model_key}"
 
     def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
         """Extract entity ID and validated entity data based on summarize type.
@@ -242,11 +246,12 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         }
 
         if summarize_type == "trace":
-            return format_trace_text_repr(
+            text, _ = format_trace_text_repr(
                 trace=entity_data["trace"],
                 hierarchy=entity_data["hierarchy"],
                 options=options,
             )
+            return text
         else:  # event
             return format_event_text_repr(event=entity_data["event"], options=options)
 
@@ -352,9 +357,6 @@ representation, and uses an LLM to create a concise summary with line references
 - "Interesting Notes" section for failures, successes, or unusual patterns
 - Line references in [L45] or [L45-52] format pointing to relevant sections
 
-**Feature Flag:**
-- Requires `llm-analytics-summarization` feature flag enabled at team level
-
 **Use Cases:**
 - Quick understanding of complex traces
 - Identifying key events and patterns
@@ -383,10 +385,15 @@ The response includes the summary text and optional metadata.
             mode = serializer.validated_data["mode"]
             data = serializer.validated_data["data"]
             force_refresh = serializer.validated_data["force_refresh"]
+            provider = serializer.validated_data.get("provider")
+            model = serializer.validated_data.get("model")
+            # Treat empty string as None for model
+            if model == "":
+                model = None
 
             entity_id, entity_data = self._extract_entity_id(summarize_type, data)
 
-            cache_key = self._get_cache_key(summarize_type, entity_id, mode)
+            cache_key = self._get_cache_key(summarize_type, entity_id, mode, provider, model)
             if not force_refresh:
                 cached_result = cache.get(cache_key)
                 if cached_result is not None:
@@ -406,6 +413,8 @@ The response includes the summary text and optional metadata.
                 text_repr=text_repr,
                 team_id=self.team_id,
                 mode=mode,
+                provider=provider,
+                model=model,
             )
 
             duration_seconds = time.time() - start_time
@@ -490,10 +499,15 @@ with their titles.
 
         trace_ids = serializer.validated_data["trace_ids"]
         mode = serializer.validated_data["mode"]
+        provider = serializer.validated_data.get("provider")
+        model = serializer.validated_data.get("model")
+        # Treat empty string as None for model
+        if model == "":
+            model = None
 
         summaries = []
         for trace_id in trace_ids:
-            cache_key = self._get_cache_key("trace", trace_id, mode)
+            cache_key = self._get_cache_key("trace", trace_id, mode, provider, model)
             cached_result = cache.get(cache_key)
             if cached_result is not None:
                 summary_data = cached_result.get("summary", {})

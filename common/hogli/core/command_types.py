@@ -236,7 +236,14 @@ class CompositeCommand(Command):
     def get_underlying_command(self) -> str:
         """Return the composed command string."""
         steps = self.config.get("steps", [])
-        return f"hogli {' && hogli '.join(steps)}"
+        step_strs = []
+        for step in steps:
+            if isinstance(step, str):
+                step_strs.append(f"hogli {step}")
+            elif isinstance(step, dict):
+                name = step.get("name", "inline")
+                step_strs.append(f"[{name}]")
+        return " && ".join(step_strs)
 
     def register(self, cli_group: click.Group) -> Any:
         """Register command with extra args support."""
@@ -260,7 +267,12 @@ class CompositeCommand(Command):
         return cmd
 
     def execute(self, *args: str) -> None:
-        """Execute each step in sequence."""
+        """Execute each step in sequence.
+
+        Steps can be:
+        - string: name of another hogli command to run
+        - dict: inline command config (same format as manifest commands)
+        """
         from hogli.core.manifest import REPO_ROOT
 
         steps = self.config.get("steps", [])
@@ -269,15 +281,20 @@ class CompositeCommand(Command):
         # Pass --yes to children if parent required confirmation and it was confirmed
         confirmed = getattr(self, "_confirmed", False)
 
-        for step in steps:
-            click.echo(f"✨ Executing: {step}")
+        for i, step in enumerate(steps):
             try:
-                # Use bin/hogli for both Flox and non-Flox compatibility
-                # Always pass --yes to child commands if parent was confirmed
-                # This ensures children don't prompt again even if they require confirmation
-                if confirmed:
-                    _run([bin_hogli, step, "--yes"], env=self.env)
-                else:
-                    _run([bin_hogli, step], env=self.env)
+                if isinstance(step, str):
+                    # Named command - call hogli recursively
+                    click.echo(f"✨ Executing: {step}")
+                    if confirmed:
+                        _run([bin_hogli, step, "--yes"], env=self.env)
+                    else:
+                        _run([bin_hogli, step], env=self.env)
+                elif isinstance(step, dict) and "cmd" in step:
+                    # Inline shell command
+                    # TODO: support full inline command configs (bin_script, steps, etc.)
+                    step_name = step.get("name", f"step-{i + 1}")
+                    click.echo(f"✨ Executing: {step_name}")
+                    _run(["bash", "-c", step["cmd"]], env=self.env)
             except SystemExit:
                 raise

@@ -42,6 +42,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -477,24 +478,6 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
     )
-
-
-def _get_snowflake_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:
-    """Get the timeout to use for long running queries.
-
-    Operations like COPY INTO TABLE and MERGE can take a long time to complete, especially if there is a lot of data and
-    the warehouse being used is not very powerful. We don't want to allow these queries to run for too long, as they can
-    cause SLA violations and can consume a lot of compute resources in the user's account.
-    """
-    min_timeout_seconds = 20 * 60  # 20 minutes
-    max_timeout_seconds = 6 * 60 * 60  # 6 hours
-    if data_interval_start is None:
-        return max_timeout_seconds
-    interval_seconds = (data_interval_end - data_interval_start).total_seconds()
-    # We don't want the timeout to be too short (eg in case of 5 min batch exports)
-    timeout_seconds = max(min_timeout_seconds, interval_seconds * 0.8)
-    # We don't want the timeout to be too long (eg in case of 1 day batch exports)
-    return min(timeout_seconds, max_timeout_seconds)
 
 
 class SnowflakeClient:
@@ -961,7 +944,7 @@ class SnowflakeClient:
             SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
         """
         select_fields = ", ".join(
-            f'PARSE_JSON($1:"{field.name}")'
+            f"PARSE_JSON($1:\"{field.name}\", 'd')"
             if field.data_type == JsonType() and field.name.lower() != "elements"
             else f'$1:"{field.name}"'
             for field in table
@@ -1286,6 +1269,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
+            stage_folder=inputs.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -1330,7 +1314,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
             field.snowflake_type = SnowflakeType("VARIANT", repeated=False)
 
         # Calculate timeout for long-running queries (COPY INTO and MERGE)
-        long_running_query_timeout = _get_snowflake_query_timeout(
+        long_running_query_timeout = get_query_timeout(
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None,
             dt.datetime.fromisoformat(inputs.data_interval_end),
         )
