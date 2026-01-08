@@ -243,7 +243,7 @@ def detect_recording_resolution(
             resolution = page.wait_for_function(
                 """
                 () => {
-                  const r = (window).__POSTHOG_RESOLUTION__;
+                  const r = (window).__POSTHOG_PLAYER_STATE__?.resolution;
                   if (!r) return false;
                   const w = Number(r.width), h = Number(r.height);
                   return (w > 0 && h > 0) ? {width: w, height: h} : false;
@@ -382,9 +382,26 @@ def record_replay_to_file(
             ready_at = time.monotonic()
             page.wait_for_timeout(500)
 
-            # Record for actual_duration (shorter if sped up)
-            actual_duration = opts.recording_duration / playback_speed
-            page.wait_for_timeout(int(actual_duration * 1000))
+            # Wait for playback to reach the end, with session_duration as safety timeout
+            max_wait_ms = int((opts.recording_duration / playback_speed) * 1000)
+            try:
+                logger.info(
+                    "video_exporter.waiting_for_playback_completion",
+                    max_wait_seconds=max_wait_ms / 1000,
+                )
+                page.wait_for_function(
+                    "() => window.__POSTHOG_PLAYER_STATE__?.endReached",
+                    timeout=max_wait_ms,
+                )
+                logger.info("video_exporter.playback_completed")
+            except PlaywrightTimeoutError:
+                # Playback didn't complete within expected duration
+                # This could indicate an issue, but we'll continue with the recorded video
+                logger.warning(
+                    "video_exporter.playback_timeout",
+                    expected_duration_seconds=opts.recording_duration,
+                    playback_speed=playback_speed,
+                )
             video = page.video
             page.close()
             if video is None:

@@ -79,6 +79,8 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         quickEmojiIsOpen,
         showingClipParams,
         isMuted,
+        endReached,
+        resolution,
     } = useValues(sessionRecordingPlayerLogic)
 
     const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
@@ -86,6 +88,13 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
 
     const { isCinemaMode, showMetadataFooter } = useValues(playerSettingsLogic)
     const { setIsCinemaMode } = useActions(playerSettingsLogic)
+
+    useEffect(() => {
+        // For video export: expose player state via global variable
+        if (typeof window !== 'undefined') {
+            ;(window as any).__POSTHOG_PLAYER_STATE__ = { endReached, resolution }
+        }
+    }, [endReached])
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const hidePlayerElements =
