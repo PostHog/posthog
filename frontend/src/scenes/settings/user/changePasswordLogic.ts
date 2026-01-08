@@ -44,13 +44,12 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                 await breakpoint(150)
 
                 const hasPassword = values.user?.has_password ?? false
-                const payload: { password: string; current_password?: string } = { password }
-                if (hasPassword) {
-                    payload.current_password = current_password
-                }
 
                 try {
-                    await api.update('api/users/@me/', payload)
+                    await api.update('api/users/@me/', {
+                        password,
+                        ...(hasPassword ? { current_password } : {}),
+                    })
                     actions.resetChangePassword({
                         password: '',
                         current_password: '',
