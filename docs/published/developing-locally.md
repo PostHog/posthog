@@ -132,6 +132,12 @@ To get PostHog running in a dev environment:
 
 3. After successful environment activation, just look at its welcome message in the terminal. It contains all the commands for running the stack. Run those commands in the suggested order.
 
+Optionally, run this command to generate local demo data:
+
+```bash
+hogli dev:demo-data
+```
+
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
 You can now change PostHog in any way you want. See [Project structure](/handbook/engineering/project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
