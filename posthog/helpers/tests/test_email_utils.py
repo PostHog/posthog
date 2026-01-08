@@ -1,6 +1,19 @@
-from django.test import TestCase
+from unittest.mock import MagicMock, patch
 
-from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer, EmailValidationHelper
+from django.test import SimpleTestCase, TestCase, override_settings
+
+import requests
+from parameterized import parameterized
+
+from posthog.helpers.email_utils import (
+    ESP_SUPPRESSION_CACHE_TTL,
+    ESP_SUPPRESSION_ERROR_CACHE_TTL,
+    EmailLookupHandler,
+    EmailNormalizer,
+    EmailValidationHelper,
+    _get_esp_suppression_cache_key,
+    check_esp_suppression,
+)
 from posthog.models.user import User
 
 
@@ -72,3 +85,202 @@ class TestEmailValidationHelper(TestCase):
                     self.assertTrue(result)
         finally:
             user.delete()
+
+
+class TestESPSuppressionCheck(SimpleTestCase):
+    @override_settings(CUSTOMER_IO_APP_API_KEY="")
+    def test_returns_not_suppressed_when_not_configured(self):
+        result = check_esp_suppression("test@example.com")
+
+        self.assertFalse(result.is_suppressed)
+        self.assertFalse(result.from_cache)
+        self.assertEqual(result.reason, "not_configured")
+
+    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    def test_returns_not_suppressed_for_empty_email(self):
+        result = check_esp_suppression("")
+
+        self.assertFalse(result.is_suppressed)
+        self.assertEqual(result.reason, "empty_email")
+
+    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.cache")
+    def test_cache_hit_returns_cached_value_without_api_call(self, mock_cache):
+        mock_cache.get.return_value = True
+
+        with patch("posthog.helpers.email_utils.requests.get") as mock_get:
+            result = check_esp_suppression("test@example.com")
+
+            mock_get.assert_not_called()
+            self.assertTrue(result.is_suppressed)
+            self.assertTrue(result.from_cache)
+
+    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.cache")
+    @patch("posthog.helpers.email_utils.requests.get")
+    def test_cache_miss_triggers_api_call_and_caches_result(self, mock_get, mock_cache):
+        mock_cache.get.return_value = None
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [{"email": "test@example.com", "suppressed": True}]
+        mock_get.return_value = mock_response
+
+        result = check_esp_suppression("test@example.com")
+
+        mock_get.assert_called_once()
+        mock_cache.set.assert_called_once()
+        self.assertTrue(result.is_suppressed)
+        self.assertFalse(result.from_cache)
+
+    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.cache")
+    @patch("posthog.helpers.email_utils.requests.get")
+    def test_cache_set_with_correct_ttl(self, mock_get, mock_cache):
+        mock_cache.get.return_value = None
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_get.return_value = mock_response
+
+        check_esp_suppression("test@example.com")
+
+        call_args = mock_cache.set.call_args
+        self.assertEqual(call_args[0][2], ESP_SUPPRESSION_CACHE_TTL)
+
+    @parameterized.expand(
+        [
+            ("timeout", requests.Timeout(), True, "api_failure_fallback"),
+            ("network_error", requests.ConnectionError(), True, "api_failure_fallback"),
+            ("500_error", None, True, "api_failure_fallback"),
+            ("404_not_found", None, False, None),
+        ]
+    )
+    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.cache")
+    @patch("posthog.helpers.email_utils.requests.get")
+    def test_api_failures_use_fallback_to_allow_login(
+        self, name, exception, expected_suppressed, expected_reason, mock_get, mock_cache
+    ):
+        mock_cache.get.return_value = None
+
+        if exception:
+            mock_get.side_effect = exception
+        else:
+            mock_response = MagicMock()
+            mock_response.status_code = 500 if expected_suppressed else 404
+            mock_response.text = "Error"
+            mock_get.return_value = mock_response
+
+        result = check_esp_suppression("test@example.com")
+
+        self.assertEqual(result.is_suppressed, expected_suppressed)
+        self.assertFalse(result.from_cache)
+        self.assertEqual(result.reason, expected_reason)
+
+    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    def test_email_hash_is_case_insensitive_and_anonymized(self):
+        key_lower = _get_esp_suppression_cache_key("test@example.com")
+        key_upper = _get_esp_suppression_cache_key("TEST@EXAMPLE.COM")
+        key_other = _get_esp_suppression_cache_key("other@example.com")
+
+        self.assertTrue(key_lower.startswith("email_mfa_suppressed:"))
+        self.assertEqual(key_lower, key_upper)
+        self.assertNotEqual(key_lower, key_other)
+        self.assertNotIn("@", key_lower)
+
+    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.cache")
+    @patch("posthog.helpers.email_utils.requests.get")
+    def test_api_error_caches_error_state_with_short_ttl(self, mock_get, mock_cache):
+        mock_cache.get.return_value = None
+        mock_get.side_effect = requests.Timeout()
+
+        check_esp_suppression("test@example.com")
+
+        # Verify error was cached with short TTL
+        set_calls = list(mock_cache.set.call_args_list)
+        error_cache_call = [c for c in set_calls if "error" in c[0][0]]
+        self.assertEqual(len(error_cache_call), 1)
+        self.assertEqual(error_cache_call[0][0][2], ESP_SUPPRESSION_ERROR_CACHE_TTL)
+
+    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.cache")
+    def test_cached_error_returns_fallback_without_api_call(self, mock_cache):
+        # Simulate: normal cache miss, but error cache hit
+        def cache_get_side_effect(key):
+            if "error" in key:
+                return True
+            return None
+
+        mock_cache.get.side_effect = cache_get_side_effect
+
+        with patch("posthog.helpers.email_utils.requests.get") as mock_get:
+            result = check_esp_suppression("test@example.com")
+
+            mock_get.assert_not_called()
+            self.assertTrue(result.is_suppressed)
+            self.assertTrue(result.from_cache)
+            self.assertEqual(result.reason, "api_failure_fallback")
+
+
+class TestESPSuppressionAnalytics(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("success_cache_suppressed", True, "suppressed", "success_cache", False, None, None),
+            ("success_cache_not_suppressed", False, "not_suppressed", "success_cache", False, None, None),
+            ("error_cache", None, "api_failure_fallback", "error_cache", False, None, None),
+            ("api_200_suppressed", None, "suppressed", None, True, 200, None),
+            ("api_200_not_suppressed", None, "not_suppressed", None, True, 200, None),
+            ("api_404", None, "not_suppressed", None, True, 404, None),
+            ("api_500", None, "api_failure_fallback", None, True, 500, "http_error"),
+            ("api_timeout", None, "api_failure_fallback", None, True, None, "timeout"),
+        ]
+    )
+    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.posthoganalytics.capture")
+    @patch("posthog.helpers.email_utils.cache")
+    @patch("posthog.helpers.email_utils.requests.get")
+    def test_analytics_captured_for_each_scenario(
+        self,
+        name,
+        cached_value,
+        expected_outcome,
+        expected_cache_type,
+        expected_api_called,
+        expected_status_code,
+        expected_error_type,
+        mock_get,
+        mock_cache,
+        mock_capture,
+    ):
+        def cache_get_side_effect(key):
+            if "error" in key:
+                return True if expected_cache_type == "error_cache" else None
+            return cached_value if expected_cache_type == "success_cache" else None
+
+        mock_cache.get.side_effect = cache_get_side_effect
+
+        if expected_api_called:
+            if expected_error_type == "timeout":
+                mock_get.side_effect = requests.Timeout()
+            else:
+                mock_response = MagicMock()
+                mock_response.status_code = expected_status_code or 200
+                mock_response.text = "error"
+                if expected_status_code == 200:
+                    mock_response.json.return_value = [{"suppressed": True}] if expected_outcome == "suppressed" else []
+                mock_get.return_value = mock_response
+
+        check_esp_suppression("test@example.com")
+
+        mock_capture.assert_called()
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["event"], "esp_suppression_check")
+        self.assertEqual(call_kwargs["properties"]["outcome"], expected_outcome)
+        self.assertEqual(call_kwargs["properties"]["cache_type"], expected_cache_type)
+        self.assertEqual(call_kwargs["properties"]["api_called"], expected_api_called)
+        if expected_status_code:
+            self.assertEqual(call_kwargs["properties"]["api_status_code"], expected_status_code)
+        if expected_error_type:
+            self.assertEqual(call_kwargs["properties"]["error_type"], expected_error_type)
