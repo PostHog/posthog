@@ -2,7 +2,7 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -1104,12 +1104,10 @@ class HogQLPrinter(Visitor[str]):
             else:
                 return self._unsafe_json_extract_trim_quotes(
                     materialized_property_sql,
-                    self._json_property_args(map(str, type.chain[1:])),
+                    self._json_property_args(type.chain[1:]),
                 )
 
-        return self._unsafe_json_extract_trim_quotes(
-            self.visit(type.field_type), self._json_property_args(map(str, type.chain))
-        )
+        return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
 
     def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
         # SAMPLE 1 means no sampling, skip it entirely
@@ -1324,7 +1322,7 @@ class HogQLPrinter(Visitor[str]):
 
         return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
-    def _json_property_args(self, chain: Iterable[str]) -> list[str]:
+    def _json_property_args(self, chain: Iterable[Any]) -> list[str]:
         return [self.context.add_value(name) for name in chain]
 
     def _get_materialized_column(
