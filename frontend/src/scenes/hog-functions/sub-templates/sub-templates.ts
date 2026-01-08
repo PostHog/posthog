@@ -463,13 +463,16 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when an issue is spiking',
             inputs: {
                 content: {
-                    value: `**📈 Issue spiking: {event.properties.name}**
+                    value: `**📈 Issue is spiking**
+                    
+\`\`\`
+{event.properties.name}: {substring(event.properties.description, 1, 1000)}
+\`\`\`
+**Current:** {event.properties.current_bucket_value} exceptions (baseline: {round(event.properties.computed_baseline)})
+**Project:** [{project.name}]({project.url})
+**Alert:** [{source.name}]({source.url})
 
-{event.properties.description}
-
-**Current:** {event.properties.current_bucket_value} errors (baseline: {event.properties.computed_baseline})
-**View issue:** {project.url}/error_tracking/{event.distinct_id}
-**Project:** {project.name}`,
+[View issue]({project.url}/error_tracking/{event.distinct_id})`,
                 },
             },
         },
@@ -486,7 +489,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'section',
                             text: {
                                 type: 'mrkdwn',
-                                text: '```{event.properties.name}: {substring(event.properties.description, 1, 150)}```',
+                                text: '```{event.properties.name}: {substring(event.properties.description, 1, 1000)}```',
                             },
                         },
                         {
@@ -494,7 +497,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             elements: [
                                 {
                                     type: 'plain_text',
-                                    text: 'Current: {event.properties.current_bucket_value} errors (baseline: {event.properties.computed_baseline})',
+                                    text: 'Current: {event.properties.current_bucket_value} exceptions (baseline: {round(event.properties.computed_baseline)})',
                                 },
                                 { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
                                 { type: 'mrkdwn', text: 'Alert: <{source.url}|{source.name}>' },
