@@ -115,10 +115,10 @@ class RiskAnalyzer:
         combination_risks = self.check_operation_combinations(migration, operation_risks)
 
         # Check PostHog policies
-        policy_violations = self.check_policies(migration)
+        policy_info, policy_violations = self.check_policies(migration)
 
         # Build info messages
-        info_messages = []
+        info_messages = list(policy_info)  # Start with policy info messages
         if self.newly_created_models:
             info_messages.append(
                 "ℹ️  Skipped operations on newly created tables (empty tables don't cause lock contention)."
@@ -310,12 +310,20 @@ class RiskAnalyzer:
 
         return ["⚠️  INFO: Migration is marked atomic=False. Ensure data migrations handle failures correctly."]
 
-    def check_policies(self, migration) -> list[str]:
-        """Check migration against PostHog coding policies."""
+    def check_policies(self, migration) -> tuple[list[str], list[str]]:
+        """Check migration against PostHog coding policies.
+
+        Returns:
+            Tuple of (info_messages, violations):
+            - info_messages: Informational warnings (don't block)
+            - violations: Blocking violations (boost to BLOCKED)
+        """
+        info = []
         violations = []
 
         for policy in POSTHOG_POLICIES:
-            # Check migration-level policies (which internally check operations as needed)
-            violations.extend(policy.check_migration(migration))
+            policy_info, policy_violations = policy.check_migration(migration)
+            info.extend(policy_info)
+            violations.extend(policy_violations)
 
-        return violations
+        return info, violations

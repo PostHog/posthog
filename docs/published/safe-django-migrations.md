@@ -592,13 +592,15 @@ class Migration(migrations.Migration):
     ]
 ```
 
-### 2. Use atomic=False Only for CONCURRENTLY Operations
+### 2. When to Use atomic=False
 
-PostgreSQL's `CONCURRENTLY` operations cannot run inside transactions. Use `atomic=False` **only** when required.
+Default to `atomic=True` (Django's default). Only use `atomic=False` when required or when partial progress is intentionally desired.
+
+**Required for CONCURRENTLY operations:**
 
 ```python
 class Migration(migrations.Migration):
-    atomic = False  # Required for CONCURRENTLY
+    atomic = False  # Required - CONCURRENTLY cannot run inside transactions
 
     operations = [
         AddIndexConcurrently(
@@ -608,17 +610,36 @@ class Migration(migrations.Migration):
     ]
 ```
 
-**When to use `atomic=False`:**
+PostgreSQL's `CONCURRENTLY` operations cannot run inside transactions:
 
-- `CREATE INDEX CONCURRENTLY` (required - `AddIndexConcurrently` needs this)
-- `DROP INDEX CONCURRENTLY` (required - `RemoveIndexConcurrently` needs this)
-- `REINDEX CONCURRENTLY` (required)
+- `CREATE INDEX CONCURRENTLY` (`AddIndexConcurrently`)
+- `DROP INDEX CONCURRENTLY` (`RemoveIndexConcurrently`)
+- `REINDEX CONCURRENTLY`
 
-**When NOT to use `atomic=False`:**
+**Acceptable for idempotent backfills:**
+
+Long-running data migrations where partial progress is desired:
+
+```python
+class Migration(migrations.Migration):
+    atomic = False  # Partial progress OK - query filters by checksum__isnull=True
+
+    operations = [
+        migrations.RunPython(backfill_checksums),
+    ]
+```
+
+Requirements for idempotent backfills:
+
+- Must be idempotent (use `WHERE field IS NULL`, `IF NOT EXISTS`, etc.)
+- On failure, retry continues from where it left off
+- Consider async migrations for very large tables (millions of rows)
+
+**Not recommended for:**
 
 - Regular DDL operations (AddField, AlterField, RemoveField, etc.)
-- Data migrations (RunPython with UPDATE)
-- Any operation that should rollback on failure
+- Non-idempotent data migrations
+- Any operation where partial completion would leave invalid state
 
 **Why this matters - the retry problem:**
 
@@ -652,8 +673,6 @@ With `atomic=False`, each operation in the migration runs in its own transaction
 - Order operations to be safe individually - each one commits before the next starts
 - If a migration fails midway, earlier operations have already committed and won't roll back
 - Always verify schema consistency after failed runs
-
-**For large data backfills:** If you genuinely need `atomic=False` for long-running operations (not just CONCURRENTLY), ensure idempotency with `IF NOT EXISTS`, `WHERE NOT EXISTS`, or consider using async migrations instead.
 
 ### 3. Use IF EXISTS / IF NOT EXISTS for Idempotency
 

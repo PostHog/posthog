@@ -1559,7 +1559,7 @@ class TestAtomicFalsePolicy:
         self.analyzer = RiskAnalyzer()
 
     def test_atomic_false_with_addfield_warns(self):
-        """atomic=False with regular AddField should warn (not block)"""
+        """atomic=False with regular AddField should show info (not block)"""
         mock_migration = MagicMock()
         mock_migration.atomic = False
         mock_migration.app_label = "posthog"
@@ -1572,8 +1572,9 @@ class TestAtomicFalsePolicy:
 
         migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
 
-        assert any("WARNING" in v for v in migration_risk.policy_violations)
-        assert any("atomic=False" in v for v in migration_risk.policy_violations)
+        # Should be info message, not a blocking violation
+        assert any("atomic=False" in msg for msg in migration_risk.info_messages)
+        assert not migration_risk.policy_violations  # No blocking violations
 
     def test_atomic_false_with_add_index_concurrently_ok(self):
         """atomic=False with AddIndexConcurrently is correct - no warning"""
@@ -1640,7 +1641,7 @@ class TestAtomicFalsePolicy:
         assert any("CONCURRENTLY" in v for v in migration_risk.policy_violations)
 
     def test_atomic_false_mixed_ops_recommends_split(self):
-        """atomic=False with AddField + CONCURRENTLY should recommend splitting"""
+        """atomic=False with AddField + CONCURRENTLY should recommend splitting (info, not blocked)"""
         mock_migration = MagicMock()
         mock_migration.atomic = False
         mock_migration.app_label = "posthog"
@@ -1658,10 +1659,10 @@ class TestAtomicFalsePolicy:
 
         migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
 
-        # Should not have "atomic=False without CONCURRENTLY" warning (CONCURRENTLY is present)
-        assert not any("atomic=False without CONCURRENTLY" in v for v in migration_risk.policy_violations)
-        # Should recommend splitting
-        assert any("RECOMMEND SPLIT" in v for v in migration_risk.policy_violations)
+        # Should not have blocking violations for correct atomic=False with CONCURRENTLY
+        assert not migration_risk.policy_violations
+        # Should recommend splitting via info message
+        assert any("RECOMMEND SPLIT" in msg for msg in migration_risk.info_messages)
 
     def test_third_party_app_not_checked(self):
         """Third-party app migrations should not be checked for atomic policy"""
