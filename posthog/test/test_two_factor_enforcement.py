@@ -551,3 +551,16 @@ class TestTwoFactorSecurityFixes(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data.get("code"), "invalid_2fa_session")
+
+    def test_backup_codes_generates_ten_codes(self):
+        """Test that backup codes endpoint generates 10 codes (industry standard)"""
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+
+        self.client.force_login(self.user)
+        # First enable 2FA
+        TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+
+        response = self.client.post(f"/api/users/@me/two_factor_backup_codes/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data.get("backup_codes", [])), 10)

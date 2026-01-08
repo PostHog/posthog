@@ -683,7 +683,7 @@ class UserViewSet(
 
         # Generate new backup codes
         backup_codes = []
-        for _ in range(5):  # Generate 5 backup codes
+        for _ in range(10):
             token = StaticToken.random_token()
             static_device.token_set.create(token=token)
             backup_codes.append(token)
