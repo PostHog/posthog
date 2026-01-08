@@ -242,7 +242,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                             ] as LemonMenuItems
                                         }
                                     >
-                                        <LemonButton size="xsmall" type="secondary" tooltip="Subscribe">
+                                        <LemonButton size="small" type="secondary" tooltip="Subscribe">
                                             <IconBell />
                                         </LemonButton>
                                     </LemonMenu>

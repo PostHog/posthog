@@ -19,7 +19,7 @@ describe('useTerraformExport', () => {
             list: jest.fn().mockResolvedValue({ results: [] }),
         } as any
         mockedApi.hogFunctions = {
-            listForAlert: jest.fn().mockResolvedValue({ results: [] }),
+            list: jest.fn().mockResolvedValue({ results: [] }),
         } as any
     })
 

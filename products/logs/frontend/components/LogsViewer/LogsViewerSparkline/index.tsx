@@ -4,6 +4,7 @@ import { LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { shortTimeZone } from 'lib/utils'
 
 import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
@@ -39,7 +40,9 @@ export function LogsSparkline({
     displayTimezone,
     breakdownBy,
     onBreakdownByChange,
-}: LogsViewerSparklineProps): JSX.Element {
+}: LogsViewerSparklineProps): JSX.Element | null {
+    const showServiceBreakdown = useFeatureFlag('LOGS_SPARKLINE_SERVICE_BREAKDOWN')
+
     const { timeUnit, tickFormat } = useMemo(() => {
         if (!sparklineData.dates.length) {
             return { timeUnit: 'hour' as const, tickFormat: 'HH:mm:ss' }
@@ -117,15 +120,17 @@ export function LogsSparkline({
 
     return (
         <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
-                <span className="text-xs text-muted">Volume over time</span>
-                <LemonSelect
-                    size="xsmall"
-                    value={breakdownBy}
-                    onChange={(value) => value && onBreakdownByChange(value)}
-                    options={BREAKDOWN_OPTIONS}
-                />
-            </div>
+            {showServiceBreakdown && (
+                <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted">Volume over time</span>
+                    <LemonSelect
+                        size="xsmall"
+                        value={breakdownBy}
+                        onChange={(value) => value && onBreakdownByChange(value)}
+                        options={BREAKDOWN_OPTIONS}
+                    />
+                </div>
+            )}
             <div className="relative h-32">
                 {sparklineData.data.length > 0 ? (
                     <Sparkline
@@ -135,7 +140,9 @@ export function LogsSparkline({
                         onSelectionChange={onSelectionChange}
                         withXScale={withXScale}
                         renderLabel={renderLabel}
-                        tooltipRowCutoff={20}
+                        tooltipRowCutoff={100}
+                        hideZerosInTooltip
+                        sortTooltipByCount
                     />
                 ) : !sparklineLoading ? (
                     <div className="h-full text-muted flex items-center justify-center">

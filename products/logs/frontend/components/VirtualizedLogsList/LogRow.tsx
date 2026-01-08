@@ -55,6 +55,7 @@ export interface LogRowProps {
     // Per-row prettify
     isPrettified?: boolean
     onTogglePrettify?: (log: ParsedLogMessage) => void
+    minHeight?: number
 }
 
 export function LogRow({
@@ -78,6 +79,7 @@ export function LogRow({
     onShiftClick,
     isPrettified = false,
     onTogglePrettify,
+    minHeight = 32,
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
     const flexWidth = rowWidth
@@ -100,12 +102,12 @@ export function LogRow({
     return (
         <div
             className={cn('border-b border-border', isNew && 'VirtualizedLogsList__row--new')}
-            style={{ minWidth: rowWidth }}
+            style={{ minWidth: rowWidth, minHeight }}
         >
             <div
-                style={{ gap: ROW_GAP }}
+                style={{ gap: ROW_GAP, minHeight }}
                 className={cn(
-                    'relative flex items-center cursor-pointer hover:bg-fill-highlight-100 group',
+                    'relative flex items-center cursor-pointer hover:bg-fill-highlight-100 group h-full',
                     isSelected && 'bg-fill-highlight-100',
                     isAtCursor && 'bg-primary-highlight',
                     pinned && showPinnedWithOpacity && 'bg-warning-highlight opacity-50'
