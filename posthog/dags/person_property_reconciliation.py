@@ -41,28 +41,37 @@ class PersonPropertyReconciliationConfig(dagster.Config):
 
 
 @dataclass
-class PropertyUpdate:
-    """A single property update from ClickHouse events."""
+class PropertyValue:
+    """A property value with its timestamp."""
 
-    key: str
-    value: Any
-    timestamp: datetime
-    operation: str  # "set" or "set_once"
+    timestamp: datetime  # UTC datetime
+    value: Any | None  # None for unset operations
 
 
 @dataclass
-class PersonPropertyUpdates:
-    """Aggregated property updates for a single person from ClickHouse."""
+class PersonPropertyDiffs:
+    """Property diffs for a single person, organized by operation type."""
 
     person_id: str
-    updates: list[PropertyUpdate]
+    set_updates: dict[str, PropertyValue]  # key -> PropertyValue
+    set_once_updates: dict[str, PropertyValue]  # key -> PropertyValue
+    unset_updates: dict[str, PropertyValue]  # key -> PropertyValue (value is always None)
+
+
+def ensure_utc_datetime(ts: datetime) -> datetime:
+    """Ensure timestamp is a UTC-aware datetime."""
+    from datetime import UTC
+
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=UTC)
+    return ts
 
 
 def get_person_property_updates_from_clickhouse(
     team_id: int,
     bug_window_start: str,
     bug_window_end: str,
-) -> list[PersonPropertyUpdates]:
+) -> list[PersonPropertyDiffs]:
     """
     Query ClickHouse to get property updates per person that differ from current state.
 
@@ -73,8 +82,7 @@ def get_person_property_updates_from_clickhouse(
     4. Returns only persons where properties differ, are missing, or need removal
 
     Returns:
-        set_diff: Array of (key, value, timestamp) tuples for $set properties that differ
-        set_once_diff: Array of (key, value, timestamp) tuples for $set_once properties missing
+        List of PersonPropertyDiffs, each containing 3 maps (set, set_once, unset) keyed by property key
         unset_diff: Array of (key, timestamp) tuples for $unset properties that exist
     """
     query = """
@@ -214,55 +222,91 @@ def get_person_property_updates_from_clickhouse(
 
     rows = sync_execute(query, params)
 
-    results: list[PersonPropertyUpdates] = []
+    results: list[PersonPropertyDiffs] = []
     for row in rows:
         person_id, set_diff, set_once_diff, unset_diff = row
 
-        updates: list[PropertyUpdate] = []
-
-        # Add differing $set properties (tuples of key, value, timestamp)
+        set_updates: dict[str, PropertyValue] = {}
         for key, value, timestamp in set_diff:
-            updates.append(
-                PropertyUpdate(
-                    key=key,
-                    value=json.loads(value),  # Parse raw JSON: strip quotes from strings, convert types
-                    timestamp=timestamp,
-                    operation="set",
-                )
+            set_updates[str(key)] = PropertyValue(
+                timestamp=ensure_utc_datetime(timestamp),
+                value=json.loads(value),
             )
 
-        # Add missing $set_once properties (tuples of key, value, timestamp)
+        set_once_updates: dict[str, PropertyValue] = {}
         for key, value, timestamp in set_once_diff:
-            updates.append(
-                PropertyUpdate(
-                    key=key,
-                    value=json.loads(value),  # Parse raw JSON: strip quotes from strings, convert types
-                    timestamp=timestamp,
-                    operation="set_once",
-                )
+            set_once_updates[str(key)] = PropertyValue(
+                timestamp=ensure_utc_datetime(timestamp),
+                value=json.loads(value),
             )
 
-        # Add $unset operations (tuples of key, timestamp - no value)
-        # Keys are already parsed in the query with JSON_VALUE (consistent with $set/$set_once)
+        unset_updates: dict[str, PropertyValue] = {}
         for key, timestamp in unset_diff:
-            updates.append(
-                PropertyUpdate(
-                    key=key,
-                    value=None,
-                    timestamp=timestamp,
-                    operation="unset",
+            unset_updates[str(key)] = PropertyValue(
+                timestamp=ensure_utc_datetime(timestamp),
+                value=None,
+            )
+
+        if set_updates or set_once_updates or unset_updates:
+            results.append(
+                PersonPropertyDiffs(
+                    person_id=str(person_id),
+                    set_updates=set_updates,
+                    set_once_updates=set_once_updates,
+                    unset_updates=unset_updates,
                 )
             )
 
-        if updates:
-            results.append(PersonPropertyUpdates(person_id=str(person_id), updates=updates))
+    return results
+
+
+def filter_event_person_properties(
+    person_diffs: list[PersonPropertyDiffs],
+) -> list[PersonPropertyDiffs]:
+    """
+    Filter conflicting set/unset operations by timestamp.
+
+    For each key that appears in both set_updates and unset_updates:
+    - If set timestamp > unset timestamp: keep set, remove unset
+    - If unset timestamp >= set timestamp: keep unset, remove set
+
+    Returns filtered PersonPropertyDiffs with conflicts resolved.
+    """
+    results: list[PersonPropertyDiffs] = []
+
+    for diffs in person_diffs:
+        # Copy the maps so we don't mutate the input
+        set_updates = dict(diffs.set_updates)
+        unset_updates = dict(diffs.unset_updates)
+
+        # Find keys that exist in both maps
+        for key in list(unset_updates.keys()):
+            if key in set_updates:
+                set_ts = set_updates[key].timestamp
+                unset_ts = unset_updates[key].timestamp
+
+                if set_ts > unset_ts:
+                    # set is more recent - remove unset
+                    del unset_updates[key]
+                else:
+                    # unset is more recent or equal - remove set
+                    del set_updates[key]
+
+        results.append(
+            PersonPropertyDiffs(
+                person_id=diffs.person_id,
+                set_updates=set_updates,
+                set_once_updates=diffs.set_once_updates,  # unchanged
+                unset_updates=unset_updates,
+            )
+        )
 
     return results
 
 
 def reconcile_person_properties(
     person: dict,
-    property_updates: list[PropertyUpdate],
+    person_property_diffs: PersonPropertyDiffs,
 ) -> dict | None:
     """
     Compute updated properties by comparing ClickHouse updates with current Postgres state.
@@ -274,7 +318,7 @@ def reconcile_person_properties(
 
     Args:
         person: From Postgres with uuid, properties, properties_last_updated_at, properties_last_operation
-        property_updates: List of PropertyUpdate from ClickHouse, representing potential updates
+        person_property_diffs: Property diffs from ClickHouse
 
     Returns:
         Dict with updated properties/metadata if changes needed, None otherwise.
@@ -285,32 +329,30 @@ def reconcile_person_properties(
 
     changed = False
 
-    for update in property_updates:
-        key = update.key
-        value = update.value
-        event_ts = update.timestamp
-        operation = update.operation
-        event_ts_str = event_ts.isoformat()
-
-        if operation == "set_once":
-            if key not in properties:
-                properties[key] = value
-                properties_last_updated_at[key] = event_ts_str
-                properties_last_operation[key] = "set_once"
-                changed = True
-        elif operation == "set":
-            properties[key] = value
-            properties_last_updated_at[key] = event_ts_str
-            properties_last_operation[key] = "set"
+    # 1. set_once: only update if key not in properties
+    for key, pv in person_property_diffs.set_once_updates.items():
+        if key not in properties:
+            properties[key] = pv.value
+            properties_last_updated_at[key] = pv.timestamp.isoformat()
+            properties_last_operation[key] = "set_once"
             changed = True
-        elif operation == "unset":
-            if key in properties:
-                del properties[key]
-                if key in properties_last_updated_at:
-                    del properties_last_updated_at[key]
-                if key in properties_last_operation:
-                    del properties_last_operation[key]
-                changed = True
+
+    # 2. set: always update
+    for key, pv in person_property_diffs.set_updates.items():
+        properties[key] = pv.value
+        properties_last_updated_at[key] = pv.timestamp.isoformat()
+        properties_last_operation[key] = "set"
+        changed = True
+
+    # 3. unset: delete from all maps
+    for key in person_property_diffs.unset_updates.keys():
+        if key in properties:
+            del properties[key]
+        if key in properties_last_updated_at:
+            del properties_last_updated_at[key]
+        if key in properties_last_operation:
+            del properties_last_operation[key]
+        changed = True
 
     if changed:
         return {
@@ -377,7 +419,7 @@ def backup_person_with_computed_state(
     job_id: str,
     team_id: int,
     person: dict,
-    property_updates: list[PropertyUpdate],
+    person_property_diffs: PersonPropertyDiffs,
     computed_update: dict,
     new_version: int,
 ) -> bool:
@@ -386,15 +428,19 @@ def backup_person_with_computed_state(
     Called after computing the update but before applying it.
     Returns True if backup was successful, False otherwise.
     """
-    pending_operations = [
-        {
-            "key": u.key,
-            "value": u.value,
-            "timestamp": u.timestamp.isoformat(),
-            "operation": u.operation,
-        }
-        for u in property_updates
-    ]
+    pending_operations = []
+    for key, pv in person_property_diffs.set_updates.items():
+        pending_operations.append(
+            {"key": key, "value": pv.value, "timestamp": pv.timestamp.isoformat(), "operation": "set"}
+        )
+    for key, pv in person_property_diffs.set_once_updates.items():
+        pending_operations.append(
+            {"key": key, "value": pv.value, "timestamp": pv.timestamp.isoformat(), "operation": "set_once"}
+        )
+    for key, pv in person_property_diffs.unset_updates.items():
+        pending_operations.append(
+            {"key": key, "value": None, "timestamp": pv.timestamp.isoformat(), "operation": "unset"}
+        )
 
     cursor.execute(
         """
@@ -441,7 +487,7 @@ def update_person_with_version_check(
     job_id: str,
     team_id: int,
     person_uuid: str,
-    property_updates: list[PropertyUpdate],
+    person_property_diffs: PersonPropertyDiffs,
     dry_run: bool = False,
     backup_enabled: bool = True,
     max_retries: int = 3,
@@ -458,7 +504,7 @@ def update_person_with_version_check(
         job_id: Dagster run ID for backup tracking
         team_id: Team ID
         person_uuid: Person UUID
-        property_updates: Property updates from ClickHouse
+        person_property_diffs: Property diffs from ClickHouse
         dry_run: If True, don't actually write the UPDATE
         backup_enabled: If True, store before/after state in backup table
         max_retries: Maximum retry attempts on version mismatch
@@ -477,7 +523,7 @@ def update_person_with_version_check(
         current_version = person.get("version") or 0
 
         # Compute updates
-        update = reconcile_person_properties(person, property_updates)
+        update = reconcile_person_properties(person, person_property_diffs)
         if not update:
             # No changes needed
             return True, None, False
@@ -486,7 +532,7 @@ def update_person_with_version_check(
         backup_created = False
         if backup_enabled:
             backup_person_with_computed_state(
-                cursor, job_id, team_id, person, property_updates, update, current_version + 1
+                cursor, job_id, team_id, person, person_property_diffs, update, current_version + 1
             )
             backup_created = True
 
@@ -642,13 +688,16 @@ def reconcile_team_chunk(
         start_time = time.time()
 
         # Query ClickHouse for all persons with property updates in this team
-        person_property_updates = get_person_property_updates_from_clickhouse(
+        person_property_diffs = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=config.bug_window_start,
             bug_window_end=config.bug_window_end,
         )
 
-        if not person_property_updates:
+        # Filter conflicting set/unset operations
+        person_property_diffs = filter_event_person_properties(person_property_diffs)
+
+        if not person_property_diffs:
             context.log.info(f"No persons to reconcile for team_id={team_id}")
             return {
                 "team_id": team_id,
@@ -657,7 +706,7 @@ def reconcile_team_chunk(
                 "persons_skipped": 0,
             }
 
-        context.log.info(f"Processing {len(person_property_updates)} persons for team_id={team_id}")
+        context.log.info(f"Processing {len(person_property_diffs)} persons for team_id={team_id}")
 
         with persons_database.cursor() as cursor:
             cursor.execute("SET application_name = 'person_property_reconciliation'")
@@ -668,13 +717,13 @@ def reconcile_team_chunk(
             # Process each person with version check and retry
             persons_to_publish = []
             any_backups_created = False
-            for person_updates in person_property_updates:
+            for person_diffs in person_property_diffs:
                 success, person_data, backup_created = update_person_with_version_check(
                     cursor=cursor,
                     job_id=run_id,
                     team_id=team_id,
-                    person_uuid=person_updates.person_id,
-                    property_updates=person_updates.updates,
+                    person_uuid=person_diffs.person_id,
+                    person_property_diffs=person_diffs,
                     dry_run=config.dry_run,
                     backup_enabled=config.backup_enabled,
                 )
@@ -683,7 +732,7 @@ def reconcile_team_chunk(
                     any_backups_created = True
 
                 if not success:
-                    context.log.warning(f"Failed to update person after retries: {person_updates.person_id}")
+                    context.log.warning(f"Failed to update person after retries: {person_diffs.person_id}")
                     total_persons_skipped += 1
                 elif person_data:
                     # Successfully updated - queue for Kafka publishing
