@@ -92,7 +92,7 @@ export const RemixInstallation = (): JSX.Element => {
                                   useEffect(() => {
                                     posthog.init("<ph_project_api_key>", {
                                       api_host: "<ph_client_api_host>",
-                                      defaults: "2024-12-10",
+                                      defaults: '2025-11-30',
                                       person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users too
                                     });
 
