@@ -8038,6 +8038,72 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             response_json.items(),
         )
 
+    def test_user_blast_radius_semver_operators(self):
+        # Test that semver comparison works numerically, not as strings
+        # This catches the "10.0.0 > 9.0.0" bug (would fail with string comparison)
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person_v1"],
+            properties={"app_version": "1.5.0"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person_v2"],
+            properties={"app_version": "2.0.0"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person_v10"],
+            properties={"app_version": "10.0.0"},
+        )
+
+        # Test semver_gte: should match 2.0.0 and 10.0.0
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "2.0.0",
+                            "operator": "semver_gte",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 2)
+        self.assertEqual(response_json["total_users"], 3)
+
+        # Critical test: 10.0.0 > 9.0.0 numerically (but "10.0.0" < "9.0.0" as string)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "9.0.0",
+                            "operator": "semver_gt",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Only 10.0.0 should match (this would fail with string comparison)
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 3)
+
 
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):
