@@ -32,7 +32,7 @@
 #       source will appear in frontend dropdowns and menus.
 # 14. TODO: phew! you're done. just delete these TODOs before you PR
 
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
