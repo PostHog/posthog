@@ -19,7 +19,7 @@ pub struct EnteredTimestamp {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Event {
     pub timestamp: f64,
-    pub uuid: Uuid,
+    pub uuid: Option<Uuid>,
     pub breakdown: PropVal,
     pub steps: Vec<i8>,
 }
@@ -66,6 +66,13 @@ pub const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     uuids: vec![],
     steps: 0,
 };
+
+impl Event {
+    #[inline(always)]
+    pub fn uuid_or_default(&self) -> Uuid {
+        self.uuid.unwrap_or_else(Uuid::nil)
+    }
+}
 
 pub fn process_line(line: &str) -> Value {
     let args = parse_args(line);
@@ -227,6 +234,7 @@ impl AggregateFunnelRow {
         prop_val: &PropVal,
         processing_multiple_events: bool,
     ) {
+        let event_uuid = event.uuid_or_default();
         for step in event.steps.iter().rev() {
             let mut exclusion = false;
             let step = (if *step < 0 {
@@ -281,14 +289,14 @@ impl AggregateFunnelRow {
                         .unwrap_or(false)
                         && *prop_val != event.breakdown;
                     let already_used_event =
-                        processing_multiple_events && previous_step.uuids.contains(&event.uuid);
+                        processing_multiple_events && previous_step.uuids.contains(&event_uuid);
 
                     if !is_unmatched_step_attribution && !already_used_event {
                         let mut t = previous_step.timings.clone();
                         let mut u = previous_step.uuids.clone();
                         if !args.optional_steps.contains(&(step as i8)) {
                             t.push(event.timestamp);
-                            u.push(event.uuid);
+                            u.push(event_uuid);
                         }
                         let new_entered_timestamp = EnteredTimestamp {
                             timestamp: previous_step.timestamp,
@@ -301,7 +309,7 @@ impl AggregateFunnelRow {
                         if !previous_step.excluded {
                             vars.entered_timestamp[step] = new_entered_timestamp.clone();
                             if vars.event_uuids[previous_step_index].len() < MAX_REPLAY_EVENTS - 1 {
-                                vars.event_uuids[previous_step_index].push(event.uuid);
+                                vars.event_uuids[previous_step_index].push(event_uuid);
                             }
                         }
 

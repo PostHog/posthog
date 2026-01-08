@@ -221,7 +221,7 @@ impl AggregateFunnelRowUnordered {
                         step: vars.num_steps_completed,
                         timestamp: event.timestamp,
                         excluded: Exclusion::Not,
-                        event_uuid: event.uuid,
+                        event_uuid: event.uuid_or_default(),
                     },
                 },
             );

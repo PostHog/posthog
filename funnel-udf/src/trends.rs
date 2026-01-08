@@ -18,7 +18,7 @@ pub struct Event {
     pub timestamp: f64,
     #[serde(deserialize_with = "u64_or_string")]
     pub interval_start: u64,
-    pub uuid: Uuid,
+    pub uuid: Option<Uuid>,
     pub breakdown: PropVal,
     pub steps: Vec<i8>,
 }
@@ -77,6 +77,13 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timestamp: 0.0,
     excluded: false,
 };
+
+impl Event {
+    #[inline(always)]
+    pub fn uuid_or_default(&self) -> Uuid {
+        self.uuid.unwrap_or_else(Uuid::nil)
+    }
+}
 
 pub fn process_line(line: &str) -> Value {
     let args = parse_args(line);
@@ -218,7 +225,7 @@ impl AggregateFunnelRow {
                                 step: 1,
                                 timestamp: event.timestamp,
                                 excluded: Exclusion::Not,
-                                event_uuid: event.uuid,
+                                event_uuid: event.uuid_or_default(),
                             },
                             entered_timestamp: entered_timestamp,
                         };
@@ -273,7 +280,7 @@ impl AggregateFunnelRow {
                                                 interval_start,
                                                 1,
                                                 prop_val.clone(),
-                                                event.uuid,
+                                                event.uuid_or_default(),
                                             ),
                                         );
                                         return false;
@@ -284,7 +291,7 @@ impl AggregateFunnelRow {
                                     {
                                         interval_data.max_step = MaxStep {
                                             step: step,
-                                            event_uuid: event.uuid,
+                                            event_uuid: event.uuid_or_default(),
                                             timestamp: event.timestamp,
                                             excluded: if previous_step_excluded {
                                                 Exclusion::Full
@@ -354,7 +361,7 @@ mod tests {
         assert_eq!(args.value.len(), 1);
         let event = &args.value[0];
         assert_eq!(event.interval_start, expected_interval_start);
-        assert_eq!(event.uuid, Uuid::parse_str(expected_uuid).unwrap());
+        assert_eq!(event.uuid.unwrap(), Uuid::parse_str(expected_uuid).unwrap());
         assert_eq!(event.breakdown, args.prop_vals[0]);
     }
 

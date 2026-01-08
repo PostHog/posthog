@@ -175,7 +175,7 @@ impl AggregateFunnelRowUnordered {
             let mut timestamps_with_uuids: Vec<(f64, Uuid)> = vars
                 .events_by_step
                 .iter()
-                .filter_map(|deque| deque.front().map(|e| (e.timestamp, e.uuid)))
+                .filter_map(|deque| deque.front().map(|e| (e.timestamp, e.uuid_or_default())))
                 .collect();
 
             timestamps_with_uuids.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());

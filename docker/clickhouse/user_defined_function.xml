@@ -29,7 +29,7 @@
             <name>optional_steps</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), Nullable(UUID), Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
@@ -67,7 +67,7 @@
             <name>optional_steps</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), UUID, UInt64, Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), Nullable(UUID), UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
@@ -105,7 +105,7 @@
             <name>optional_steps</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), UUID, Array(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), Nullable(UUID), Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
@@ -143,7 +143,7 @@
             <name>optional_steps</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), Nullable(UUID), Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
@@ -185,7 +185,7 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Nullable(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, Nullable(UUID), Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
@@ -228,7 +228,7 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Array(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, Nullable(UUID), Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
@@ -271,7 +271,7 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, UInt64, Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, Nullable(UUID), UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
@@ -313,7 +313,7 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Array(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, Nullable(UUID), Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
