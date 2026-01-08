@@ -253,6 +253,11 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
                 )
             )
         elif operator == PropertyOperator.ICONTAINS:
+            if isinstance(value, list):
+                raise ValidationError(
+                    "Operator 'icontains' does not support list values for $group_key property. "
+                    "Use a single value instead."
+                )
             where_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
@@ -261,6 +266,11 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
                 )
             )
         elif operator == PropertyOperator.NOT_ICONTAINS:
+            if isinstance(value, list):
+                raise ValidationError(
+                    "Operator 'not_icontains' does not support list values for $group_key property. "
+                    "Use a single value instead."
+                )
             where_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotILike,
@@ -269,6 +279,11 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
                 )
             )
         elif operator == PropertyOperator.REGEX:
+            if isinstance(value, list):
+                raise ValidationError(
+                    "Operator 'regex' does not support list values for $group_key property. "
+                    "Use a single value instead."
+                )
             where_exprs.append(
                 ast.Call(
                     name="match",
@@ -279,6 +294,11 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
                 )
             )
         elif operator == PropertyOperator.NOT_REGEX:
+            if isinstance(value, list):
+                raise ValidationError(
+                    "Operator 'not_regex' does not support list values for $group_key property. "
+                    "Use a single value instead."
+                )
             where_exprs.append(
                 ast.Call(
                     name="not",
