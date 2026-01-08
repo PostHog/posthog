@@ -431,6 +431,25 @@ class TestVercelIntegration(TestCase):
         assert secrets[1]["name"] == "POSTHOG_HOST"
         assert secrets[1]["value"].startswith(("https://", "http://"))
 
+    def test_rotate_secrets(self):
+        team, resource = self.make_team_with_vercel(self.organization, self.user)
+        old_token = team.api_token
+
+        result = VercelIntegration.rotate_secrets(str(resource.pk))
+
+        team.refresh_from_db()
+        assert team.api_token != old_token
+        assert result["status"] == "completed"
+        assert result["isPartialRotation"] is False
+        assert len(result["secrets"]) == 2
+        assert result["secrets"][0]["name"] == "POSTHOG_PROJECT_API_KEY"
+        assert result["secrets"][0]["value"] == team.api_token
+        assert result["secrets"][1]["name"] == "POSTHOG_HOST"
+
+    def test_rotate_secrets_not_found(self):
+        with self.assertRaises(NotFound):
+            VercelIntegration.rotate_secrets("999999")
+
     @parameterized.expand(
         [
             ("exists", lambda self: self.make_team_with_vercel(self.organization, self.user)[0], True),

@@ -6,7 +6,7 @@ https://vercel.com/docs/integrations/create-integration/marketplace-api
 
 from typing import Any
 
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import decorators, exceptions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -149,6 +149,12 @@ class ResourceResponseSerializer(serializers.Serializer):
     protocolSettings = VercelProtocolSettingsSerializer(required=False)
 
 
+class RotateSecretsResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=["completed", "pending"])
+    secrets = serializers.ListField(child=VercelSecretSerializer())
+    isPartialRotation = serializers.BooleanField()
+
+
 def validate_resource_id(resource_id: str | None) -> str:
     if not resource_id or not resource_id.isdigit() or int(resource_id) <= 0:
         raise exceptions.ValidationError({"resource_id": "Invalid Resource ID"})
@@ -166,6 +172,7 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
         "partial_update": ["user"],
         "destroy": ["user", "system"],
         "retrieve": ["system"],
+        "rotate_secrets": ["system"],
     }
 
     def _validate_resource_access(self, resource_id: str, installation_id: str) -> None:
@@ -227,3 +234,17 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
 
         VercelIntegration.delete_resource(resource_id)
         return Response(status=204)
+
+    @decorators.action(detail=True, methods=["post"], url_path="rotateSecrets")
+    def rotate_secrets(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        https://vercel.com/docs/integrations/create-integration/marketplace-api#rotate-secrets
+        """
+        resource_id = validate_resource_id(self.kwargs.get("resource_id"))
+        installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
+        self._validate_resource_access(resource_id, installation_id)
+
+        response_data = VercelIntegration.rotate_secrets(resource_id)
+        serializer = RotateSecretsResponseSerializer(data=response_data)
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.validated_data, status=200)
