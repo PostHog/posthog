@@ -111,3 +111,7 @@ class MaxToolAccessDeniedError(MaxToolFatalError):
 
         message = f"The user does not have {required_level} access to {action} {resource}s. Suggest the user to contact their project admin to request access."
         super().__init__(message)
+
+
+class MaxToolPermissionRequestError(MaxToolError):
+    pass

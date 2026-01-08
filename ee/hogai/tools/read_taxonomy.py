@@ -127,6 +127,9 @@ class ReadTaxonomyTool(MaxTool):
         "Explores the user's events, actions, properties, and property values (i.e. taxonomy)."
     )
 
+    def is_dangerous_operation(self, **kwargs) -> bool:
+        return True
+
     def _run_impl(self, query: dict[str, Any]) -> tuple[str, Any]:
         # Langchain can't parse a dynamically created Pydantic model, so we need to additionally validate the query here.
         validated_query = ReadTaxonomyToolArgs(query=query).query

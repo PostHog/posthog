@@ -41,10 +41,10 @@ from ee.hogai.core.agent_modes.toolkit import AgentToolkitManager
 from ee.hogai.core.executable import BaseAgentExecutable
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolError
+from ee.hogai.tool_errors import MaxToolError, MaxToolPermissionRequestError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
-from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
+from ee.hogai.utils.helpers import convert_tool_messages_to_dict, find_last_message_of_type, normalize_ai_message
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
     AssistantNodeName,
@@ -118,6 +118,9 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        if state.graph_status == "resumed":
+            return PartialAssistantState(graph_status=None)
+
         toolkit_manager = self._toolkit_manager_class(
             team=self._team, user=self._user, context_manager=self.context_manager
         )
@@ -205,12 +208,16 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         )
 
     def router(self, state: AssistantState):
-        last_message = state.messages[-1]
+        last_message = find_last_message_of_type(state.messages, AssistantMessage)
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
             return AssistantNodeName.END
+        executed_tools = {
+            message.tool_call_id for message in state.messages if isinstance(message, AssistantToolCallMessage)
+        }
         return [
             Send(AssistantNodeName.ROOT_TOOLS, state.model_copy(update={"root_tool_call_id": tool_call.id}))
             for tool_call in last_message.tool_calls
+            if tool_call.id not in executed_tools
         ]
 
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
@@ -318,7 +325,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
 class AgentToolsExecutable(BaseAgentLoopExecutable):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        last_message = state.messages[-1]
+        last_message = find_last_message_of_type(state.messages, AssistantMessage)
 
         reset_state = PartialAssistantState(root_tool_call_id=None)
         # Should never happen, but just in case.
@@ -370,6 +377,8 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
                 )
+        except MaxToolPermissionRequestError:
+            return PartialAssistantState(graph_status="interrupted")
         except MaxToolError as e:
             logger.exception(
                 "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
@@ -424,7 +433,6 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                 ],
             )
         except NodeInterrupt:
-            # Let NodeInterrupt propagate to the graph engine for tool interrupts
             raise
         except Exception as e:
             logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})

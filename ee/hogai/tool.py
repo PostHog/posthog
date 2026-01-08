@@ -4,22 +4,14 @@ from collections.abc import Sequence
 from functools import cached_property
 from string import Formatter
 from typing import Any, Literal, Self
-from uuid import uuid4
 
 import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel
 
-from posthog.schema import (
-    AssistantMessage,
-    AssistantTool,
-    AssistantToolCall,
-    PermissionRequestMessage,
-    PermissionStatus,
-)
+from posthog.schema import AssistantMessage, AssistantTool, AssistantToolCall, PermissionStatus
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
@@ -30,7 +22,7 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path
 from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
-from ee.hogai.tool_errors import MaxToolAccessDeniedError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolPermissionRequestError
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
 logger = structlog.get_logger(__name__)
@@ -277,9 +269,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
 
         # Status is unknown, request permission
         if self.tool_call.permission_status is None:
-            raise NodeInterrupt(
-                PermissionRequestMessage(content="Approve this operation to continue.", id=str(uuid4()))
-            )
+            raise MaxToolPermissionRequestError("Permissions are required to execute this tool.")
 
         # Status is denied, return error to the tool
         if self.tool_call.permission_status == PermissionStatus.DENIED:

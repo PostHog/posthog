@@ -263,7 +263,7 @@ class BaseStateWithMessages(BaseState):
     """
     The datetime of the start of the conversation. Use this datetime to keep the cache.
     """
-    graph_status: Optional[Literal["resumed", "interrupted", ""]] = Field(default=None)
+    graph_status: Annotated[Optional[Literal["resumed", "interrupted", ""]], replace] = Field(default=None)
     """
     Whether the graph was interrupted or resumed.
     """

@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
+from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext, PermissionStatus
 
 from posthog.models import Team, User
 
@@ -10,7 +10,9 @@ from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.chat_agent.taxonomy.types import TaxonomyNodeName
 from ee.hogai.core.runner import BaseAgentRunner
+from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import ReplaceMessages
 from ee.models import Conversation
 
 if TYPE_CHECKING:
@@ -99,13 +101,33 @@ class ChatAgentRunner(BaseAgentRunner):
         self._selected_agent_mode = agent_mode
 
     def get_initial_state(self) -> AssistantState:
+        new_messages = []
+        resume_state = None
+
+        # Find messages that requested approval
+        # Pseudcode, requires more robust logic
+        if self._state and self._state.graph_status == "interrupted":
+            resume_state = "resumed"
+            new_messages = [*self._state.messages]
+            last_assistant_message = find_last_message_of_type(new_messages, AssistantMessage)
+            assert last_assistant_message
+            for tool_call in last_assistant_message.tool_calls or []:
+                # For demo, we deny
+                tool_call.permission_status = PermissionStatus.DENIED
+
+        if self._latest_message:
+            new_messages.append(self._latest_message)
+
+        if len(new_messages) > 1:
+            new_messages = ReplaceMessages(new_messages)
+
         if self._latest_message:
             new_state = AssistantState(
-                messages=[self._latest_message],
+                messages=new_messages,
                 start_id=self._latest_message.id,
                 query_generation_retry_count=0,
-                graph_status=None,
                 rag_context=None,
+                graph_status=resume_state,
             )
             # Only set the agent mode if it was explicitly set.
             if self._selected_agent_mode:
@@ -113,7 +135,7 @@ class ChatAgentRunner(BaseAgentRunner):
             return new_state
 
         # When resuming, do not set the mode. It should start from the same mode as the previous generation.
-        return AssistantState(messages=[])
+        return AssistantState(messages=new_messages, graph_status=resume_state)
 
     def get_resumed_state(self) -> PartialAssistantState:
         if not self._latest_message:
