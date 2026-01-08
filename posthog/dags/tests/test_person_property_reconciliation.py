@@ -449,6 +449,7 @@ class TestUpdatePersonWithVersionCheck:
     def test_successful_update(self):
         """Test successful update with version check."""
         person_data = {
+            "id": 123,
             "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {"existing": "value"},
             "properties_last_updated_at": {},
@@ -465,8 +466,9 @@ class TestUpdatePersonWithVersionCheck:
             ),
         ]
 
-        success, result_data = update_person_with_version_check(
+        success, result_data, backup_created = update_person_with_version_check(
             cursor=cursor,
+            job_id="test-job-id",
             team_id=1,
             person_uuid="018d1234-5678-0000-0000-000000000001",
             property_updates=updates,
@@ -483,9 +485,32 @@ class TestUpdatePersonWithVersionCheck:
         update_calls = [call for call in cursor.execute.call_args_list if "UPDATE posthog_person" in str(call)]
         assert len(update_calls) == 1
 
+        # Verify backup INSERT was executed
+        backup_calls = [
+            call
+            for call in cursor.execute.call_args_list
+            if "INSERT INTO posthog_person_reconciliation_backup" in str(call)
+        ]
+        assert len(backup_calls) == 1
+
+        # Verify backup contains correct data
+        backup_call_args = backup_calls[0][0]  # (query, params)
+        backup_params = backup_call_args[1]
+        assert backup_params[0] == "test-job-id"  # job_id
+        assert backup_params[1] == 1  # team_id
+        assert backup_params[2] == 123  # person_id
+        assert backup_params[3] == "018d1234-5678-0000-0000-000000000001"  # uuid
+        # Before state
+        assert '"existing": "value"' in backup_params[4]  # properties (before)
+        assert backup_params[7] == 5  # version (before)
+        # After state
+        assert '"email": "test@example.com"' in backup_params[12]  # properties_after
+        assert backup_params[15] == 6  # version_after
+
     def test_dry_run_does_not_write(self):
         """Test that dry_run=True doesn't execute UPDATE."""
         person_data = {
+            "id": 123,
             "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {},
             "properties_last_updated_at": {},
@@ -502,8 +527,9 @@ class TestUpdatePersonWithVersionCheck:
             ),
         ]
 
-        success, result_data = update_person_with_version_check(
+        success, result_data, backup_created = update_person_with_version_check(
             cursor=cursor,
+            job_id="test-job-id",
             team_id=1,
             person_uuid="018d1234-5678-0000-0000-000000000001",
             property_updates=updates,
@@ -517,6 +543,14 @@ class TestUpdatePersonWithVersionCheck:
         update_calls = [call for call in cursor.execute.call_args_list if "UPDATE posthog_person" in str(call)]
         assert len(update_calls) == 0
 
+        # Verify backup INSERT was STILL executed (for audit trail)
+        backup_calls = [
+            call
+            for call in cursor.execute.call_args_list
+            if "INSERT INTO posthog_person_reconciliation_backup" in str(call)
+        ]
+        assert len(backup_calls) == 1
+
     def test_person_not_found(self):
         """Test handling when person doesn't exist in PG."""
         cursor = self.create_mock_cursor(person_data=None)
@@ -527,8 +561,9 @@ class TestUpdatePersonWithVersionCheck:
             ),
         ]
 
-        success, result_data = update_person_with_version_check(
+        success, result_data, backup_created = update_person_with_version_check(
             cursor=cursor,
+            job_id="test-job-id",
             team_id=1,
             person_uuid="018d1234-5678-0000-0000-nonexistent",
             property_updates=updates,
@@ -540,6 +575,7 @@ class TestUpdatePersonWithVersionCheck:
     def test_no_changes_needed(self):
         """Test when reconciliation determines no changes are needed."""
         person_data = {
+            "id": 123,
             "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {"email": "current@example.com"},
             "properties_last_updated_at": {"email": "2024-01-20T00:00:00+00:00"},
@@ -560,8 +596,9 @@ class TestUpdatePersonWithVersionCheck:
             ),
         ]
 
-        success, result_data = update_person_with_version_check(
+        success, result_data, backup_created = update_person_with_version_check(
             cursor=cursor,
+            job_id="test-job-id",
             team_id=1,
             person_uuid="018d1234-5678-0000-0000-000000000001",
             property_updates=updates,
@@ -573,6 +610,7 @@ class TestUpdatePersonWithVersionCheck:
     def test_version_mismatch_retry(self):
         """Test retry on version mismatch (concurrent modification)."""
         person_data_v1 = {
+            "id": 123,
             "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {},
             "properties_last_updated_at": {},
@@ -582,6 +620,7 @@ class TestUpdatePersonWithVersionCheck:
             "created_at": datetime(2024, 1, 1, 0, 0, 0),
         }
         person_data_v2 = {
+            "id": 123,
             "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {},
             "properties_last_updated_at": {},
@@ -613,8 +652,9 @@ class TestUpdatePersonWithVersionCheck:
             ),
         ]
 
-        success, result_data = update_person_with_version_check(
+        success, result_data, backup_created = update_person_with_version_check(
             cursor=cursor,
+            job_id="test-job-id",
             team_id=1,
             person_uuid="018d1234-5678-0000-0000-000000000001",
             property_updates=updates,
@@ -628,6 +668,7 @@ class TestUpdatePersonWithVersionCheck:
     def test_exhausted_retries(self):
         """Test failure after exhausting all retries."""
         person_data = {
+            "id": 123,
             "uuid": "018d1234-5678-0000-0000-000000000001",
             "properties": {},
             "properties_last_updated_at": {},
@@ -647,8 +688,9 @@ class TestUpdatePersonWithVersionCheck:
             ),
         ]
 
-        success, result_data = update_person_with_version_check(
+        success, result_data, backup_created = update_person_with_version_check(
             cursor=cursor,
+            job_id="test-job-id",
             team_id=1,
             person_uuid="018d1234-5678-0000-0000-000000000001",
             property_updates=updates,
@@ -657,6 +699,294 @@ class TestUpdatePersonWithVersionCheck:
 
         assert success is False
         assert result_data is None
+
+
+class TestBackupFunctionality:
+    """Test the backup functionality for person property reconciliation."""
+
+    def test_backup_contains_pending_operations(self):
+        """Test that backup stores the pending operations correctly."""
+        import json
+
+        person_data = {
+            "id": 123,
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"existing": "value"},
+            "properties_last_updated_at": {"existing": "2024-01-01T00:00:00"},
+            "properties_last_operation": {"existing": "set"},
+            "version": 5,
+            "is_identified": True,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = person_data
+        cursor.rowcount = 1
+
+        updates = [
+            PropertyUpdate(
+                key="email", value="test@example.com", timestamp=datetime(2024, 1, 15, 12, 0, 0), operation="set"
+            ),
+            PropertyUpdate(
+                key="name", value="Test User", timestamp=datetime(2024, 1, 15, 12, 0, 0), operation="set_once"
+            ),
+        ]
+
+        update_person_with_version_check(
+            cursor=cursor,
+            job_id="test-job-id",
+            team_id=1,
+            person_uuid="018d1234-5678-0000-0000-000000000001",
+            property_updates=updates,
+            dry_run=False,
+        )
+
+        # Find the backup INSERT call
+        backup_calls = [
+            call
+            for call in cursor.execute.call_args_list
+            if "INSERT INTO posthog_person_reconciliation_backup" in str(call)
+        ]
+        assert len(backup_calls) == 1
+
+        backup_params = backup_calls[0][0][1]
+        pending_operations_json = backup_params[11]  # pending_operations is at index 11
+        pending_operations = json.loads(pending_operations_json)
+
+        assert len(pending_operations) == 2
+        assert pending_operations[0]["key"] == "email"
+        assert pending_operations[0]["value"] == "test@example.com"
+        assert pending_operations[0]["operation"] == "set"
+        assert pending_operations[1]["key"] == "name"
+        assert pending_operations[1]["value"] == "Test User"
+        assert pending_operations[1]["operation"] == "set_once"
+
+    def test_backup_not_created_when_no_changes_needed(self):
+        """Test that no backup is created when reconciliation determines no changes are needed."""
+        person_data = {
+            "id": 123,
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"email": "current@example.com"},
+            "properties_last_updated_at": {"email": "2024-01-20T00:00:00+00:00"},
+            "properties_last_operation": {"email": "set"},
+            "version": 5,
+            "is_identified": True,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = person_data
+
+        # This update is older than what's in PG, so no changes needed
+        updates = [
+            PropertyUpdate(
+                key="email",
+                value="older@example.com",
+                timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                operation="set",
+            ),
+        ]
+
+        success, result_data, backup_created = update_person_with_version_check(
+            cursor=cursor,
+            job_id="test-job-id",
+            team_id=1,
+            person_uuid="018d1234-5678-0000-0000-000000000001",
+            property_updates=updates,
+        )
+
+        assert success is True
+        assert result_data is None
+
+        # Verify backup INSERT was NOT executed (no changes to backup)
+        backup_calls = [
+            call
+            for call in cursor.execute.call_args_list
+            if "INSERT INTO posthog_person_reconciliation_backup" in str(call)
+        ]
+        assert len(backup_calls) == 0
+
+    def test_backup_preserves_before_and_after_state(self):
+        """Test that backup correctly stores both before and after state."""
+        import json
+
+        person_data = {
+            "id": 456,
+            "uuid": "018d1234-5678-0000-0000-000000000002",
+            "properties": {"name": "Old Name", "count": 10},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+            "version": 3,
+            "is_identified": False,
+            "is_user_id": None,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = person_data
+        cursor.rowcount = 1
+
+        updates = [
+            PropertyUpdate(key="name", value="New Name", timestamp=datetime(2024, 1, 15, 12, 0, 0), operation="set"),
+        ]
+
+        update_person_with_version_check(
+            cursor=cursor,
+            job_id="run-abc-123",
+            team_id=42,
+            person_uuid="018d1234-5678-0000-0000-000000000002",
+            property_updates=updates,
+            dry_run=False,
+        )
+
+        backup_calls = [
+            call
+            for call in cursor.execute.call_args_list
+            if "INSERT INTO posthog_person_reconciliation_backup" in str(call)
+        ]
+        assert len(backup_calls) == 1
+
+        backup_params = backup_calls[0][0][1]
+
+        # Verify identifiers
+        assert backup_params[0] == "run-abc-123"  # job_id
+        assert backup_params[1] == 42  # team_id
+        assert backup_params[2] == 456  # person_id
+
+        # Verify before state
+        properties_before = json.loads(backup_params[4])
+        assert properties_before == {"name": "Old Name", "count": 10}
+        assert backup_params[7] == 3  # version before
+
+        # Verify after state
+        properties_after = json.loads(backup_params[12])
+        assert properties_after["name"] == "New Name"
+        assert properties_after["count"] == 10  # unchanged property preserved
+        assert backup_params[15] == 4  # version after (3 + 1)
+
+    def test_backup_disabled_does_not_create_backup(self):
+        """Test that backup_enabled=False skips backup creation."""
+        person_data = {
+            "id": 123,
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"existing": "value"},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+            "version": 5,
+            "is_identified": True,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = person_data
+        cursor.rowcount = 1
+
+        updates = [
+            PropertyUpdate(
+                key="email", value="test@example.com", timestamp=datetime(2024, 1, 15, 12, 0, 0), operation="set"
+            ),
+        ]
+
+        success, result_data, backup_created = update_person_with_version_check(
+            cursor=cursor,
+            job_id="test-job-id",
+            team_id=1,
+            person_uuid="018d1234-5678-0000-0000-000000000001",
+            property_updates=updates,
+            dry_run=False,
+            backup_enabled=False,
+        )
+
+        assert success is True
+        assert result_data is not None
+        assert backup_created is False
+
+        # Verify backup INSERT was NOT executed
+        backup_calls = [
+            call
+            for call in cursor.execute.call_args_list
+            if "INSERT INTO posthog_person_reconciliation_backup" in str(call)
+        ]
+        assert len(backup_calls) == 0
+
+        # But UPDATE should still happen
+        update_calls = [call for call in cursor.execute.call_args_list if "UPDATE posthog_person" in str(call)]
+        assert len(update_calls) == 1
+
+    def test_backup_created_return_value_true_when_enabled(self):
+        """Test that backup_created=True when backup is enabled and changes made."""
+        person_data = {
+            "id": 123,
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+            "version": 1,
+            "is_identified": False,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = person_data
+        cursor.rowcount = 1
+
+        updates = [
+            PropertyUpdate(
+                key="email", value="test@example.com", timestamp=datetime(2024, 1, 15, 12, 0, 0), operation="set"
+            ),
+        ]
+
+        success, result_data, backup_created = update_person_with_version_check(
+            cursor=cursor,
+            job_id="test-job-id",
+            team_id=1,
+            person_uuid="018d1234-5678-0000-0000-000000000001",
+            property_updates=updates,
+            dry_run=False,
+            backup_enabled=True,
+        )
+
+        assert success is True
+        assert backup_created is True
+
+    def test_backup_created_false_when_no_changes_needed(self):
+        """Test that backup_created=False when no changes are needed."""
+        person_data = {
+            "id": 123,
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {"email": "current@example.com"},
+            "properties_last_updated_at": {"email": "2024-01-20T00:00:00+00:00"},
+            "properties_last_operation": {"email": "set"},
+            "version": 5,
+            "is_identified": True,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = person_data
+
+        # This update is older than what's in PG
+        updates = [
+            PropertyUpdate(
+                key="email",
+                value="older@example.com",
+                timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                operation="set",
+            ),
+        ]
+
+        success, result_data, backup_created = update_person_with_version_check(
+            cursor=cursor,
+            job_id="test-job-id",
+            team_id=1,
+            person_uuid="018d1234-5678-0000-0000-000000000001",
+            property_updates=updates,
+            backup_enabled=True,
+        )
+
+        assert success is True
+        assert result_data is None
+        assert backup_created is False
 
 
 class TestPostBugWindowUpdatePreservation:

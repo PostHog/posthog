@@ -37,6 +37,7 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     bug_window_end: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS" (assumed UTC)
     team_ids: list[int] | None = None  # Optional: filter to specific teams
     dry_run: bool = False  # Log changes without applying
+    backup_enabled: bool = True  # Store before/after state in backup table
 
 
 @dataclass
@@ -360,37 +361,107 @@ def fetch_person_from_postgres(cursor, team_id: int, person_uuid: str) -> dict |
     return dict(row) if row else None
 
 
+def backup_person_with_computed_state(
+    cursor,
+    job_id: str,
+    team_id: int,
+    person: dict,
+    property_updates: list[PropertyUpdate],
+    computed_update: dict,
+    new_version: int,
+) -> bool:
+    """
+    Store person state in backup table with both before and after states.
+    Called after computing the update but before applying it.
+    Returns True if backup was successful, False otherwise.
+    """
+    pending_operations = [
+        {
+            "key": u.key,
+            "value": u.value,
+            "timestamp": u.timestamp.isoformat(),
+            "operation": u.operation,
+        }
+        for u in property_updates
+    ]
+
+    cursor.execute(
+        """
+        INSERT INTO posthog_person_reconciliation_backup (
+            job_id, team_id, person_id, uuid,
+            properties, properties_last_updated_at, properties_last_operation,
+            version, is_identified, created_at, is_user_id,
+            pending_operations,
+            properties_after, properties_last_updated_at_after,
+            properties_last_operation_after, version_after
+        ) VALUES (
+            %s, %s, %s, %s::uuid,
+            %s, %s, %s,
+            %s, %s, %s, %s,
+            %s,
+            %s, %s, %s, %s
+        )
+        ON CONFLICT (job_id, team_id, person_id) DO NOTHING
+        """,
+        (
+            job_id,
+            team_id,
+            person["id"],
+            str(person["uuid"]),
+            json.dumps(person.get("properties", {})),
+            json.dumps(person.get("properties_last_updated_at")),
+            json.dumps(person.get("properties_last_operation")),
+            person.get("version"),
+            person.get("is_identified", False),
+            person.get("created_at"),
+            person.get("is_user_id"),
+            json.dumps(pending_operations),
+            json.dumps(computed_update["properties"]),
+            json.dumps(computed_update["properties_last_updated_at"]),
+            json.dumps(computed_update["properties_last_operation"]),
+            new_version,
+        ),
+    )
+    return True
+
+
 def update_person_with_version_check(
     cursor,
+    job_id: str,
     team_id: int,
     person_uuid: str,
     property_updates: list[PropertyUpdate],
     dry_run: bool = False,
+    backup_enabled: bool = True,
     max_retries: int = 3,
-) -> tuple[bool, dict | None]:
+) -> tuple[bool, dict | None, bool]:
     """
     Update a person's properties with optimistic locking.
 
     Fetches the person, computes updates, and writes with version check.
     If version changed (concurrent modification), re-fetches and retries.
+    Optionally backs up the before/after state for audit purposes.
 
     Args:
         cursor: Database cursor
+        job_id: Dagster run ID for backup tracking
         team_id: Team ID
         person_uuid: Person UUID
         property_updates: Property updates from ClickHouse
-        dry_run: If True, don't actually write
+        dry_run: If True, don't actually write the UPDATE
+        backup_enabled: If True, store before/after state in backup table
         max_retries: Maximum retry attempts on version mismatch
 
     Returns:
-        Tuple of (success: bool, updated_person_data: dict | None)
+        Tuple of (success: bool, updated_person_data: dict | None, backup_created: bool)
         updated_person_data contains the final state for Kafka publishing
+        backup_created indicates if a backup row was inserted
     """
     for _attempt in range(max_retries):
         # Fetch current person state
         person = fetch_person_from_postgres(cursor, team_id, person_uuid)
         if not person:
-            return False, None
+            return False, None, False
 
         current_version = person.get("version") or 0
 
@@ -398,10 +469,18 @@ def update_person_with_version_check(
         update = reconcile_person_properties(person, property_updates)
         if not update:
             # No changes needed
-            return True, None
+            return True, None, False
+
+        # Backup before and after state for audit/rollback
+        backup_created = False
+        if backup_enabled:
+            backup_person_with_computed_state(
+                cursor, job_id, team_id, person, property_updates, update, current_version + 1
+            )
+            backup_created = True
 
         if dry_run:
-            return True, None
+            return True, None, backup_created
 
         # Write with version check
         cursor.execute(
@@ -427,21 +506,25 @@ def update_person_with_version_check(
 
         if cursor.rowcount > 0:
             # Success - return data for Kafka publishing
-            return True, {
-                "id": person_uuid,
-                "team_id": team_id,
-                "properties": update["properties"],
-                "is_identified": person.get("is_identified", False),
-                "is_deleted": 0,
-                "created_at": person.get("created_at"),
-                "version": current_version + 1,
-            }
+            return (
+                True,
+                {
+                    "id": person_uuid,
+                    "team_id": team_id,
+                    "properties": update["properties"],
+                    "is_identified": person.get("is_identified", False),
+                    "is_deleted": 0,
+                    "created_at": person.get("created_at"),
+                    "version": current_version + 1,
+                },
+                backup_created,
+            )
 
         # Version mismatch - retry with fresh data
         # (loop will re-fetch person)
 
     # Exhausted retries
-    return False, None
+    return False, None, False
 
 
 @dagster.op
@@ -534,6 +617,7 @@ def reconcile_team_chunk(
     team_id = chunk
     chunk_id = f"team_{team_id}"
     job_name = context.run.job_name
+    run_id = context.run.run_id
 
     metrics_client = MetricsClient(cluster)
 
@@ -572,14 +656,20 @@ def reconcile_team_chunk(
 
             # Process each person with version check and retry
             persons_to_publish = []
+            any_backups_created = False
             for person_updates in person_property_updates:
-                success, person_data = update_person_with_version_check(
+                success, person_data, backup_created = update_person_with_version_check(
                     cursor=cursor,
+                    job_id=run_id,
                     team_id=team_id,
                     person_uuid=person_updates.person_id,
                     property_updates=person_updates.updates,
                     dry_run=config.dry_run,
+                    backup_enabled=config.backup_enabled,
                 )
+
+                if backup_created:
+                    any_backups_created = True
 
                 if not success:
                     context.log.warning(f"Failed to update person after retries: {person_updates.person_id}")
@@ -595,7 +685,9 @@ def reconcile_team_chunk(
                 total_persons_processed += 1
 
             # Commit the Postgres transaction
-            if persons_to_publish and not config.dry_run:
+            # Commit if we have updates to publish, OR if we created backups (even in dry_run)
+            should_commit = (persons_to_publish and not config.dry_run) or any_backups_created
+            if should_commit:
                 persons_database.commit()
 
             # Publish to Kafka (after commit, so we don't publish if commit fails)
