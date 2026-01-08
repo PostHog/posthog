@@ -14,6 +14,7 @@ const pathsWithoutProjectId = [
     'account',
     'oauth',
     'shared',
+    'exporter',
     'embedded',
     'cli',
     'render_query',
