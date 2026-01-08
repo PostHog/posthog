@@ -179,6 +179,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                             query_parameters=query_params,
                         )
                         results = []
+                        line_count = 0
                         for line in response.decode("utf-8").splitlines():
                             if line.strip():
                                 try:
@@ -193,8 +194,14 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                     )
                                     # Skip malformed lines but continue processing
                                     continue
+                                finally:
+                                    line_count += 1
+                                    # Yield control to event loop every 1000 lines to allow heartbeats to be sent
+                                    if line_count % 1000 == 0:
+                                        await asyncio.sleep(0)
 
                     # Process results
+                    result_count = 0
                     for row in results:
                         person_id, status = row
                         status_counts[status] += 1
@@ -208,7 +215,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         }
                         # Produce to Kafka without blocking - collect send results for later flushing
                         try:
-                            send_result = kafka_producer.produce(
+                            # Run Kafka produce in thread pool to avoid blocking event loop
+                            send_result = await asyncio.to_thread(
+                                kafka_producer.produce,
                                 topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
                                 key=payload["person_id"],
                                 data=payload,
@@ -222,6 +231,12 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                 error=str(e),
                             )
                             # Continue processing even if Kafka produce fails
+
+                        result_count += 1
+                        # Yield control to event loop every 100 results to allow heartbeats to be sent
+                        # We already await on to_thread above, but add explicit yield for good measure
+                        if result_count % 100 == 0:
+                            await asyncio.sleep(0)
 
                     # Flush all pending Kafka messages after processing
                     logger.info(
