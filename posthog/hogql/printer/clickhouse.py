@@ -11,9 +11,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.utils import UUIDT
@@ -64,6 +65,11 @@ class ClickHousePrinter(HogQLPrinter):
             raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
         return super().visit_select_query(node)
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        if node.type is None:
+            raise InternalHogQLError("Printing queries with a FROM clause is not permitted before type resolution")
+        return super().visit_join_expr(node)
 
     def visit_and(self, node: ast.And):
         """
@@ -673,3 +679,39 @@ class ClickHousePrinter(HogQLPrinter):
             sql = f"(SELECT * FROM {sql})"
 
         return sql
+
+    def _print_select_columns(self, columns):
+        # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
+        found_aliases: dict[str, ast.Alias] = {}
+        for alias in reversed(columns):
+            if isinstance(alias, ast.Alias):
+                if not found_aliases.get(alias.alias, None) or not alias.hidden:
+                    found_aliases[alias.alias] = alias
+
+        columns_sql = []
+        for column in columns:
+            if isinstance(column, ast.Alias):
+                # It's either a visible alias, or the last hidden alias with this name.
+                if found_aliases.get(column.alias) == column:
+                    if column.hidden:
+                        # Make the hidden alias visible
+                        column = cast(ast.Alias, clone_expr(column))
+                        column.hidden = False
+                    else:
+                        # Always print visible aliases.
+                        pass
+                else:
+                    # Non-unique hidden alias. Skip.
+                    column = column.expr
+            elif isinstance(column, ast.Call):
+                with self.context.timings.measure("printer"):
+                    column_alias = safe_identifier(
+                        HogQLPrinter(
+                            context=self.context,
+                            dialect="hogql",
+                        ).visit(column)
+                    )
+                column = ast.Alias(alias=column_alias, expr=column)
+            columns_sql.append(self.visit(column))
+
+        return columns_sql

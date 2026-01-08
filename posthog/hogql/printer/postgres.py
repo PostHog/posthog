@@ -113,3 +113,17 @@ class PostgresPrinter(HogQLPrinter):
 
     def _json_property_args(self, chain):
         return [self._print_escaped_string(name) for name in chain]
+
+    def _print_select_columns(self, columns):
+        columns_sql = []
+        for column in columns:
+            # Unwrap hidden aliases
+            if (isinstance(column, ast.Alias)) and column.hidden:
+                column = column.expr
+
+            if isinstance(column, ast.Field) and isinstance(column.type, ast.PropertyType):
+                alias_name = ".".join(map(str, column.chain))
+                column = ast.Alias(alias=alias_name, expr=column)
+
+            columns_sql.append(self.visit(column))
+        return columns_sql

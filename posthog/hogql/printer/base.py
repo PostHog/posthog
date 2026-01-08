@@ -15,8 +15,8 @@ from posthog.hogql.base import AST
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, Table
-from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
-from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string, safe_identifier
+from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
@@ -121,6 +121,9 @@ class HogQLPrinter(Visitor[str]):
             return f"({ret.strip()})"
         return ret
 
+    def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
+        return [self.visit(column) for column in columns]
+
     def visit_select_query(self, node: ast.SelectQuery):
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
@@ -138,12 +141,6 @@ class HogQLPrinter(Visitor[str]):
         joined_tables = []
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
-            if next_join.type is None:
-                if self.dialect == "clickhouse":
-                    raise InternalHogQLError(
-                        "Printing queries with a FROM clause is not permitted before type resolution"
-                    )
-
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
 
@@ -166,55 +163,10 @@ class HogQLPrinter(Visitor[str]):
             next_join = next_join.next_join
 
         if node.select:
-            if self.dialect == "clickhouse":
-                # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
-                found_aliases: dict[str, ast.Alias] = {}
-                for alias in reversed(node.select):
-                    if isinstance(alias, ast.Alias):
-                        if not found_aliases.get(alias.alias, None) or not alias.hidden:
-                            found_aliases[alias.alias] = alias
-
-                columns = []
-                for column in node.select:
-                    if isinstance(column, ast.Alias):
-                        # It's either a visible alias, or the last hidden alias with this name.
-                        if found_aliases.get(column.alias) == column:
-                            if column.hidden:
-                                # Make the hidden alias visible
-                                column = cast(ast.Alias, clone_expr(column))
-                                column.hidden = False
-                            else:
-                                # Always print visible aliases.
-                                pass
-                        else:
-                            # Non-unique hidden alias. Skip.
-                            column = column.expr
-                    elif isinstance(column, ast.Call):
-                        with self.context.timings.measure("printer"):
-                            column_alias = safe_identifier(
-                                HogQLPrinter(
-                                    context=self.context,
-                                    dialect="hogql",
-                                ).visit(column)
-                            )
-                        column = ast.Alias(alias=column_alias, expr=column)
-                    columns.append(self.visit(column))
-            elif self.dialect == "postgres":
-                columns = []
-                for column in node.select:
-                    # Unwrap hidden aliases
-                    if (isinstance(column, ast.Alias)) and column.hidden:
-                        column = column.expr
-
-                    if isinstance(column, ast.Field) and isinstance(column.type, ast.PropertyType):
-                        alias_name = ".".join(map(str, column.chain))
-                        column = ast.Alias(alias=alias_name, expr=column)
-
-                    columns.append(self.visit(column))
-            else:
-                columns = [self.visit(column) for column in node.select]
+            columns = self._print_select_columns(node.select)
         else:
             columns = ["1"]
+
         window = (
             ", ".join(
                 [f"{self._print_identifier(name)} AS ({self.visit(expr)})" for name, expr in node.window_exprs.items()]
