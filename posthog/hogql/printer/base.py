@@ -339,9 +339,9 @@ class HogQLPrinter(Visitor[str]):
             while isinstance(table_type, ast.TableAliasType):
                 table_type = cast(Union[ast.TableType | ast.TableAliasType], table_type.table_type)
 
-            if not isinstance(table_type, ast.TableType):
+            if not isinstance(table_type, ast.BaseTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
-            assert isinstance(table_type, ast.TableType)
+            assert isinstance(table_type, ast.BaseTableType)
 
             extra_where = self._ensure_team_id_where_clause(table_type, node.type)
 
