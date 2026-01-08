@@ -137,3 +137,17 @@ class PostgresPrinter(HogQLPrinter):
 
             columns_sql.append(self.visit(column))
         return columns_sql
+
+    def visit_arithmetic_operation(self, node):
+        if node.op == ast.ArithmeticOperationOp.Add:
+            return f"({self.visit(node.left)} + {self.visit(node.right)})"
+        elif node.op == ast.ArithmeticOperationOp.Sub:
+            return f"({self.visit(node.left)} - {self.visit(node.right)})"
+        elif node.op == ast.ArithmeticOperationOp.Mult:
+            return f"({self.visit(node.left)} * {self.visit(node.right)})"
+        elif node.op == ast.ArithmeticOperationOp.Div:
+            return f"({self.visit(node.left)} / {self.visit(node.right)})"
+        elif node.op == ast.ArithmeticOperationOp.Mod:
+            return f"({self.visit(node.left)} % {self.visit(node.right)})"
+        else:
+            raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
