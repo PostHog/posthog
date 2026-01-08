@@ -132,14 +132,6 @@ class OAuthApplication(AbstractApplication):
     # NOTE: The user that created the application. It should not be used to check for access to the application, since the user might have left the organization.
     user: "User | None" = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)  # type: ignore[assignment]
 
-    # DCR (Dynamic Client Registration) fields - RFC 7591
-    is_dcr_client: models.BooleanField = models.BooleanField(
-        default=False, help_text="True if this client was registered via Dynamic Client Registration"
-    )
-    client_id_issued_at: models.DateTimeField = models.DateTimeField(
-        null=True, blank=True, help_text="When the client_id was issued (for DCR clients)"
-    )
-
 
 class OAuthAccessToken(AbstractAccessToken):
     class Meta(AbstractAccessToken.Meta):
