@@ -2,8 +2,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+
+import { Error404 } from '~/layout/Error404'
 
 import { ProductTourEdit } from './ProductTourEdit'
 import { ProductTourView } from './ProductTourView'
@@ -16,6 +20,7 @@ export const scene: SceneExport<ProductTourLogicProps> = {
 }
 
 export function ProductTourComponent({ id }: ProductTourLogicProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { productTourMissing, isEditingProductTour } = useValues(productTourLogic({ id }))
     const { editingProductTour } = useActions(productTourLogic({ id }))
 
@@ -24,6 +29,10 @@ export function ProductTourComponent({ id }: ProductTourLogicProps): JSX.Element
             editingProductTour(false)
         }
     }, [editingProductTour])
+
+    if (!featureFlags[FEATURE_FLAGS.PRODUCT_TOURS]) {
+        return <Error404 />
+    }
 
     if (productTourMissing) {
         return <NotFound object="product tour" />

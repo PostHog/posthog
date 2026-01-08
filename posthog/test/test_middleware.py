@@ -522,7 +522,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
     def login_as_other_user(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            data={"read_only": "false"},
+            data={"read_only": "false", "reason": "Test impersonation"},
             follow=True,
         )
 
@@ -680,14 +680,14 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
     def login_as_other_user(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            data={"read_only": "false"},
+            data={"read_only": "false", "reason": "Test impersonation"},
             follow=True,
         )
 
     def login_as_other_user_read_only(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            data={"read_only": "true"},
+            data={"read_only": "true", "reason": "Test read-only impersonation"},
             follow=True,
         )
 
@@ -770,10 +770,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.other_user.allow_impersonation = False
         self.other_user.save()
 
-        self.client.post(
-            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            follow=True,
-        )
+        self.login_as_other_user()
 
         # Should still be logged in as original user
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
@@ -821,9 +818,16 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
+        # Use Django's standard Client instead of APIClient for these tests.
+        # The loginas admin view expects form-encoded POST data, which is
+        # Django Client's default (APIClient defaults to JSON).
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
     def login_as_other_user(self):
         return self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false", "reason": "Test impersonation"},
             follow=True,
         )
 
@@ -918,6 +922,68 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         response_data = response.json()
         assert response_data["type"] == "authentication_error"
         assert response_data["code"] == "impersonation_path_blocked"
+
+
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+class TestImpersonationLoginReasonRequired(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        self.client = DjangoClient()
+        self.client.force_login(self.user)
+
+    def test_impersonation_rejected_without_reason(self):
+        """Verify impersonation is rejected when no reason is provided."""
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true"},
+            follow=True,
+        )
+
+        # Should still be logged in as original staff user (impersonation rejected)
+        assert self.client.get("/api/users/@me/").json()["email"] == self.user.email
+
+    def test_impersonation_succeeds_with_reason(self):
+        """Verify impersonation succeeds when a reason is provided."""
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true", "reason": "Investigating support ticket #1234"},
+            follow=True,
+        )
+
+        # Should now be logged in as other user
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+    def test_impersonation_rejected_with_empty_reason(self):
+        """Verify impersonation is rejected when reason is empty string."""
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true", "reason": ""},
+            follow=True,
+        )
+
+        # Should still be logged in as original staff user
+        assert self.client.get("/api/users/@me/").json()["email"] == self.user.email
+
+    def test_impersonation_rejected_with_whitespace_only_reason(self):
+        """Verify impersonation is rejected when reason is only whitespace."""
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true", "reason": "   "},
+            follow=True,
+        )
+
+        # Should still be logged in as original staff user
+        assert self.client.get("/api/users/@me/").json()["email"] == self.user.email
 
 
 @override_settings(SESSION_COOKIE_AGE=100)

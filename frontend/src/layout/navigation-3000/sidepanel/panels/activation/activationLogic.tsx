@@ -271,7 +271,12 @@ export const activationLogic = kea<activationLogicType>([
             switch (id) {
                 // Quick Start
                 case ActivationTask.IngestFirstEvent:
-                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL))
+                    router.actions.push(
+                        urls.onboarding({
+                            productKey: ProductKey.PRODUCT_ANALYTICS,
+                            stepKey: OnboardingStepKey.INSTALL,
+                        })
+                    )
                     break
                 case ActivationTask.InviteTeamMember:
                     actions.showInviteModal()
@@ -333,7 +338,9 @@ export const activationLogic = kea<activationLogicType>([
 
                 // LLM Analytics
                 case ActivationTask.IngestFirstLLMEvent:
-                    router.actions.push(urls.onboarding(ProductKey.LLM_ANALYTICS, OnboardingStepKey.INSTALL))
+                    router.actions.push(
+                        urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+                    )
                     break
                 case ActivationTask.ViewFirstTrace:
                     router.actions.push(urls.llmAnalyticsTraces())

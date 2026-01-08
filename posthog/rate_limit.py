@@ -371,7 +371,21 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         return (num_requests, duration)
 
 
-class SignupIPThrottle(SimpleRateThrottle):
+class IPThrottle(SimpleRateThrottle):
+    """
+    Rate limit requests by IP address.
+    This is a general purpose throttle that can be used to rate limit any endpoint by IP address.
+    You should subclass this and set the rate and scope.
+    """
+
+    def get_cache_key(self, request, view):
+        from posthog.utils import get_ip_address
+
+        ip = get_ip_address(request)
+        return self.cache_format % {"scope": self.scope, "ident": ip}
+
+
+class SignupIPThrottle(IPThrottle):
     """
     Rate limit signups by IP address to avoid a single IP address from creating too many accounts.
     """
@@ -379,11 +393,15 @@ class SignupIPThrottle(SimpleRateThrottle):
     scope = "signup_ip"
     rate = "5/day"
 
-    def get_cache_key(self, request, view):
-        from posthog.utils import get_ip_address
 
-        ip = get_ip_address(request)
-        return self.cache_format % {"scope": self.scope, "ident": ip}
+class OnboardingIPThrottle(IPThrottle):
+    """
+    Rate limit onboarding product recommendations by IP address.
+    This endpoint uses an LLM, so we want to be conservative with rate limits.
+    """
+
+    scope = "onboarding_ip"
+    rate = "10/hour"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):

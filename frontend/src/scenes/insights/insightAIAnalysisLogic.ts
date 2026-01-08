@@ -1,8 +1,11 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from '~/lib/api'
 import { InsightQueryNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { organizationLogic } from '~/scenes/organizationLogic'
+import { teamLogic } from '~/scenes/teamLogic'
 
 import type { insightAIAnalysisLogicType } from './insightAIAnalysisLogicType'
 
@@ -21,10 +24,19 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
     path(['scenes', 'insights', 'insightAIAnalysisLogic']),
     props({} as InsightAIAnalysisLogicProps),
     key((props) => props.insightId ?? 'new'),
+    connect({
+        values: [teamLogic, ['currentTeamId'], organizationLogic, ['currentOrganization']],
+    }),
     actions({
         startAnalysis: true,
         setHasClickedAnalyze: (hasClicked: boolean) => ({ hasClicked }),
         resetAnalysis: true,
+        reportAnalysisFeedback: (isPositive: boolean) => ({ isPositive }),
+        reportSuggestionFeedback: (suggestionIndex: number, suggestionTitle: string, isPositive: boolean) => ({
+            suggestionIndex,
+            suggestionTitle,
+            isPositive,
+        }),
     }),
     loaders(({ props }) => ({
         analysis: [
@@ -72,13 +84,57 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                 resetAnalysis: () => false,
             },
         ],
+        analysisFeedbackGiven: [
+            null as boolean | null, // true = positive, false = negative, null = no feedback
+            {
+                reportAnalysisFeedback: (_, { isPositive }) => isPositive,
+                resetAnalysis: () => null,
+            },
+        ],
+        suggestionFeedbackGiven: [
+            {} as Record<number, boolean>, // key is suggestion index, value: true = positive, false = negative
+            {
+                reportSuggestionFeedback: (state, { suggestionIndex, isPositive }) => ({
+                    ...state,
+                    [suggestionIndex]: isPositive,
+                }),
+                resetAnalysis: () => ({}),
+            },
+        ],
     }),
     selectors({
         isAnalyzing: [(s) => [s.analysisLoading], (analysisLoading) => analysisLoading],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         startAnalysis: () => {
             actions.setHasClickedAnalyze(true)
+            posthog.capture('insight ai analysis started', {
+                insight_id: props.insightId,
+                insight_type: props.query.kind,
+                team_id: values.currentTeamId,
+                organization_id: values.currentOrganization?.id,
+            })
+        },
+        reportAnalysisFeedback: ({ isPositive }) => {
+            posthog.capture('insight ai analysis feedback', {
+                insight_id: props.insightId,
+                insight_type: props.query.kind,
+                team_id: values.currentTeamId,
+                organization_id: values.currentOrganization?.id,
+                rating: isPositive ? 'good' : 'bad',
+                analysis: values.analysis,
+            })
+        },
+        reportSuggestionFeedback: ({ suggestionIndex, suggestionTitle, isPositive }) => {
+            posthog.capture('insight ai suggestion feedback', {
+                insight_id: props.insightId,
+                insight_type: props.query.kind,
+                team_id: values.currentTeamId,
+                organization_id: values.currentOrganization?.id,
+                suggestion_index: suggestionIndex,
+                suggestion_title: suggestionTitle,
+                rating: isPositive ? 'good' : 'bad',
+            })
         },
         startAnalysisSuccess: () => {
             // When analysis completes, load suggestions with the analysis context

@@ -86,9 +86,18 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 }
 
 function TraceSceneWrapper(): JSX.Element {
-    const { eventId, searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
-    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, eventMetadata } =
-        useValues(llmAnalyticsTraceDataLogic)
+    const { searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
+    const {
+        enrichedTree,
+        trace,
+        event,
+        responseLoading,
+        responseError,
+        feedbackEvents,
+        metricEvents,
+        eventMetadata,
+        effectiveEventId,
+    } = useValues(llmAnalyticsTraceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -140,7 +149,7 @@ function TraceSceneWrapper(): JSX.Element {
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar
                             trace={trace}
-                            eventId={eventId}
+                            eventId={effectiveEventId}
                             tree={enrichedTree}
                             showBillingInfo={showBillingInfo}
                         />
