@@ -44,6 +44,69 @@ export function VariantsPanel({
     )
     const { reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
 
+    const showNewExperimentFormLayout = true
+
+    if (showNewExperimentFormLayout) {
+        return (
+            <>
+                <div className="flex gap-4 mb-4">
+                    <SelectableCard
+                        title="Create new feature flag"
+                        description="Generate a new feature flag with custom variants for this experiment."
+                        selected={mode === 'create'}
+                        onClick={() => {
+                            setMode('create')
+                        }}
+                        disabled={disabled}
+                        disabledReason="You cannot change the mode when editing an experiment."
+                    />
+                    <SelectableCard
+                        title="Link existing feature flag"
+                        description="Use an existing multivariate feature flag and inherit its variants."
+                        selected={mode === 'link'}
+                        onClick={() => setMode('link')}
+                        disabled={disabled}
+                        disabledReason="You cannot change the mode when editing an experiment."
+                    />
+                </div>
+
+                {match(mode)
+                    .with('create', () => (
+                        <VariantsPanelCreateFeatureFlag
+                            experiment={experiment}
+                            onChange={updateFeatureFlag}
+                            disabled={disabled}
+                        />
+                    ))
+                    .with('link', () => (
+                        <VariantsPanelLinkFeatureFlag
+                            linkedFeatureFlag={linkedFeatureFlag}
+                            setShowFeatureFlagSelector={openSelectExistingFeatureFlagModal}
+                            disabled={disabled}
+                        />
+                    ))
+                    .exhaustive()}
+
+                {/* Feature Flag Selection Modal */}
+                <SelectExistingFeatureFlagModal
+                    onClose={() => closeSelectExistingFeatureFlagModal()}
+                    onSelect={(flag: FeatureFlagType) => {
+                        reportExperimentFeatureFlagSelected(flag.key)
+                        setLinkedFeatureFlag(flag)
+                        // Update experiment with linked flag's key and variants
+                        updateFeatureFlag({
+                            feature_flag_key: flag.key,
+                            parameters: {
+                                feature_flag_variants: flag.filters?.multivariate?.variants || [],
+                            },
+                        })
+                        closeSelectExistingFeatureFlagModal()
+                    }}
+                />
+            </>
+        )
+    }
+
     return (
         <>
             <div className="flex gap-4 mb-4">
