@@ -619,6 +619,8 @@ const config = {
                 'pulse-5': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 5',
                 // Pulsing glow effect for highlighting UI elements
                 'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
+                // Fade out after a delay
+                'fade-out-delayed': 'fade-out-delayed 5s ease-out forwards',
             },
             keyframes: {
                 'pulse-glow': {
@@ -628,6 +630,10 @@ const config = {
                     '50%': {
                         boxShadow: '0 0 6px 2px var(--color-accent)',
                     },
+                },
+                'fade-out-delayed': {
+                    '0%, 30%': { opacity: '1' },
+                    '100%': { opacity: '0' },
                 },
             },
             colors: {
