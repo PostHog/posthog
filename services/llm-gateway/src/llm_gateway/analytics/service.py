@@ -73,6 +73,7 @@ class LLMAnalyticsService:
         input_tokens_field: str = "input_tokens",
         output_tokens_field: str = "output_tokens",
         trace_id: str | None = None,
+        product: str = "llm_gateway",
     ) -> None:
         """Capture an LLM generation event."""
         try:
@@ -108,7 +109,7 @@ class LLMAnalyticsService:
                 "$ai_output_tokens": output_tokens,
                 "$ai_is_streaming": is_streaming,
                 "team_id": user.team_id,
-                "ai_product": "llm_gateway",
+                "ai_product": product,
             }
 
             if output_choices:
