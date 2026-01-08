@@ -65,6 +65,7 @@ def temporal_worker(temporal):
 
 @pytest.fixture(autouse=True)
 def cleanup(temporal):
+    yield
     cleanup_temporal_schedules(temporal)
 
 
