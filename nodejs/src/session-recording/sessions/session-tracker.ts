@@ -16,7 +16,7 @@ export class SessionTracker {
 
     constructor(
         private readonly redisPool: RedisPool,
-        private readonly localCacheTtlMs: number,
+        localCacheTtlMs: number,
         localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE
     ) {
         this.localCache = new LRUCache({
@@ -27,6 +27,9 @@ export class SessionTracker {
 
     /**
      * Check if session has been seen before, mark as seen if not.
+     *
+     * Fails open: if Redis is unavailable, assumes the session is not new
+     * to avoid incorrectly triggering rate limits.
      *
      * @param teamId - The team ID
      * @param sessionId - The session ID
@@ -43,9 +46,10 @@ export class SessionTracker {
 
         SessionBatchMetrics.incrementSessionTrackerCacheMiss()
 
-        const client = await this.redisPool.acquire()
-
+        let client
         try {
+            client = await this.redisPool.acquire()
+
             // Use SET with NX (only set if not exists) and EX (expiry) for atomic check-and-set
             // Returns 'OK' if key was set (new session), null if already exists
             const wasSet = await client.set(key, '1', 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS, 'NX')
@@ -65,8 +69,19 @@ export class SessionTracker {
             }
 
             return isNewSession
+        } catch (error) {
+            // Fail open: if Redis is unavailable, assume not a new session
+            logger.warn('session_tracker_redis_error', {
+                teamId,
+                sessionId,
+                error: String(error),
+            })
+            SessionBatchMetrics.incrementSessionTrackerRedisErrors()
+            return false
         } finally {
-            await this.redisPool.release(client)
+            if (client) {
+                await this.redisPool.release(client)
+            }
         }
     }
 

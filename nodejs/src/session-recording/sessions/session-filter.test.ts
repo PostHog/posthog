@@ -6,7 +6,6 @@ import { SessionFilter } from './session-filter'
 jest.mock('./metrics', () => ({
     SessionBatchMetrics: {
         incrementSessionsBlocked: jest.fn(),
-        incrementMessagesDroppedBlocked: jest.fn(),
         incrementSessionFilterCacheHit: jest.fn(),
         incrementSessionFilterCacheMiss: jest.fn(),
         incrementNewSessionsRateLimited: jest.fn(),
@@ -109,7 +108,6 @@ describe('SessionFilter', () => {
             const result = await sessionFilter.isBlocked(1, 'session-123')
 
             expect(result).toBe(true)
-            expect(SessionBatchMetrics.incrementMessagesDroppedBlocked).toHaveBeenCalled()
         })
 
         it('should return true from cache without Redis call on subsequent checks for blocked sessions', async () => {
@@ -206,20 +204,6 @@ describe('SessionFilter', () => {
 
             // Should have called Redis twice (no caching on error)
             expect(mockRedisPool.acquire).toHaveBeenCalledTimes(2)
-        })
-
-        it('should increment messagesDroppedBlocked on cache hit for blocked session', async () => {
-            mockRedis.exists.mockResolvedValue(1)
-
-            // First call - hits Redis, caches result
-            await sessionFilter.isBlocked(1, 'session-123')
-            jest.clearAllMocks()
-
-            // Second call - hits cache
-            await sessionFilter.isBlocked(1, 'session-123')
-
-            expect(SessionBatchMetrics.incrementSessionFilterCacheHit).toHaveBeenCalled()
-            expect(SessionBatchMetrics.incrementMessagesDroppedBlocked).toHaveBeenCalled()
         })
     })
 
@@ -338,16 +322,15 @@ describe('SessionFilter', () => {
             expect(isBlocked).toBe(true)
         })
 
-        it('should be idempotent - calling twice does not double-count metrics', async () => {
+        it('should consume from limiter on each call even for same session', async () => {
             mockSessionLimiter.consume.mockReturnValue(false)
 
             await sessionFilter.handleNewSession(1, 'session-123')
             await sessionFilter.handleNewSession(1, 'session-123')
 
-            // Should only block once since it's already in local cache after first call
-            // But limiter.consume is called each time (that's the limiter's job to handle)
+            // Limiter is consumed each time - the limiter handles deduplication if needed
             expect(mockSessionLimiter.consume).toHaveBeenCalledTimes(2)
-            // Redis set called twice (since we don't check cache before blocking)
+            // Redis set is also called twice - this is fine since SET is idempotent at Redis level
             expect(mockRedis.set).toHaveBeenCalledTimes(2)
         })
 

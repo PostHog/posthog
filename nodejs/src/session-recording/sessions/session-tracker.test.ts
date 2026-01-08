@@ -9,6 +9,7 @@ jest.mock('./metrics', () => ({
         incrementNewSessionsDetected: jest.fn(),
         incrementSessionTrackerCacheHit: jest.fn(),
         incrementSessionTrackerCacheMiss: jest.fn(),
+        incrementSessionTrackerRedisErrors: jest.fn(),
     },
 }))
 
@@ -81,13 +82,26 @@ describe('SessionTracker', () => {
             )
         })
 
-        it('should always release Redis client', async () => {
+        it('should fail open and return false on Redis set error', async () => {
             mockRedisClient.set = jest.fn().mockRejectedValue(new Error('Redis error'))
             sessionTracker = new SessionTracker(mockRedisPool, 5 * 60 * 1000)
 
-            await expect(sessionTracker.trackSession(1, 'session-123')).rejects.toThrow('Redis error')
+            const isNew = await sessionTracker.trackSession(1, 'session-123')
 
+            expect(isNew).toBe(false)
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
+            expect(SessionBatchMetrics.incrementSessionTrackerRedisErrors).toHaveBeenCalled()
+        })
+
+        it('should fail open and return false on Redis acquire error', async () => {
+            mockRedisPool.acquire = jest.fn().mockRejectedValue(new Error('Pool exhausted'))
+            sessionTracker = new SessionTracker(mockRedisPool, 5 * 60 * 1000)
+
+            const isNew = await sessionTracker.trackSession(1, 'session-123')
+
+            expect(isNew).toBe(false)
+            expect(SessionBatchMetrics.incrementSessionTrackerRedisErrors).toHaveBeenCalled()
+            expect(mockRedisPool.release).not.toHaveBeenCalled()
         })
 
         it('should use 48 hour TTL', async () => {

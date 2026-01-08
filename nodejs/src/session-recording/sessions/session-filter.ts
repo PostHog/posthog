@@ -66,13 +66,12 @@ export class SessionFilter {
         // Add to local cache immediately for fast lookups
         // This ensures blocking works even if Redis fails
         this.localCache.set(key, true)
+        SessionBatchMetrics.incrementSessionsBlocked()
 
         let client
         try {
             client = await this.redisPool.acquire()
             await client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
-
-            SessionBatchMetrics.incrementSessionsBlocked()
 
             logger.debug('session_filter_blocked_session', {
                 teamId,
@@ -110,9 +109,6 @@ export class SessionFilter {
         const cached = this.localCache.get(key)
         if (cached !== undefined) {
             SessionBatchMetrics.incrementSessionFilterCacheHit()
-            if (cached) {
-                SessionBatchMetrics.incrementMessagesDroppedBlocked()
-            }
             return cached
         }
 
@@ -127,10 +123,6 @@ export class SessionFilter {
             // Cache the result locally to prevent repeated Redis calls
             // Cache both blocked and not-blocked states
             this.localCache.set(key, isBlocked)
-
-            if (isBlocked) {
-                SessionBatchMetrics.incrementMessagesDroppedBlocked()
-            }
 
             return isBlocked
         } catch (error) {
