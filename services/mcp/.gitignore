@@ -2,7 +2,8 @@ node_modules
 
 # wrangler files
 .wrangler
-.dev.vars*
+.dev.vars
+!.dev.vars.example
 .mcp.json
 .env.test
 

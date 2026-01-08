@@ -29,11 +29,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect, HogQLGlobalSettings, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
+from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
@@ -59,7 +60,7 @@ class TestPrinter(BaseTest):
         self,
         query: str,
         context: Optional[HogQLContext] = None,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
     ) -> str:
         node = parse_expr(query)
@@ -1947,7 +1948,7 @@ class TestPrinter(BaseTest):
             "hogql_val_5": [1, 0],
         }
 
-    @patch("posthog.hogql.printer.get_materialized_column_for_property")
+    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
     def test_ai_trace_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_trace_id gets special treatment for bloom filter index optimization"""
 
@@ -2010,7 +2011,7 @@ class TestPrinter(BaseTest):
             sql,
         )
 
-    @patch("posthog.hogql.printer.get_materialized_column_for_property")
+    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
     def test_ai_session_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
 
@@ -2473,7 +2474,7 @@ class TestPrinter(BaseTest):
 
     def test_get_survey_response(self):
         # Test with just question index
-        with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
+        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
             mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE"
 
             printed = self._print(
@@ -2488,7 +2489,7 @@ class TestPrinter(BaseTest):
             self.assertIn("MOCKED SQL FOR SURVEY RESPONSE", printed)
 
         # Test with question index and specific ID
-        with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
+        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
             mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE WITH ID"
 
             printed = self._print(
@@ -2503,7 +2504,7 @@ class TestPrinter(BaseTest):
             self.assertIn("MOCKED SQL FOR SURVEY RESPONSE WITH ID", printed)
 
         # Test with multiple choice question
-        with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
+        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
             mock_get_survey_response.return_value = "MOCKED SQL FOR MULTIPLE CHOICE SURVEY RESPONSE"
 
             printed = self._print(
@@ -2516,7 +2517,7 @@ class TestPrinter(BaseTest):
 
     def test_unique_survey_submissions_filter(self):
         with patch(
-            "posthog.hogql.printer.filter_survey_sent_events_by_unique_submission"
+            "posthog.hogql.printer.base.filter_survey_sent_events_by_unique_submission"
         ) as mock_filter_survey_sent_events_by_unique_submission:
             mock_filter_survey_sent_events_by_unique_submission.return_value = (
                 "MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER"
@@ -2539,12 +2540,11 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._select(
                 """
-                    SELECT
-                        toDateTime(timestamp) as ts,
-                        toDateTime(timestamp, 'US/Pacific') as tsz,
-                        now() as now,
-                        now('US/Pacific') as nowz
-                    FROM events
+                SELECT toDateTime(timestamp)               as ts,
+                       toDateTime(timestamp, 'US/Pacific') as tsz,
+                       now()                               as now,
+                       now('US/Pacific')                   as nowz
+                FROM events
                 """,
                 context,
             ),
@@ -2605,8 +2605,9 @@ class TestPrinter(BaseTest):
     def test_inline_persons_alias(self):
         printed = self._print(
             """
-            select p1.id as p1_id from events
-            join persons as p1 on p1.id = events.person_id and p1.id in (1,2,3)
+            select p1.id as p1_id
+            from events
+                     join persons as p1 on p1.id = events.person_id and p1.id in (1, 2, 3)
             """,
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -2615,9 +2616,10 @@ class TestPrinter(BaseTest):
     def test_two_joins(self):
         printed = self._print(
             """
-            select p1.id as p1_id, p2.id as p2_id from events
-            join persons as p1 on p1.id = events.person_id and p1.id in (1,2,3)
-            join persons as p2 on p2.id = events.person_id and p2.id in (4,5,6)
+            select p1.id as p1_id, p2.id as p2_id
+            from events
+                     join persons as p1 on p1.id = events.person_id and p1.id in (1, 2, 3)
+                     join persons as p2 on p2.id = events.person_id and p2.id in (4, 5, 6)
             """,
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -2627,9 +2629,10 @@ class TestPrinter(BaseTest):
     def test_two_clauses(self):
         printed = self._print(
             """
-            select p1.id as p1_id, p2.id as p2_id from events
-            join persons as p1 on p1.id in (7,8,9) and p1.id = events.person_id and p1.id in (1,2,3)
-            join persons as p2 on p2.id = events.person_id and p2.id in (4,5,6)
+            select p1.id as p1_id, p2.id as p2_id
+            from events
+                     join persons as p1 on p1.id in (7, 8, 9) and p1.id = events.person_id and p1.id in (1, 2, 3)
+                     join persons as p2 on p2.id = events.person_id and p2.id in (4, 5, 6)
             """,
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
@@ -2722,7 +2725,7 @@ class TestPrinter(BaseTest):
     def test_can_call_parametric_function_from_placeholder(self):
         printed = self._print("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="sum")})
         assert printed == (
-            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, " "3])` LIMIT 50000"
+            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 50000"
         )
 
     def test_fails_on_parametric_function_with_no_arguments(self):
@@ -2831,11 +2834,11 @@ class TestPrinter(BaseTest):
             printed = self._select(
                 """
                 WITH some_remote_table AS
-                (
-                    SELECT * FROM test_table
-                )
-                SELECT event FROM events
-                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""",
+                         (SELECT *
+                          FROM test_table)
+                SELECT event
+                FROM events
+                         JOIN some_remote_table ON events.event = toString(some_remote_table.id)""",
                 context=context,
             )
 
@@ -2862,13 +2865,13 @@ class TestPrinter(BaseTest):
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
             printed = self._select("""
-                WITH some_remote_table AS
-                (
-                    SELECT e.event, t.id FROM events e
-                    JOIN test_table t on toString(t.id) = e.event
-                )
-                SELECT some_remote_table.event FROM events
-                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
+                                   WITH some_remote_table AS
+                                            (SELECT e.event, t.id
+                                             FROM events e
+                                                      JOIN test_table t on toString(t.id) = e.event)
+                                   SELECT some_remote_table.event
+                                   FROM events
+                                            JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed
@@ -2893,10 +2896,10 @@ class TestPrinter(BaseTest):
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
             printed = self._select("""
-                SELECT e.event, s.event, t.id
-                FROM events e
-                JOIN (SELECT event from events) as s ON e.event = s.event
-                LEFT JOIN test_table t on e.event = toString(t.id)""")
+                                   SELECT e.event, s.event, t.id
+                                   FROM events e
+                                            JOIN (SELECT event from events) as s ON e.event = s.event
+                                            LEFT JOIN test_table t on e.event = toString(t.id)""")
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed  # Join #1
@@ -2924,10 +2927,10 @@ class TestPrinter(BaseTest):
             )
 
             printed = self._select("""
-                SELECT event FROM events
-                WHERE properties.$browser IN (
-                    SELECT id FROM test_table
-                )""")
+                                   SELECT event
+                                   FROM events
+                                   WHERE properties.$browser IN (SELECT id
+                                                                 FROM test_table)""")
 
             if using_global_joins:
                 assert "globalIn" in printed
@@ -2965,16 +2968,12 @@ class TestPrinter(BaseTest):
                 """
                 select e.event, ij.remote_id
                 from events e
-                inner join (
-                    select *
-                    from (
-                        select p.id as person_id, rt.id as remote_id
-                        from persons p
-                        left join (
-                            select * from test_table
-                        ) rt on rt.id = p.id
-                    )
-                ) as ij on e.event = ij.remote_id""",
+                         inner join (select *
+                                     from (select p.id as person_id, rt.id as remote_id
+                                           from persons p
+                                                    left join (select *
+                                                               from test_table) rt on rt.id = p.id)) as ij
+                                    on e.event = ij.remote_id""",
                 context=context,
             )
 
@@ -3003,11 +3002,10 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
         result = self._select(
             """
-            SELECT event FROM (
-                SELECT * FROM (
-                    SELECT * FROM events
-                ) AS inner
-            ) AS outer
+            SELECT event
+            FROM (SELECT *
+                  FROM (SELECT *
+                        FROM events) AS inner) AS outer
             """,
             context,
         )
@@ -3041,7 +3039,7 @@ class TestPrinter(BaseTest):
             """
             SELECT e.event
             FROM (SELECT * FROM events) AS e
-            LEFT JOIN persons ON persons.id = e.person_id
+                     LEFT JOIN persons ON persons.id = e.person_id
             """,
             context,
         )
@@ -3400,3 +3398,188 @@ class TestPrinted(APIBaseTest):
             query=query,
         )
         assert query_response.results == [(6,)]
+
+
+class TestPostgresPrinter(BaseTest):
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        settings: Optional[HogQLQuerySettings] = None,
+    ) -> str:
+        node = parse_expr(query)
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(
+            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
+        )
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="postgres", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="postgres",
+            stack=[prepared_select_query],
+        )
+
+    def _select(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        placeholders: Optional[dict[str, ast.Expr]] = None,
+        dialect: HogQLDialect = "postgres",
+    ) -> str:
+        return prepare_and_print_ast(
+            parse_select(query, placeholders=placeholders),
+            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect,
+        )[0]
+
+    @parameterized.expand(
+        [
+            (
+                "SELECT event FROM events",
+                "SELECT events.event FROM events LIMIT 50000",
+            ),
+            (
+                "SELECT distinct_id, event FROM events WHERE event = 'test'",
+                "SELECT events.distinct_id, events.event FROM events WHERE (events.event = 'test') LIMIT 50000",
+            ),
+            (
+                "SELECT event FROM events ORDER BY timestamp DESC",
+                "SELECT events.event FROM events ORDER BY events.timestamp DESC LIMIT 50000",
+            ),
+            (
+                "SELECT count() FROM events GROUP BY event",
+                "SELECT count() FROM events GROUP BY events.event LIMIT 50000",
+            ),
+        ]
+    )
+    def test_select_queries(self, query: str, expected: str):
+        self.assertEqual(self._select(query), expected)
+
+    def test_omits_clickhouse_specific_transforms(self):
+        postgres = self._select("SELECT event FROM events")
+        clickhouse = self._select("SELECT event FROM events", dialect="clickhouse")
+
+        self.assertNotIn("team_id", postgres)
+        self.assertNotEqual(postgres, clickhouse)
+
+    def test_boolean_and_null_literals(self):
+        self.assertEqual(self._expr("true"), "true")
+        self.assertEqual(self._expr("false"), "false")
+        self.assertEqual(self._expr("null"), "NULL")
+
+    def test_json_properties_render_as_postgres_json_access(self):
+        self.assertEqual(
+            self._expr("properties.a.b.c.$browser"),
+            "((((events.properties) -> 'a') -> 'b') -> 'c') ->> '$browser'",
+        )
+
+    def test_json_properties_in_select_render_as_postgres_json_access(self):
+        printed = self._select("SELECT properties.detail.name FROM events")
+
+        self.assertIn("(events.properties) ->", printed)
+        self.assertIn("->> 'name'", printed)
+        self.assertIn('AS "properties.detail.name"', printed)
+
+    def test_allows_dollar_identifiers(self):
+        printed = self._select("SELECT event AS $value FROM events")
+        self.assertIn('AS "$value"', printed)
+
+    def test_simple_identifiers_render_without_quotes(self):
+        self.assertEqual(self._expr("count(id)"), "count(id)")
+
+    def test_reserved_identifiers_are_quoted(self):
+        printed = self._select("SELECT events.event AS select FROM events")
+
+        self.assertIn('AS "select"', printed)
+
+    def test_window_functions_keep_postgres_shape(self):
+        printed = self._select("SELECT lag(timestamp) OVER (ORDER BY timestamp) FROM events")
+
+        self.assertIn("lag(", printed)
+        self.assertNotIn("lagInFrame", printed)
+        self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)
+
+    def test_in_operations_render_value_lists(self):
+        self.assertEqual(self._expr("1 in (1, 2, 3)"), "(1 IN (1, 2, 3))")
+        self.assertEqual(self._expr("1 in (1)"), "(1 IN (1))")
+
+    def test_hogqlx_row_literals_render_without_tuple_function(self):
+        hx_tag = convert_tag_to_hx(ast.HogQLXTag(kind="div", attributes=[]))
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[hx_tag], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="postgres", stack=[select_query]),
+        )
+
+        rendered = print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="postgres",
+            stack=[prepared_select_query],
+        )
+
+        self.assertEqual(rendered, "('__hx_tag', 'div')")
+
+    def test_comparison_operators(self):
+        self.assertEqual(self._expr("a = b"), "(a = b)")
+        self.assertEqual(self._expr("a != b"), "(a != b)")
+        self.assertEqual(self._expr("a LIKE b"), "(a LIKE b)")
+        self.assertEqual(self._expr("a NOT LIKE b"), "(a NOT LIKE b)")
+        self.assertEqual(self._expr("a ILIKE b"), "(a ILIKE b)")
+        self.assertEqual(self._expr("a NOT ILIKE b"), "(a NOT ILIKE b)")
+        self.assertEqual(self._expr("a IN (b, c, d)"), "(a IN (b, c, d))")
+        self.assertEqual(self._expr("a NOT IN (b, c, d)"), "(a NOT IN (b, c, d))")
+        self.assertEqual(self._expr("a ~ b"), "(a ~ b)")
+        self.assertEqual(self._expr("a !~ b"), "(a !~ b)")
+        self.assertEqual(self._expr("a ~* b"), "(a ~* b)")
+        self.assertEqual(self._expr("a !~* b"), "(a !~* b)")
+        self.assertEqual(self._expr("a > b"), "(a > b)")
+        self.assertEqual(self._expr("a >= b"), "(a >= b)")
+        self.assertEqual(self._expr("a < b"), "(a < b)")
+        self.assertEqual(self._expr("a <= b"), "(a <= b)")
+
+    def test_arithmetic_operators(self):
+        self.assertEqual(self._expr("a + b"), "(a + b)")
+        self.assertEqual(self._expr("a - b"), "(a - b)")
+        self.assertEqual(self._expr("a * b"), "(a * b)")
+        self.assertEqual(self._expr("a / b"), "(a / b)")
+        self.assertEqual(self._expr("a % b"), "(a % b)")
+
+    def test_logical_operators(self):
+        self.assertEqual(self._expr("a AND b"), "((a) AND (b))")
+        self.assertEqual(self._expr("a OR b"), "((a) OR (b))")
+        self.assertEqual(self._expr("NOT a"), "(NOT a)")
+
+    def test_unknown_comparison_operator_raises_error(self):
+        query: ast.CompareOperation = cast(ast.CompareOperation, parse_expr("a = b"))
+
+        # Manually set an invalid operator to test error handling
+        class MockOp:
+            name = "INVALID_OP"
+
+        query.op = cast(ast.CompareOperationOp, MockOp())
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[query], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="postgres", stack=[select_query]),
+        )
+
+        self.assertRaises(
+            ImpossibleASTError,
+            lambda: print_prepared_ast(
+                prepared_select_query.select[0],
+                context=context,
+                dialect="postgres",
+                stack=[prepared_select_query],
+            ),
+        )
