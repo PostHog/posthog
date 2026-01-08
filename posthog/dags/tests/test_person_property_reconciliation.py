@@ -962,6 +962,256 @@ class TestUpdatePersonWithVersionCheck:
         assert result_data is None
 
 
+class TestBatchCommits:
+    """Test that batch commits work correctly with different batch sizes.
+
+    These tests use the process_persons_in_batches helper function directly,
+    which is separated from the Dagster op for testability.
+    """
+
+    @pytest.mark.parametrize(
+        "num_persons,batch_size,expected_commits",
+        [
+            # 5 persons, batch_size=2: batches of [2, 2, 1] = 3 commits
+            (5, 2, 3),
+            # 4 persons, batch_size=2: batches of [2, 2] = 2 commits (no partial)
+            (4, 2, 2),
+            # 3 persons, batch_size=5: batches of [3] = 1 commit (all in one partial batch)
+            (3, 5, 1),
+            # 1 person, batch_size=100: batches of [1] = 1 commit
+            (1, 100, 1),
+            # 6 persons, batch_size=0 (disabled): single commit at end
+            (6, 0, 1),
+        ],
+    )
+    def test_batch_commits_correct_number_of_times(self, num_persons: int, batch_size: int, expected_commits: int):
+        """
+        Test that commits happen the correct number of times based on batch_size.
+
+        With batch_size=2 and 5 persons:
+        - Batch 1: persons 0,1 → commit
+        - Batch 2: persons 2,3 → commit
+        - Batch 3: person 4 → commit (partial final batch)
+        Total: 3 commits
+        """
+        from posthog.dags.person_property_reconciliation import process_persons_in_batches
+
+        # Create mock persons with updates (timestamps must be timezone-aware)
+        person_updates_list = []
+        for i in range(num_persons):
+            person_updates_list.append(
+                PersonPropertyUpdates(
+                    person_id=f"person-uuid-{i}",
+                    updates=[
+                        PropertyUpdate(
+                            key="prop",
+                            value=f"value_{i}",
+                            timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                            operation="set",
+                        )
+                    ],
+                )
+            )
+
+        # Mock cursor
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {
+            "id": 123,
+            "uuid": "test-uuid",
+            "properties": {"prop": "old_value"},
+            "properties_last_updated_at": {"prop": "2024-01-01T00:00:00+00:00"},
+            "properties_last_operation": {"prop": "set"},
+            "version": 1,
+            "is_identified": False,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+        mock_cursor.rowcount = 1  # UPDATE succeeds
+
+        # Track commits
+        commit_count = [0]
+
+        def mock_commit():
+            commit_count[0] += 1
+
+        # Track batch callbacks
+        batch_callbacks = []
+
+        def on_batch_committed(batch_num, batch_persons):
+            batch_callbacks.append((batch_num, len(batch_persons)))
+
+        # Call the helper function directly
+        result = process_persons_in_batches(
+            person_property_updates=person_updates_list,
+            cursor=mock_cursor,
+            job_id="test-job-id",
+            team_id=1,
+            batch_size=batch_size,
+            dry_run=False,
+            backup_enabled=False,
+            commit_fn=mock_commit,
+            on_batch_committed=on_batch_committed,
+        )
+
+        # Verify commit was called the expected number of times
+        assert result.total_commits == expected_commits, (
+            f"Expected {expected_commits} commits for {num_persons} persons with batch_size={batch_size}, "
+            f"got {result.total_commits}"
+        )
+
+        # Verify all persons were processed
+        assert result.total_processed == num_persons
+        assert result.total_updated == num_persons
+
+        # Verify batch callback was called for each batch
+        assert len(batch_callbacks) == expected_commits
+
+    def test_batch_commits_partial_final_batch_all_persons_updated(self):
+        """
+        Specifically test that the partial final batch commits correctly
+        and all persons are updated (not just full batches).
+
+        5 persons with batch_size=2:
+        - Batch 1: persons 0,1 → commit ✓
+        - Batch 2: persons 2,3 → commit ✓
+        - Batch 3: person 4 → commit ✓ (THIS is the partial batch we're testing)
+        """
+        from posthog.dags.person_property_reconciliation import process_persons_in_batches
+
+        num_persons = 5
+        batch_size = 2
+
+        person_uuids = [f"uuid-{i}" for i in range(num_persons)]
+        person_updates_list = [
+            PersonPropertyUpdates(
+                person_id=uuid,
+                updates=[
+                    PropertyUpdate(
+                        key="email",
+                        value=f"user{i}@example.com",
+                        timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                        operation="set",
+                    )
+                ],
+            )
+            for i, uuid in enumerate(person_uuids)
+        ]
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {
+            "id": 123,
+            "uuid": "test-uuid",
+            "properties": {"email": "old@example.com"},
+            "properties_last_updated_at": {"email": "2024-01-01T00:00:00+00:00"},
+            "properties_last_operation": {"email": "set"},
+            "version": 1,
+            "is_identified": False,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+        mock_cursor.rowcount = 1
+
+        commit_count = [0]
+
+        def mock_commit():
+            commit_count[0] += 1
+
+        # Track batch sizes to verify partial final batch
+        batch_sizes = []
+
+        def on_batch_committed(batch_num, batch_persons):
+            batch_sizes.append(len(batch_persons))
+
+        result = process_persons_in_batches(
+            person_property_updates=person_updates_list,
+            cursor=mock_cursor,
+            job_id="test-job-id",
+            team_id=1,
+            batch_size=batch_size,
+            dry_run=False,
+            backup_enabled=False,
+            commit_fn=mock_commit,
+            on_batch_committed=on_batch_committed,
+        )
+
+        # All 5 persons should be processed and updated
+        assert result.total_processed == 5
+        assert result.total_updated == 5
+        assert result.total_skipped == 0
+
+        # 3 commits: batch 1 (2), batch 2 (2), batch 3 (1)
+        assert result.total_commits == 3
+
+        # Verify batch sizes: [2, 2, 1]
+        assert batch_sizes == [2, 2, 1], f"Expected batches [2, 2, 1], got {batch_sizes}"
+
+    def test_empty_person_list_no_commits(self):
+        """Test that empty person list results in zero commits."""
+        from posthog.dags.person_property_reconciliation import process_persons_in_batches
+
+        mock_cursor = MagicMock()
+        commit_count = [0]
+
+        def mock_commit():
+            commit_count[0] += 1
+
+        result = process_persons_in_batches(
+            person_property_updates=[],
+            cursor=mock_cursor,
+            job_id="test-job-id",
+            team_id=1,
+            batch_size=10,
+            dry_run=False,
+            backup_enabled=False,
+            commit_fn=mock_commit,
+        )
+
+        assert result.total_processed == 0
+        assert result.total_commits == 0
+        assert commit_count[0] == 0
+
+    def test_dry_run_no_commits(self):
+        """Test that dry_run=True doesn't commit when there are no backups."""
+        from posthog.dags.person_property_reconciliation import process_persons_in_batches
+
+        person_updates_list = [
+            PersonPropertyUpdates(
+                person_id="person-uuid-0",
+                updates=[
+                    PropertyUpdate(
+                        key="prop",
+                        value="value_0",
+                        timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                        operation="set",
+                    )
+                ],
+            )
+        ]
+
+        mock_cursor = MagicMock()
+        # Return None from fetchone to simulate person not found (no backup, no update)
+        mock_cursor.fetchone.return_value = None
+
+        commit_count = [0]
+
+        def mock_commit():
+            commit_count[0] += 1
+
+        result = process_persons_in_batches(
+            person_property_updates=person_updates_list,
+            cursor=mock_cursor,
+            job_id="test-job-id",
+            team_id=1,
+            batch_size=10,
+            dry_run=True,
+            backup_enabled=False,
+            commit_fn=mock_commit,
+        )
+
+        # Person not found, so skipped
+        assert result.total_processed == 1
+        assert result.total_skipped == 1
+        assert result.total_commits == 0
+
+
 class TestBackupFunctionality:
     """Test the backup functionality for person property reconciliation."""
 
@@ -3144,3 +3394,365 @@ class TestClickHouseQueryIntegration:
         assert updates["key-with-dashes"] == "value3"
         assert updates["key_with_underscores"] == "value4"
         assert updates["キー"] == "unicode value"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBatchCommitsEndToEnd:
+    """End-to-end integration tests for batch commit functionality.
+
+    These tests use real ClickHouse and Postgres connections to verify
+    that batch commits work correctly in a production-like environment.
+    """
+
+    @pytest.fixture
+    def organization(self):
+        """Create a test organization."""
+        from posthog.models import Organization
+
+        return Organization.objects.create(name="Batch Test Organization")
+
+    @pytest.fixture
+    def team(self, organization):
+        """Create a test team."""
+        from posthog.models import Team
+
+        return Team.objects.create(organization=organization, name="Batch Test Team")
+
+    def test_batch_commits_end_to_end(self, cluster: ClickhouseCluster, team):
+        """
+        End-to-end test that verifies batch commits work with real databases.
+
+        Creates 5 persons in Postgres, inserts events in ClickHouse,
+        runs reconciliation with batch_size=2, and verifies:
+        1. All persons are updated in Postgres
+        2. Commits happen in batches (3 batches: [2, 2, 1])
+        """
+        from posthog.dags.person_property_reconciliation import (
+            get_person_property_updates_from_clickhouse,
+            process_persons_in_batches,
+        )
+        from posthog.models import Person
+
+        num_persons = 5
+        batch_size = 2
+
+        # Use a unique team_id to avoid conflicts with other tests
+        team_id = team.id
+
+        # Time setup
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+        event_ts = now - timedelta(days=5)
+
+        # Create persons in Postgres with old property values
+        persons = []
+        for i in range(num_persons):
+            person = Person.objects.create(
+                team_id=team_id,
+                properties={"email": f"old_{i}@example.com", "counter": i},
+                properties_last_updated_at={
+                    "email": "2024-01-01T00:00:00+00:00",
+                    "counter": "2024-01-01T00:00:00+00:00",
+                },
+                properties_last_operation={"email": "set", "counter": "set"},
+                version=1,
+            )
+            persons.append(person)
+
+        # Insert events in ClickHouse with new property values
+        events = []
+        for i, person in enumerate(persons):
+            events.append(
+                (
+                    team_id,
+                    f"distinct_id_{i}",
+                    person.uuid,
+                    event_ts,
+                    json.dumps({"$set": {"email": f"new_{i}@example.com"}}),
+                )
+            )
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert persons in ClickHouse (required for the query join)
+        person_ch_data = []
+        for i, person in enumerate(persons):
+            person_ch_data.append(
+                (
+                    team_id,
+                    person.uuid,
+                    json.dumps({"email": f"old_{i}@example.com", "counter": i}),
+                    1,  # version
+                    0,  # is_deleted
+                    now - timedelta(days=8),  # _timestamp
+                )
+            )
+
+        def insert_persons_ch(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, is_deleted, _timestamp)
+                VALUES""",
+                person_ch_data,
+            )
+
+        cluster.any_host(insert_persons_ch).result()
+
+        # Get person property updates from ClickHouse
+        person_property_updates = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert (
+            len(person_property_updates) == num_persons
+        ), f"Expected {num_persons} persons from ClickHouse query, got {len(person_property_updates)}"
+
+        # Track batches
+        batch_sizes = []
+
+        def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
+            batch_sizes.append(len(batch_persons))
+
+        # Use Django's database connection for persons DB (shares test transaction)
+        from django.db import connections
+
+        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+
+        connection = connections[PERSONS_DB_FOR_WRITE]
+        with connection.cursor() as cursor:
+            # Set up cursor settings
+            cursor.execute("SET application_name = 'test_batch_commits'")
+
+            result = process_persons_in_batches(
+                person_property_updates=person_property_updates,
+                cursor=cursor,
+                job_id="test-batch-job",
+                team_id=team_id,
+                batch_size=batch_size,
+                dry_run=False,
+                backup_enabled=False,
+                commit_fn=lambda: None,  # No-op commit in tests (Django manages transaction)
+                on_batch_committed=on_batch_committed,
+            )
+
+        # Verify all persons were processed
+        assert result.total_processed == num_persons, f"Expected {num_persons} processed, got {result.total_processed}"
+        assert result.total_updated == num_persons, f"Expected {num_persons} updated, got {result.total_updated}"
+        assert result.total_skipped == 0, f"Expected 0 skipped, got {result.total_skipped}"
+
+        # Verify batch sizes: [2, 2, 1] for 5 persons with batch_size=2
+        assert result.total_commits == 3, f"Expected 3 commits, got {result.total_commits}"
+        assert batch_sizes == [2, 2, 1], f"Expected batch sizes [2, 2, 1], got {batch_sizes}"
+
+        # Verify Postgres was actually updated with correct properties and metadata
+        for i, person in enumerate(persons):
+            person.refresh_from_db()
+
+            # Property value should be updated
+            assert (
+                person.properties["email"] == f"new_{i}@example.com"
+            ), f"Person {i} email not updated. Expected 'new_{i}@example.com', got '{person.properties.get('email')}'"
+
+            # Counter should be unchanged (wasn't in the update)
+            assert (
+                person.properties["counter"] == i
+            ), f"Person {i} counter changed unexpectedly. Expected {i}, got {person.properties.get('counter')}"
+
+            # Version should be incremented
+            assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
+
+            # properties_last_updated_at should have new timestamp for email
+            assert (
+                "email" in person.properties_last_updated_at
+            ), f"Person {i} properties_last_updated_at missing 'email' key"
+            # The timestamp should be from the event (event_ts), not the old value
+            email_updated_at = person.properties_last_updated_at["email"]
+            assert (
+                email_updated_at != "2024-01-01T00:00:00+00:00"
+            ), f"Person {i} email timestamp not updated. Still has old value: {email_updated_at}"
+
+            # properties_last_operation should be 'set' for email
+            assert person.properties_last_operation.get("email") == "set", (
+                f"Person {i} properties_last_operation['email'] should be 'set', "
+                f"got '{person.properties_last_operation.get('email')}'"
+            )
+
+            # Counter's metadata should be unchanged
+            assert (
+                person.properties_last_updated_at.get("counter") == "2024-01-01T00:00:00+00:00"
+            ), f"Person {i} counter timestamp changed unexpectedly"
+
+    def test_batch_commits_with_missing_person(self, cluster: ClickhouseCluster, team):
+        """
+        Test that missing persons in Postgres are skipped gracefully.
+
+        Creates 4 persons in ClickHouse events but only 3 in Postgres.
+        Verifies the missing person is skipped and others are updated.
+        """
+        from posthog.dags.person_property_reconciliation import (
+            get_person_property_updates_from_clickhouse,
+            process_persons_in_batches,
+        )
+        from posthog.models import Person
+
+        team_id = team.id
+
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+        event_ts = now - timedelta(days=5)
+
+        # Create only 3 persons in Postgres
+        persons = []
+        for i in range(3):
+            person = Person.objects.create(
+                team_id=team_id,
+                properties={"name": f"old_name_{i}"},
+                properties_last_updated_at={"name": "2024-01-01T00:00:00+00:00"},
+                properties_last_operation={"name": "set"},
+                version=1,
+            )
+            persons.append(person)
+
+        # Create a 4th UUID that won't exist in Postgres
+        missing_uuid = UUID("99999999-9999-9999-9999-999999999999")
+
+        # Insert 4 events in ClickHouse (including one for missing person)
+        events = []
+        for i, person in enumerate(persons):
+            events.append(
+                (
+                    team_id,
+                    f"distinct_id_{i}",
+                    person.uuid,
+                    event_ts,
+                    json.dumps({"$set": {"name": f"new_name_{i}"}}),
+                )
+            )
+        # Add event for missing person
+        events.append(
+            (
+                team_id,
+                "distinct_id_missing",
+                missing_uuid,
+                event_ts,
+                json.dumps({"$set": {"name": "new_name_missing"}}),
+            )
+        )
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert 4 persons in ClickHouse (including missing one)
+        person_ch_data = []
+        for i, person in enumerate(persons):
+            person_ch_data.append(
+                (
+                    team_id,
+                    person.uuid,
+                    json.dumps({"name": f"old_name_{i}"}),
+                    1,
+                    0,
+                    now - timedelta(days=8),
+                )
+            )
+        # Add the missing person to ClickHouse
+        person_ch_data.append(
+            (
+                team_id,
+                missing_uuid,
+                json.dumps({"name": "old_name_missing"}),
+                1,
+                0,
+                now - timedelta(days=8),
+            )
+        )
+
+        def insert_persons_ch(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, is_deleted, _timestamp)
+                VALUES""",
+                person_ch_data,
+            )
+
+        cluster.any_host(insert_persons_ch).result()
+
+        # Get updates from ClickHouse - should return 4 persons
+        person_property_updates = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(person_property_updates) == 4
+
+        batch_sizes = []
+
+        def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
+            batch_sizes.append(len(batch_persons))
+
+        # Use Django's database connection for persons DB (shares test transaction)
+        from django.db import connections
+
+        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+
+        connection = connections[PERSONS_DB_FOR_WRITE]
+        with connection.cursor() as cursor:
+            result = process_persons_in_batches(
+                person_property_updates=person_property_updates,
+                cursor=cursor,
+                job_id="test-missing-person-job",
+                team_id=team_id,
+                batch_size=2,
+                dry_run=False,
+                backup_enabled=False,
+                commit_fn=lambda: None,  # No-op commit in tests (Django manages transaction)
+                on_batch_committed=on_batch_committed,
+            )
+
+        # 4 persons processed, 1 skipped (missing from Postgres), 3 updated
+        assert result.total_processed == 4
+        assert result.total_skipped == 1  # The missing person
+        assert result.total_updated == 3
+
+        # Verify existing persons were updated with correct properties and metadata
+        for i, person in enumerate(persons):
+            person.refresh_from_db()
+
+            # Property value should be updated
+            assert (
+                person.properties["name"] == f"new_name_{i}"
+            ), f"Person {i} name not updated. Expected 'new_name_{i}', got '{person.properties.get('name')}'"
+
+            # Version should be incremented
+            assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
+
+            # properties_last_updated_at should have new timestamp
+            assert (
+                "name" in person.properties_last_updated_at
+            ), f"Person {i} properties_last_updated_at missing 'name' key"
+            name_updated_at = person.properties_last_updated_at["name"]
+            assert (
+                name_updated_at != "2024-01-01T00:00:00+00:00"
+            ), f"Person {i} name timestamp not updated. Still has old value: {name_updated_at}"
+
+            # properties_last_operation should be 'set'
+            assert person.properties_last_operation.get("name") == "set", (
+                f"Person {i} properties_last_operation['name'] should be 'set', "
+                f"got '{person.properties_last_operation.get('name')}'"
+            )
