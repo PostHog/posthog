@@ -52,7 +52,7 @@ from posthog.helpers.two_factor_session import (
 )
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
-from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, UserPasswordResetThrottle
+from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, TwoFactorThrottle, UserPasswordResetThrottle
 from posthog.tasks.email import (
     login_from_new_device_notification,
     send_password_reset,
@@ -343,6 +343,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = TwoFactorSerializer
     queryset = User.objects.none()
     permission_classes = (permissions.AllowAny,)
+    throttle_classes = [TwoFactorThrottle]
 
     def _token_is_valid(self, request, user: User, device) -> Response:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")

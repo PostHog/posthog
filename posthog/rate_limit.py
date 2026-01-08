@@ -629,6 +629,24 @@ class EmailMFAResendThrottle(UserOrEmailRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class TwoFactorThrottle(UserOrEmailRateThrottle):
+    """
+    Rate limiting for TOTP/backup code verification during 2FA login.
+    Uses the pending 2FA user ID from session to throttle per-user.
+    """
+
+    scope = "two_factor"
+    rate = "6/20minutes"
+
+    def get_cache_key(self, request, view):
+        user_id = request.session.get("user_authenticated_but_no_2fa")
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):
     scope = "user_authentication"
     rate = "5/minute"
