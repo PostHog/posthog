@@ -32,7 +32,7 @@ def get_counter_value(counter: Counter, labels: dict) -> float:
     """Get counter value using the _metrics dict directly (works across threads)."""
     label_values = tuple(str(labels.get(label, "")) for label in counter._labelnames)
     metric = counter._metrics.get(label_values)
-    return metric._value.get() if metric else 0.0
+    return metric._value.get() if metric else 0.0  # type: ignore[union-attr]
 
 
 class TestRecordExportFailure(APIBaseTest):
@@ -260,11 +260,10 @@ class TestGenerateAssetsAsyncCounters:
     async def test_export_counter_behavior(
         self, subscription, settings, error, failure_type, expected_success_delta, expected_failure_delta, is_timeout
     ) -> None:
-        """Verify success/failure counters increment correctly based on export outcome."""
         if is_timeout:
 
             def slow_export(*args, **kwargs):
-                time.sleep(10)  # Blocking sleep - runs in thread via database_sync_to_async
+                time.sleep(10)
 
             side_effect = slow_export
         else:
