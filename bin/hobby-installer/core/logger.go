@@ -39,7 +39,7 @@ func CloseLogFile() {
 	globalLog.mu.Lock()
 	defer globalLog.mu.Unlock()
 	if globalLog.logFile != nil {
-		globalLog.logFile.Close()
+		_ = globalLog.logFile.Close()
 		globalLog.logFile = nil
 	}
 }
@@ -60,9 +60,9 @@ func (l *LogBuffer) writeToBuffer(s string) {
 
 func (l *LogBuffer) writeToFile(s string) {
 	if l.logFile != nil {
-		l.logFile.WriteString(s)
+		_, _ = l.logFile.WriteString(s)
 		if !strings.HasSuffix(s, "\n") {
-			l.logFile.WriteString("\n")
+			_, _ = l.logFile.WriteString("\n")
 		}
 	}
 }
