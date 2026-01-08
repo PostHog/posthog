@@ -56,8 +56,8 @@ describe('createExtractHeatmapDataStep', () => {
         })
     })
 
-    describe('early return optimization', () => {
-        it('returns early when no $heatmap_data is present', async () => {
+    describe('no heatmap or scroll depth data', () => {
+        it('returns OK with no side effects when no $heatmap_data or scroll depth data is present', async () => {
             const event = createTestEvent()
             delete event.properties.$heatmap_data
 
@@ -65,7 +65,7 @@ describe('createExtractHeatmapDataStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.preparedEvent).toBe(event)
+                expect(result.value.preparedEvent).toEqual(event)
                 expect(result.sideEffects).toEqual([])
                 expect(result.warnings).toEqual([])
             }
