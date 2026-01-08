@@ -573,7 +573,6 @@ posthog/tasks/exports/csv_exporter.py:0: error: Argument 3 to "get_from_insights
 posthog/tasks/exports/csv_exporter.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/tasks/exports/csv_exporter.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/tasks/exports/csv_exporter.py:0: error: Value of type "Any | None" is not indexable  [index]
-posthog/tasks/exports/image_exporter.py:0: error: Argument 2 to "process_query_dict" has incompatible type "Any | None"; expected "dict[Any, Any]"  [arg-type]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Argument 1 to "BytesIO" has incompatible type "bytes | memoryview[int] | None"; expected "Buffer"  [arg-type]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Argument 1 to "read" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Argument 1 to "read" has incompatible type "str | None"; expected "str"  [arg-type]
