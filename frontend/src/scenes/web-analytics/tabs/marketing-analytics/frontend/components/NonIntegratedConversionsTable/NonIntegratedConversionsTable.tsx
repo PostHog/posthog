@@ -3,8 +3,10 @@ import '../MarketingAnalyticsTable/MarketingAnalyticsTableStyleOverride.scss'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconExternal } from '@posthog/icons'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
 import { LearnMorePopover } from 'scenes/web-analytics/WebAnalyticsDashboard'
 
 import { Query } from '~/queries/Query/Query'
@@ -33,7 +35,7 @@ const TILE_DESCRIPTION =
     'Conversions with UTM parameters set that do not match any campaign data from your integrations. Use the cell actions to map these to your integrations or configure them from the marketing settings. You need to have conversion goals configured to be able to see any data. If you do not see anything, it means all your conversion from the period are mapped to a native source.'
 
 export const NonIntegratedConversionsTable = (): JSX.Element | null => {
-    const { enabledConversionGoalFilters, integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
+    const { conversion_goals, integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
     const { dateFilter, compareFilter, loading, draftConversionGoal } = useValues(marketingAnalyticsLogic)
 
@@ -54,12 +56,12 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
 
     // Combine saved conversion goals with draft conversion goal
     const allConversionGoals = useMemo(() => {
-        const goals = [...enabledConversionGoalFilters]
+        const goals = [...conversion_goals]
         if (draftConversionGoal) {
             goals.push(draftConversionGoal)
         }
         return goals
-    }, [enabledConversionGoalFilters, draftConversionGoal])
+    }, [conversion_goals, draftConversionGoal])
 
     // Build columns: Source, Campaign, and conversion goal columns
     const selectColumns = useMemo(() => {
@@ -142,16 +144,25 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
         </div>
     )
 
-    // Show empty state when no conversion goals are enabled (neither saved nor draft)
+    // Show empty state when no conversion goals are configured (neither saved nor draft)
     if (allConversionGoals.length === 0) {
         return (
             <div className="col-span-1 row-span-1 flex flex-col md:col-span-2 xxl:order-3">
                 {TileHeader}
                 <div className="p-8 flex flex-col items-center justify-center text-center gap-3 border rounded">
-                    <p className="text-muted m-0">No core events enabled</p>
+                    <p className="text-muted m-0">No conversion goals configured</p>
                     <p className="text-xs text-muted m-0">
-                        Select a core event from the dropdown above to explore conversions and then you can save it.
+                        Use the "Explore conversion goals" section above, or configure them in settings.
                     </p>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={urls.settings('environment-marketing-analytics')}
+                        targetBlank
+                        sideIcon={<IconExternal />}
+                    >
+                        Configure conversion goals
+                    </LemonButton>
                 </div>
             </div>
         )
