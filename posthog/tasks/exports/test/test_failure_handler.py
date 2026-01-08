@@ -1,5 +1,7 @@
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -96,9 +98,14 @@ class TestExportAssetCounters(APIBaseTest):
         params: f"{func.__name__}_{['success', 'non_retryable', 'retryable_non_final', 'retryable_final'][int(num)]}",
     )
     def test_export_counter_behavior(
-        self, error, is_final_attempt, failure_type, expected_success, expected_failure, expects_exception
+        self,
+        error: Exception | None,
+        is_final_attempt: bool | None,
+        failure_type: str,
+        expected_success: float,
+        expected_failure: float,
+        expects_exception: bool,
     ) -> None:
-        """Verify success/failure counters increment correctly based on export outcome."""
         from contextlib import nullcontext
 
         final_attempt_patch = (
@@ -187,8 +194,7 @@ class TestGenerateAssetsAsyncCounters:
     """Tests verifying success/failure counters are incremented correctly by generate_assets_async."""
 
     @pytest.fixture
-    def subscription(self, db, django_user_model):
-        """Create test data for async export tests."""
+    def subscription(self, db: Any, django_user_model: Any) -> Generator[Any, None, None]:
         from datetime import datetime
         from zoneinfo import ZoneInfo
 
@@ -230,8 +236,7 @@ class TestGenerateAssetsAsyncCounters:
 
     @staticmethod
     @contextmanager
-    def _patch_export_image(mock: MagicMock):
-        """Context manager to patch image_exporter.export_image across thread boundaries."""
+    def _patch_export_image(mock: MagicMock) -> Generator[MagicMock, None, None]:
         original = image_exporter.export_image
         image_exporter.export_image = mock
         try:
@@ -261,11 +266,18 @@ class TestGenerateAssetsAsyncCounters:
         ids=["success", "user_error", "system_error", "timeout"],
     )
     async def test_export_counter_behavior(
-        self, subscription, settings, error, failure_type, expected_success_delta, expected_failure_delta, is_timeout
+        self,
+        subscription: Any,
+        settings: Any,
+        error: Exception | None,
+        failure_type: str,
+        expected_success_delta: float,
+        expected_failure_delta: float,
+        is_timeout: bool,
     ) -> None:
         if is_timeout:
 
-            def slow_export(*args, **kwargs):
+            def slow_export(*args: Any, **kwargs: Any) -> None:
                 time.sleep(10)
 
             side_effect = slow_export
