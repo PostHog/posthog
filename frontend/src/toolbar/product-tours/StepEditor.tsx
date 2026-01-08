@@ -1,6 +1,5 @@
 import { JSONContent } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
-import { renderProductTourPreview } from 'posthog-js/dist/product-tours-preview'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconChevronRight, IconCursorClick, IconTrash } from '@posthog/icons'
@@ -8,6 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { ProductTourPreview } from 'scenes/product-tours/components/ProductTourPreview'
 import {
     TOUR_STEP_MAX_WIDTH,
     TOUR_STEP_MIN_WIDTH,
@@ -112,7 +112,6 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
 
     const [stepContent, setStepContent] = useState<JSONContent | null>(editingStep?.content ?? DEFAULT_STEP_CONTENT)
     const editorRef = useRef<HTMLDivElement>(null)
-    const surveyPreviewRef = useRef<HTMLDivElement>(null)
     const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
     const [selector, setSelector] = useState('')
     const [showAdvanced, setShowAdvanced] = useState(false)
@@ -191,24 +190,6 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
         setSurveyConfig(editingStep?.survey)
         setModalPosition(editingStep?.modalPosition ?? SurveyPosition.MiddleCenter)
     }, [editingStep?.id])
-
-    // Render survey preview using product tour's native survey rendering
-    useEffect(() => {
-        if (isSurveyStep && surveyPreviewRef.current && surveyConfig) {
-            renderProductTourPreview({
-                step: {
-                    id: 'preview',
-                    type: 'survey',
-                    content: null,
-                    survey: surveyConfig,
-                    progressionTrigger: 'button',
-                },
-                parentElement: surveyPreviewRef.current,
-                stepIndex: 0,
-                totalSteps: 1,
-            })
-        }
-    }, [isSurveyStep, surveyConfig])
 
     // Position element steps near target (when element is visible)
     useLayoutEffect(() => {
@@ -346,11 +327,18 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
                         {/* Survey preview */}
                         <div className="pt-2">
                             <div className="text-[10px] text-muted uppercase tracking-wide mb-2">Preview</div>
-                            <div
-                                ref={surveyPreviewRef}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ minHeight: 100 }}
-                            />
+                            {surveyConfig && (
+                                <ProductTourPreview
+                                    step={{
+                                        id: 'preview',
+                                        type: 'survey',
+                                        content: null,
+                                        survey: surveyConfig,
+                                        progressionTrigger: 'button',
+                                    }}
+                                    prepareStep={false}
+                                />
+                            )}
                         </div>
                     </div>
                 )}
