@@ -107,7 +107,6 @@ jobs:
                         # version changes
                         - docker-compose.dev.yml
                         - docker-compose.base.yml
-                        - docker-compose.batch-exports.yml
                         - frontend/public/email/*
                         - docker/clickhouse
                         # These scripts are used in the CI
@@ -684,8 +683,8 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
-                          if docker compose -f docker-compose.dev.yml -f docker-compose.batch-exports.yml down && \
-                            docker compose -f docker-compose.dev.yml -f docker-compose.batch-exports.yml up -d; then
+                          if docker compose -f docker-compose.dev.yml -f products/batch_exports/backend/tests/docker-compose.yml down && \
+                            docker compose -f docker-compose.dev.yml -f products/batch_exports/backend/tests/docker-compose.yml up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
