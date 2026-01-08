@@ -133,6 +133,9 @@ class EventsTable(Table):
         "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements", nullable=False),
     }
 
+    def to_printed_postgres(self) -> str:
+        return "events"
+
     def to_printed_clickhouse(self, context):
         return "events"
 

@@ -21,12 +21,7 @@ from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitCont
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
-from posthog.hogql.escape_sql import (
-    escape_hogql_identifier,
-    escape_hogql_string,
-    escape_postgres_identifier,
-    safe_identifier,
-)
+from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string, safe_identifier
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
@@ -208,6 +203,18 @@ class HogQLPrinter(Visitor[str]):
                                 ).visit(column)
                             )
                         column = ast.Alias(alias=column_alias, expr=column)
+                    columns.append(self.visit(column))
+            elif self.dialect == "postgres":
+                columns = []
+                for column in node.select:
+                    # Unwrap hidden aliases
+                    if (isinstance(column, ast.Alias)) and column.hidden:
+                        column = column.expr
+
+                    if isinstance(column, ast.Field) and isinstance(column.type, ast.PropertyType):
+                        alias_name = ".".join(map(str, column.chain))
+                        column = ast.Alias(alias=alias_name, expr=column)
+
                     columns.append(self.visit(column))
             else:
                 columns = [self.visit(column) for column in node.select]
@@ -1507,10 +1514,7 @@ class HogQLPrinter(Visitor[str]):
         return None
 
     def _print_identifier(self, name: str) -> str:
-        if self.dialect == "postgres":
-            return escape_postgres_identifier(name)
-        else:
-            return escape_hogql_identifier(name)
+        return escape_hogql_identifier(name)
 
     def _print_hogql_identifier_or_index(self, name: str | int) -> str:
         # Regular identifiers can't start with a number. Print digit strings as-is for unescaped tuple access.
@@ -1535,9 +1539,6 @@ class HogQLPrinter(Visitor[str]):
         return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
     def _json_property_args(self, chain: Iterable[str]) -> list[str]:
-        if self.dialect == "postgres":
-            return [self._print_escaped_string(name) for name in chain]
-
         return [self.context.add_value(name) for name in chain]
 
     def _get_materialized_column(

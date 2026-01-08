@@ -5,6 +5,7 @@ from posthog.hogql.ast import AST
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ImpossibleASTError, QueryError
+from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.printer import HogQLPrinter
 
 
@@ -51,6 +52,8 @@ class PostgresPrinter(HogQLPrinter):
     def _visit_in_values(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Tuple):
             return f"({', '.join(self.visit(value) for value in node.exprs)})"
+        elif isinstance(node, ast.Constant):
+            return f"({self.visit(node)})"
 
         return self.visit(node)
 
@@ -104,3 +107,9 @@ class PostgresPrinter(HogQLPrinter):
         return table_type.table.to_printed_postgres()
 
     def _ensure_team_id_where_clause(self, table_type: ast.TableType, node_type: ast.TableOrSelectType): ...
+
+    def _print_identifier(self, name: str) -> str:
+        return escape_postgres_identifier(name)
+
+    def _json_property_args(self, chain):
+        return [self._print_escaped_string(name) for name in chain]
