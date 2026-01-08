@@ -22,6 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import IPThrottle
 
@@ -32,14 +33,14 @@ class DCRBurstThrottle(IPThrottle):
     """Rate limit DCR by IP - burst limit."""
 
     scope = "dcr_burst"
-    rate = "10/minute"
+    rate = "60/minute"
 
 
 class DCRSustainedThrottle(IPThrottle):
     """Rate limit DCR by IP - sustained limit."""
 
     scope = "dcr_sustained"
-    rate = "100/hour"
+    rate = "1000/hour"
 
 
 class DCRRequestSerializer(serializers.Serializer):
@@ -122,7 +123,7 @@ class DynamicClientRegistrationView(APIView):
                 skip_authorization=False,
                 # DCR-specific fields
                 is_dcr_client=True,
-                client_id_issued_at=now,
+                dcr_client_id_issued_at=now,
                 # No organization or user - DCR clients are anonymous
                 organization=None,
                 user=None,
@@ -141,6 +142,7 @@ class DynamicClientRegistrationView(APIView):
                 )
             # Log internal validation errors but don't expose details
             logger.exception("dcr_validation_failed")
+            capture_exception(e)
             return Response(
                 {
                     "error": "server_error",
@@ -148,8 +150,9 @@ class DynamicClientRegistrationView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        except Exception:
+        except Exception as e:
             logger.exception("dcr_client_creation_failed")
+            capture_exception(e)
             return Response(
                 {
                     "error": "server_error",

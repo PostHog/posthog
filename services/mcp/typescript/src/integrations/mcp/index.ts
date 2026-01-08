@@ -7,7 +7,12 @@ import { getPostHogClient } from '@/integrations/mcp/utils/client'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
-import { CUSTOM_BASE_URL, MCP_DOCS_URL, OAUTH_AUTHORIZATION_SERVER_URL } from '@/lib/constants'
+import {
+    CUSTOM_BASE_URL,
+    MCP_DOCS_URL,
+    OAUTH_AUTHORIZATION_SERVER_URL,
+    OAUTH_SCOPES_SUPPORTED,
+} from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
@@ -301,28 +306,7 @@ export default {
                 JSON.stringify({
                     resource: resourceUrl.toString().replace(/\/$/, ''),
                     authorization_servers: [OAUTH_AUTHORIZATION_SERVER_URL],
-                    scopes_supported: [
-                        'openid',
-                        'profile',
-                        'email',
-                        'introspection',
-                        'user:read',
-                        'organization:read',
-                        'project:read',
-                        'feature_flag:read',
-                        'feature_flag:write',
-                        'experiment:read',
-                        'experiment:write',
-                        'insight:read',
-                        'insight:write',
-                        'dashboard:read',
-                        'dashboard:write',
-                        'query:read',
-                        'survey:read',
-                        'survey:write',
-                        'error_tracking:read',
-                        'logs:read',
-                    ],
+                    scopes_supported: OAUTH_SCOPES_SUPPORTED,
                     bearer_methods_supported: ['header'],
                 }),
                 {

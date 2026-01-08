@@ -136,7 +136,7 @@ class OAuthApplication(AbstractApplication):
     is_dcr_client: models.BooleanField = models.BooleanField(
         default=False, help_text="True if this client was registered via Dynamic Client Registration"
     )
-    client_id_issued_at: models.DateTimeField = models.DateTimeField(
+    dcr_client_id_issued_at: models.DateTimeField = models.DateTimeField(
         null=True, blank=True, help_text="When the client_id was issued (for DCR clients)"
     )
 
