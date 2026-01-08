@@ -43,14 +43,10 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
-export type UserBasicApiHedgehogConfigAnyOf = { [key: string]: unknown }
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = UserBasicApiHedgehogConfigAnyOf | null | null
-
-export type UserBasicApiRoleAtOrganization = RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -70,7 +66,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: UserBasicApiRoleAtOrganization
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
 }
 
 export interface ExperimentHoldoutApi {
@@ -140,23 +136,6 @@ export const BucketingIdentifierEnumApi = {
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
-/**
- * Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All
- */
-export type MinimalFeatureFlagApiEvaluationRuntime = EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
-
-/**
- * Identifier used for bucketing users into rollout and variants
-
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID
- */
-export type MinimalFeatureFlagApiBucketingIdentifier = BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
-
 export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
@@ -181,12 +160,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: MinimalFeatureFlagApiEvaluationRuntime
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: MinimalFeatureFlagApiBucketingIdentifier
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
     readonly evaluation_tags: readonly string[]
 }
 
@@ -230,10 +209,6 @@ export const ConclusionEnumApi = {
     invalid: 'invalid',
 } as const
 
-export type ExperimentApiType = ExperimentTypeEnumApi | BlankEnumApi | NullEnumApi
-
-export type ExperimentApiConclusion = ConclusionEnumApi | BlankEnumApi | NullEnumApi
-
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -269,14 +244,14 @@ export interface ExperimentApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
-    type?: ExperimentApiType
+    type?: ExperimentTypeEnumApi | BlankEnumApi | NullEnumApi
     exposure_criteria?: unknown
     metrics?: unknown
     metrics_secondary?: unknown
     stats_config?: unknown
     scheduling_config?: unknown
     _create_in_folder?: string
-    conclusion?: ExperimentApiConclusion
+    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi
     /** @nullable */
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown
@@ -296,10 +271,6 @@ export interface PaginatedExperimentListApi {
     previous?: string | null
     results: ExperimentApi[]
 }
-
-export type PatchedExperimentApiType = ExperimentTypeEnumApi | BlankEnumApi | NullEnumApi
-
-export type PatchedExperimentApiConclusion = ConclusionEnumApi | BlankEnumApi | NullEnumApi
 
 /**
  * Mixin for serializers to add user access control fields
@@ -336,14 +307,14 @@ export interface PatchedExperimentApi {
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
-    type?: PatchedExperimentApiType
+    type?: ExperimentTypeEnumApi | BlankEnumApi | NullEnumApi
     exposure_criteria?: unknown
     metrics?: unknown
     metrics_secondary?: unknown
     stats_config?: unknown
     scheduling_config?: unknown
     _create_in_folder?: string
-    conclusion?: PatchedExperimentApiConclusion
+    conclusion?: ConclusionEnumApi | BlankEnumApi | NullEnumApi
     /** @nullable */
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown
