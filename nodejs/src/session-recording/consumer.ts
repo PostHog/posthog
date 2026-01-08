@@ -39,6 +39,7 @@ import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
+import { SessionFilter } from './sessions/session-filter'
 import { SessionMetadataStore } from './sessions/session-metadata-store'
 import { SessionTracker } from './sessions/session-tracker'
 import { TeamFilter } from './teams/team-filter'
@@ -209,6 +210,7 @@ export class SessionRecordingIngester {
             : new BlackholeSessionBatchFileStorage()
 
         const sessionTracker = new SessionTracker(this.redisPool)
+        const sessionFilter = new SessionFilter(this.redisPool)
         const sessionLimiter = new Limiter(
             this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
             this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE
@@ -223,6 +225,7 @@ export class SessionRecordingIngester {
             metadataStore,
             consoleLogStore,
             sessionTracker,
+            sessionFilter,
             sessionLimiter,
             sessionRateLimitEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_RATE_LIMIT_ENABLED,
         })

@@ -34,6 +34,7 @@ import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionData } fro
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFilter } from './session-filter'
 import { SessionMetadataStore } from './session-metadata-store'
 import { SessionTracker } from './session-tracker'
 
@@ -52,6 +53,7 @@ describe('session recording integration', () => {
     let mockSessionLimiter: jest.Mocked<Limiter>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
+    let mockSessionFilter: jest.Mocked<SessionFilter>
     let batchBuffer: Uint8Array
     let currentOffset: number
 
@@ -101,6 +103,11 @@ describe('session recording integration', () => {
             trackSession: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<SessionTracker>
 
+        mockSessionFilter = {
+            isBlocked: jest.fn().mockResolvedValue(false),
+            blockSession: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionFilter>
+
         mockSessionLimiter = {
             consume: jest.fn().mockReturnValue(true),
         } as unknown as jest.Mocked<Limiter>
@@ -111,6 +118,7 @@ describe('session recording integration', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             mockSessionTracker,
+            mockSessionFilter,
             mockSessionLimiter
         )
     })

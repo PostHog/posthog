@@ -4,6 +4,7 @@ import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFilter } from './session-filter'
 import { SessionMetadataStore } from './session-metadata-store'
 import { SessionTracker } from './session-tracker'
 
@@ -19,6 +20,7 @@ describe('SessionBatchManager', () => {
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
+    let mockSessionFilter: jest.Mocked<SessionFilter>
     let mockSessionLimiter: jest.Mocked<Limiter>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
@@ -64,6 +66,11 @@ describe('SessionBatchManager', () => {
             trackSession: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<SessionTracker>
 
+        mockSessionFilter = {
+            isBlocked: jest.fn().mockResolvedValue(false),
+            blockSession: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionFilter>
+
         mockSessionLimiter = {
             consume: jest.fn().mockReturnValue(true),
         } as unknown as jest.Mocked<Limiter>
@@ -77,6 +84,7 @@ describe('SessionBatchManager', () => {
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
             sessionTracker: mockSessionTracker,
+            sessionFilter: mockSessionFilter,
             sessionLimiter: mockSessionLimiter,
             sessionRateLimitEnabled: false,
         })
@@ -97,6 +105,7 @@ describe('SessionBatchManager', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             mockSessionTracker,
+            mockSessionFilter,
             mockSessionLimiter,
             Number.MAX_SAFE_INTEGER,
             false
@@ -178,6 +187,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionFilter: mockSessionFilter,
                 sessionLimiter: mockSessionLimiter,
                 sessionRateLimitEnabled: false,
             })
@@ -188,6 +198,7 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 500,
                 false
@@ -204,6 +215,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionFilter: mockSessionFilter,
                 sessionLimiter: mockSessionLimiter,
                 sessionRateLimitEnabled: false,
             })
@@ -216,6 +228,7 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 250,
                 false
@@ -232,6 +245,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionFilter: mockSessionFilter,
                 sessionLimiter: mockSessionLimiter,
                 sessionRateLimitEnabled: false,
             })
@@ -242,6 +256,7 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 0,
                 false
@@ -258,6 +273,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
+                sessionFilter: mockSessionFilter,
                 sessionLimiter: mockSessionLimiter,
                 sessionRateLimitEnabled: false,
             })
@@ -268,6 +284,7 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 Number.MAX_SAFE_INTEGER,
                 false

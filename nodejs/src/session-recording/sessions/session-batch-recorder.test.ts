@@ -11,6 +11,7 @@ import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFilter } from './session-filter'
 import { SessionMetadataStore } from './session-metadata-store'
 import { SessionTracker } from './session-tracker'
 import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
@@ -152,6 +153,7 @@ describe('SessionBatchRecorder', () => {
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
+    let mockSessionFilter: jest.Mocked<SessionFilter>
     let mockSessionLimiter: jest.Mocked<Limiter>
 
     beforeEach(() => {
@@ -193,6 +195,11 @@ describe('SessionBatchRecorder', () => {
             trackSession: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<SessionTracker>
 
+        mockSessionFilter = {
+            isBlocked: jest.fn().mockResolvedValue(false),
+            blockSession: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionFilter>
+
         mockSessionLimiter = {
             consume: jest.fn().mockReturnValue(true),
         } as unknown as jest.Mocked<Limiter>
@@ -203,6 +210,7 @@ describe('SessionBatchRecorder', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             mockSessionTracker,
+            mockSessionFilter,
             mockSessionLimiter,
             Number.MAX_SAFE_INTEGER
         )
@@ -1424,6 +1432,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 Number.MAX_SAFE_INTEGER
             )
@@ -1624,6 +1633,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 3
             )
@@ -1651,6 +1661,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 2
             )
@@ -1681,6 +1692,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 1
             )
@@ -1704,6 +1716,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 1
             )
@@ -1730,6 +1743,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 2
             )
@@ -1766,6 +1780,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 2
             )
@@ -1802,6 +1817,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 1
             )
@@ -1832,6 +1848,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 1
             )
@@ -1864,6 +1881,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 2
             )
@@ -1893,6 +1911,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 1
             )
@@ -1921,6 +1940,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 1
             )
@@ -1950,6 +1970,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 1
             )
@@ -1996,6 +2017,7 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockSessionTracker,
+                mockSessionFilter,
                 mockSessionLimiter,
                 Number.MAX_SAFE_INTEGER,
                 true // sessionRateLimitEnabled = true
@@ -2102,6 +2124,7 @@ describe('SessionBatchRecorder', () => {
                     mockMetadataStore,
                     mockConsoleLogStore,
                     mockSessionTracker,
+                    mockSessionFilter,
                     mockSessionLimiter,
                     Number.MAX_SAFE_INTEGER,
                     false // sessionRateLimitEnabled = false

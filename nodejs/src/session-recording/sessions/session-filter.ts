@@ -1,49 +1,110 @@
+import { LRUCache } from 'lru-cache'
+
+import { RedisPool } from '../../types'
 import { logger } from '../../utils/logger'
-import { Limiter } from '../../utils/token-bucket'
-import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
-import { SessionTracker } from './session-tracker'
 
+const DEFAULT_LOCAL_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
+
+/**
+ * Manages a blocklist of sessions that should be dropped.
+ *
+ * When a session is rate-limited on its first message, we block the entire session
+ * to prevent half-ingested recordings. The blocklist is persisted in Redis with
+ * an in-memory LRU cache to minimize Redis round-trips.
+ */
 export class SessionFilter {
+    private readonly keyPrefix = '@posthog/replay/session-blocked'
+    private readonly ttlSeconds = 48 * 60 * 60 // 48 hours
+
+    // In-memory cache to avoid hitting Redis for every message
+    // Since Kafka partitions by session ID, the same session always hits the same consumer
+    // Maps key -> blocked status (true = blocked, false = not blocked but checked)
+    private readonly localCache: LRUCache<string, boolean>
+
     constructor(
-        private readonly sessionTracker: SessionTracker,
-        private readonly sessionLimiter: Limiter
-    ) {}
+        private readonly redisPool: RedisPool,
+        localCacheTtlMs: number = DEFAULT_LOCAL_CACHE_TTL_MS,
+        localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE
+    ) {
+        this.localCache = new LRUCache({
+            max: localCacheMaxSize,
+            ttl: localCacheTtlMs,
+        })
+    }
 
-    public async filterBatch(messages: MessageWithTeam[]): Promise<MessageWithTeam[]> {
-        // First pass: identify which sessions are rate limited
-        const rateLimitedSessions = new Set<string>()
+    /**
+     * Block a session so all future messages are dropped.
+     *
+     * @param teamId - The team ID
+     * @param sessionId - The session ID to block
+     */
+    public async blockSession(teamId: number, sessionId: string): Promise<void> {
+        const key = this.generateKey(teamId, sessionId)
 
-        for (const message of messages) {
-            const { teamId } = message.team
-            const { session_id: sessionId } = message.message
-            const sessionKey = `${teamId}:${sessionId}`
+        // Add to local cache immediately for fast lookups
+        this.localCache.set(key, true)
 
-            // Skip if we already know this session is rate limited
-            if (rateLimitedSessions.has(sessionKey)) {
-                continue
+        const client = await this.redisPool.acquire()
+
+        try {
+            await client.set(key, '1', 'EX', this.ttlSeconds)
+
+            SessionBatchMetrics.incrementSessionsBlocked()
+
+            logger.debug('session_filter_blocked_session', {
+                teamId,
+                sessionId,
+            })
+        } finally {
+            await this.redisPool.release(client)
+        }
+    }
+
+    /**
+     * Check if a session is blocked.
+     *
+     * @param teamId - The team ID
+     * @param sessionId - The session ID
+     * @returns true if the session is blocked, false otherwise
+     */
+    public async isBlocked(teamId: number, sessionId: string): Promise<boolean> {
+        const key = this.generateKey(teamId, sessionId)
+
+        // Check local cache first to avoid Redis round-trip
+        const cached = this.localCache.get(key)
+        if (cached !== undefined) {
+            SessionBatchMetrics.incrementSessionFilterCacheHit()
+            if (cached) {
+                SessionBatchMetrics.incrementMessagesDroppedBlocked()
             }
-
-            const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
-
-            if (isNewSession) {
-                const isAllowed = this.sessionLimiter.consume(String(teamId), 1)
-                if (!isAllowed) {
-                    rateLimitedSessions.add(sessionKey)
-                    SessionBatchMetrics.incrementNewSessionsRateLimited()
-                    logger.debug('🔁', 'session_filter_new_session_rate_limited', {
-                        partition: message.message.metadata.partition,
-                        sessionId,
-                        teamId,
-                    })
-                }
-            }
+            return cached
         }
 
-        // Second pass: filter out all messages belonging to rate limited sessions
-        return messages.filter((message) => {
-            const sessionKey = `${message.team.teamId}:${message.message.session_id}`
-            return !rateLimitedSessions.has(sessionKey)
-        })
+        SessionBatchMetrics.incrementSessionFilterCacheMiss()
+
+        const client = await this.redisPool.acquire()
+
+        try {
+            const exists = await client.exists(key)
+            const isBlocked = exists === 1
+
+            // Cache the result locally to prevent repeated Redis calls
+            // Cache both blocked and not-blocked states
+            this.localCache.set(key, isBlocked)
+
+            if (isBlocked) {
+                SessionBatchMetrics.incrementMessagesDroppedBlocked()
+            }
+
+            return isBlocked
+        } finally {
+            await this.redisPool.release(client)
+        }
+    }
+
+    private generateKey(teamId: number, sessionId: string): string {
+        return `${this.keyPrefix}:${teamId}:${sessionId}`
     }
 }

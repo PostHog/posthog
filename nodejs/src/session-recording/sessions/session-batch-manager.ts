@@ -4,6 +4,7 @@ import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFilter } from './session-filter'
 import { SessionMetadataStore } from './session-metadata-store'
 import { SessionTracker } from './session-tracker'
 
@@ -24,6 +25,8 @@ export interface SessionBatchManagerConfig {
     consoleLogStore: SessionConsoleLogStore
     /** Session tracker for new session detection */
     sessionTracker: SessionTracker
+    /** Session filter for blocking rate-limited sessions */
+    sessionFilter: SessionFilter
     /** Token bucket limiter for new session rate limiting */
     sessionLimiter: Limiter
     /** When true, rate limiting will drop messages that exceed the limit */
@@ -75,6 +78,7 @@ export class SessionBatchManager {
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
     private readonly sessionTracker: SessionTracker
+    private readonly sessionFilter: SessionFilter
     private readonly sessionLimiter: Limiter
     private readonly sessionRateLimitEnabled: boolean
 
@@ -87,6 +91,7 @@ export class SessionBatchManager {
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
         this.sessionTracker = config.sessionTracker
+        this.sessionFilter = config.sessionFilter
         this.sessionLimiter = config.sessionLimiter
         this.sessionRateLimitEnabled = config.sessionRateLimitEnabled
 
@@ -96,6 +101,7 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.sessionTracker,
+            this.sessionFilter,
             this.sessionLimiter,
             this.maxEventsPerSessionPerBatch,
             this.sessionRateLimitEnabled
@@ -122,6 +128,7 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.sessionTracker,
+            this.sessionFilter,
             this.sessionLimiter,
             this.maxEventsPerSessionPerBatch,
             this.sessionRateLimitEnabled

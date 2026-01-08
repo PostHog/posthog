@@ -88,6 +88,26 @@ export class SessionBatchMetrics {
         help: 'Number of session tracker local cache misses (required Redis call)',
     })
 
+    private static readonly sessionsBlocked = new Counter({
+        name: 'recording_blob_ingestion_v2_sessions_blocked_total',
+        help: 'Number of sessions added to blocklist (will drop all future messages)',
+    })
+
+    private static readonly messagesDroppedBlocked = new Counter({
+        name: 'recording_blob_ingestion_v2_messages_dropped_blocked_total',
+        help: 'Number of messages dropped because the session was blocked',
+    })
+
+    private static readonly sessionFilterCacheHit = new Counter({
+        name: 'recording_blob_ingestion_v2_session_filter_cache_hit_total',
+        help: 'Number of session filter local cache hits (avoided Redis call)',
+    })
+
+    private static readonly sessionFilterCacheMiss = new Counter({
+        name: 'recording_blob_ingestion_v2_session_filter_cache_miss_total',
+        help: 'Number of session filter local cache misses (required Redis call)',
+    })
+
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
@@ -155,5 +175,21 @@ export class SessionBatchMetrics {
 
     public static incrementSessionTrackerCacheMiss(count: number = 1): void {
         this.sessionTrackerCacheMiss.inc(count)
+    }
+
+    public static incrementSessionsBlocked(count: number = 1): void {
+        this.sessionsBlocked.inc(count)
+    }
+
+    public static incrementMessagesDroppedBlocked(count: number = 1): void {
+        this.messagesDroppedBlocked.inc(count)
+    }
+
+    public static incrementSessionFilterCacheHit(count: number = 1): void {
+        this.sessionFilterCacheHit.inc(count)
+    }
+
+    public static incrementSessionFilterCacheMiss(count: number = 1): void {
+        this.sessionFilterCacheMiss.inc(count)
     }
 }

@@ -9,6 +9,7 @@ import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFilter } from './session-filter'
 import { SessionMetadataStore } from './session-metadata-store'
 import { SessionRateLimiter } from './session-rate-limiter'
 import { SessionTracker } from './session-tracker'
@@ -74,6 +75,7 @@ export class SessionBatchRecorder {
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
         private readonly sessionTracker: SessionTracker,
+        private readonly sessionFilter: SessionFilter,
         private readonly sessionLimiter: Limiter,
         maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
         sessionRateLimitEnabled: boolean = false
@@ -96,6 +98,18 @@ export class SessionBatchRecorder {
         const teamId = message.team.teamId
         const teamSessionKey = `${teamId}$${sessionId}`
 
+        // Check if session is blocked (rate limited on first message)
+        // This prevents half-ingested recordings
+        if (await this.sessionFilter.isBlocked(teamId, sessionId)) {
+            logger.debug('🔁', 'session_batch_recorder_session_blocked', {
+                partition,
+                sessionId,
+                teamId,
+                batchId: this.batchId,
+            })
+            return this.ignoreMessage(message)
+        }
+
         // Check if this is a new session and whether it should be rate limited
         const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
         const isAllowed = this.sessionLimiter.consume(String(teamId), isNewSession ? 1 : 0)
@@ -112,6 +126,8 @@ export class SessionBatchRecorder {
 
             // Only drop messages if rate limiting is enabled
             if (this.sessionRateLimitEnabled) {
+                // Block the session to prevent half-ingested recordings
+                await this.sessionFilter.blockSession(teamId, sessionId)
                 return this.ignoreMessage(message)
             }
         }
