@@ -13,7 +13,6 @@ from posthog.hogql.printer.base import HogQLPrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
-from posthog.hogql.transforms.eav_joins import add_eav_joins
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -132,10 +131,6 @@ def prepare_ast_for_printing(
                 context=context,
                 setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
-
-        if isinstance(node, ast.SelectQuery):
-            with context.timings.measure("add_eav_joins"):
-                node = cast(_T_AST, add_eav_joins(node, context))
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
