@@ -135,7 +135,7 @@ def prepare_ast_for_printing(
 
         if isinstance(node, ast.SelectQuery):
             with context.timings.measure("add_eav_joins"):
-                node = add_eav_joins(node, context)
+                node = cast(_T_AST, add_eav_joins(node, context))
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
