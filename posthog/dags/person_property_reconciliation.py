@@ -38,6 +38,7 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     bug_window_end: str | None = None  # Optional: required if team_ids not supplied
     dry_run: bool = False  # Log changes without applying
     backup_enabled: bool = True  # Store before/after state in backup table
+    batch_size: int = 100  # Commit Postgres transaction every N persons (0 = single commit at end)
 
 
 @dataclass
@@ -58,6 +59,15 @@ class PersonPropertyDiffs:
     unset_updates: dict[str, PropertyValue]  # key -> PropertyValue (value is always None)
 
 
+class SkipReason:
+    """Reasons why a person update was skipped."""
+
+    SUCCESS = "success"  # Not skipped - successfully updated
+    NO_CHANGES = "no_changes"  # No changes needed after reconciliation
+    NOT_FOUND = "not_found"  # Person not found in Postgres
+    VERSION_CONFLICT = "version_conflict"  # Version mismatch after max retries
+
+
 def ensure_utc_datetime(ts: datetime) -> datetime:
     """Ensure timestamp is a UTC-aware datetime."""
     from datetime import UTC
@@ -70,7 +80,6 @@ def ensure_utc_datetime(ts: datetime) -> datetime:
 def get_person_property_updates_from_clickhouse(
     team_id: int,
     bug_window_start: str,
-    bug_window_end: str,
 ) -> list[PersonPropertyDiffs]:
     """
     Query ClickHouse to get property updates per person that differ from current state.
@@ -83,7 +92,6 @@ def get_person_property_updates_from_clickhouse(
 
     Returns:
         List of PersonPropertyDiffs, each containing 3 maps (set, set_once, unset) keyed by property key
-        unset_diff: Array of (key, timestamp) tuples for $unset properties that exist
     """
     query = """
     SELECT
@@ -117,8 +125,8 @@ def get_person_property_updates_from_clickhouse(
             merged.set_once_timestamps,
             merged.unset_keys,
             merged.unset_timestamps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValues(p.person_properties, 'String')) AS keys2,
-            arrayMap(x -> x.2, JSONExtractKeysAndValues(p.person_properties, 'String')) AS vals2
+            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(p.person_properties)) AS keys2,
+            arrayMap(x -> toString(x.2), JSONExtractKeysAndValuesRaw(p.person_properties)) AS vals2
         FROM (
             -- Extract separate arrays from grouped tuples, split by prop_type
             -- We group into tuples first to ensure array alignment
@@ -179,7 +187,7 @@ def get_person_property_updates_from_clickhouse(
                         ) AS kv_tuple
                     WHERE e.team_id = %(team_id)s
                       AND e.timestamp > %(bug_window_start)s
-                      AND e.timestamp < %(bug_window_end)s
+                      AND e.timestamp < now()
                       AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
                     GROUP BY person_id, kv_tuple.2, kv_tuple.1
                 )
@@ -192,9 +200,9 @@ def get_person_property_updates_from_clickhouse(
                 argMax(properties, version) as person_properties
             FROM person
             WHERE team_id = %(team_id)s
-              AND _timestamp > %(bug_window_start)s
-              AND _timestamp < %(bug_window_end)s
             GROUP BY id
+            -- Filter out deleted persons (latest version has is_deleted=1)
+            HAVING argMax(is_deleted, version) = 0
         ) AS p ON p.id = merged.person_id
     ) AS with_person_props
     WHERE length(set_diff) > 0 OR length(set_once_diff) > 0 OR length(unset_diff) > 0
@@ -217,7 +225,6 @@ def get_person_property_updates_from_clickhouse(
     params = {
         "team_id": team_id,
         "bug_window_start": bug_window_start,
-        "bug_window_end": bug_window_end,
     }
 
     rows = sync_execute(query, params)
@@ -411,7 +418,23 @@ def publish_person_to_kafka(person_data: dict, producer: _KafkaProducer) -> None
 
 
 def fetch_person_from_postgres(cursor, team_id: int, person_uuid: str) -> dict | None:
-    """Fetch a single person record from Postgres."""
+    """Fetch a single person record from Postgres.
+
+    Works with both RealDictCursor (returns dict rows with auto-parsed JSONB)
+    and regular cursor (returns tuple rows with JSONB as strings).
+    """
+
+    columns = [
+        "id",
+        "uuid",
+        "properties",
+        "properties_last_updated_at",
+        "properties_last_operation",
+        "version",
+        "is_identified",
+        "created_at",
+    ]
+
     cursor.execute(
         """
         SELECT
@@ -429,7 +452,20 @@ def fetch_person_from_postgres(cursor, team_id: int, person_uuid: str) -> dict |
         (team_id, person_uuid),
     )
     row = cursor.fetchone()
-    return dict(row) if row else None
+    if row is None:
+        return None
+    # Handle both dict rows (RealDictCursor) and tuple rows (regular cursor)
+    if isinstance(row, dict):
+        result = dict(row)
+    else:
+        result = dict(zip(columns, row))
+
+    # Parse JSONB columns if they're strings (Django cursor doesn't auto-parse)
+    for json_col in ["properties", "properties_last_updated_at", "properties_last_operation"]:
+        if isinstance(result.get(json_col), str):
+            result[json_col] = json.loads(result[json_col])
+
+    return result
 
 
 def backup_person_with_computed_state(
@@ -509,7 +545,7 @@ def update_person_with_version_check(
     dry_run: bool = False,
     backup_enabled: bool = True,
     max_retries: int = 3,
-) -> tuple[bool, dict | None, bool]:
+) -> tuple[bool, dict | None, bool, str]:
     """
     Update a person's properties with optimistic locking.
 
@@ -528,15 +564,16 @@ def update_person_with_version_check(
         max_retries: Maximum retry attempts on version mismatch
 
     Returns:
-        Tuple of (success: bool, updated_person_data: dict | None, backup_created: bool)
+        Tuple of (success: bool, updated_person_data: dict | None, backup_created: bool, skip_reason: str)
         updated_person_data contains the final state for Kafka publishing
         backup_created indicates if a backup row was inserted
+        skip_reason indicates why the person was skipped (see SkipReason class)
     """
     for _attempt in range(max_retries):
         # Fetch current person state
         person = fetch_person_from_postgres(cursor, team_id, person_uuid)
         if not person:
-            return False, None, False
+            return False, None, False, SkipReason.NOT_FOUND
 
         current_version = person.get("version") or 0
 
@@ -544,7 +581,7 @@ def update_person_with_version_check(
         update = reconcile_person_properties(person, person_property_diffs)
         if not update:
             # No changes needed
-            return True, None, False
+            return True, None, False, SkipReason.NO_CHANGES
 
         # Backup before and after state for audit/rollback
         backup_created = False
@@ -555,7 +592,7 @@ def update_person_with_version_check(
             backup_created = True
 
         if dry_run:
-            return True, None, backup_created
+            return True, None, backup_created, SkipReason.SUCCESS
 
         # Write with version check
         cursor.execute(
@@ -593,13 +630,145 @@ def update_person_with_version_check(
                     "version": current_version + 1,
                 },
                 backup_created,
+                SkipReason.SUCCESS,
             )
 
         # Version mismatch - retry with fresh data
         # (loop will re-fetch person)
 
     # Exhausted retries
-    return False, None, False
+    return False, None, False, SkipReason.VERSION_CONFLICT
+
+
+@dataclass
+class BatchProcessingResult:
+    """Result of processing persons in batches."""
+
+    total_processed: int
+    total_updated: int
+    total_skipped: int
+    total_commits: int
+
+
+def process_persons_in_batches(
+    person_property_diffs: list[PersonPropertyDiffs],
+    cursor: Any,
+    job_id: str,
+    team_id: int,
+    batch_size: int,
+    dry_run: bool,
+    backup_enabled: bool,
+    commit_fn: Any,  # Callable to commit transaction
+    on_person_updated: Any = None,  # Optional callback for Kafka publishing etc
+    on_batch_committed: Any = None,  # Optional callback after each batch commit
+    logger: Any = None,  # Optional logger for logging skipped persons
+) -> BatchProcessingResult:
+    """
+    Process person property updates in batches with configurable commit frequency.
+
+    This function is separated from the Dagster op for testability.
+
+    Args:
+        person_property_diffs: List of persons with their property diffs
+        cursor: Database cursor (already open in transaction)
+        job_id: Job identifier for backups
+        team_id: Team being processed
+        batch_size: Number of persons per batch (0 = all in one batch)
+        dry_run: If True, don't actually apply changes
+        backup_enabled: If True, create backup rows
+        commit_fn: Function to call for committing the transaction
+        on_person_updated: Optional callback(person_data) when a person is updated
+        on_batch_committed: Optional callback(batch_num, batch_persons) after each commit
+        logger: Optional logger for logging skipped persons (e.g., context.log from Dagster)
+
+    Returns:
+        BatchProcessingResult with counts
+    """
+    if not person_property_diffs:
+        return BatchProcessingResult(
+            total_processed=0,
+            total_updated=0,
+            total_skipped=0,
+            total_commits=0,
+        )
+
+    # Determine effective batch size
+    effective_batch_size = batch_size if batch_size > 0 else len(person_property_diffs)
+
+    total_processed = 0
+    total_updated = 0
+    total_skipped = 0
+    total_commits = 0
+
+    batch_persons_to_publish: list[dict] = []
+    batch_has_backups = False
+    batch_num = 1
+
+    def commit_batch() -> None:
+        nonlocal total_commits, batch_persons_to_publish, batch_has_backups, batch_num
+
+        if not batch_persons_to_publish and not batch_has_backups:
+            return
+
+        # Commit if we have updates OR backups
+        should_commit = (batch_persons_to_publish and not dry_run) or batch_has_backups
+        if should_commit:
+            commit_fn()
+            total_commits += 1
+
+        # Notify callback
+        if on_batch_committed:
+            on_batch_committed(batch_num, batch_persons_to_publish)
+
+        # Reset for next batch
+        batch_persons_to_publish = []
+        batch_has_backups = False
+        batch_num += 1
+
+    for i, person_diffs in enumerate(person_property_diffs):
+        success, person_data, backup_created, skip_reason = update_person_with_version_check(
+            cursor=cursor,
+            job_id=job_id,
+            team_id=team_id,
+            person_uuid=person_diffs.person_id,
+            person_property_diffs=person_diffs,
+            dry_run=dry_run,
+            backup_enabled=backup_enabled,
+        )
+
+        if backup_created:
+            batch_has_backups = True
+
+        if not success:
+            total_skipped += 1
+            if logger:
+                logger.warning(f"Skipped person uuid={person_diffs.person_id} team_id={team_id} reason={skip_reason}")
+        elif person_data:
+            batch_persons_to_publish.append(person_data)
+            total_updated += 1
+            if on_person_updated:
+                on_person_updated(person_data)
+        else:
+            # No changes needed (success=True but person_data=None)
+            total_skipped += 1
+
+        total_processed += 1
+
+        # Commit batch if we've reached batch_size
+        persons_in_batch = (i % effective_batch_size) + 1
+        if persons_in_batch == effective_batch_size:
+            commit_batch()
+
+    # Commit final batch (if any remaining)
+    if batch_persons_to_publish or batch_has_backups:
+        commit_batch()
+
+    return BatchProcessingResult(
+        total_processed=total_processed,
+        total_updated=total_updated,
+        total_skipped=total_skipped,
+        total_commits=total_commits,
+    )
 
 
 @dagster.op
@@ -704,13 +873,9 @@ def reconcile_team_chunk(
 
     metrics_client = MetricsClient(cluster)
 
-    from datetime import UTC
-
-    team_bug_window_end = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-
     context.log.info(
         f"Starting reconciliation for team_id: {team_id}, "
-        f"bug_window_start: {config.bug_window_start}, team_bug_window_end: {team_bug_window_end}, "
+        f"bug_window_start: {config.bug_window_start}, "
         f"dry_run: {config.dry_run}"
     )
 
@@ -725,7 +890,6 @@ def reconcile_team_chunk(
         person_property_diffs = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=config.bug_window_start,
-            bug_window_end=team_bug_window_end,
         )
 
         # Filter conflicting set/unset operations
@@ -742,51 +906,10 @@ def reconcile_team_chunk(
 
         context.log.info(f"Processing {len(person_property_diffs)} persons for team_id={team_id}")
 
-        with persons_database.cursor() as cursor:
-            cursor.execute("SET application_name = 'person_property_reconciliation'")
-            cursor.execute("SET lock_timeout = '5s'")
-            cursor.execute("SET statement_timeout = '30min'")
-            cursor.execute("SET synchronous_commit = off")
-
-            # Process each person with version check and retry
-            persons_to_publish = []
-            any_backups_created = False
-            for person_diffs in person_property_diffs:
-                success, person_data, backup_created = update_person_with_version_check(
-                    cursor=cursor,
-                    job_id=run_id,
-                    team_id=team_id,
-                    person_uuid=person_diffs.person_id,
-                    person_property_diffs=person_diffs,
-                    dry_run=config.dry_run,
-                    backup_enabled=config.backup_enabled,
-                )
-
-                if backup_created:
-                    any_backups_created = True
-
-                if not success:
-                    context.log.warning(f"Failed to update person after retries: {person_diffs.person_id}")
-                    total_persons_skipped += 1
-                elif person_data:
-                    # Successfully updated - queue for Kafka publishing
-                    persons_to_publish.append(person_data)
-                    total_persons_updated += 1
-                else:
-                    # No changes needed
-                    total_persons_skipped += 1
-
-                total_persons_processed += 1
-
-            # Commit the Postgres transaction
-            # Commit if we have updates to publish, OR if we created backups (even in dry_run)
-            should_commit = (persons_to_publish and not config.dry_run) or any_backups_created
-            if should_commit:
-                persons_database.commit()
-
-            # Publish to Kafka (after commit, so we don't publish if commit fails)
-            if persons_to_publish and not config.dry_run:
-                for person_data in persons_to_publish:
+        # Callback for batch commits - handles Kafka publishing after each batch
+        def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
+            if batch_persons and not config.dry_run:
+                for person_data in batch_persons:
                     try:
                         publish_person_to_kafka(person_data, kafka_producer)
                     except Exception as kafka_error:
@@ -797,9 +920,36 @@ def reconcile_team_chunk(
                     kafka_producer.flush()
                 except Exception as flush_error:
                     context.log.warning(f"Failed to flush Kafka producer: {flush_error}")
-                context.log.info(f"Applied {len(persons_to_publish)} updates for team_id={team_id} (PG + Kafka)")
-            elif persons_to_publish and config.dry_run:
-                context.log.info(f"[DRY RUN] Would apply {len(persons_to_publish)} updates for team_id={team_id}")
+
+                context.log.info(f"Batch {batch_num}: committed {len(batch_persons)} updates for team_id={team_id}")
+            elif batch_persons and config.dry_run:
+                context.log.info(
+                    f"[DRY RUN] Batch {batch_num}: would apply {len(batch_persons)} updates for team_id={team_id}"
+                )
+
+        with persons_database.cursor() as cursor:
+            cursor.execute("SET application_name = 'person_property_reconciliation'")
+            cursor.execute("SET lock_timeout = '5s'")
+            cursor.execute("SET statement_timeout = '30min'")
+            cursor.execute("SET synchronous_commit = off")
+
+            # Process persons in batches using the helper function
+            result = process_persons_in_batches(
+                person_property_diffs=person_property_diffs,
+                cursor=cursor,
+                job_id=run_id,
+                team_id=team_id,
+                batch_size=config.batch_size,
+                dry_run=config.dry_run,
+                backup_enabled=config.backup_enabled,
+                commit_fn=persons_database.commit,
+                on_batch_committed=on_batch_committed,
+                logger=context.log,
+            )
+
+            total_persons_processed = result.total_processed
+            total_persons_updated = result.total_updated
+            total_persons_skipped = result.total_skipped
 
         # Track metrics
         duration = time.time() - start_time
