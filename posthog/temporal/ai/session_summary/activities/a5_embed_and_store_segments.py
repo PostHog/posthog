@@ -31,6 +31,9 @@ async def embed_and_store_segments_activity(
         for segment in segments:
             # Use the description directly as the content to embed
             content = segment.description
+            # Skip segments without descriptions
+            if not content:
+                continue
 
             # Create unique document ID
             document_id = f"{inputs.session_id}:{segment.start_time}:{segment.end_time}"

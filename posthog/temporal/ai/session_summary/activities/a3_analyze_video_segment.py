@@ -410,15 +410,24 @@ class VideoSegmentEventsEnricher:
         # Convert events to interactions
         # TODO: Also include event id (`_` below) in the schema for better linking to other data
         for _, event_data in events_in_range:
+            # Ensure all required column indices are available
+            event_idx = column_indices["event"]
+            event_type_idx = column_indices["$event_type"]
+            timestamp_idx = column_indices["timestamp"]
+            elements_chain_texts_idx = column_indices["elements_chain_texts"]
+
+            if event_idx is None or event_type_idx is None or timestamp_idx is None or elements_chain_texts_idx is None:
+                continue
+
             # Keep only clicks for the initial version, as they are the most reliable events
-            event = event_data[column_indices["event"]]
-            event_type = event_data[column_indices["$event_type"]]
-            timestamp_str = event_data[column_indices["timestamp"]]
+            event = event_data[event_idx]
+            event_type = event_data[event_type_idx]
+            timestamp_str = event_data[timestamp_idx]
             timestamp_s = int(calculate_time_since_start(timestamp_str, session_start_time) / 1000)
             if event != "$autocapture" and event_type != "click":
                 continue
             # Keep only clicks that have text context attached to mean anything
-            elements_chain_texts = event_data[column_indices["elements_chain_texts"]]
+            elements_chain_texts = event_data[elements_chain_texts_idx]
             if not elements_chain_texts:
                 continue
             # Convert click into interaction
@@ -450,6 +459,7 @@ class VideoSegmentEventsEnricher:
                     # The assumption that the video timestamps is either later (rendering delays) or the same as the timestamp indicator
                     _parse_timestamp_to_seconds(segment.start_time) - segment.timestamp_indicator
                     for segment in segments_with_indicators
+                    if segment.timestamp_indicator is not None
                 )
             ),
         )
@@ -497,9 +507,13 @@ class VideoSegmentEventsEnricher:
                 session_start_time=session_start_time,
             )
             if relevant_events:
+                # Initialize interactions list if it doesn't exist
+                if segment.interactions is None:
+                    segment.interactions = []
                 segment.interactions.extend(relevant_events)
-            # Sort interactions by s_from_start
-            segment.interactions.sort(key=lambda x: x.s_from_start)
+            # Sort interactions by s_from_start if interactions exist
+            if segment.interactions:
+                segment.interactions.sort(key=lambda x: x.s_from_start if x.s_from_start is not None else 0)
             # TODO: Remove duplicates - both video and events marked the same click
             updated_segments.append(segment)
         return updated_segments
