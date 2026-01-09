@@ -73,7 +73,10 @@ jobs:
                       // Escape quotes and backslashes for YAML
                       const escapedMessage = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
                       core.setOutput('message', escapedMessage);
-                      core.setOutput('author', commit.author?.login || commit.commit.author.name);
+                      const authorName = commit.author?.login || commit.commit.author.name;
+                      // Escape quotes and backslashes for YAML
+                      const escapedAuthor = authorName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                      core.setOutput('author', escapedAuthor);
                       core.setOutput('url', commit.html_url);
 
             # ============ SLACK: CREATE ============
