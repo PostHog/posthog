@@ -446,7 +446,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_negative_attribute_filters(self):
         query_params = {
-            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "dateRange": {"date_from": "2025-12-16 09:00:36.178572Z", "date_to": None},
             "limit": 100,
             "filterGroup": {
                 "type": "AND",
