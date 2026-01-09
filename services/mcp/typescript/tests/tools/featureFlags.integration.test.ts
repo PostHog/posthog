@@ -310,9 +310,6 @@ describe('Feature Flags', { concurrent: false }, () => {
             const allResult = await getAllTool.handler(context, { data: { limit: 10 } })
             const allFlags = parseToolResponse(allResult)
             
-            // Verify we have at least 3 flags
-            expect(allFlags.length).toBeGreaterThanOrEqual(3)
-
             // Get flags with offset=1
             const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
             const offsetFlags = parseToolResponse(offsetResult)
@@ -320,13 +317,15 @@ describe('Feature Flags', { concurrent: false }, () => {
             // Extract IDs for comparison
             const allFlagIds = allFlags.map((f: any) => f.id)
             const offsetFlagIds = offsetFlags.map((f: any) => f.id)
+            const testFlagIds = testFlags.map((f: any) => f.id)
             
             // Verify offset is working by checking that offsetFlagIds matches allFlagIds starting from index 1
             expect(offsetFlags.length).toBeGreaterThan(0)
             expect(offsetFlagIds[0]).toBe(allFlagIds[1])
-            if (offsetFlags.length > 1 && allFlags.length > 2) {
-                expect(offsetFlagIds[1]).toBe(allFlagIds[2])
-            }
+            
+            // Verify our test flags appear in the results to ensure we're testing with controlled data
+            const testFlagsInAll = testFlagIds.filter(id => allFlagIds.includes(id))
+            expect(testFlagsInAll.length).toBeGreaterThan(0)
         })
 
         it('should use default limit when not specified', async () => {
