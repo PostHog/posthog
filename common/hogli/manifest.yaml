@@ -423,23 +423,28 @@ db:
             - postgresql
             - docker
     db:download-schema:
-        cmd: "set -e\nmkdir -p .postgres-backups\necho \"Downloading pre-migrated schema\
-            \ from CI...\"\ngh run download --name migrated-schema -R PostHog/posthog -D\
-            \ /tmp/migrated-schema-dl\nmv /tmp/migrated-schema-dl/schema.sql.gz .postgres-backups/schema-latest.sql.gz\n\
-            rm -rf /tmp/migrated-schema-dl\necho \"\u2705 Downloaded to .postgres-backups/schema-latest.sql.gz\"\
-            \n"
+        cmd: |
+            set -e
+            mkdir -p .postgres-backups
+            echo "Downloading pre-migrated schema from CI..."
+            gh run download --name migrated-schema -R PostHog/posthog -D /tmp/migrated-schema-dl
+            mv /tmp/migrated-schema-dl/schema.sql.gz .postgres-backups/schema-latest.sql.gz
+            rm -rf /tmp/migrated-schema-dl
+            echo "✅ Downloaded to .postgres-backups/schema-latest.sql.gz"
         description: Download pre-migrated schema artifact from CI (requires gh CLI)
     db:restore-schema:
         steps:
             - db:download-schema
             - db:dump
             - name: restore-schema
-              cmd: "set -e\nset -o pipefail\necho \"Restoring schema to database...\"\ngunzip\
-                  \ -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql\
-                  \ -q -U posthog posthog\necho \"\u2705 Schema restored\"\n"
+              cmd: |
+                  set -e
+                  set -o pipefail
+                  echo "Restoring schema to database..."
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog
+                  echo "✅ Schema restored"
             - db:migrate
-        description: Fetch pre-migrated schema from CI, restore it, and run any pending
-            migrations (creates backup first)
+        description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
         destructive: true
         services:
             - postgresql
@@ -582,10 +587,6 @@ tools:
     posthog:hobby:
         bin_script: posthog-hobby
         description: 'TODO: add description for posthog-hobby'
-        hidden: true
-    start:go:service:
-        bin_script: start-go-service
-        description: 'TODO: add description for start-go-service'
         hidden: true
 utilities:
     nuke:
