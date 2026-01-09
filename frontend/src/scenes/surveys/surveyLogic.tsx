@@ -910,7 +910,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     archived: true,
                     intentContext: ProductIntentContext.SURVEY_ARCHIVED,
                 }
-                // If survey is running, stop it first
                 if (values.isSurveyRunning) {
                     updates.end_date = dayjs().toISOString()
                 }

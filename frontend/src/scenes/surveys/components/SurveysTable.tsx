@@ -427,7 +427,6 @@ export function SurveysTable(): JSX.Element {
                                                                         const updatePayload: Partial<Survey> = {
                                                                             archived: true,
                                                                         }
-                                                                        // If the survey is running, stop it first
                                                                         if (isRunning) {
                                                                             updatePayload.end_date =
                                                                                 dayjs().toISOString()
