@@ -282,27 +282,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
                                 value={pythonExecution.traceback.join('\n')}
                             />
                         ) : null}
-                        {pythonExecution?.variables?.length ? (
-                            <div>
-                                <div className="text-[10px] uppercase tracking-wide text-muted">Variables</div>
-                                <div className="mt-1 space-y-1">
-                                    {pythonExecution.variables.map((variable) => (
-                                        <div key={`python-variable-${variable.name}`} className="text-xs font-mono">
-                                            <span className="text-default">{variable.name}</span>
-                                            <span className="text-muted"> : {variable.type}</span>
-                                            {variable.status === 'ok' && variable.value ? (
-                                                <span className="text-muted"> = {variable.value}</span>
-                                            ) : null}
-                                            {variable.status === 'error' ? (
-                                                <span className="text-danger">
-                                                    {variable.error ? ` (${variable.error})` : ' (error)'}
-                                                </span>
-                                            ) : null}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        ) : null}
                     </>
                 ) : (
                     <div className="text-xs text-muted font-mono">

@@ -103,6 +103,8 @@ class KernelRuntimeSession:
 
 
 class KernelRuntimeService:
+    _TYPE_EXPRESSION_PREFIX = "__type__"
+
     def __init__(self, startup_timeout: float = 10.0, execution_timeout: float = 30.0):
         self._startup_timeout = startup_timeout
         self._execution_timeout = execution_timeout
@@ -147,7 +149,12 @@ class KernelRuntimeService:
         timeout: float | None = None,
     ) -> KernelExecutionResult:
         valid_variable_names = [name for name in (variable_names or []) if name.isidentifier()]
-        user_expressions = {name: name for name in valid_variable_names} if capture_variables else None
+        user_expressions: dict[str, str] | None = None
+        if capture_variables and valid_variable_names:
+            user_expressions = {}
+            for name in valid_variable_names:
+                user_expressions[name] = name
+                user_expressions[f"{self._TYPE_EXPRESSION_PREFIX}{name}"] = f"type({name}).__name__"
         handle = self._ensure_handle(notebook, user)
 
         with handle.lock:
@@ -263,8 +270,18 @@ class KernelRuntimeService:
             return None
 
         parsed: dict[str, Any] = {}
+        type_results: dict[str, str] = {}
         for name, payload in user_expressions.items():
             if not isinstance(payload, dict):
+                continue
+            if name.startswith(self._TYPE_EXPRESSION_PREFIX):
+                variable_name = name[len(self._TYPE_EXPRESSION_PREFIX) :]
+                if not variable_name:
+                    continue
+                if payload.get("status") == "ok":
+                    type_name = self._normalize_type_name(self._extract_user_expression_text(payload))
+                    if type_name:
+                        type_results[variable_name] = type_name
                 continue
             status = payload.get("status")
             if status == "ok":
@@ -280,7 +297,31 @@ class KernelRuntimeService:
                     "evalue": payload.get("evalue"),
                     "traceback": payload.get("traceback", []),
                 }
+        for name, payload in parsed.items():
+            type_name = type_results.get(name)
+            if type_name and payload.get("status") == "ok":
+                payload["type"] = type_name
         return parsed or None
+
+    def _extract_user_expression_text(self, payload: dict[str, Any]) -> str | None:
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return None
+        preferred = data.get("text/plain") or data.get("text/html")
+        if isinstance(preferred, str):
+            return preferred
+        return None
+
+    def _normalize_type_name(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        stripped = value.strip()
+        if len(stripped) >= 2 and (
+            (stripped.startswith("'") and stripped.endswith("'"))
+            or (stripped.startswith('"') and stripped.endswith('"'))
+        ):
+            stripped = stripped[1:-1]
+        return stripped or None
 
     def _register_cleanup_hooks(self) -> None:
         def _cleanup(*_: Any) -> None:

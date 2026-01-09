@@ -26,6 +26,7 @@ export type PythonKernelVariableResponse = {
     status: 'ok' | 'error'
     data?: Record<string, any>
     metadata?: Record<string, any>
+    type?: string
     ename?: string
     evalue?: string
     traceback?: string[]
@@ -80,17 +81,18 @@ export const mergeExecutionVariables = (
 ): PythonExecutionVariable[] => {
     return exportedGlobals.map(({ name, type }) => {
         const variable = variables?.[name]
+        const resolvedType = variable?.type ?? type
         if (!variable) {
             return {
                 name,
-                type,
+                type: resolvedType,
                 status: 'missing',
             }
         }
         if (variable.status === 'error') {
             return {
                 name,
-                type,
+                type: resolvedType,
                 status: 'error',
                 error: formatExecutionError(variable.ename, variable.evalue),
                 traceback: variable.traceback ?? [],
@@ -98,7 +100,7 @@ export const mergeExecutionVariables = (
         }
         return {
             name,
-            type,
+            type: resolvedType,
             status: 'ok',
             value: extractTextValue(variable.data),
         }
