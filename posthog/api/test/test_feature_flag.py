@@ -8359,6 +8359,261 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("does not support list values", response.json()["detail"].lower())
 
+    def test_user_blast_radius_with_semver_operators(self):
+        """Test all semver comparison operators"""
+        versions = ["0.9.0", "1.0.0", "1.2.0", "1.2.3", "1.2.5", "1.3.0", "2.0.0", "2.1.0"]
+        for version in versions:
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person_{version}"],
+                properties={"app_version": version},
+            )
+
+        # Test semver_eq
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "1.2.3",
+                            "operator": "semver_eq",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 8)
+
+        # Test semver_gt
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "1.2.3",
+                            "operator": "semver_gt",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 4)  # 1.2.5, 1.3.0, 2.0.0, 2.1.0
+        self.assertEqual(response_json["total_users"], 8)
+
+        # Test semver_gte
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "1.2.3",
+                            "operator": "semver_gte",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 5)  # 1.2.3, 1.2.5, 1.3.0, 2.0.0, 2.1.0
+        self.assertEqual(response_json["total_users"], 8)
+
+        # Test semver_lt
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "1.2.3",
+                            "operator": "semver_lt",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 3)  # 0.9.0, 1.0.0, 1.2.0
+        self.assertEqual(response_json["total_users"], 8)
+
+        # Test semver_lte
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "1.2.3",
+                            "operator": "semver_lte",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 4)  # 0.9.0, 1.0.0, 1.2.0, 1.2.3
+        self.assertEqual(response_json["total_users"], 8)
+
+        # Test semver_tilde (~1.2.3 means >=1.2.3 <1.3.0)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "1.2.3",
+                            "operator": "semver_tilde",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 2)  # 1.2.3, 1.2.5
+        self.assertEqual(response_json["total_users"], 8)
+
+        # Test semver_caret (^1.2.3 means >=1.2.3 <2.0.0)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "1.2.3",
+                            "operator": "semver_caret",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 3)  # 1.2.3, 1.2.5, 1.3.0
+        self.assertEqual(response_json["total_users"], 8)
+
+        # Test semver_wildcard (1.2.* means >=1.2.0 <1.3.0)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "1.2.*",
+                            "operator": "semver_wildcard",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 3)  # 1.2.0, 1.2.3, 1.2.5
+        self.assertEqual(response_json["total_users"], 8)
+
+        # Test semver_wildcard with major version (1.* means >=1.0.0 <2.0.0)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "1.*",
+                            "operator": "semver_wildcard",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 5)  # 1.0.0, 1.2.0, 1.2.3, 1.2.5, 1.3.0
+        self.assertEqual(response_json["total_users"], 8)
+
+    def test_user_blast_radius_with_semver_operators_on_groups(self):
+        """Test semver operators work with group properties"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        versions = ["1.0.0", "1.5.0", "2.0.0", "2.5.0", "3.0.0"]
+        for version in versions:
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org-{version}",
+                properties={"min_version": version},
+            )
+
+        # Create persons in organizations
+        for i, version in enumerate(versions):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person_{i}"],
+                properties={"$group_0": f"org-{version}"},
+            )
+
+        # Test semver_gte on group property
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "min_version",
+                            "type": "group",
+                            "value": "2.0.0",
+                            "operator": "semver_gte",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 3)  # 2.0.0, 2.5.0, 3.0.0
+        self.assertEqual(response_json["total_users"], 5)
+
 
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):

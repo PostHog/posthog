@@ -270,6 +270,142 @@ def _expr_to_compare_op(
             raise Exception("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
         return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
+    elif operator == PropertyOperator.SEMVER_EQ:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_GT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_GTE:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_LT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_LTE:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_TILDE:
+        # ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
+        if not isinstance(value, str):
+            raise QueryError("Tilde operator requires a semver string value")
+        try:
+            parts = value.split(".")
+            if len(parts) < 2:
+                raise ValueError("Invalid semver format")
+            major, minor = parts[0], parts[1]
+            next_minor = str(int(minor) + 1)
+            lower_bound = value
+            upper_bound = f"{major}.{next_minor}.0"
+        except (ValueError, IndexError):
+            raise QueryError("Tilde operator requires a valid semver string (e.g., '1.2.3')")
+
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Call(name="sortableSemver", args=[expr]),
+                    right=ast.Call(name="sortableSemver", args=[ast.Constant(value=lower_bound)]),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Call(name="sortableSemver", args=[expr]),
+                    right=ast.Call(name="sortableSemver", args=[ast.Constant(value=upper_bound)]),
+                ),
+            ]
+        )
+    elif operator == PropertyOperator.SEMVER_CARET:
+        # ^1.2.3 means >=1.2.3 <2.0.0 (allows minor and patch changes)
+        if not isinstance(value, str):
+            raise QueryError("Caret operator requires a semver string value")
+        try:
+            parts = value.split(".")
+            if len(parts) < 1:
+                raise ValueError("Invalid semver format")
+            major = parts[0]
+            next_major = str(int(major) + 1)
+            lower_bound = value
+            upper_bound = f"{next_major}.0.0"
+        except (ValueError, IndexError):
+            raise QueryError("Caret operator requires a valid semver string (e.g., '1.2.3')")
+
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Call(name="sortableSemver", args=[expr]),
+                    right=ast.Call(name="sortableSemver", args=[ast.Constant(value=lower_bound)]),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Call(name="sortableSemver", args=[expr]),
+                    right=ast.Call(name="sortableSemver", args=[ast.Constant(value=upper_bound)]),
+                ),
+            ]
+        )
+    elif operator == PropertyOperator.SEMVER_WILDCARD:
+        # 1.2.* means >=1.2.0 <1.3.0 (matches any patch version)
+        if not isinstance(value, str):
+            raise QueryError("Wildcard operator requires a semver string value")
+
+        # Remove trailing .* if present
+        value = value.rstrip(".*")
+
+        if not value:
+            raise QueryError("Wildcard operator requires a valid semver pattern (e.g., '1.2.*' or '1.*')")
+
+        try:
+            parts = value.split(".")
+            if len(parts) == 1:
+                # 1.* means >=1.0.0 <2.0.0
+                major = parts[0]
+                next_major = str(int(major) + 1)
+                lower_bound = f"{major}.0.0"
+                upper_bound = f"{next_major}.0.0"
+            elif len(parts) == 2:
+                # 1.2.* means >=1.2.0 <1.3.0
+                major, minor = parts[0], parts[1]
+                next_minor = str(int(minor) + 1)
+                lower_bound = f"{major}.{minor}.0"
+                upper_bound = f"{major}.{next_minor}.0"
+            else:
+                # 1.2.3.* means >=1.2.3.0 <1.2.4.0
+                major, minor, patch = parts[0], parts[1], parts[2]
+                next_patch = str(int(patch) + 1)
+                lower_bound = f"{major}.{minor}.{patch}.0"
+                upper_bound = f"{major}.{minor}.{next_patch}.0"
+        except (ValueError, IndexError):
+            raise QueryError("Wildcard operator requires a valid semver pattern (e.g., '1.2.*' or '1.*')")
+
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Call(name="sortableSemver", args=[expr]),
+                    right=ast.Call(name="sortableSemver", args=[ast.Constant(value=lower_bound)]),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Call(name="sortableSemver", args=[expr]),
+                    right=ast.Call(name="sortableSemver", args=[ast.Constant(value=upper_bound)]),
+                ),
+            ]
+        )
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 

@@ -2833,6 +2833,14 @@ class PropertyOperator(StrEnum):
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
+    SEMVER_EQ = "semver_eq"
+    SEMVER_GT = "semver_gt"
+    SEMVER_GTE = "semver_gte"
+    SEMVER_LT = "semver_lt"
+    SEMVER_LTE = "semver_lte"
+    SEMVER_TILDE = "semver_tilde"
+    SEMVER_CARET = "semver_caret"
+    SEMVER_WILDCARD = "semver_wildcard"
 
 
 class Mark(BaseModel):

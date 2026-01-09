@@ -83,6 +83,14 @@ const schema14 = {
         'not_in',
         'is_cleaned_path_exact',
         'flag_evaluates_to',
+        'semver_eq',
+        'semver_gt',
+        'semver_gte',
+        'semver_lt',
+        'semver_lte',
+        'semver_tilde',
+        'semver_caret',
+        'semver_wildcard',
     ],
     type: 'string',
 }
@@ -342,7 +350,15 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate12.errors = [
@@ -570,7 +586,15 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate16.errors = [
@@ -811,7 +835,15 @@ function validate19(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate19.errors = [
@@ -1038,7 +1070,15 @@ function validate22(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate22.errors = [
@@ -1265,7 +1305,15 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate25.errors = [
@@ -1528,7 +1576,15 @@ function validate28(data, { instancePath = '', parentData, parentDataProperty, r
                                             data3 === 'in' ||
                                             data3 === 'not_in' ||
                                             data3 === 'is_cleaned_path_exact' ||
-                                            data3 === 'flag_evaluates_to'
+                                            data3 === 'flag_evaluates_to' ||
+                                            data3 === 'semver_eq' ||
+                                            data3 === 'semver_gt' ||
+                                            data3 === 'semver_gte' ||
+                                            data3 === 'semver_lt' ||
+                                            data3 === 'semver_lte' ||
+                                            data3 === 'semver_tilde' ||
+                                            data3 === 'semver_caret' ||
+                                            data3 === 'semver_wildcard'
                                         )
                                     ) {
                                         validate28.errors = [
@@ -1927,7 +1983,15 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate30.errors = [
@@ -2154,7 +2218,15 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate33.errors = [
@@ -2457,7 +2529,15 @@ function validate36(data, { instancePath = '', parentData, parentDataProperty, r
                                             data3 === 'in' ||
                                             data3 === 'not_in' ||
                                             data3 === 'is_cleaned_path_exact' ||
-                                            data3 === 'flag_evaluates_to'
+                                            data3 === 'flag_evaluates_to' ||
+                                            data3 === 'semver_eq' ||
+                                            data3 === 'semver_gt' ||
+                                            data3 === 'semver_gte' ||
+                                            data3 === 'semver_lt' ||
+                                            data3 === 'semver_lte' ||
+                                            data3 === 'semver_tilde' ||
+                                            data3 === 'semver_caret' ||
+                                            data3 === 'semver_wildcard'
                                         )
                                     ) {
                                         validate36.errors = [
@@ -2687,7 +2767,15 @@ function validate39(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate39.errors = [
@@ -3069,7 +3157,15 @@ function validate45(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate45.errors = [
@@ -3296,7 +3392,15 @@ function validate48(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate48.errors = [
@@ -3523,7 +3627,15 @@ function validate51(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate51.errors = [
@@ -3751,7 +3863,15 @@ function validate54(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate54.errors = [
@@ -3984,7 +4104,15 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate57.errors = [
@@ -4922,7 +5050,15 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate68.errors = [

@@ -329,6 +329,17 @@ export const cleanedPathOperatorMap: Record<string, string> = {
     is_cleaned_path_exact: '= equals',
 }
 
+export const semverOperatorMap: Record<string, string> = {
+    semver_eq: '= equals',
+    semver_gt: '> greater than',
+    semver_gte: '≥ greater than or equal',
+    semver_lt: '< less than',
+    semver_lte: '≤ less than or equal',
+    semver_tilde: '~ tilde range',
+    semver_caret: '^ caret range',
+    semver_wildcard: '* wildcard',
+}
+
 export const assigneeOperatorMap: Record<string, string> = {
     exact: '= is',
     is_not: '≠ is not',
@@ -349,6 +360,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...cohortOperatorMap,
     ...featureFlagOperatorMap,
     ...cleanedPathOperatorMap,
+    ...semverOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
