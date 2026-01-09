@@ -68,6 +68,33 @@ class SkipReason:
     VERSION_CONFLICT = "version_conflict"  # Version mismatch after max retries
 
 
+# Properties that should NOT trigger a person update on their own.
+# These change frequently but aren't valuable enough to update the person record for.
+# Keep in sync with: nodejs/src/worker/ingestion/persons/person-property-utils.ts
+FILTERED_PERSON_UPDATE_PROPERTIES = frozenset(
+    [
+        # URL/navigation properties - change on every page view
+        "$current_url",
+        "$pathname",
+        "$referring_domain",
+        "$referrer",
+        # Screen/viewport dimensions - can change on window resize
+        "$screen_height",
+        "$screen_width",
+        "$viewport_height",
+        "$viewport_width",
+        # Browser/device properties - change less frequently but still filtered
+        "$browser",
+        "$browser_version",
+        "$device_type",
+        "$raw_user_agent",
+        "$os",
+        "$os_name",
+        "$os_version",
+    ]
+)
+
+
 def ensure_utc_datetime(ts: datetime) -> datetime:
     """Ensure timestamp is a UTC-aware datetime."""
     from datetime import UTC
@@ -190,22 +217,25 @@ def get_person_property_updates_from_clickhouse(
                     FROM events e
                     LEFT OUTER JOIN overrides o ON e.distinct_id = o.distinct_id
                     -- Extract $set, $set_once, and $unset properties, filtering out null/empty values
+                    -- Also filter out properties that change frequently (FILTERED_PERSON_UPDATE_PROPERTIES)
                     ARRAY JOIN
                         arrayConcat(
-                            arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null',
+                            arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.1 NOT IN %(filtered_properties)s,
                                 arrayMap(x -> tuple('set', x.1, toString(x.2)),
                                     arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set'))
                                 )
                             ),
-                            arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null',
+                            arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.1 NOT IN %(filtered_properties)s,
                                 arrayMap(x -> tuple('set_once', x.1, toString(x.2)),
                                     arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set_once'))
                                 )
                             ),
                             -- $unset is an array of keys, not key-value pairs
                             -- Parse keys with JSON_VALUE to get plain strings (consistent with $set/$set_once)
-                            arrayMap(x -> tuple('unset', JSON_VALUE(x, '$'), ''),
-                                JSONExtractArrayRaw(e.properties, '$unset')
+                            arrayFilter(x -> x.2 NOT IN %(filtered_properties)s,
+                                arrayMap(x -> tuple('unset', JSON_VALUE(x, '$'), ''),
+                                    JSONExtractArrayRaw(e.properties, '$unset')
+                                )
                             )
                         ) AS kv_tuple
                     WHERE e.team_id = %(team_id)s
@@ -238,6 +268,7 @@ def get_person_property_updates_from_clickhouse(
     params = {
         "team_id": team_id,
         "bug_window_start": bug_window_start,
+        "filtered_properties": tuple(FILTERED_PERSON_UPDATE_PROPERTIES),
     }
 
     rows = sync_execute(query, params)
