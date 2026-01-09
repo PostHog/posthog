@@ -68,6 +68,7 @@ import {
     getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
+    isTraceLevel,
     removeMilliseconds,
 } from './utils'
 
@@ -962,7 +963,7 @@ const EventContent = React.memo(
                                           },
                                       ]
                                     : []),
-                                ...(!isLLMEvent(event)
+                                ...(isTraceLevel(event)
                                     ? [
                                           {
                                               key: TraceViewMode.Clusters,
