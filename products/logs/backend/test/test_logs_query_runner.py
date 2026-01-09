@@ -461,9 +461,9 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                                 "type": "log_resource_attribute",
                             },
                             {
-                                "key": "log.file.record_number",
-                                "value": ["34542"],
-                                "operator": "is_not",
+                                "key": "message",
+                                "value": ["time=2025-12-16T09:04:40.952Z"],
+                                "operator": "not_icontains",
                                 "type": "log_attribute",
                             },
                         ],
