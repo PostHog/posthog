@@ -3,20 +3,20 @@
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
 #include <boost/algorithm/string.hpp>
-#include <string>
 #include <sstream>
+#include <string>
 
 #include "HogQLLexer.h"
 #include "HogQLParser.h"
 #include "HogQLParserBaseVisitor.h"
 
 #include "error.h"
-#include "string.h"
 #include "json_builder.h"
+#include "string.h"
 
 #define VISIT(RULE) any visit##RULE(HogQLParser::RULE##Context* ctx) override
-#define VISIT_UNSUPPORTED(RULE)                                \
-  VISIT(RULE) {                                                \
+#define VISIT_UNSUPPORTED(RULE)                            \
+  VISIT(RULE) {                                            \
     throw NotImplementedError("Unsupported rule: " #RULE); \
   }
 
@@ -2564,12 +2564,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(Alias) {
     string text = ctx->getText();
-    if (text.size() >= 2) {
-      char first_char = text.front();
-      char last_char = text.back();
-      if ((first_char == '`' && last_char == '`') || (first_char == '"' && last_char == '"')) {
-        return parse_string_literal_text(text);
-      }
+    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), boost::algorithm::to_lower_copy(text)) !=
+        RESERVED_KEYWORDS.end()) {
+      throw SyntaxError("ALIAS is a reserved keyword");
     }
     return text;
   }

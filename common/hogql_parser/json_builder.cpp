@@ -85,6 +85,11 @@ void JSONBuilder::addFloat(double value) {
     buffer << "\"-Infinity\"";
   } else {
     buffer << std::setprecision(17) << value;
+
+    // Ensure decimal point for whole numbers
+    if (floor(value) == value) {
+      buffer << ".0";
+    }
   }
   markItemAdded();
 }
