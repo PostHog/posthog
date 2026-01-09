@@ -8,6 +8,9 @@ import { dayjs } from 'lib/dayjs'
  */
 export function getTimestampBoundsFromRunId(runId: string): { dayStart: string; dayEnd: string } {
     const parts = runId.split('_')
+    // Use format compatible with ClickHouse DateTime64 comparisons
+    const dateFormat = 'YYYY-MM-DD HH:mm:ss'
+
     if (parts.length >= 3) {
         // Parts: [team_id, YYYYMMDD, HHMMSS]
         const dateStr = parts[1]
@@ -17,16 +20,16 @@ export function getTimestampBoundsFromRunId(runId: string): { dayStart: string; 
         const parsed = dayjs(`${dateStr}_${timeStr}`, 'YYYYMMDD_HHmmss')
         if (parsed.isValid()) {
             return {
-                dayStart: parsed.startOf('day').toISOString(),
-                dayEnd: parsed.endOf('day').toISOString(),
+                dayStart: parsed.startOf('day').utc().format(dateFormat),
+                dayEnd: parsed.endOf('day').utc().format(dateFormat),
             }
         }
     }
 
     // Fallback to last 7 days
     return {
-        dayStart: dayjs().subtract(7, 'day').startOf('day').toISOString(),
-        dayEnd: dayjs().endOf('day').toISOString(),
+        dayStart: dayjs().subtract(7, 'day').startOf('day').utc().format(dateFormat),
+        dayEnd: dayjs().endOf('day').utc().format(dateFormat),
     }
 }
 
