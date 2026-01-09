@@ -201,8 +201,10 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
         period_data = historical.get(period, {})
         return period_data.get("value")
 
-    # Extract primary tag from tags array (prefer isPrimaryTag=true, fallback to first tag)
+    # Extract primary tag from tags array (prefer isPrimaryTag=true, fallback to first tag, then tagsV2)
+    tags_v2 = harmonic_data.get("tagsV2", [])
     primary_tag = None
+
     if tags:
         # First try to find a tag marked as primary
         for tag in tags:
@@ -213,6 +215,18 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
         # If no primary tag found, use the first valid tag
         if not primary_tag and len(tags) > 0 and isinstance(tags[0], dict):
             primary_tag = tags[0].get("displayValue")
+
+    # If tags is empty or no valid tag found, fallback to tagsV2 with MARKET_VERTICAL type
+    if not primary_tag and tags_v2:
+        # Look for MARKET_VERTICAL type first
+        for tag in tags_v2:
+            if isinstance(tag, dict) and tag.get("type") == "MARKET_VERTICAL":
+                primary_tag = tag.get("displayValue")
+                break
+
+        # If no MARKET_VERTICAL found, use first valid tag
+        if not primary_tag and len(tags_v2) > 0 and isinstance(tags_v2[0], dict):
+            primary_tag = tags_v2[0].get("displayValue")
 
     update_data = {
         "Id": account_id,
