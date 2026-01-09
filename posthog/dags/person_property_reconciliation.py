@@ -68,6 +68,51 @@ class SkipReason:
     VERSION_CONFLICT = "version_conflict"  # Version mismatch after max retries
 
 
+# Properties that should NOT trigger a person update on their own.
+# These change frequently but aren't valuable enough to update the person record for.
+# Keep in sync with: nodejs/src/worker/ingestion/persons/person-property-utils.ts
+FILTERED_PERSON_UPDATE_PROPERTIES = frozenset(
+    [
+        # URL/navigation properties - change on every page view
+        "$current_url",
+        "$pathname",
+        "$referring_domain",
+        "$referrer",
+        # Screen/viewport dimensions - can change on window resize
+        "$screen_height",
+        "$screen_width",
+        "$viewport_height",
+        "$viewport_width",
+        # Browser/device properties - change less frequently but still filtered
+        "$browser",
+        "$browser_version",
+        "$device_type",
+        "$raw_user_agent",
+        "$os",
+        "$os_name",
+        "$os_version",
+        # GeoIP properties - filtered because they change frequently
+        # Note: $geoip_country_name and $geoip_city_name DO trigger updates (not listed here)
+        "$geoip_postal_code",
+        "$geoip_time_zone",
+        "$geoip_latitude",
+        "$geoip_longitude",
+        "$geoip_accuracy_radius",
+        "$geoip_subdivision_1_code",
+        "$geoip_subdivision_1_name",
+        "$geoip_subdivision_2_code",
+        "$geoip_subdivision_2_name",
+        "$geoip_subdivision_3_code",
+        "$geoip_subdivision_3_name",
+        "$geoip_city_confidence",
+        "$geoip_country_confidence",
+        "$geoip_postal_code_confidence",
+        "$geoip_subdivision_1_confidence",
+        "$geoip_subdivision_2_confidence",
+    ]
+)
+
+
 def ensure_utc_datetime(ts: datetime) -> datetime:
     """Ensure timestamp is a UTC-aware datetime."""
     from datetime import UTC
@@ -94,119 +139,123 @@ def get_person_property_updates_from_clickhouse(
         List of PersonPropertyDiffs, each containing 3 maps (set, set_once, unset) keyed by property key
     """
     query = """
+    -- CTE 1: Get all overrides for the team (no filtering)
+    WITH overrides AS (
+        SELECT
+            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+    ),
+    -- CTE 2: Extract properties from events, grouped by RESOLVED person_id (after overrides)
+    -- This ensures argMax/argMin aggregates across ALL distinct_ids for the same person
+    event_properties_raw AS (
+        SELECT
+            person_id,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_keys,
+            arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_values,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_timestamps,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_keys,
+            arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_values,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_timestamps,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_keys,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_timestamps
+        FROM (
+            SELECT
+                person_id,
+                groupArray(tuple(key, value, kv_timestamp, prop_type)) AS grouped_props
+            FROM (
+                SELECT
+                    -- Apply overrides to get resolved person_id
+                    if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id,
+                    kv_tuple.2 AS key,
+                    kv_tuple.1 AS prop_type,
+                    -- $set: newest event wins, $set_once: first event wins, $unset: newest event wins
+                    if(kv_tuple.1 = 'set',
+                        argMaxIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != ''),
+                        argMinIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != '')
+                    ) AS value,
+                    if(kv_tuple.1 = 'set_once', min(e.timestamp), max(e.timestamp)) AS kv_timestamp
+                FROM events e
+                LEFT JOIN overrides o ON e.distinct_id = o.distinct_id
+                ARRAY JOIN
+                    arrayConcat(
+                        arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('set', x.1, toString(x.2)),
+                                arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set'))
+                            )
+                        ),
+                        arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('set_once', x.1, toString(x.2)),
+                                arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set_once'))
+                            )
+                        ),
+                        arrayFilter(x -> x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('unset', JSON_VALUE(x, '$'), ''),
+                                JSONExtractArrayRaw(e.properties, '$unset')
+                            )
+                        )
+                    ) AS kv_tuple
+                WHERE e.team_id = %(team_id)s
+                  AND e.timestamp > %(bug_window_start)s
+                  AND e.timestamp < now()
+                  AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
+                -- Group by resolved person_id (not distinct_id) so argMax works across all distinct_ids
+                GROUP BY if(notEmpty(o.distinct_id), o.person_id, e.person_id), kv_tuple.2, kv_tuple.1
+            )
+            GROUP BY person_id
+        )
+    ),
+    -- CTE 3: Filter to only persons with non-empty property sets
+    event_properties_flat AS (
+        SELECT *
+        FROM event_properties_raw
+        WHERE length(set_keys) > 0 OR length(set_once_keys) > 0 OR length(unset_keys) > 0
+    ),
+    -- CTE 4: Get person properties only for affected persons
+    person_props AS (
+        SELECT
+            id,
+            argMax(properties, version) as person_properties
+        FROM person
+        WHERE team_id = %(team_id)s
+          AND id IN (SELECT person_id FROM event_properties_flat)
+        GROUP BY id
+        HAVING argMax(is_deleted, version) = 0
+    )
     SELECT
-        with_person_props.person_id,
+        ep.person_id,
         -- For $set: only include properties where the key exists in person properties AND the value differs
-        arrayMap(i -> (set_keys[i], set_values[i], set_timestamps[i]), arrayFilter(
+        arrayMap(i -> (ep.set_keys[i], ep.set_values[i], ep.set_timestamps[i]), arrayFilter(
             i -> (
-                indexOf(keys2, set_keys[i]) > 0
-                AND set_values[i] != vals2[indexOf(keys2, set_keys[i])]
+                indexOf(keys2, ep.set_keys[i]) > 0
+                AND ep.set_values[i] != vals2[indexOf(keys2, ep.set_keys[i])]
             ),
-            arrayEnumerate(set_keys)
+            arrayEnumerate(ep.set_keys)
         )) AS set_diff,
         -- For $set_once: only include properties where the key does NOT exist in person properties
         arrayFilter(
             kv -> indexOf(keys2, kv.1) = 0,
-            arrayMap(i -> (set_once_keys[i], set_once_values[i], set_once_timestamps[i]), arrayEnumerate(set_once_keys))
+            arrayMap(i -> (ep.set_once_keys[i], ep.set_once_values[i], ep.set_once_timestamps[i]), arrayEnumerate(ep.set_once_keys))
         ) AS set_once_diff,
         -- For $unset: only include keys that EXIST in person properties (need removal)
         arrayFilter(
             kv -> indexOf(keys2, kv.1) > 0,
-            arrayMap(i -> (unset_keys[i], unset_timestamps[i]), arrayEnumerate(unset_keys))
+            arrayMap(i -> (ep.unset_keys[i], ep.unset_timestamps[i]), arrayEnumerate(ep.unset_keys))
         ) AS unset_diff
-    FROM (
+    FROM event_properties_flat ep
+    INNER JOIN (
         SELECT
-            merged.person_id,
-            merged.set_keys,
-            merged.set_values,
-            merged.set_timestamps,
-            merged.set_once_keys,
-            merged.set_once_values,
-            merged.set_once_timestamps,
-            merged.unset_keys,
-            merged.unset_timestamps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(p.person_properties)) AS keys2,
-            arrayMap(x -> toString(x.2), JSONExtractKeysAndValuesRaw(p.person_properties)) AS vals2
-        FROM (
-            -- Extract separate arrays from grouped tuples, split by prop_type
-            -- We group into tuples first to ensure array alignment
-            SELECT
-                person_id,
-                arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_keys,
-                arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_values,
-                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_timestamps,
-                arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_keys,
-                arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_values,
-                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_timestamps,
-                arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_keys,
-                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_timestamps
-            FROM (
-                SELECT
-                    person_id,
-                    groupArray(tuple(key, value, kv_timestamp, prop_type)) AS grouped_props
-                FROM (
-                    SELECT
-                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
-                        kv_tuple.2 AS key,
-                        kv_tuple.1 AS prop_type,
-                        -- $set: newest event wins, $set_once: first event wins, $unset: newest event wins
-                        -- Filter out null/empty values with argMaxIf/argMinIf
-                        if(kv_tuple.1 = 'set',
-                            argMaxIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != ''),
-                            argMinIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != '')
-                        ) AS value,
-                        if(kv_tuple.1 = 'set_once', min(e.timestamp), max(e.timestamp)) AS kv_timestamp
-                    FROM events e
-                    LEFT OUTER JOIN (
-                        SELECT
-                            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                            person_distinct_id_overrides.distinct_id AS distinct_id
-                        FROM person_distinct_id_overrides
-                        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
-                        GROUP BY person_distinct_id_overrides.distinct_id
-                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
-                    ) AS overrides ON e.distinct_id = overrides.distinct_id
-                    -- Extract $set, $set_once, and $unset properties, filtering out null/empty values
-                    ARRAY JOIN
-                        arrayConcat(
-                            arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null',
-                                arrayMap(x -> tuple('set', x.1, toString(x.2)),
-                                    arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set'))
-                                )
-                            ),
-                            arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null',
-                                arrayMap(x -> tuple('set_once', x.1, toString(x.2)),
-                                    arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set_once'))
-                                )
-                            ),
-                            -- $unset is an array of keys, not key-value pairs
-                            -- Parse keys with JSON_VALUE to get plain strings (consistent with $set/$set_once)
-                            arrayMap(x -> tuple('unset', JSON_VALUE(x, '$'), ''),
-                                JSONExtractArrayRaw(e.properties, '$unset')
-                            )
-                        ) AS kv_tuple
-                    WHERE e.team_id = %(team_id)s
-                      AND e.timestamp > %(bug_window_start)s
-                      AND e.timestamp < now()
-                      AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
-                    GROUP BY person_id, kv_tuple.2, kv_tuple.1
-                )
-                GROUP BY person_id
-            )
-        ) AS merged
-        INNER JOIN (
-            SELECT
-                id,
-                argMax(properties, version) as person_properties
-            FROM person
-            WHERE team_id = %(team_id)s
-            GROUP BY id
-            -- Filter out deleted persons (latest version has is_deleted=1)
-            HAVING argMax(is_deleted, version) = 0
-        ) AS p ON p.id = merged.person_id
-    ) AS with_person_props
+            id,
+            person_properties,
+            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(person_properties)) AS keys2,
+            arrayMap(x -> toString(x.2), JSONExtractKeysAndValuesRaw(person_properties)) AS vals2
+        FROM person_props
+    ) AS p ON p.id = ep.person_id
     WHERE length(set_diff) > 0 OR length(set_once_diff) > 0 OR length(unset_diff) > 0
-    ORDER BY with_person_props.person_id
+    ORDER BY ep.person_id
     SETTINGS
         readonly=2,
         max_execution_time=1200,
@@ -214,7 +263,6 @@ def get_person_property_updates_from_clickhouse(
         format_csv_allow_double_quotes=0,
         max_ast_elements=4000000,
         max_expanded_ast_elements=4000000,
-        max_bytes_before_external_group_by=0,
         allow_experimental_analyzer=1,
         transform_null_in=1,
         optimize_min_equality_disjunction_chain_length=4294967295,
@@ -225,6 +273,7 @@ def get_person_property_updates_from_clickhouse(
     params = {
         "team_id": team_id,
         "bug_window_start": bug_window_start,
+        "filtered_properties": tuple(FILTERED_PERSON_UPDATE_PROPERTIES),
     }
 
     rows = sync_execute(query, params)
