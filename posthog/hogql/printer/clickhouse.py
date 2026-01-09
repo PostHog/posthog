@@ -297,14 +297,22 @@ class ClickHousePrinter(HogQLPrinter):
         materialized_column_sql = str(property_source)
         constant_sql = self.visit(constant_expr)
 
-        # Wrap in ifNull to ensure proper boolean semantics when composed with not() or other logic.
+        # Wrap in additional handling to ensure proper boolean semantics when composed with not() or other logic.
         # - equals(NULL, 'value') → NULL, but should be 0 (false) so not() works correctly
         # - notEquals(NULL, 'value') → NULL, but should be 1 (true) since NULL != 'value'
-        # The ifNull wrapper doesn't prevent skip index usage, and there are tests for this :)
+        # Use a compound expression for the Eq case to allow skip indexes to be used (which are broken by ifNull)
         if node.op == ast.CompareOperationOp.Eq:
-            return f"ifNull(equals({materialized_column_sql}, {constant_sql}), 0)"
-        else:  # NotEq
-            return f"ifNull(notEquals({materialized_column_sql}, {constant_sql}), 1)"
+            if property_source.is_nullable:
+                return (
+                    f"(equals({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
+                )
+            else:
+                return f"equals({materialized_column_sql}, {constant_sql})"
+        else:
+            if property_source.is_nullable:
+                return f"ifNull(notEquals({materialized_column_sql}, {constant_sql}), 1)"
+            else:
+                return f"notEquals({materialized_column_sql}, {constant_sql})"
 
     def _optimize_in_with_string_values(
         self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem

@@ -3100,18 +3100,45 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
         if expected_context_values is not None:
             self.assertLessEqual(expected_context_values.items(), context.values.items())
 
-    def test_materialized_column_optimized_equality_comparison(self) -> None:
-        with materialized("events", "test_prop") as mat_col:
+    def test_materialized_column_optimized_equality_comparison_non_nullable(self) -> None:
+        # Non-nullable columns don't need any wrapping
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop = 'some_value'",
-                f"ifNull(equals(events.{mat_col.name}, %(hogql_val_0)s), 0)",
+                f"equals(events.{mat_col.name}, %(hogql_val_0)s)",
                 {"hogql_val_0": "some_value"},
             )
             self._test_materialized_column_comparison(
                 "'some_value' = properties.test_prop",
-                f"ifNull(equals(events.{mat_col.name}, %(hogql_val_0)s), 0)",
+                f"equals(events.{mat_col.name}, %(hogql_val_0)s)",
                 {"hogql_val_0": "some_value"},
             )
+            self._test_materialized_column_comparison(
+                "properties.test_prop != 'some_value'",
+                f"notEquals(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "some_value"},
+            )
+            self._test_materialized_column_comparison(
+                "'some_value' != properties.test_prop",
+                f"notEquals(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "some_value"},
+            )
+
+    def test_materialized_column_optimized_equality_comparison_nullable(self) -> None:
+        # Nullable columns need wrapping to handle NULL properly
+        with materialized("events", "test_prop", is_nullable=True) as mat_col:
+            # equals: use AND IS NOT NULL to preserve skip index usage
+            self._test_materialized_column_comparison(
+                "properties.test_prop = 'some_value'",
+                f"(equals(events.{mat_col.name}, %(hogql_val_0)s) AND (events.{mat_col.name} IS NOT NULL))",
+                {"hogql_val_0": "some_value"},
+            )
+            self._test_materialized_column_comparison(
+                "'some_value' = properties.test_prop",
+                f"(equals(events.{mat_col.name}, %(hogql_val_0)s) AND (events.{mat_col.name} IS NOT NULL))",
+                {"hogql_val_0": "some_value"},
+            )
+            # notEquals: use ifNull since skip index is less important here
             self._test_materialized_column_comparison(
                 "properties.test_prop != 'some_value'",
                 f"ifNull(notEquals(events.{mat_col.name}, %(hogql_val_0)s), 1)",
@@ -3129,7 +3156,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
 
         # Substitute placeholders with dummy values for EXPLAIN
         sql_for_explain = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", clickhouse_sql)
-        [[raw_explain_result]] = sync_execute(f"EXPLAIN indexes = 1, json = 1 {sql_for_explain}")
+        explain_query = f"EXPLAIN indexes = 1, json = 1 {sql_for_explain}"
+        [[raw_explain_result]] = sync_execute(explain_query)
 
         def find_node(node, condition):
             if condition(node):
@@ -3179,7 +3207,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
             )
 
     def test_materialized_column_optimization_returns_correct_results(self) -> None:
-        with materialized("events", "test_prop", create_minmax_index=True) as mat_col:
+        with materialized("events", "test_prop", create_minmax_index=True, is_nullable=True) as mat_col:
             _create_event(
                 team=self.team,
                 distinct_id="d1",
@@ -3230,8 +3258,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
                 query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
             )
             self.assertEqual(neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
-            assert neq_result.clickhouse is not None
-            self._assert_skip_index_used(neq_result.clickhouse, mat_col)
 
     @parameterized.expand(
         [
