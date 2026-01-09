@@ -132,8 +132,11 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert asset.exception_type == "QueryError"
         assert asset.failure_type == "user"
 
+    @patch("time.sleep")  # Avoid real tenacity backoff waits
     @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_retriable_error_retries_then_records_and_raises(self, mock_export_direct: MagicMock) -> None:
+    def test_retriable_error_retries_then_records_and_raises(
+        self, mock_export_direct: MagicMock, mock_sleep: MagicMock
+    ) -> None:
         e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
         assert isinstance(e, EXCEPTIONS_TO_RETRY)
         mock_export_direct.side_effect = e
@@ -154,8 +157,9 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert asset.exception_type == "CHQueryErrorTooManySimultaneousQueries"
         assert asset.failure_type == FAILURE_TYPE_SYSTEM
 
+    @patch("time.sleep")  # Avoid real tenacity backoff waits
     @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_retriable_error_succeeds_on_retry(self, mock_export_direct: MagicMock) -> None:
+    def test_retriable_error_succeeds_on_retry(self, mock_export_direct: MagicMock, mock_sleep: MagicMock) -> None:
         # Fail twice, then succeed
         mock_export_direct.side_effect = [
             CHQueryErrorTooManySimultaneousQueries("Too many queries"),

@@ -976,6 +976,7 @@ class TestExportAssetCounters(APIBaseTest):
             patch("posthog.tasks.exports.image_exporter.export_image", side_effect=error),
             patch.object(exporter, "EXPORT_SUCCEEDED_COUNTER", self.success_counter),
             patch.object(exporter, "EXPORT_FAILED_COUNTER", self.failed_counter),
+            patch("time.sleep"),  # Avoid real tenacity backoff waits
             exception_context,
         ):
             exporter.export_asset(self.asset.id)
