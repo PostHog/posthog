@@ -117,7 +117,7 @@ const ExperimentsTableFilters = ({
                         <b>Status</b>
                     </span>
                     <LemonSelect
-                        size="small"
+                        size="xsmall"
                         onChange={(status) => {
                             if (status === 'all') {
                                 const { status: _, ...restFilters } = filters
@@ -144,6 +144,7 @@ const ExperimentsTableFilters = ({
                     <MemberSelect
                         defaultLabel="Any user"
                         value={filters.created_by_id ?? null}
+                        size="xsmall"
                         onChange={(user) => {
                             if (!user) {
                                 const { created_by_id, ...restFilters } = filters
@@ -157,7 +158,7 @@ const ExperimentsTableFilters = ({
                         <b>Archived</b>
                     </span>
                     <LemonSelect
-                        size="small"
+                        size="xsmall"
                         onChange={(value) => {
                             onFiltersChange({ archived: value === 'archived', page: 1 })
                         }}
