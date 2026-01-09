@@ -41,7 +41,7 @@ def _has_asset_failed(asset: ExportedAsset) -> bool:
 
 
 def _has_asset_timedout(asset: ExportedAsset) -> bool:
-    return not asset.has_content and not asset.exception
+    return not asset.has_content and asset.exception is None and asset.failure_type is None
 
 
 def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscription, SharingConfiguration]) -> dict:

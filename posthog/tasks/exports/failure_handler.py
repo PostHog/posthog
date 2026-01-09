@@ -1,5 +1,6 @@
 from django.db import OperationalError
 
+from billiard.exceptions import SoftTimeLimitExceeded
 from urllib3.exceptions import MaxRetryError, ProtocolError
 
 from posthog.hogql.errors import (
@@ -25,9 +26,9 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitE
 # =============================================================================
 #
 # failure_type values stored on ExportedAsset:
-#   - "timeout_generation": Export timed out during asset generation
 #   - "user": Errors the user can fix by modifying their query or reducing scope
 #   - "system": Infrastructure/capacity errors that may resolve with retries
+#   - "timeout_generation": Export timed out during asset generation
 #   - "unknown": Errors needing investigation to properly classify
 #
 # These tuples are authoritative. Historical rows have best-effort accuracy.
@@ -61,6 +62,11 @@ USER_QUERY_ERRORS = (
     CHQueryErrorIllegalAggregation,
 )
 
+TIMEOUT_ERRORS = (
+    SoftTimeLimitExceeded,
+    TimeoutError,
+)
+
 # Intentionally uncategorized errors (neither retryable nor user errors):
 # - CHQueryErrorUnsupportedMethod: Known to be caused by missing UDFs (infrastructure issue, but not retryable)
 # These should be revisited as we gather more data on their root causes.
@@ -68,12 +74,7 @@ USER_QUERY_ERRORS = (
 # Exception class names for string-based classification (used in backfill)
 USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)
 SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in EXCEPTIONS_TO_RETRY)
-TIMEOUT_ERROR_NAMES = frozenset(
-    [
-        "SoftTimeLimitExceeded",  # Celery soft timeout
-        "TimeoutError",  # asyncio.wait_for timeout
-    ]
-)
+TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS)
 
 
 def classify_failure_type(exception: Exception | str) -> str:
@@ -90,4 +91,4 @@ def classify_failure_type(exception: Exception | str) -> str:
 
 
 def is_user_query_error_type(exception_type: str | None) -> bool:
-    return exception_type in USER_QUERY_ERROR_NAMES
+    return classify_failure_type(exception_type) is FAILURE_TYPE_USER

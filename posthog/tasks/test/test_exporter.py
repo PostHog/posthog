@@ -14,7 +14,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
-from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY, _is_final_export_attempt, export_asset_direct
+from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY, _is_final_export_attempt
 from posthog.tasks.exports.image_exporter import get_driver
 
 
@@ -107,19 +107,6 @@ class TestExportAssetFailureRecording(APIBaseTest):
 
         asset.refresh_from_db()
         assert asset.exception == "Invalid query syntax"
-        assert asset.exception_type == "QueryError"
-        assert asset.failure_type == "user"
-
-    @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_export_stores_exception_type_on_failure(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
-        mock_export.side_effect = QueryError("Unknown table 'foo'")
-
-        asset = ExportedAsset.objects.create(
-            team=self.team, dashboard=None, export_format=ExportedAsset.ExportFormat.PNG
-        )
-        export_asset_direct(asset)
-
-        assert asset.exception == "Unknown table 'foo'"
         assert asset.exception_type == "QueryError"
         assert asset.failure_type == "user"
 

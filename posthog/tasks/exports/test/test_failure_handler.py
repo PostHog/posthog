@@ -1,7 +1,9 @@
 import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -14,9 +16,14 @@ from prometheus_client import CollectorRegistry, Counter
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
+from posthog.models.insight import Insight
+from posthog.models.organization import Organization
+from posthog.models.subscription import Subscription
+from posthog.models.team import Team
 from posthog.tasks import exporter
-from posthog.tasks.exporter import record_export_failure
 from posthog.tasks.exports import image_exporter
 from posthog.tasks.exports.failure_handler import (
     FAILURE_TYPE_SYSTEM,
@@ -38,99 +45,6 @@ def get_counter_value(counter: Counter, labels: dict) -> float:
         return 0.0
     value_container = getattr(metric, "_value", None)
     return value_container.get() if value_container else 0.0
-
-
-class TestRecordExportFailure(APIBaseTest):
-    def test_record_export_failure_updates_asset_and_increments_counter(self) -> None:
-        registry = CollectorRegistry()
-        test_counter = Counter(
-            "exporter_task_failed_test",
-            "Test counter",
-            labelnames=["type", "failure_type"],
-            registry=registry,
-        )
-
-        asset = ExportedAsset.objects.create(
-            team=self.team,
-            dashboard=None,
-            export_format=ExportedAsset.ExportFormat.PNG,
-        )
-        exception = QueryError("Bad query")
-
-        with patch.object(exporter, "EXPORT_FAILED_COUNTER", test_counter):
-            record_export_failure(asset, exception)
-
-        asset.refresh_from_db()
-        assert asset.failure_type == FAILURE_TYPE_USER
-        assert asset.exception_type == "QueryError"
-        assert asset.exception == "Bad query"
-        assert (
-            get_counter_value(test_counter, {"type": ExportedAsset.ExportFormat.PNG, "failure_type": FAILURE_TYPE_USER})
-            == 1.0
-        )
-
-
-class TestExportAssetCounters(APIBaseTest):
-    """Tests verifying success/failure counters are incremented correctly by export_asset."""
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.registry = CollectorRegistry()
-        self.success_counter = Counter("test_success", "Test", labelnames=["type"], registry=self.registry)
-        self.failed_counter = Counter(
-            "test_failed", "Test", labelnames=["type", "failure_type"], registry=self.registry
-        )
-        self.asset = ExportedAsset.objects.create(
-            team=self.team,
-            export_format=ExportedAsset.ExportFormat.PNG,
-        )
-
-    @parameterized.expand(
-        [
-            # (error, is_final_attempt, failure_type, expected_success, expected_failure, expects_exception)
-            (None, None, FAILURE_TYPE_USER, 1.0, 0.0, False),
-            (QueryError("Invalid query"), None, FAILURE_TYPE_USER, 0.0, 1.0, False),
-            (CHQueryErrorTooManySimultaneousQueries("err"), False, FAILURE_TYPE_SYSTEM, 0.0, 0.0, True),
-            (CHQueryErrorTooManySimultaneousQueries("err"), True, FAILURE_TYPE_SYSTEM, 0.0, 1.0, True),
-        ],
-        name_func=lambda func,
-        num,
-        params: f"{func.__name__}_{['success', 'non_retryable', 'retryable_non_final', 'retryable_final'][int(num)]}",
-    )
-    def test_export_counter_behavior(
-        self,
-        error: Exception | None,
-        is_final_attempt: bool | None,
-        failure_type: str,
-        expected_success: float,
-        expected_failure: float,
-        expects_exception: bool,
-    ) -> None:
-        from contextlib import nullcontext
-
-        final_attempt_patch = (
-            patch("posthog.tasks.exporter._is_final_export_attempt", return_value=is_final_attempt)
-            if is_final_attempt is not None
-            else nullcontext()
-        )
-        exception_context = pytest.raises(type(error)) if expects_exception and error else nullcontext()
-
-        with (
-            patch("posthog.tasks.exports.image_exporter.export_image", side_effect=error),
-            patch.object(exporter, "EXPORT_SUCCEEDED_COUNTER", self.success_counter),
-            patch.object(exporter, "EXPORT_FAILED_COUNTER", self.failed_counter),
-            final_attempt_patch,
-            exception_context,
-        ):
-            exporter.export_asset(self.asset.id)
-
-        assert get_counter_value(self.success_counter, {"type": ExportedAsset.ExportFormat.PNG}) == expected_success
-        assert (
-            get_counter_value(
-                self.failed_counter, {"type": ExportedAsset.ExportFormat.PNG, "failure_type": failure_type}
-            )
-            == expected_failure
-        )
 
 
 class TestIsUserQueryErrorType(TestCase):
@@ -189,22 +103,72 @@ class TestClassifyFailureType(TestCase):
         assert classify_failure_type(exception_type) == expected
 
 
+class TestExportAssetCounters(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.registry = CollectorRegistry()
+        self.success_counter = Counter("test_success", "Test", labelnames=["type"], registry=self.registry)
+        self.failed_counter = Counter(
+            "test_failed", "Test", labelnames=["type", "failure_type"], registry=self.registry
+        )
+        self.asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+    @parameterized.expand(
+        [
+            # (error, is_final_attempt, failure_type, expected_success, expected_failure, expects_exception)
+            (None, None, FAILURE_TYPE_USER, 1.0, 0.0, False),
+            (QueryError("Invalid query"), None, FAILURE_TYPE_USER, 0.0, 1.0, False),
+            # Non-final attempts (still being retried) should not increment either success / failure counters
+            (CHQueryErrorTooManySimultaneousQueries("err"), False, FAILURE_TYPE_SYSTEM, 0.0, 0.0, True),
+            (CHQueryErrorTooManySimultaneousQueries("err"), True, FAILURE_TYPE_SYSTEM, 0.0, 1.0, True),
+        ],
+        name_func=lambda func,
+        num,
+        params: f"{func.__name__}_{['success', 'non_retryable', 'retryable_non_final', 'retryable_final'][int(num)]}",
+    )
+    def test_export_counter_behavior(
+        self,
+        error: Exception | None,
+        is_final_attempt: bool | None,
+        failure_type: str,
+        expected_success: float,
+        expected_failure: float,
+        expects_exception: bool,
+    ) -> None:
+        from contextlib import nullcontext
+
+        final_attempt_patch = (
+            patch("posthog.tasks.exporter._is_final_export_attempt", return_value=is_final_attempt)
+            if is_final_attempt is not None
+            else nullcontext()
+        )
+        exception_context = pytest.raises(type(error)) if expects_exception and error else nullcontext()
+
+        with (
+            patch("posthog.tasks.exports.image_exporter.export_image", side_effect=error),
+            patch.object(exporter, "EXPORT_SUCCEEDED_COUNTER", self.success_counter),
+            patch.object(exporter, "EXPORT_FAILED_COUNTER", self.failed_counter),
+            final_attempt_patch,
+            exception_context,
+        ):
+            exporter.export_asset(self.asset.id)
+
+        assert get_counter_value(self.success_counter, {"type": ExportedAsset.ExportFormat.PNG}) == expected_success
+        assert (
+            get_counter_value(
+                self.failed_counter, {"type": ExportedAsset.ExportFormat.PNG, "failure_type": failure_type}
+            )
+            == expected_failure
+        )
+
+
 @pytest.mark.django_db(transaction=True)
 class TestGenerateAssetsAsyncCounters:
-    """Tests verifying success/failure counters are incremented correctly by generate_assets_async."""
-
     @pytest.fixture
-    def subscription(self, db: Any, django_user_model: Any) -> Generator[Any, None, None]:
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-
-        from posthog.models.dashboard import Dashboard
-        from posthog.models.dashboard_tile import DashboardTile
-        from posthog.models.insight import Insight
-        from posthog.models.organization import Organization
-        from posthog.models.subscription import Subscription
-        from posthog.models.team import Team
-
+    def subscription(self, django_user_model: Any) -> Generator[Any, None, None]:
         organization = Organization.objects.create(name="Test Org for Async")
         team = Team.objects.create(organization=organization, name="Test Team for Async")
         user = django_user_model.objects.create(email="async-test@posthog.com")

@@ -90,7 +90,7 @@ class ExportedAsset(models.Model):
     # The exception class name (e.g., "QueryError", "TimeoutError") for categorization
     exception_type = models.CharField(max_length=255, null=True, blank=True)
     # Classification of the failure, see failure_handler.py for details
-    failure_type = models.CharField(max_length=256, null=True, blank=True)
+    failure_type = models.CharField(max_length=255, null=True, blank=True)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)
