@@ -100,7 +100,9 @@ jobs:
                   import json
                   with open('/tmp/core_durations') as f: durations = json.load(f)
                   with open('/tmp/temporal_durations') as f: durations.update(json.load(f))
-                  with open('.test_durations', 'w') as f: json.dump(durations, f, separators=(',', ':'), sort_keys=True)
+                  with open('.test_durations', 'w') as f:
+                      json.dump(durations, f, indent=4, sort_keys=True)
+                      f.write('\n')
                   print(f'Merged {len(durations)} tests')
                   "
                   rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations

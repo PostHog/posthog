@@ -158,7 +158,8 @@ def main():
 
     # Save
     with open(args.output_file, "w") as f:
-        json.dump(processed, f, separators=(",", ":"), sort_keys=True)
+        json.dump(processed, f, indent=4, sort_keys=True)
+        f.write("\n")
     logger.info("Saved %d tests to %s", len(processed), args.output_file)
 
 
