@@ -5,7 +5,8 @@ import api from 'lib/api'
 
 import { hogql } from '~/queries/utils'
 
-import { Cluster, NOISE_CLUSTER_ID } from '../clusters/types'
+import { NOISE_CLUSTER_ID } from '../clusters/constants'
+import { Cluster } from '../clusters/types'
 import type { clustersTabContentLogicType } from './clustersTabContentLogicType'
 
 export interface ClusterInfo {

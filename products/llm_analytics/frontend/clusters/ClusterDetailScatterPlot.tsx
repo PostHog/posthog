@@ -16,6 +16,17 @@ interface ScatterPoint {
     timestamp?: string
 }
 
+interface ScatterDataset {
+    label: string
+    data: ScatterPoint[]
+    backgroundColor: string
+    borderColor: string
+    borderWidth: number
+    pointRadius: number
+    pointHoverRadius: number
+    pointStyle?: 'circle' | 'crossRot'
+}
+
 interface ClusterDetailScatterPlotProps {
     cluster: Cluster
     traceSummaries: Record<string, TraceSummary>
@@ -35,7 +46,7 @@ export function ClusterDetailScatterPlot({ cluster, traceSummaries }: ClusterDet
             timestamp: traceInfo.timestamp,
         }))
 
-        const result: any[] = [
+        const result: ScatterDataset[] = [
             {
                 label: cluster.title,
                 data: tracePoints,
@@ -103,13 +114,13 @@ export function ClusterDetailScatterPlot({ cluster, traceSummaries }: ClusterDet
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    onClick: handleClick as any,
+                    // Chart.js onClick type is complex; cast through unknown for type safety
+                    onClick: handleClick as unknown as undefined,
                     onHover: (event, elements, chart) => {
                         const canvas = event.native?.target as HTMLCanvasElement | undefined
                         if (canvas) {
-                            const isCentroid =
-                                elements.length > 0 &&
-                                (chart?.data?.datasets?.[elements[0].datasetIndex] as any)?.label === 'Centroid'
+                            const dataset = chart?.data?.datasets?.[elements[0]?.datasetIndex]
+                            const isCentroid = elements.length > 0 && dataset?.label === 'Centroid'
                             canvas.style.cursor = elements.length > 0 && !isCentroid ? 'pointer' : 'default'
                         }
                     },
@@ -200,7 +211,8 @@ export function ClusterDetailScatterPlot({ cluster, traceSummaries }: ClusterDet
 
         const handleDoubleClick = (): void => {
             if (chartRef.current) {
-                ;(chartRef.current as any).resetZoom()
+                // resetZoom is added by chartjs-plugin-zoom at runtime
+                ;(chartRef.current as unknown as { resetZoom: () => void }).resetZoom()
             }
         }
 

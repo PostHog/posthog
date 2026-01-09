@@ -68,11 +68,13 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
 
             return {
                 type: 'scatter',
-                data: { datasets: scatterPlotDatasets as any },
+                // ScatterDataset is compatible with Chart.js dataset type
+                data: { datasets: scatterPlotDatasets as unknown as undefined },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    onClick: handleClick as any,
+                    // Chart.js onClick type is complex; cast through unknown for type safety
+                    onClick: handleClick as unknown as undefined,
                     onHover: (event, elements) => {
                         const canvas = event.native?.target as HTMLCanvasElement | undefined
                         if (canvas) {
@@ -165,7 +167,8 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
 
         const handleDoubleClick = (): void => {
             if (chartRef.current) {
-                ;(chartRef.current as any).resetZoom()
+                // resetZoom is added by chartjs-plugin-zoom at runtime
+                ;(chartRef.current as unknown as { resetZoom: () => void }).resetZoom()
             }
         }
 
