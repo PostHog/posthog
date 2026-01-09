@@ -18,6 +18,9 @@ DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
+# Temporal configuration
+WORKFLOW_NAME = "llma-trace-clustering"
+COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"
 
 # Activity timeouts (per activity type)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
@@ -54,11 +57,13 @@ COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 # Event properties
 EVENT_NAME = "$ai_trace_clusters"
 
-# Rendering type for clustering (only use detailed embeddings)
-LLMA_TRACE_DETAILED_RENDERING = "llma_trace_detailed"
-
-# Document type for LLM trace summaries
-LLMA_TRACE_DOCUMENT_TYPE = "llm-trace-summary"
+# Document type for LLM trace summaries (clustering uses detailed mode only)
+# New format includes mode suffix
+LLMA_TRACE_DOCUMENT_TYPE = "llm-trace-summary-detailed"
+# Legacy format (before mode suffix was added) - used with rendering filter
+LLMA_TRACE_DOCUMENT_TYPE_LEGACY = "llm-trace-summary"
+# Legacy rendering value for detailed summaries
+LLMA_TRACE_RENDERING_LEGACY = "llma_trace_detailed"
 
 # Product for LLM trace summaries (matches sorting key in posthog_document_embeddings)
 LLMA_TRACE_PRODUCT = "llm-analytics"
@@ -70,7 +75,20 @@ ALLOWED_TEAM_IDS: list[int] = [
     112495,  # Dogfooding project
 ]
 
-# Cluster labeling configuration
-DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING = 7  # Number of representative traces to use for LLM labeling
-LABELING_LLM_MODEL = "gpt-5.1"
-LABELING_LLM_TIMEOUT = 240.0
+# Cluster labeling agent configuration
+LABELING_AGENT_MODEL = "claude-sonnet-4-5"  # Claude Sonnet 4.5 for reasoning
+LABELING_AGENT_MAX_ITERATIONS = 50  # Max agent iterations before forced finalization
+LABELING_AGENT_RECURSION_LIMIT = 150  # LangGraph recursion limit (> 2 * max_iterations)
+LABELING_AGENT_TIMEOUT = 600.0  # 10 minutes for full agent run
+
+# HDBSCAN clustering parameters
+DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.01  # 1% of samples as minimum cluster size
+MIN_CLUSTER_SIZE_FRACTION_MIN = 0.01  # Minimum allowed value for min_cluster_size_fraction
+MIN_CLUSTER_SIZE_FRACTION_MAX = 0.5  # Maximum allowed value for min_cluster_size_fraction
+DEFAULT_HDBSCAN_MIN_SAMPLES = 5  # Minimum samples in neighborhood for core points
+DEFAULT_UMAP_N_COMPONENTS = 100  # Dimensionality for clustering (not visualization)
+DEFAULT_UMAP_N_NEIGHBORS = 15  # UMAP neighborhood size
+DEFAULT_UMAP_MIN_DIST = 0.0  # Tighter packing for clustering (vs 0.1 for visualization)
+
+# Noise cluster ID (HDBSCAN convention)
+NOISE_CLUSTER_ID = -1
