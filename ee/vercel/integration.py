@@ -500,34 +500,6 @@ class VercelIntegration:
         logger.info("Successfully deleted Vercel resource", resource_id=resource_id, integration="vercel")
 
     @staticmethod
-    def rotate_secrets(resource_id: str) -> dict[str, Any]:
-        """
-        Rotate the API token for a Vercel resource's team.
-        https://vercel.com/docs/integrations/create-integration/marketplace-api#rotate-secrets
-        """
-        from posthog.models.utils import generate_random_token_project
-
-        logger.info("Starting Vercel secrets rotation", resource_id=resource_id, integration="vercel")
-        resource, _ = VercelIntegration._get_resource_with_installation(resource_id)
-        team = resource.team
-
-        team.api_token = generate_random_token_project()
-        team.save(update_fields=["api_token"])
-
-        logger.info(
-            "Successfully rotated Vercel secrets",
-            resource_id=resource_id,
-            team_id=team.pk,
-            integration="vercel",
-        )
-
-        return {
-            "status": "completed",
-            "secrets": VercelIntegration._build_secrets(team),
-            "isPartialRotation": False,
-        }
-
-    @staticmethod
     def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
         billing_plans = VercelIntegration.get_vercel_plans()
         current_plan_id = installation.config.get("billing_plan_id", "posthog-usage-based")
