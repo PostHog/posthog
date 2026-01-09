@@ -28,7 +28,8 @@ const SESSION_REPLAY_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
 type IssueConfig = Record<string, string>
 
 const IntegrationIcon = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
-    return <img src={ICONS[kind]} className="w-5 h-5 rounded-sm" />
+    const className = kind === 'github' ? 'w-5 h-5 rounded-sm dark:invert' : 'w-5 h-5 rounded-sm'
+    return <img src={ICONS[kind]} className={className} />
 }
 
 export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
