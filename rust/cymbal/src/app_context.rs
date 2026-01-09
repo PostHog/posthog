@@ -58,7 +58,25 @@ pub struct AppContext {
 }
 
 impl AppContext {
-    pub async fn new(config: &Config) -> Result<Self, UnhandledError> {
+    pub async fn from_config(config: &Config) -> Result<Self, UnhandledError> {
+        let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+        let persons_options = options.clone();
+        let posthog_pool = options.connect(&config.database_url).await?;
+        let persons_pool = persons_options.connect(&config.persons_url).await?;
+
+        let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
+        let s3_client = S3Client::new(s3_client);
+        let s3_client = Arc::new(s3_client);
+
+        return AppContext::new(config, s3_client, posthog_pool, persons_pool).await;
+    }
+
+    pub async fn new(
+        config: &Config,
+        s3_client: Arc<dyn BlobClient>,
+        posthog_pool: PgPool,
+        persons_pool: PgPool,
+    ) -> Result<Self, UnhandledError> {
         init_global_state(config);
         let health_registry = HealthRegistry::new("liveness");
         let worker_liveness = health_registry
@@ -83,15 +101,6 @@ impl AppContext {
             .await;
         let immediate_producer =
             create_kafka_producer(&config.kafka, kafka_immediate_liveness).await?;
-
-        let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let persons_options = options.clone();
-        let posthog_pool = options.connect(&config.database_url).await?;
-        let persons_pool = persons_options.connect(&config.persons_url).await?;
-
-        let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
-        let s3_client = S3Client::new(s3_client);
-        let s3_client = Arc::new(s3_client);
 
         s3_client.ping_bucket(&config.object_storage_bucket).await?;
 

@@ -54,7 +54,7 @@ async fn main() {
         }
     }
 
-    let context = Arc::new(AppContext::new(&config).await.unwrap());
+    let context = Arc::new(AppContext::from_config(&config).await.unwrap());
 
     start_server(&config, context.clone()).await;
     start_consumer(&config, context.clone()).await;
