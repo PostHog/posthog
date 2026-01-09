@@ -721,6 +721,7 @@ class CohortPeople(models.Model):
 
 @receiver(post_delete, sender=CohortPeople)
 def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
+    from posthog.api.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
     from posthog.models.cohort.util import get_static_cohort_size
 
     try:
@@ -732,7 +733,19 @@ def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
         cohort.count = get_static_cohort_size(
             cohort_id=cohort.id, team_id=cohort.team_id, using_database=PERSONS_DB_FOR_WRITE
         )
-        cohort.save(update_fields=["count"])
+
+        # Clear cohort_type if count exceeds the realtime threshold
+        if cohort.cohort_type == CohortType.REALTIME and cohort.count > REALTIME_COHORT_MAX_PERSON_COUNT:
+            cohort.cohort_type = None
+            cohort.save(update_fields=["count", "cohort_type"])
+            logger.info(
+                "Cleared cohort_type for cohort exceeding realtime threshold",
+                cohort_id=cohort_id,
+                count=cohort.count,
+                threshold=REALTIME_COHORT_MAX_PERSON_COUNT,
+            )
+        else:
+            cohort.save(update_fields=["count"])
 
         logger.info(
             "Updated cohort count after CohortPeople change",
