@@ -7,13 +7,13 @@ import subprocess
 import pytest
 from unittest.mock import MagicMock, patch
 
-from hogli.core.command_types import CompositeCommand, DirectCommand
+from hogli.command_types import CompositeCommand, DirectCommand
 
 
 class TestDirectCommandExecution:
     """Test DirectCommand handles shell operators and arguments correctly."""
 
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_handles_shell_operators_with_shell_true(self, mock_run: MagicMock) -> None:
         """Test commands with && or || use shell=True."""
         cmd = DirectCommand("test", {"cmd": "echo foo && echo bar"})
@@ -26,7 +26,7 @@ class TestDirectCommandExecution:
         assert call_args[0][0] == "echo foo && echo bar"
         assert call_args[1]["shell"] is True
 
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_handles_simple_commands_without_shell(self, mock_run: MagicMock) -> None:
         """Test simple commands without operators use list format."""
         cmd = DirectCommand("test", {"cmd": "pytest tests/"})
@@ -39,7 +39,7 @@ class TestDirectCommandExecution:
         assert isinstance(call_args[0][0], list)
         assert call_args[0][0] == ["pytest", "tests/"]
 
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_appends_extra_args_to_shell_commands(self, mock_run: MagicMock) -> None:
         """Test extra args are safely escaped and appended to shell commands."""
         cmd = DirectCommand("test", {"cmd": "echo foo && echo bar"})
@@ -53,7 +53,7 @@ class TestDirectCommandExecution:
         assert "arg1" in cmd_str
         assert "'arg with spaces'" in cmd_str or '"arg with spaces"' in cmd_str
 
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_appends_extra_args_to_simple_commands(self, mock_run: MagicMock) -> None:
         """Test extra args are appended to list-format commands."""
         cmd = DirectCommand("test", {"cmd": "pytest"})
@@ -69,10 +69,10 @@ class TestDirectCommandExecution:
 class TestCompositeCommandExecution:
     """Test CompositeCommand runs steps sequentially and handles failures."""
 
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_executes_all_steps_in_sequence(self, mock_run: MagicMock) -> None:
         """Test all steps are executed in order."""
-        from hogli.core.manifest import REPO_ROOT
+        from hogli.manifest import REPO_ROOT
 
         bin_hogli = str(REPO_ROOT / "bin" / "hogli")
 
@@ -91,7 +91,7 @@ class TestCompositeCommandExecution:
             [bin_hogli, "migrations:run"],
         ]
 
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_stops_on_first_failure(self, mock_run: MagicMock) -> None:
         """Test execution stops when a step fails."""
         mock_run.side_effect = [None, SystemExit(1), None]  # Second step fails
@@ -104,10 +104,10 @@ class TestCompositeCommandExecution:
         # Should only call first two steps before failure
         assert mock_run.call_count == 2
 
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_inline_steps_execute_directly(self, mock_run: MagicMock) -> None:
         """Test inline dict steps execute as shell commands."""
-        from hogli.core.manifest import REPO_ROOT
+        from hogli.manifest import REPO_ROOT
 
         bin_hogli = str(REPO_ROOT / "bin" / "hogli")
 
@@ -137,7 +137,7 @@ class TestRunFunctionErrorHandling:
 
     def test_run_raises_systemexit_on_command_failure(self) -> None:
         """Test _run raises SystemExit when subprocess fails."""
-        from hogli.core.command_types import _run
+        from hogli.command_types import _run
 
         # Command that will fail
         with pytest.raises(SystemExit) as exc_info:
@@ -148,7 +148,7 @@ class TestRunFunctionErrorHandling:
     @patch("subprocess.run")
     def test_run_handles_called_process_error(self, mock_subprocess: MagicMock) -> None:
         """Test _run converts CalledProcessError to SystemExit."""
-        from hogli.core.command_types import _run
+        from hogli.command_types import _run
 
         mock_subprocess.side_effect = subprocess.CalledProcessError(1, "cmd")
 
@@ -162,7 +162,7 @@ class TestConfirmationFeature:
     """Test confirmation prompts for destructive commands."""
 
     @patch("click.confirm")
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_destructive_prompts_user(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
         """Test command with destructive prompts user."""
         mock_confirm.return_value = True
@@ -174,7 +174,7 @@ class TestConfirmationFeature:
         mock_confirm.assert_called_once_with("Are you sure you want to continue?", default=False)
 
     @patch("click.confirm")
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_destructive_skips_with_yes_flag(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
         """Test --yes flag skips confirmation prompt."""
         cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "destructive": True})
@@ -184,7 +184,7 @@ class TestConfirmationFeature:
         mock_confirm.assert_not_called()
 
     @patch("click.confirm")
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_no_confirmation_for_normal_commands(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
         """Test commands without destructive don't prompt."""
         cmd = DirectCommand("test:safe", {"cmd": "echo hello"})
@@ -194,7 +194,7 @@ class TestConfirmationFeature:
         mock_confirm.assert_not_called()
 
     @patch("click.confirm")
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_confirmation_abort_exits_gracefully(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
         """Test aborting confirmation exits with code 0."""
         mock_confirm.return_value = False
@@ -207,10 +207,10 @@ class TestConfirmationFeature:
         assert exc_info.value.code == 0
         mock_run.assert_not_called()
 
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_composite_command_passes_yes_flag_to_steps(self, mock_run: MagicMock) -> None:
         """Test CompositeCommand passes --yes to child commands when confirmed."""
-        from hogli.core.manifest import REPO_ROOT
+        from hogli.manifest import REPO_ROOT
 
         bin_hogli = str(REPO_ROOT / "bin" / "hogli")
 
@@ -230,12 +230,12 @@ class TestConfirmationFeature:
         ]
 
     @patch("click.confirm")
-    @patch("hogli.core.command_types._run")
+    @patch("hogli.command_types._run")
     def test_composite_command_passes_yes_after_user_confirms(
         self, mock_run: MagicMock, mock_confirm: MagicMock
     ) -> None:
         """Test CompositeCommand passes --yes to children after user confirms via prompt."""
-        from hogli.core.manifest import REPO_ROOT
+        from hogli.manifest import REPO_ROOT
 
         bin_hogli = str(REPO_ROOT / "bin" / "hogli")
         mock_confirm.return_value = True

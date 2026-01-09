@@ -8,7 +8,7 @@ They auto-register with hogli and appear in `hogli --help` automatically.
 Example:
     ```python
     import click
-    from common.hogli.core.cli import cli
+    from hogli.cli import cli
 
     @cli.command(name="my:command", help="Does something useful")
     @click.argument('path', type=click.Path())
@@ -21,23 +21,15 @@ Example:
 
 Guidelines:
 - Use Click decorators for arguments and options
-- Import cli group from common.hogli.core.cli
+- Import cli group from hogli.core.cli (the framework in tools/hogli/)
 - Name commands with colons for grouping (e.g., 'test:python', 'db:migrate')
 - Add helpful docstrings - they become the command help text
 - Prefer Python Click commands over shell scripts for better type safety
 
-For simple shell commands or bin script delegation, use manifest.yaml instead.
+For simple shell commands or bin script delegation, use hogli.yaml instead.
 """
 
 from __future__ import annotations
 
-# Add your Click commands below this line
-# Example command (remove or keep as reference):
-# @cli.command(name="example:hello", help="Example Click command")
-# @click.argument('name')
-# @click.option('--greeting', default='Hello', help='Greeting to use')
-# def example_hello(name: str, greeting: str) -> None:
-#     """Say hello to someone."""
-#     click.echo(f"{greeting}, {name}!")
 # Import commands from other modules to register them
-from hogli import doctor  # noqa: F401
+from . import doctor  # noqa: F401

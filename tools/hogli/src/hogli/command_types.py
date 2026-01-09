@@ -9,12 +9,12 @@ from pathlib import Path
 from typing import Any
 
 import click
-from hogli.core.manifest import get_services_for_command
+from hogli.manifest import get_services_for_command
 
 
 def _run(command: list[str] | str, *, env: dict[str, str] | None = None, shell: bool = False) -> None:
     """Execute a shell command."""
-    from hogli.core.manifest import REPO_ROOT
+    from hogli.manifest import REPO_ROOT
 
     if isinstance(command, list):
         display = " ".join(command)
@@ -148,7 +148,7 @@ class BinScriptCommand(Command):
 
     def get_underlying_command(self) -> str:
         """Return the script path relative to repo root."""
-        from hogli.core.manifest import REPO_ROOT
+        from hogli.manifest import REPO_ROOT
 
         try:
             return str(self.script_path.relative_to(REPO_ROOT))
@@ -273,7 +273,7 @@ class CompositeCommand(Command):
         - string: name of another hogli command to run
         - dict: inline command config (same format as manifest commands)
         """
-        from hogli.core.manifest import REPO_ROOT
+        from hogli.manifest import REPO_ROOT
 
         steps = self.config.get("steps", [])
         bin_hogli = str(REPO_ROOT / "bin" / "hogli")

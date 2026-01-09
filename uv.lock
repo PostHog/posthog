@@ -2748,6 +2748,24 @@ wheels = [
 ]
 
 [[package]]
+name = "hogli"
+version = "0.1.0"
+source = { editable = "tools/hogli" }
+dependencies = [
+    { name = "click" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "hogql-parser"
 version = "1.2.12"
 source = { registry = "https://pypi.org/simple" }
@@ -4633,6 +4651,7 @@ dev = [
     { name = "faker" },
     { name = "fakeredis", extra = ["lua"] },
     { name = "freezegun" },
+    { name = "hogli" },
     { name = "ipython" },
     { name = "mypy" },
     { name = "mypy-baseline" },
@@ -4887,6 +4906,7 @@ dev = [
     { name = "faker", specifier = "==17.5.0" },
     { name = "fakeredis", extras = ["lua"], specifier = "==2.23.3" },
     { name = "freezegun", specifier = "==1.2.2" },
+    { name = "hogli", editable = "tools/hogli" },
     { name = "ipython", specifier = ">=9.3.0" },
     { name = "mypy", specifier = "~=1.18.2" },
     { name = "mypy-baseline", specifier = "~=0.7.3" },

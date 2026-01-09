@@ -257,12 +257,15 @@ dev = [
     "types-retry==0.9.9.4",
     "types-tzlocal~=5.1.0.1",
     "watchdog==5.0.3",
+    # Developer CLI
+    "hogli",
 ]
 
 [tool.uv]
 required-version = ">=0.7.0"
 
 [tool.uv.sources]
+hogli = { path = "tools/hogli", editable = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
 
 

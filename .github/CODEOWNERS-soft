@@ -199,7 +199,9 @@ package-lock.json @PostHog/team-devex
 .prettierrc @PostHog/team-devex
 mypy.ini @PostHog/team-devex
 posthog/management/migration_analysis/ @PostHog/team-devex
-common/hogli/ @PostHog/team-devex
+tools/hogli/ @PostHog/team-devex
+common/posthog_hogli/ @PostHog/team-devex
+hogli.yaml @PostHog/team-devex
 bin/ @PostHog/team-devex
 CODEOWNERS-soft @PostHog/team-devex
 CODEOWNERS @PostHog/team-devex

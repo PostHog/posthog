@@ -2,13 +2,45 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-MANIFEST_FILE = Path(__file__).parent.parent / "manifest.yaml"
+
+def _find_repo_root() -> Path:
+    """Find repo root by walking up from cwd looking for hogli.yaml."""
+    # Check env var first
+    if env_manifest := os.environ.get("HOGLI_MANIFEST"):
+        return Path(env_manifest).parent
+
+    # Walk up from cwd looking for hogli.yaml
+    current = Path.cwd().resolve()
+    for parent in [current, *current.parents]:
+        if (parent / "hogli.yaml").exists():
+            return parent
+
+    # Fallback to cwd if no manifest found
+    return current
+
+
+def _find_manifest_file(repo_root: Path) -> Path:
+    """Find manifest file location."""
+    # Env var takes precedence
+    if env_manifest := os.environ.get("HOGLI_MANIFEST"):
+        return Path(env_manifest)
+
+    # Standard location
+    if (repo_root / "hogli.yaml").exists():
+        return repo_root / "hogli.yaml"
+
+    # Fallback for backwards compatibility (PostHog-specific)
+    return repo_root / "common" / "hogli" / "manifest.yaml"
+
+
+REPO_ROOT = _find_repo_root()
+MANIFEST_FILE = _find_manifest_file(REPO_ROOT)
 
 
 class Manifest:
@@ -44,6 +76,32 @@ class Manifest:
     def services(self) -> dict[str, Any]:
         """Get service metadata."""
         return self._data.get("metadata", {}).get("services", {})
+
+    @property
+    def config(self) -> dict[str, Any]:
+        """Get hogli config section."""
+        return self._data.get("config", {})
+
+    @property
+    def commands_dir(self) -> Path | None:
+        """Get custom commands directory path.
+
+        Resolution order:
+        1. config.commands_dir in hogli.yaml (relative to repo root)
+        2. Default: hogli/ next to hogli.yaml
+
+        Returns None if no commands directory exists.
+        """
+        configured = self.config.get("commands_dir")
+        if configured:
+            path = REPO_ROOT / configured
+            if path.exists():
+                return path
+        # Default: hogli/ next to manifest
+        default_path = MANIFEST_FILE.parent / "hogli"
+        if default_path.exists():
+            return default_path
+        return None
 
     def get_category_for_command(self, command_name: str) -> str:
         """Get category for a command based on which section it's placed in.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import yaml
-from hogli.core.manifest import REPO_ROOT, get_manifest
+from hogli.manifest import REPO_ROOT, get_manifest
 
 
 def get_bin_scripts() -> set[str]:

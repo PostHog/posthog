@@ -51,7 +51,9 @@ jobs:
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
                         # hogli CLI changes need validation
-                        - 'common/hogli/**'
+                        - 'tools/hogli/**'
+                        - 'common/posthog_hogli/**'
+                        - 'hogli.yaml'
                         - 'bin/**'
                         # LLM Gateway service
                         - 'services/llm-gateway/**/*.py'
@@ -150,10 +152,10 @@ jobs:
               run: |
                   ./bin/hogli meta:check
 
-            - name: Run hogli tests
+            - name: Run hogli framework tests
               shell: bash
               run: |
-                  pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term
+                  pytest tools/hogli/tests -v
 
             - name: Run dependency detection script tests
               shell: bash
