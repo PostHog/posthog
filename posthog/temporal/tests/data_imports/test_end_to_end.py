@@ -2549,7 +2549,9 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
         mock.patch("ee.api.billing.requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
-        source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+        with freeze_time("2023-01-01"):
+            source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+
         # A previous job that reached the billing limit
         await sync_to_async(ExternalDataJob.objects.create)(
             team=team,

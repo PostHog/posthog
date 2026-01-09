@@ -7,6 +7,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { LogDetailsTabContent } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/Details/LogDetailsTab'
+
 import { logsViewerLogic } from '../logsViewerLogic'
 import { LogComments } from './LogComments'
 import { LogExploreAI } from './Tabs/ExploreWithAI'
@@ -49,7 +51,7 @@ interface LogDetailsModalProps {
 }
 
 export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element | null {
-    const { isOpen, selectedLog, jsonParseAllFields, activeTab } = useValues(logDetailsModalLogic)
+    const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab } = useValues(logDetailsModalLogic)
     const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
     const { addFilter } = useActions(logsViewerLogic)
 
@@ -72,7 +74,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
     return (
         <LemonModal
             title="Log details"
-            isOpen={isOpen}
+            isOpen={isLogDetailsOpen}
             onClose={closeLogDetails}
             simple
             overlayClassName="backdrop-blur-none bg-transparent flex items-stretch justify-end pr-16 py-4 pointer-events-none h-screen"
@@ -111,6 +113,11 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             {
                                 key: 'details',
                                 label: 'Details',
+                                content: <LogDetailsTabContent log={selectedLog} />,
+                            },
+                            {
+                                key: 'raw',
+                                label: 'Raw',
                                 content: (
                                     <div className="flex flex-col gap-2">
                                         <div className="flex items-center">
