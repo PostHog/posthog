@@ -229,7 +229,14 @@ function extractEAVProperties(
                 }
                 break
             case 'DateTime':
-                eavProperty.value_datetime = String(propertyValue)
+                // Parse datetime and convert to ClickHouse format
+                const parsedDateTime = DateTime.fromISO(String(propertyValue), { zone: 'utc' })
+                if (parsedDateTime.isValid) {
+                    eavProperty.value_datetime = castTimestampToClickhouseFormat(
+                        parsedDateTime,
+                        TimestampFormat.ClickHouse
+                    )
+                }
                 break
         }
 
