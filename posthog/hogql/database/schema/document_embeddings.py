@@ -14,6 +14,7 @@ from posthog.hogql.database.models import (
     Table,
 )
 from posthog.hogql.transforms.order_by_pushdown import push_down_order_by, unwrap_alias
+from posthog.hogql.transforms.where_clause_pushdown import push_down_where_clauses
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 
@@ -161,6 +162,13 @@ class DocumentEmbeddingsTable(LazyTable):
                 outer_table_alias="document_embeddings",
                 inner_table_name=table_name,
                 should_push_down=is_vector_distance_order_by,
+            )
+
+            push_down_where_clauses(
+                outer_query=node,
+                inner_query=inner_query,
+                outer_table_alias="document_embeddings",
+                inner_table_name=table_name,
             )
 
             return inner_query

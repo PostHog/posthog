@@ -5,8 +5,6 @@ from posthog.hogql.visitor import CloningVisitor
 
 
 class FieldReferenceRewriter(CloningVisitor):
-    """Rewrites field references from an outer table alias to an inner table name."""
-
     def __init__(self, outer_table_alias: str, inner_table_name: str):
         super().__init__(clear_locations=True)
         self.outer_table_alias = outer_table_alias
@@ -21,14 +19,14 @@ class FieldReferenceRewriter(CloningVisitor):
 
 
 def get_inner_field_names(inner_query: ast.SelectQuery) -> set[str]:
-    """Extract all field names/aliases exposed by the inner query."""
     field_names: set[str] = set()
     if not inner_query.select:
         return field_names
 
     for expr in inner_query.select:
         if isinstance(expr, ast.Alias):
-            field_names.add(expr.alias)
+            if not isinstance(expr.expr, ast.Constant):
+                field_names.add(expr.alias)
         elif isinstance(expr, ast.Field) and expr.chain:
             field_names.add(str(expr.chain[-1]))
 
@@ -36,7 +34,6 @@ def get_inner_field_names(inner_query: ast.SelectQuery) -> set[str]:
 
 
 def get_field_name_from_expr(expr: ast.Expr, outer_table_alias: str) -> Optional[str]:
-    """Extract the field name from an expression if it's a simple field reference."""
     if isinstance(expr, ast.Alias):
         expr = expr.expr
 
@@ -54,7 +51,6 @@ def is_pushdown_candidate(
     inner_field_names: set[str],
     outer_table_alias: str,
 ) -> bool:
-    """Check if an expression is a candidate for pushdown."""
     if isinstance(expr, ast.CompareOperation):
         left_field = get_field_name_from_expr(expr.left, outer_table_alias)
         right_field = get_field_name_from_expr(expr.right, outer_table_alias)
@@ -72,12 +68,6 @@ def extract_pushdown_candidates(
     inner_field_names: set[str],
     outer_table_alias: str,
 ) -> tuple[list[ast.Expr], list[ast.Expr]]:
-    """
-    Split WHERE clause into pushdown candidates and remaining clauses.
-
-    Returns:
-        A tuple of (candidates_to_push, remaining_clauses)
-    """
     candidates: list[ast.Expr] = []
     remaining: list[ast.Expr] = []
 
@@ -97,7 +87,6 @@ def extract_pushdown_candidates(
 
 
 def combine_where_clauses(existing: Optional[ast.Expr], new_clauses: list[ast.Expr]) -> Optional[ast.Expr]:
-    """Combine existing WHERE clause with new clauses using AND."""
     if not new_clauses:
         return existing
 
@@ -123,21 +112,6 @@ def push_down_where_clauses(
     outer_table_alias: str,
     inner_table_name: str,
 ) -> None:
-    """
-    Push down eligible WHERE clauses from outer query to inner query.
-
-    Modifies inner_query in place. Automatically identifies candidates for pushdown
-    based on them being simple field references that exist in the inner query
-    (either as direct fields or aliases).
-
-    Preserves existing WHERE clauses on the inner query by combining with AND.
-
-    Args:
-        outer_query: The outer SelectQuery containing WHERE clauses to push down
-        inner_query: The inner SelectQuery to receive the pushed-down clauses
-        outer_table_alias: The alias used to reference the inner query in the outer query
-        inner_table_name: The actual table name for field rewriting
-    """
     if not outer_query or not outer_query.where:
         return
 

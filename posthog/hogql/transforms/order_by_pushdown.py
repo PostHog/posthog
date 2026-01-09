@@ -6,8 +6,6 @@ from posthog.hogql.visitor import CloningVisitor
 
 
 class FieldReferenceRewriter(CloningVisitor):
-    """Rewrites field references from an outer table alias to an inner table name."""
-
     def __init__(self, outer_table_alias: str, inner_table_name: str):
         super().__init__(clear_locations=True)
         self.outer_table_alias = outer_table_alias
@@ -28,7 +26,6 @@ def unwrap_alias(node: ast.Expr) -> ast.Expr:
 
 
 def resolve_order_by_alias(order_expr: ast.OrderExpr, outer_query: ast.SelectQuery) -> Optional[ast.Expr]:
-    """If an ORDER BY references an alias, resolve it to the underlying expression."""
     expr = unwrap_alias(order_expr.expr)
     if not isinstance(expr, ast.Field) or len(expr.chain) != 1 or not outer_query.select:
         return None
@@ -46,19 +43,6 @@ def push_down_order_by(
     inner_table_name: str,
     should_push_down: Callable[[ast.OrderExpr, ast.SelectQuery], bool],
 ) -> None:
-    """
-    Conditionally push ORDER BY and LIMIT from outer query to inner query.
-
-    Modifies inner_query in place if pushdown conditions are met. Preserves any
-    existing ORDER BY clauses on the inner query by prepending pushed-down clauses.
-
-    Args:
-        outer_query: The outer SelectQuery containing ORDER BY/LIMIT to push down
-        inner_query: The inner SelectQuery to receive the pushed-down clauses
-        outer_table_alias: The alias used to reference the table in the outer query
-        inner_table_name: The actual table name for the inner query
-        should_push_down: A predicate that returns True if an OrderExpr should trigger pushdown
-    """
     if not outer_query or not outer_query.order_by or not outer_query.limit:
         return
 
