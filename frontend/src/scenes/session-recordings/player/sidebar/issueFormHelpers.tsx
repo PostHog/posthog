@@ -30,10 +30,10 @@ export const createLinearIssueForm = (
             <div className="flex flex-col gap-y-2">
                 <LinearTeamSelectField integrationId={integration.id} />
                 <LemonField name="title" label="Title">
-                    <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
+                    <LemonInput data-attr="linear-issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="description" label="Description">
-                    <LemonTextArea data-attr="issue-description" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="linear-issue-description" placeholder="Start typing..." />
                 </LemonField>
             </div>
         ),
@@ -68,10 +68,10 @@ export const createGitHubIssueForm = (
             <div className="flex flex-col gap-y-2">
                 <GitHubRepositorySelectField integrationId={integration.id} />
                 <LemonField name="title" label="Title">
-                    <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
+                    <LemonInput data-attr="github-issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="body" label="Body">
-                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="github-issue-body" placeholder="Start typing..." />
                 </LemonField>
             </div>
         ),
