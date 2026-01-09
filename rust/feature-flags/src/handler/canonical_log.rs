@@ -86,6 +86,7 @@ pub struct FlagsCanonicalLogLine {
     // Populated during authentication
     pub team_id: Option<i32>,
     pub distinct_id: Option<String>,
+    pub device_id: Option<String>,
 
     // Populated during flag evaluation
     pub flags_evaluated: usize,
@@ -144,6 +145,7 @@ impl Default for FlagsCanonicalLogLine {
             api_version: None,
             team_id: None,
             distinct_id: None,
+            device_id: None,
             flags_evaluated: 0,
             flags_experience_continuity: 0,
             flags_disabled: false,
@@ -191,6 +193,7 @@ impl FlagsCanonicalLogLine {
             request_id = %self.request_id,
             team_id = self.team_id,
             distinct_id = self.distinct_id.as_deref(),
+            device_id = self.device_id.as_deref(),
             ip = %self.ip,
             user_agent = user_agent,
             lib = self.lib,
@@ -255,6 +258,7 @@ mod tests {
         assert!(log.api_version.is_none());
         assert!(log.team_id.is_none());
         assert!(log.distinct_id.is_none());
+        assert!(log.device_id.is_none());
         assert_eq!(log.flags_evaluated, 0);
         assert_eq!(log.flags_experience_continuity, 0);
         assert!(!log.flags_disabled);

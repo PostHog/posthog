@@ -113,8 +113,11 @@ async fn process_request_inner(
             .clone()
             .unwrap_or_else(|| "disabled".to_string());
 
-        // Populate canonical log with distinct_id
-        with_canonical_log(|log| log.distinct_id = Some(distinct_id_for_logging.clone()));
+        // Populate canonical log with distinct_id and device_id
+        with_canonical_log(|log| {
+            log.distinct_id = Some(distinct_id_for_logging.clone());
+            log.device_id = request.device_id.clone();
+        });
 
         tracing::debug!(
             "Authentication completed for distinct_id: {}",
