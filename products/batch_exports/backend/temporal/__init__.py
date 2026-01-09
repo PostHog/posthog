@@ -9,6 +9,10 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
     update_batch_export_backfill_model_status,
 )
+from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+    AzureBlobBatchExportWorkflow,
+    insert_into_azure_blob_activity_from_stage,
+)
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
     insert_into_bigquery_activity_from_stage,
@@ -63,6 +67,7 @@ WORKFLOWS = [
     S3BatchExportWorkflow,
     SnowflakeBatchExportWorkflow,
     DatabricksBatchExportWorkflow,
+    AzureBlobBatchExportWorkflow,
     HttpBatchExportWorkflow,
     BatchExportMonitoringWorkflow,
     WorkflowsBatchExportWorkflow,
@@ -92,4 +97,5 @@ ACTIVITIES = [
     reconcile_event_counts,
     insert_into_s3_activity_from_stage,
     insert_into_databricks_activity_from_stage,
+    insert_into_azure_blob_activity_from_stage,
 ]

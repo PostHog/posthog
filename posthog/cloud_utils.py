@@ -16,6 +16,8 @@ is_instance_licensed_cached: Optional[bool] = None
 instance_license_cached: Optional["License"] = None
 
 
+# Keep this in sync with isCloud() in nodejs/src/utils/env-utils.ts.
+# "dev" refers to the hosted development environment, not local development (which is "local").
 def is_cloud() -> bool:
     return (settings.CLOUD_DEPLOYMENT or "").upper() in ("EU", "US", "DEV", "E2E")
 

@@ -126,6 +126,10 @@ pub struct FlagsCanonicalLogLine {
     // Rate limiting
     pub rate_limited: bool,
 
+    // Cache sources (populated during data fetching)
+    /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
+    pub team_cache_source: Option<&'static str>,
+
     // Outcome (populated at response time)
     pub http_status: u16,
     /// Error code from FlagError::error_code(). Uses &'static str to avoid allocation.
@@ -164,6 +168,7 @@ impl Default for FlagsCanonicalLogLine {
             hash_key_override_succeeded: false,
             hash_key_override_skipped: false,
             rate_limited: false,
+            team_cache_source: None,
             http_status: 200,
             error_code: None,
         }
@@ -218,6 +223,7 @@ impl FlagsCanonicalLogLine {
             hash_key_override_succeeded = self.hash_key_override_succeeded,
             hash_key_override_skipped = self.hash_key_override_skipped,
             rate_limited = self.rate_limited,
+            team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             "canonical_log_line"
         );
@@ -275,6 +281,7 @@ mod tests {
         assert!(!log.hash_key_override_succeeded);
         assert!(!log.hash_key_override_skipped);
         assert!(!log.rate_limited);
+        assert!(log.team_cache_source.is_none());
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
     }
@@ -298,7 +305,7 @@ mod tests {
         log.flags_experience_continuity = 2;
         log.flags_disabled = false;
         log.quota_limited = true;
-        log.flags_cache_source = Some("Redis");
+        log.flags_cache_source = Some("redis");
         log.db_property_fetches = 3;
         log.property_cache_hits = 5;
         log.property_cache_misses = 2;
@@ -307,6 +314,7 @@ mod tests {
         log.hash_key_override_attempted = true;
         log.hash_key_override_succeeded = true;
         log.rate_limited = false;
+        log.team_cache_source = Some("redis");
         log.http_status = 200;
         log.emit();
     }
@@ -539,7 +547,6 @@ mod tests {
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
         #[case(FlagError::RedisDataParsingError, 503, "redis_parsing_error")]
         #[case(FlagError::DeserializeFiltersError, 500, "deserialize_filters_error")]
-        #[case(FlagError::CacheUpdateError, 500, "cache_update_error")]
         #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
         #[case(FlagError::TimeoutError(None), 503, "timeout")]

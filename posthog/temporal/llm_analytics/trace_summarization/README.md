@@ -97,7 +97,7 @@ temporal workflow start \
 
 ### Scheduled Execution
 
-The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `batch-trace-summarization-schedule`.
+The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `llma-trace-summarization-coordinator-schedule`.
 
 ### Team Allowlist
 
