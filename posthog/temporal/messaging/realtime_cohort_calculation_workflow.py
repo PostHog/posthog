@@ -227,6 +227,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     status_counts = {"entered": 0, "left": 0}
                     pending_kafka_messages = []
                     FLUSH_BATCH_SIZE = 10_000  # Flush every 10k messages to allow heartbeats
+                    # Count of messages successfully produced to Kafka (pending flush), excluding failed produce attempts
                     total_messages = 0
                     total_flushed = 0
 
