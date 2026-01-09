@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "0964_webauthncredential"),
+        ("posthog", "0969_add_oauth_is_verified"),
     ]
 
     operations = [

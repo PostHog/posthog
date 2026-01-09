@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -20,11 +21,16 @@ const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element 
     const shortId = `canvas-${id}`
     const mode = 'canvas'
     const { reportPersonProfileViewed } = useActions(eventUsageLogic)
-    const customerProfileLogicProps = {
-        attrs: {
+
+    const attrs = useMemo(
+        () => ({
             personId: id,
             distinctId,
-        },
+        }),
+        [id, distinctId]
+    )
+    const customerProfileLogicProps = {
+        attrs,
         scope: CustomerProfileScope.PERSON,
         key: `person-${id}`,
         canvasShortId: shortId,
