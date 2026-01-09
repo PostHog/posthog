@@ -89,12 +89,12 @@ async def flush_kafka_batch(
         return 0
 
     batch_size = len(pending_messages)
-    batch_type = "final" if is_final else ""
+    batch_type = "final " if is_final else ""
     heartbeater.details = (
-        f"Flushing {batch_type} {batch_size} messages for cohort {idx}/{total_cohorts} (cohort_id={cohort_id})".strip(),
+        f"Flushing {batch_type}{batch_size} messages for cohort {idx}/{total_cohorts} (cohort_id={cohort_id})",
     )
     logger.info(
-        f"Flushing {batch_type} batch of {batch_size} messages for cohort {cohort_id}".strip(),
+        f"Flushing {batch_type}batch of {batch_size} messages for cohort {cohort_id}",
         cohort_id=cohort_id,
         batch_size=batch_size,
     )
