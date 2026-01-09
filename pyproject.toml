@@ -157,6 +157,7 @@ dependencies = [
     "langchain-perplexity>=0.1.1",
     "azure-ai-projects>=1.0.0b11",
     "azure-ai-inference>=1.0.0b9",
+    "azure-storage-blob~=12.27.0",
     "opentelemetry-sdk==1.33.1",
     "opentelemetry-instrumentation-django==0.54b1",
     "opentelemetry-instrumentation-asgi==0.54b1",
