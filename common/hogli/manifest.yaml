@@ -432,19 +432,20 @@ db:
             rm -rf /tmp/migrated-schema-dl
             echo "✅ Downloaded to .postgres-backups/schema-latest.sql.gz"
         description: Download pre-migrated schema artifact from CI (requires gh CLI)
-        services:
-            - docker
     db:restore-schema:
         steps:
             - db:download-schema
             - db:dump
             - name: restore-schema
               cmd: |
+                  set -e
+                  set -o pipefail
                   echo "Restoring schema to database..."
                   gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog
                   echo "✅ Schema restored"
             - db:migrate
         description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
+        destructive: true
         services:
             - postgresql
             - docker

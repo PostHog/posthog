@@ -417,7 +417,7 @@ jobs:
 
             - name: Upload migrated schema artifact
               if: github.event_name == 'push'
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migrated-schema
                   path: schema.sql.gz
