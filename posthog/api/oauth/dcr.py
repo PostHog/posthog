@@ -28,6 +28,23 @@ from posthog.rate_limit import IPThrottle
 
 logger = structlog.get_logger(__name__)
 
+# Blocked words in client names to prevent confusion attacks
+# These prevent malicious apps from impersonating official PostHog applications
+BLOCKED_CLIENT_NAME_PREFIXES = ["posthog"]  # Block names starting with these
+BLOCKED_CLIENT_NAME_WORDS = ["official", "verified", "trusted"]  # Block names containing these
+
+
+def validate_client_name(value: str) -> str:
+    """Validate that client name doesn't impersonate official apps."""
+    lower_value = value.lower()
+    for prefix in BLOCKED_CLIENT_NAME_PREFIXES:
+        if lower_value.startswith(prefix):
+            raise serializers.ValidationError(f"Client name cannot start with '{prefix}'")
+    for word in BLOCKED_CLIENT_NAME_WORDS:
+        if word in lower_value:
+            raise serializers.ValidationError(f"Client name cannot contain '{word}'")
+    return value
+
 
 class DCRBurstThrottle(IPThrottle):
     """Rate limit DCR by IP - burst limit."""
@@ -63,6 +80,7 @@ class DCRRequestSerializer(serializers.Serializer):
         max_length=255,
         required=False,
         help_text="Human-readable name of the client",
+        validators=[validate_client_name],
     )
     grant_types = serializers.ListField(
         child=serializers.ChoiceField(choices=["authorization_code", "refresh_token"]),

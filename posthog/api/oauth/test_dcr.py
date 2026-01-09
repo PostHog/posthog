@@ -270,18 +270,30 @@ class TestDynamicClientRegistration(APIBaseTest):
                 )
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    def test_blocked_client_name_posthog(self):
-        """Client names containing 'posthog' should be rejected to prevent confusion attacks."""
+    def test_blocked_client_name_starts_with_posthog(self):
+        """Client names starting with 'posthog' should be rejected to prevent confusion attacks."""
         response = self.client.post(
             "/oauth/register/",
             {
-                "client_name": "PostHog Official Client",
+                "client_name": "PostHog Client",
                 "redirect_uris": ["https://example.com/callback"],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_client_metadata")
+
+    def test_client_name_containing_posthog_allowed(self):
+        """Client names containing 'posthog' (but not starting with it) should be allowed."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "client_name": "Claude Code (posthog-local)",
+                "redirect_uris": ["https://example.com/callback"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_blocked_client_name_official(self):
         """Client names containing 'official' should be rejected."""
@@ -321,6 +333,17 @@ class TestDynamicClientRegistration(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_client_metadata")
+
+        # Also test "official" case-insensitivity
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "client_name": "OFFICIAL App",
+                "redirect_uris": ["https://example.com/callback"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_valid_client_name_accepted(self):
         """Normal client names without blocked words should be accepted."""

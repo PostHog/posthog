@@ -140,6 +140,11 @@ class OAuthApplication(AbstractApplication):
         null=True, blank=True, help_text="When the client_id was issued (for DCR clients)"
     )
 
+    # Verification status - manually set by PostHog staff
+    is_verified: models.BooleanField = models.BooleanField(
+        default=False, help_text="True if this application has been verified by PostHog"
+    )
+
 
 class OAuthAccessToken(AbstractAccessToken):
     class Meta(AbstractAccessToken.Meta):
