@@ -5,6 +5,15 @@ import { hogql } from '~/queries/utils'
 import { TraceSummary } from './types'
 
 /**
+ * Formats an array of trace IDs as a SQL tuple string for use in IN clauses.
+ * Uses tuple syntax (...) instead of array syntax [...] to ensure proper
+ * bloom filter index utilization in ClickHouse.
+ */
+function formatTraceIdsTuple(traceIds: string[]): string {
+    return `(${traceIds.map((id) => `'${id}'`).join(', ')})`
+}
+
+/**
  * Load trace summaries for a list of trace IDs.
  * Filters out IDs that already exist in existingSummaries to avoid redundant fetches.
  *
@@ -26,6 +35,9 @@ export async function loadTraceSummaries(
         return {}
     }
 
+    // Use tuple syntax for IN clause to ensure bloom filter index utilization
+    const traceIdsTuple = formatTraceIdsTuple(missingTraceIds)
+
     const response = await api.queryHogQL(
         hogql`
             SELECT
@@ -39,7 +51,7 @@ export async function loadTraceSummaries(
             WHERE event = '$ai_trace_summary'
                 AND timestamp >= ${windowStart}
                 AND timestamp <= ${windowEnd}
-                AND JSONExtractString(properties, '$ai_trace_id') IN ${missingTraceIds}
+                AND JSONExtractString(properties, '$ai_trace_id') IN ${hogql.raw(traceIdsTuple)}
             GROUP BY trace_id
             LIMIT 10000
         `,
