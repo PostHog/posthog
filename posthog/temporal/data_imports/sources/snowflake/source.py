@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 
@@ -192,7 +192,9 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
 
         return schemas
 
-    def validate_credentials(self, config: SnowflakeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if config.auth_type.selection == "password" and (not config.auth_type.user or not config.auth_type.password):
             return False, "Missing required parameters: username, password"
 

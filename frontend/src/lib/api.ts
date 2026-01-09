@@ -309,6 +309,13 @@ export class ApiError extends Error {
     }
 }
 
+export class RateLimitError extends Error {
+    constructor(public retryAfterSeconds: number) {
+        super('Rate limit exceeded')
+        this.name = 'RateLimitError'
+    }
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -767,10 +774,6 @@ export class ApiRequest {
 
     public cohortsRemovePersonFromStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('remove_person_from_static_cohort')
-    }
-
-    public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
 
     public cohortsCalculationHistory(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -2650,9 +2653,6 @@ const api = {
                 .cohortsDetail(cohortId)
                 .withQueryString(filterParams)
                 .update({ data: cohortData })
-        },
-        async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
-            return await new ApiRequest().cohortsDuplicate(cohortId).get()
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
@@ -5148,6 +5148,10 @@ const api = {
                   signal?: AbortSignal
               }
     ): Promise<void> {
+        const abortController = new AbortController()
+        // If an external signal is provided, forward its abort to our controller
+        signal?.addEventListener('abort', () => abortController.abort())
+
         await fetchEventSource(url, {
             method,
             headers: {
@@ -5157,7 +5161,16 @@ const api = {
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
-            signal,
+            signal: abortController.signal,
+            onopen: async (response) => {
+                if (response.status === 429) {
+                    const retryAfter = response.headers.get('Retry-After')
+                    if (retryAfter) {
+                        onError(new RateLimitError(parseInt(retryAfter, 10)))
+                        abortController.abort()
+                    }
+                }
+            },
             onmessage: onMessage,
             onerror: onError,
             // By default fetch-event-source stops connection when document is no longer focused, but that is not how

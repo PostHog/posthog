@@ -41,6 +41,7 @@ export function FixedReplayHeatmapBrowser({
                             ref={iframeRef}
                             className="w-full h-full bg-white"
                             srcDoc={replayIframeData?.html}
+                            sandbox=""
                             onLoad={onIframeLoad}
                             allow=""
                         />

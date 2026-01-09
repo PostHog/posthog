@@ -210,9 +210,11 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
 
             // Mock the personsManager to return some persons
             const mockCountMany = jest.fn().mockResolvedValue(2)
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPerson }: any) => {
-                await onPerson({ personId: 'person-1', distinctId: 'distinct-1' })
-                await onPerson({ personId: 'person-2', distinctId: 'distinct-2' })
+            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
+                await onPersonBatch([
+                    { personId: 'person-1', distinctId: 'distinct-1' },
+                    { personId: 'person-2', distinctId: 'distinct-2' },
+                ])
             })
 
             processor['personsManager'].countMany = mockCountMany
@@ -283,7 +285,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     teamId: team.id,
                     properties: batchRequest.filters.properties,
                 },
-                onPerson: expect.any(Function),
+                onPersonBatch: expect.any(Function),
             })
         })
 
@@ -390,8 +392,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             ]
 
             // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPerson }: any) => {
-                await onPerson({ personId: 'person-1', distinctId: 'distinct-1' })
+            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
+                await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
             })
             jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(1)
             processor['personsManager'].streamMany = mockStreamMany
@@ -440,8 +442,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             )
 
             // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPerson }: any) => {
-                await onPerson({ personId: 'person-1', distinctId: 'distinct-1' })
+            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
+                await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
             })
             jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(1)
             processor['personsManager'].streamMany = mockStreamMany
@@ -512,8 +514,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             )
 
             // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPerson }: any) => {
-                await onPerson({ personId: 'person-1', distinctId: 'distinct-1' })
+            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
+                await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
             })
             jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(1)
             processor['personsManager'].streamMany = mockStreamMany
@@ -573,9 +575,11 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             )
 
             // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPerson }: any) => {
-                await onPerson({ personId: 'person-1', distinctId: 'distinct-1' })
-                await onPerson({ personId: 'person-2', distinctId: 'distinct-2' })
+            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
+                await onPersonBatch([
+                    { personId: 'person-1', distinctId: 'distinct-1' },
+                    { personId: 'person-2', distinctId: 'distinct-2' },
+                ])
             })
             jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(2)
             processor['personsManager'].streamMany = mockStreamMany
