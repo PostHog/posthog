@@ -69,6 +69,7 @@ export interface ErrorTrackingIssueAssignmentApi {
  * `clickup` - Clickup
  * `vercel` - Vercel
  * `databricks` - Databricks
+ * `azure-blob` - Azure Blob
  */
 export type KindEnumApi = (typeof KindEnumApi)[keyof typeof KindEnumApi]
 
@@ -96,6 +97,7 @@ export const KindEnumApi = {
     clickup: 'clickup',
     vercel: 'vercel',
     databricks: 'databricks',
+    'azure-blob': 'azure-blob',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
