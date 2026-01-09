@@ -18,6 +18,7 @@ import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
+import { hashCodeForString } from 'lib/utils'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
@@ -84,6 +85,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         actions,
         nodeId,
         pythonRunLoading,
+        pythonRunQueued,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
     } = useValues(nodeLogic)
@@ -154,6 +156,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isDraggable = !!(isEditable && getPos)
     const isPythonNode = nodeType === NotebookNodeType.Python
     const pythonRunDisabledReason = !notebook ? 'Notebook not loaded' : undefined
+    const pythonAttributes = attributes as { code?: string; pythonExecutionCodeHash?: number | null }
+    const pythonExecutionCodeHash = pythonAttributes.pythonExecutionCodeHash ?? null
+    const pythonCodeHash = hashCodeForString(pythonAttributes.code ?? '')
+    const pythonIsStale = pythonExecutionCodeHash !== null && pythonExecutionCodeHash !== pythonCodeHash
+    const pythonIsFresh = pythonExecutionCodeHash !== null && pythonExecutionCodeHash === pythonCodeHash
+    const pythonRunIconClass = pythonIsFresh ? 'text-success' : pythonIsStale ? 'text-danger' : undefined
+    const pythonRunTooltip = 'Run Python cell. ' + (pythonRunQueued ? 'Queued.' : pythonIsStale ? 'Stale.' : '')
 
     const pythonRunMenuItems: LemonMenuItems = [
         {
@@ -253,9 +262,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     <LemonButton
                                                         onClick={() => void runPythonNodeWithMode({ mode: 'auto' })}
                                                         size="small"
-                                                        icon={<IconPlay />}
-                                                        loading={pythonRunLoading}
+                                                        icon={<IconPlay className={pythonRunIconClass} />}
+                                                        loading={pythonRunLoading || pythonRunQueued}
                                                         disabledReason={pythonRunDisabledReason}
+                                                        tooltip={pythonRunTooltip}
                                                         sideAction={{
                                                             icon: <IconChevronDown />,
                                                             dropdown: {

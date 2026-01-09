@@ -16,6 +16,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
+import { hashCodeForString } from 'lib/utils'
 
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
@@ -59,12 +60,14 @@ const runPythonCell = async ({
 
         updateAttributes({
             pythonExecution: buildPythonExecutionResult(execution, exportedGlobals),
+            pythonExecutionCodeHash: hashCodeForString(code),
         })
         return true
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to run Python cell.'
         updateAttributes({
             pythonExecution: buildPythonExecutionError(message, exportedGlobals),
+            pythonExecutionCodeHash: hashCodeForString(code),
         })
         return false
     } finally {
@@ -113,6 +116,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         runPythonNode: (payload: { code: string }) => payload,
         runPythonNodeWithMode: (payload: { mode: PythonRunMode }) => payload,
         setPythonRunLoading: (loading: boolean) => ({ loading }),
+        setPythonRunQueued: (queued: boolean) => ({ queued }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -180,6 +184,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             false,
             {
                 setPythonRunLoading: (_, { loading }) => loading,
+            },
+        ],
+        pythonRunQueued: [
+            false,
+            {
+                setPythonRunQueued: (_, { queued }) => queued,
             },
         ],
     })),
@@ -486,24 +496,40 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     ? values.pythonNodeSummaries.slice(0, currentIndex + 1)
                     : values.pythonNodeSummaries.slice(currentIndex)
 
-            for (const node of nodesToRun) {
-                const nodeLogic = values.notebookLogic.values.findNodeLogicById(node.nodeId)
-                if (!nodeLogic) {
-                    continue
-                }
+            const nodesToRunWithLogic = nodesToRun
+                .map((node) => ({
+                    node,
+                    nodeLogic: values.notebookLogic.values.findNodeLogicById(node.nodeId),
+                }))
+                .filter(
+                    (
+                        entry
+                    ): entry is {
+                        node: (typeof nodesToRun)[number]
+                        nodeLogic: BuiltLogic<notebookNodeLogicType>
+                    } => !!entry.nodeLogic
+                )
 
-                const nodeCode = (nodeLogic.values.nodeAttributes as { code?: string }).code ?? node.code ?? ''
-                const executed = await runPythonCell({
-                    notebookId: notebook.short_id,
-                    code: nodeCode,
-                    exportedGlobals: nodeLogic.values.exportedGlobals,
-                    updateAttributes: nodeLogic.actions.updateAttributes,
-                    setPythonRunLoading: nodeLogic.actions.setPythonRunLoading,
-                })
+            nodesToRunWithLogic.forEach(({ nodeLogic }) => nodeLogic.actions.setPythonRunQueued(true))
 
-                if (!executed) {
-                    break
+            try {
+                for (const { node, nodeLogic } of nodesToRunWithLogic) {
+                    nodeLogic.actions.setPythonRunQueued(false)
+                    const nodeCode = (nodeLogic.values.nodeAttributes as { code?: string }).code ?? node.code ?? ''
+                    const executed = await runPythonCell({
+                        notebookId: notebook.short_id,
+                        code: nodeCode,
+                        exportedGlobals: nodeLogic.values.exportedGlobals,
+                        updateAttributes: nodeLogic.actions.updateAttributes,
+                        setPythonRunLoading: nodeLogic.actions.setPythonRunLoading,
+                    })
+
+                    if (!executed) {
+                        break
+                    }
                 }
+            } finally {
+                nodesToRunWithLogic.forEach(({ nodeLogic }) => nodeLogic.actions.setPythonRunQueued(false))
             }
         },
     })),

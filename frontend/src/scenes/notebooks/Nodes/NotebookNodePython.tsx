@@ -19,6 +19,7 @@ export type NotebookNodePythonAttributes = {
     globalsExportedWithTypes?: { name: string; type: string }[]
     globalsAnalysisHash?: string | null
     pythonExecution?: PythonExecutionResult | null
+    pythonExecutionCodeHash?: number | null
 }
 
 const VariableUsageOverlay = ({
@@ -352,6 +353,9 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
             default: null,
         },
         pythonExecution: {
+            default: null,
+        },
+        pythonExecutionCodeHash: {
             default: null,
         },
     },
