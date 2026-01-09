@@ -245,6 +245,7 @@ def get_person_property_updates_from_clickhouse(
                     GROUP BY person_id, kv_tuple.2, kv_tuple.1
                 )
                 GROUP BY person_id
+                HAVING length(grouped_props) > 0
             )
         ) AS merged
         INNER JOIN person_props AS p ON p.id = merged.person_id
