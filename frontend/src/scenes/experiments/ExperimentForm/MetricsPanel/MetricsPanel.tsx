@@ -62,6 +62,8 @@ export const MetricsPanel = ({
 
     return (
         <div>
+            {showNewExperimentFormLayout && <div className="font-semibold mb-4">Metrics</div>}
+
             {primaryMetrics.length > 0 ? (
                 <MetricList
                     metrics={primaryMetrics}
