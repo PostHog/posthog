@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Mapping
 from typing import Any, Literal, Optional, cast
@@ -50,7 +51,7 @@ from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 
-from ee.clickhouse.materialized_columns.columns import materialize
+from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, materialize
 
 
 class TestPrinter(BaseTest):
@@ -3124,11 +3125,11 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
 
     def _assert_skip_index_used(self, clickhouse_sql: str, mat_col) -> None:
         """Assert that the materialized column's skip index is used in the query."""
-        from ee.clickhouse.materialized_columns.columns import get_minmax_index_name
-
         index_name = get_minmax_index_name(mat_col.name)
 
-        [[raw_explain_result]] = sync_execute(f"EXPLAIN indexes = 1, json = 1 {clickhouse_sql}")
+        # Substitute placeholders with dummy values for EXPLAIN
+        sql_for_explain = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", clickhouse_sql)
+        [[raw_explain_result]] = sync_execute(f"EXPLAIN indexes = 1, json = 1 {sql_for_explain}")
 
         def find_node(node, condition):
             if condition(node):
