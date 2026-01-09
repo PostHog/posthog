@@ -25,7 +25,6 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_NUM_SHARDS = 40
 DEFAULT_CEILING = 60.0
 
 
@@ -48,45 +47,6 @@ def load_timing_artifacts(artifacts_dir: Path, segment: str | None = None) -> di
         with open(timing_file) as f:
             durations.update(json.load(f))
     return durations
-
-
-def simulate_distribution(test_durations: dict[str, float], num_shards: int) -> tuple[list[list[str]], dict[str, int]]:
-    """Simulate pytest-split's duration_based_chunks algorithm."""
-    sorted_tests = sorted(test_durations.keys())
-    total_duration = sum(test_durations.values())
-    target_per_shard = total_duration / num_shards
-
-    shards: list[list[str]] = []
-    current_shard: list[str] = []
-    current_duration = 0.0
-    test_to_shard: dict[str, int] = {}
-
-    for test in sorted_tests:
-        shard_idx = len(shards)
-        current_shard.append(test)
-        test_to_shard[test] = shard_idx
-        current_duration += test_durations[test]
-
-        if current_duration >= target_per_shard and len(shards) < num_shards - 1:
-            shards.append(current_shard)
-            current_shard = []
-            current_duration = 0
-
-    if current_shard:
-        shards.append(current_shard)
-
-    while len(shards) < num_shards:
-        shards.append([])
-
-    return shards, test_to_shard
-
-
-def calculate_stats(shards: list[list[str]], real_durations: dict[str, float]) -> tuple[list[float], float]:
-    """Calculate real execution times and standard deviation."""
-    real_times = [sum(real_durations.get(t, 0) for t in shard) for shard in shards]
-    avg = sum(real_times) / len(real_times)
-    std = (sum((t - avg) ** 2 for t in real_times) / len(real_times)) ** 0.5
-    return real_times, std
 
 
 def apply_ceiling_cap(durations: dict[str, float], ceiling: float = DEFAULT_CEILING) -> dict[str, float]:
@@ -155,12 +115,6 @@ def main():
     parser.add_argument("artifacts_dir", type=Path, help="Directory containing timing artifacts")
     parser.add_argument("output_file", type=Path, help="Output file for processed durations")
     parser.add_argument(
-        "--num-shards",
-        type=int,
-        default=DEFAULT_NUM_SHARDS,
-        help=f"Number of shards for stats (default: {DEFAULT_NUM_SHARDS})",
-    )
-    parser.add_argument(
         "--ceiling",
         type=float,
         default=DEFAULT_CEILING,
@@ -199,22 +153,8 @@ def main():
         )
     logger.info("  Total tests: %d", len(real_durations))
 
-    total_duration = sum(real_durations.values())
-    logger.info("  Total duration: %.0fs", total_duration)
-    logger.info("  Target per shard: %.0fs", total_duration / args.num_shards)
-
     logger.info("Applying ceiling cap (%.0fs)...", args.ceiling)
     processed = apply_ceiling_cap(real_durations, ceiling=args.ceiling)
-
-    # Show stats for reference
-    shards, _ = simulate_distribution(processed, args.num_shards)
-    real_times, std = calculate_stats(shards, real_durations)
-    empty = sum(1 for s in shards if not s)
-
-    logger.info("Simulated distribution:")
-    logger.info("  Time range: %.0fs - %.0fs", min(real_times), max(real_times))
-    logger.info("  Std dev: %.0fs", std)
-    logger.info("  Empty shards: %d", empty)
 
     # Save
     with open(args.output_file, "w") as f:

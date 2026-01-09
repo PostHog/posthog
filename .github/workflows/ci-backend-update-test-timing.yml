@@ -87,15 +87,14 @@ jobs:
               run: |
                   gh run download ${{ steps.find-run.outputs.run_id }} --pattern "timing_data-*" --dir timing_artifacts
 
-            - name: Optimize timing data for balanced shards
+            - name: Process timing data
               run: |
-                  # Optimize each segment separately with its own shard count, then merge
+                  # Process each segment separately, then merge
                   # --filter-existing removes stale tests that no longer exist in codebase
-                  # Core: 40 shards, Temporal: 10 shards
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
-                      --num-shards 40 --ceiling 60 --segment Core --filter-existing
+                      --segment Core --filter-existing
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
-                      --num-shards 10 --ceiling 60 --segment Temporal --filter-existing
+                      --segment Temporal --filter-existing
 
                   # Merge into single file (Core first, then Temporal overwrites any overlaps)
                   python3 -c "
