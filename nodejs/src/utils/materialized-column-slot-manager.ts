@@ -43,16 +43,7 @@ export class MaterializedColumnSlotManager {
         return converted
     }
 
-    /**
-     * Mark slots for a team as needing refresh.
-     * Call this after a slot is created, updated, or deleted.
-     */
-    public markForRefresh(teamId: number): void {
-        this.lazyLoader.markForRefresh(String(teamId))
-    }
-
     private async fetchSlots(teamIds: string[]): Promise<Record<string, MaterializedColumnSlot[] | null>> {
-        // teamIds are stringified numbers from our own code, so Number() is safe
         const numericTeamIds = teamIds.map(Number)
 
         const queryResult = await this.postgres.query<{

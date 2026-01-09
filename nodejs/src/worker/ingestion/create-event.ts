@@ -161,7 +161,10 @@ function extractDynamicMaterializedColumns(
         const convertedValue = convertPropertyValue(propertyValue, slot.property_type)
 
         if (convertedValue !== null) {
-            ;(rawEvent as any)[columnName] = convertedValue
+            // Cast needed because columnName is constructed dynamically at runtime,
+            // so TypeScript can't verify it's a valid RawKafkaEvent key
+            const event = rawEvent as Record<string, any>
+            event[columnName] = convertedValue
         }
     }
 }

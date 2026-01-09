@@ -5,7 +5,7 @@ import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader, TEAM_AND_SLOTS_REFRESH_AGE_MS, TEAM_AND_SLOTS_REFRESH_JITTER_MS } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
-type RawTeam = Omit<Team, 'available_features'> & {
+type RawTeam = Omit<Team, 'availableFeatures'> & {
     available_product_features: { key: string; name: string }[]
 }
 
