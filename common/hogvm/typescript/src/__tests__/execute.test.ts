@@ -163,6 +163,9 @@ describe('hogvm execute', () => {
         expect(() => execSync(['_h', op.INTEGER, 5, op.NULL, op.GT], options)).toThrow(
             'Cannot compare null or undefined values'
         )
+        expect(() => execSync(['_h', op.NULL, op.NULL, op.LT_EQ], options)).toThrow(
+            'Cannot compare null or undefined values'
+        )
 
         // Valid comparisons should still work (stack order: right, left, op)
         expect(execSync(['_h', op.INTEGER, 18, op.INTEGER, 5, op.LT_EQ], options)).toBe(true) // 5 <= 18
