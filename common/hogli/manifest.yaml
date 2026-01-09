@@ -529,15 +529,37 @@ tools:
         hidden: true
     start:llm:gateway:
         bin_script: start-llm-gateway
-        description: 'Start the LLM gateway service'
+        description: Start the LLM gateway service
         hidden: true
     posthog:node:
         bin_script: posthog-node
-        description: 'TODO: add description for posthog-node'
+        description: Start the posthog-node service (old plugin-server)
+        hidden: true
+    posthog:hobby-installer:
+        bin_script: hobby-installer
+        description: Run the hobby-installer installation script for Linux, don't use
+            it on your MacOS development environment
+        hidden: true
+    posthog:hobby-installer:darwin:
+        bin_script: hobby-installer-darwin
+        description: Run the hobby-installer installation script for MacOS
+        hidden: true
+    posthog:hobby-installer:demo:
+        bin_script: hobby-installer-demo
+        description: Run a demo check for the PostHog hobby installation, useful while
+            developing the installation script
+        hidden: true
+    posthog:hobby-installer:development:
+        bin_script: hobby-installer-development
+        description: Run the development version for the hobby-installer deployment
         hidden: true
     start:mcp:server:
         bin_script: start-mcp-server
-        description: 'Start the MCP server'
+        description: Start the MCP server
+        hidden: true
+    posthog:hobby:
+        bin_script: posthog-hobby
+        description: 'TODO: add description for posthog-hobby'
         hidden: true
 utilities:
     nuke:
