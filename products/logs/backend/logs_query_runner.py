@@ -155,7 +155,7 @@ class LogsQueryRunnerMixin(QueryRunner):
                     [
                         f
                         for f in property_group.values
-                        if f.type in [LogPropertyFilterType.LOG_ATTRIBUTE, LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE]
+                        if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE
                         and not operator_is_negative(f.operator)
                     ],
                 )
@@ -164,8 +164,7 @@ class LogsQueryRunnerMixin(QueryRunner):
                     [
                         f
                         for f in property_group.values
-                        if f.type in [LogPropertyFilterType.LOG_ATTRIBUTE, LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE]
-                        and operator_is_negative(f.operator)
+                        if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE and operator_is_negative(f.operator)
                     ],
                 )
                 self.log_filters = cast(
