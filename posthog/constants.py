@@ -375,6 +375,11 @@ LOGIN_METHODS = [
         "display": "SAML",
         "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
     },
+    {
+        "key": "passkey",
+        "display": "Passkey",
+        "backends": ["posthog.auth.WebauthnBackend"],
+    },
 ]
 
 # Mapping of auth backend names to login method display names

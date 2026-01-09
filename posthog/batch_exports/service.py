@@ -314,6 +314,25 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
 
 
 @dataclass(kw_only=True)
+class AzureBlobBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for Azure Blob Storage export workflow.
+
+    NOTE: Connection credentials are stored in the Integration model.
+    The `integration_id` field from `BaseBatchExportInputs` is used to fetch them.
+    """
+
+    container_name: str
+    prefix: str = ""
+    compression: str | None = None
+    file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
+
+    def __post_init__(self):
+        if self.max_file_size_mb:
+            self.max_file_size_mb = int(self.max_file_size_mb)
+
+
+@dataclass(kw_only=True)
 class WorkflowsBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Workflows export workflow.
 
@@ -346,6 +365,7 @@ DESTINATION_WORKFLOWS = {
     "Redshift": ("redshift-export", RedshiftBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
     "Databricks": ("databricks-export", DatabricksBatchExportInputs),
+    "AzureBlob": ("azure-blob-export", AzureBlobBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
     "Workflows": ("workflows-export", WorkflowsBatchExportInputs),

@@ -341,16 +341,20 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             # Generate URL pattern and store file in object storage
             if settings.DATAWAREHOUSE_BUCKET:
-                s3 = boto3.client(
-                    "s3",
-                    aws_access_key_id=settings.AIRBYTE_BUCKET_KEY,
-                    aws_secret_access_key=settings.AIRBYTE_BUCKET_SECRET,
-                    endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-                )
+                if settings.USE_LOCAL_SETUP:
+                    s3 = boto3.client(
+                        "s3",
+                        aws_access_key_id=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+                        aws_secret_access_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+                        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+                    )
+                else:
+                    s3 = boto3.client("s3")
+
                 s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{file.name}")
 
                 # Set the URL pattern for the table
-                table.url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/managed/team_{team_id}/{file.name}"
+                table.url_pattern = f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/managed/team_{team_id}/{file.name}"
                 table.format = file_format
 
                 # Try to determine columns from the file
