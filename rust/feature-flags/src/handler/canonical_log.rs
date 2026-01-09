@@ -185,24 +185,24 @@ impl FlagsCanonicalLogLine {
 
         // Truncate user_agent to prevent log bloat from very long headers (some bots send KB+).
         // Note: distinct_id is already truncated at request parsing time (see MAX_DISTINCT_ID_LEN).
-        let user_agent = self.user_agent.as_ref().map(|ua| truncate_chars(ua, 512));
+        let user_agent = self.user_agent.as_deref().map(|ua| truncate_chars(ua, 512));
 
         tracing::info!(
             request_id = %self.request_id,
-            team_id = ?self.team_id,
-            distinct_id = ?self.distinct_id,
+            team_id = self.team_id,
+            distinct_id = self.distinct_id.as_deref(),
             ip = %self.ip,
-            user_agent = ?user_agent,
-            lib = ?self.lib,
-            lib_version = ?self.lib_version,
-            api_version = ?self.api_version,
+            user_agent = user_agent,
+            lib = self.lib,
+            lib_version = self.lib_version.as_deref(),
+            api_version = self.api_version.as_deref(),
             duration_ms = duration_ms,
             http_status = self.http_status,
             flags_evaluated = self.flags_evaluated,
             flags_experience_continuity = self.flags_experience_continuity,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
-            flags_cache_source = ?self.flags_cache_source,
+            flags_cache_source = self.flags_cache_source,
             db_property_fetches = self.db_property_fetches,
             person_queries = self.person_queries,
             group_queries = self.group_queries,
@@ -218,7 +218,7 @@ impl FlagsCanonicalLogLine {
             hash_key_override_succeeded = self.hash_key_override_succeeded,
             hash_key_override_skipped = self.hash_key_override_skipped,
             rate_limited = self.rate_limited,
-            error_code = ?self.error_code,
+            error_code = self.error_code,
             "canonical_log_line"
         );
     }

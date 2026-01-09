@@ -18,7 +18,7 @@ from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_clustering import constants
-from posthog.temporal.llm_analytics.trace_clustering.constants import ALLOWED_TEAM_IDS
+from posthog.temporal.llm_analytics.trace_clustering.constants import ALLOWED_TEAM_IDS, COORDINATOR_WORKFLOW_NAME
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringResult, ClusteringWorkflowInputs
 from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceClusteringWorkflow
 
@@ -49,7 +49,7 @@ def get_allowed_team_ids() -> list[int]:
     return ALLOWED_TEAM_IDS.copy()
 
 
-@temporalio.workflow.defn(name="trace-clustering-coordinator")
+@temporalio.workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
 class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
     """
     Coordinator workflow that processes traces for teams in ALLOWED_TEAM_IDS.

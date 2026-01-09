@@ -35,7 +35,7 @@ insight saved
 
 Output:
 ```
-{"kind":"RetentionQuery","retentionFilter":{"period":"Week","totalIntervals":9,"targetEntity":{"id":"insight created","name":"insight created","type":"events","order":0},"returningEntity":{"id":"insight created","name":"insight created","type":"events","order":0},"retentionType":"retention_first_time","retentionReference":"total","cumulative":false},"filterTestAccounts":true}
+{"query":{"kind":"RetentionQuery","retentionFilter":{"period":"Week","totalIntervals":9,"targetEntity":{"id":"insight created","name":"insight created","type":"events","order":0},"returningEntity":{"id":"insight created","name":"insight created","type":"events","order":0},"retentionType":"retention_first_time","retentionReference":"total","cumulative":false},"filterTestAccounts":true}}
 ```
 
 Follow these rules:
