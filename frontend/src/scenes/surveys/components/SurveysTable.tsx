@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -20,6 +20,7 @@ import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { isSurveyRunning } from 'scenes/surveys/utils'
@@ -390,69 +391,27 @@ export function SurveysTable(): JSX.Element {
                                                 >
                                                     <LemonButton
                                                         fullWidth
-                                                        onClick={() => {
-                                                            const isRunning = isSurveyRunning(survey)
-                                                            LemonDialog.open({
-                                                                title: 'Archive this survey?',
-                                                                content: isRunning ? (
-                                                                    <div className="text-sm text-secondary">
-                                                                        <p>
-                                                                            This survey is currently running. Archiving
-                                                                            will:
-                                                                        </p>
-                                                                        <ul className="list-disc ml-4 mt-2">
-                                                                            <li>Stop the survey immediately</li>
-                                                                            <li>
-                                                                                Remove it from your active surveys list
-                                                                            </li>
-                                                                        </ul>
-                                                                        <p className="mt-2">
-                                                                            You can restore this survey at any time from
-                                                                            the Archived tab.
-                                                                        </p>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="text-sm text-secondary">
-                                                                        This will remove the survey from your active
-                                                                        surveys list. You can restore it at any time
-                                                                        from the Archived tab.
-                                                                    </div>
-                                                                ),
-                                                                primaryButton: {
-                                                                    children: isRunning
-                                                                        ? 'Stop and archive'
-                                                                        : 'Archive',
-                                                                    type: 'primary',
-                                                                    onClick: () => {
-                                                                        const updatePayload: Partial<Survey> = {
-                                                                            archived: true,
-                                                                        }
-                                                                        if (isRunning) {
-                                                                            updatePayload.end_date =
-                                                                                dayjs().toISOString()
-                                                                        }
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload,
-                                                                            intentContext:
-                                                                                ProductIntentContext.SURVEY_ARCHIVED,
-                                                                        })
-                                                                    },
-                                                                    size: 'small',
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                    type: 'tertiary',
-                                                                    size: 'small',
-                                                                },
+                                                        onClick={() =>
+                                                            openArchiveSurveyDialog(survey, () => {
+                                                                const updatePayload: Partial<Survey> = {
+                                                                    archived: true,
+                                                                }
+                                                                if (isSurveyRunning(survey)) {
+                                                                    updatePayload.end_date = dayjs().toISOString()
+                                                                }
+                                                                updateSurvey({
+                                                                    id: survey.id,
+                                                                    updatePayload,
+                                                                    intentContext: ProductIntentContext.SURVEY_ARCHIVED,
+                                                                })
                                                             })
-                                                        }}
+                                                        }
                                                     >
                                                         Archive
                                                     </LemonButton>
                                                 </AccessControlAction>
                                             )}
-                                            {survey.archived && (
+                                            {canDeleteSurvey(survey) && (
                                                 <AccessControlAction
                                                     resourceType={AccessControlResourceType.Survey}
                                                     minAccessLevel={AccessControlLevel.Editor}
@@ -460,40 +419,11 @@ export function SurveysTable(): JSX.Element {
                                                 >
                                                     <LemonButton
                                                         status="danger"
-                                                        onClick={() => {
-                                                            LemonDialog.open({
-                                                                title: 'Permanently delete this survey?',
-                                                                content: (
-                                                                    <div className="text-sm text-secondary">
-                                                                        <p>
-                                                                            <strong>
-                                                                                This action cannot be undone.
-                                                                            </strong>
-                                                                        </p>
-                                                                        <p className="mt-2">
-                                                                            The survey configuration will be permanently
-                                                                            deleted.
-                                                                        </p>
-                                                                        <p className="mt-2 text-muted">
-                                                                            Note: Survey response events in your data
-                                                                            will not be affected.
-                                                                        </p>
-                                                                    </div>
-                                                                ),
-                                                                primaryButton: {
-                                                                    children: 'Delete permanently',
-                                                                    type: 'primary',
-                                                                    status: 'danger',
-                                                                    onClick: () => deleteSurvey(survey.id),
-                                                                    size: 'small',
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                    type: 'tertiary',
-                                                                    size: 'small',
-                                                                },
-                                                            })
-                                                        }}
+                                                        onClick={() =>
+                                                            openDeleteSurveyDialog(survey, () =>
+                                                                deleteSurvey(survey.id)
+                                                            )
+                                                        }
                                                         fullWidth
                                                     >
                                                         Delete permanently

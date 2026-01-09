@@ -3,8 +3,8 @@ import './SurveyView.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGraph, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+import { IconArchive, IconGraph, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -26,6 +26,7 @@ import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
+import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
@@ -57,7 +58,7 @@ const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey } = useActions(surveyLogic)
+    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -108,7 +109,25 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             />
                         </ScenePanelActionsSection>
                         <ScenePanelDivider />
-                        {survey.archived && (
+                        {!survey.archived && (
+                            <ScenePanelActionsSection>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Survey}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={survey.user_access_level}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        data-attr={`${RESOURCE_TYPE}-archive`}
+                                        onClick={() => openArchiveSurveyDialog(survey, archiveSurvey)}
+                                    >
+                                        <IconArchive />
+                                        Archive
+                                    </ButtonPrimitive>
+                                </AccessControlAction>
+                            </ScenePanelActionsSection>
+                        )}
+                        {canDeleteSurvey(survey) && (
                             <ScenePanelActionsSection>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Survey}
@@ -119,37 +138,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         menuItem
                                         variant="danger"
                                         data-attr={`${RESOURCE_TYPE}-delete`}
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Permanently delete this survey?',
-                                                content: (
-                                                    <div className="text-sm text-secondary">
-                                                        <p>
-                                                            <strong>This action cannot be undone.</strong>
-                                                        </p>
-                                                        <p className="mt-2">
-                                                            The survey configuration will be permanently deleted.
-                                                        </p>
-                                                        <p className="mt-2 text-muted">
-                                                            Note: Survey response events in your data will not be
-                                                            affected.
-                                                        </p>
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Delete permanently',
-                                                    type: 'primary',
-                                                    status: 'danger',
-                                                    onClick: () => deleteSurvey(id),
-                                                    size: 'small',
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                    type: 'tertiary',
-                                                    size: 'small',
-                                                },
-                                            })
-                                        }}
+                                        onClick={() => openDeleteSurveyDialog(survey, () => deleteSurvey(id))}
                                     >
                                         <IconTrash />
                                         Delete permanently
