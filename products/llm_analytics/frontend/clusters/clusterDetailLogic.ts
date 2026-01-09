@@ -88,7 +88,14 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                     }
 
                     const row = response.results[0] as string[]
-                    const clustersData = JSON.parse(row[3] || '[]') as Cluster[]
+
+                    let clustersData: Cluster[] = []
+                    try {
+                        clustersData = JSON.parse(row[3] || '[]') as Cluster[]
+                    } catch {
+                        console.error('Failed to parse clusters data')
+                        return null
+                    }
 
                     const cluster = clustersData.find((c) => c.cluster_id === props.clusterId)
                     if (!cluster) {

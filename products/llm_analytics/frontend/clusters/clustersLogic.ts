@@ -160,11 +160,24 @@ export const clustersLogic = kea<clustersLogicType>([
                     }
 
                     const row = response.results[0] as (string | number)[]
-                    const clustersData = JSON.parse((row[4] as string) || '[]')
+
+                    let clustersData: Cluster[] = []
+                    try {
+                        clustersData = JSON.parse((row[4] as string) || '[]')
+                    } catch {
+                        console.error('Failed to parse clusters data')
+                        return null
+                    }
+
+                    let clusteringParams: ClusteringParams | undefined
                     const clusteringParamsRaw = row[6] as string | null
-                    const clusteringParams: ClusteringParams | undefined = clusteringParamsRaw
-                        ? JSON.parse(clusteringParamsRaw)
-                        : undefined
+                    if (clusteringParamsRaw) {
+                        try {
+                            clusteringParams = JSON.parse(clusteringParamsRaw)
+                        } catch {
+                            // Non-critical, continue without params
+                        }
+                    }
 
                     return {
                         runId: row[0] as string,
