@@ -26,6 +26,17 @@ from posthog.models.team.team import Team
 DEFAULT_CURRENCY_VALUE = "USD"
 DEFAULT_REVENUE_PROPERTY = "$revenue"
 
+ALLOWED_SESSION_MATH_PROPERTIES = frozenset(
+    [
+        "$session_duration",
+        "$pageview_count",
+        "$screen_count",
+        "$autocapture_count",
+        "$num_uniq_urls",
+        "$is_bounce",
+    ]
+)
+
 # Property math types that can be meaningfully aggregated when rolling up histogram buckets
 # e.g. taking p99 of p99 values doesn't make sense
 SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN = (
@@ -140,8 +151,36 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
 
+    def _validate_session_property(self) -> str:
+        if not self.series.math_property:
+            raise ValueError("No math_property specified for session-level aggregation")
+
+        if self.series.math_property not in ALLOWED_SESSION_MATH_PROPERTIES:
+            raise ValueError(
+                f"Invalid session property: {self.series.math_property}. "
+                f"Allowed properties are: {', '.join(sorted(ALLOWED_SESSION_MATH_PROPERTIES))}"
+            )
+
+        return self.series.math_property
+
+    def aggregating_on_session_property(self) -> bool:
+        """
+        Session-level aggregation groups events by session_id before applying math operations.
+        This ensures each session contributes exactly once - critical for metrics like bounce rate
+        where avg($is_bounce) must average across sessions, not events.
+        """
+        # Backwards compatibility: $session_duration works without explicit math_property_type
+        if self.series.math_property == "$session_duration":
+            return True
+
+        return (
+            self.series.math_property_type == "session_properties"
+            and self.series.math_property in ALLOWED_SESSION_MATH_PROPERTIES
+        )
+
     def aggregating_on_session_duration(self) -> bool:
-        return self.series.math_property == "$session_duration"
+        """@deprecated: Use aggregating_on_session_property() instead."""
+        return self.aggregating_on_session_property()
 
     def is_count_per_actor_variant(self):
         return self.series.math in [
@@ -213,7 +252,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         if not self.series.math_property:
             raise ValueError("No math property set")
         if self.series.math_property == "$session_duration":
+            # Backwards compatibility: existing queries expect "session_duration" alias
             return ["session_duration"]
+        elif self.series.math_property_type == "session_properties" and self.aggregating_on_session_property():
+            # Other session properties use "session_property" alias from wrapper query
+            return ["session_property"]
         elif isinstance(self.series, DataWarehouseNode):
             return [self.series.math_property]
         elif self.series.math_property_type == "data_warehouse_person_properties":

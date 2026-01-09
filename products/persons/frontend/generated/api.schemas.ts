@@ -129,17 +129,13 @@ export const PropertyItemTypeEnumApi = {
     workflow_variable: 'workflow_variable',
 } as const
 
-export type PropertyItemApiOperator = OperatorEnumApi | BlankEnumApi | NullEnumApi
-
-export type PropertyItemApiType = PropertyItemTypeEnumApi | BlankEnumApi
-
 export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string
-    operator?: PropertyItemApiOperator
-    type?: PropertyItemApiType
+    operator?: OperatorEnumApi | BlankEnumApi | NullEnumApi
+    type?: PropertyItemTypeEnumApi | BlankEnumApi
 }
 
 export interface PropertyApi {

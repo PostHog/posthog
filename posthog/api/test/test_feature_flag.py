@@ -5415,6 +5415,42 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "stale_multivariate"
         assert response["results"][0]["status"] == "STALE"
 
+    def test_get_flags_with_stale_filter_explicit_multivariate_null(self):
+        # Regression test: flags created via frontend have explicit multivariate: null
+        # The SQL filter should handle both missing key AND explicit null value
+        with freeze_time("2024-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="stale_with_explicit_null",
+                active=True,
+                filters={
+                    "groups": [{"rollout_percentage": 100, "properties": []}],
+                    "multivariate": None,  # Frontend explicitly sets this to null
+                    "payloads": {},
+                },
+            )
+
+        # Create a non-stale flag with explicit multivariate: null (recent)
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="recent_with_explicit_null",
+            active=True,
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": []}],
+                "multivariate": None,
+                "payloads": {},
+            },
+        )
+
+        filtered_flags_list = self.client.get("/api/projects/@current/feature_flags?active=STALE")
+        response = filtered_flags_list.json()
+
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "stale_with_explicit_null"
+        assert response["results"][0]["status"] == "STALE"
+
     def test_get_flags_with_evaluation_runtime_filter(self):
         # Create flags with different evaluation runtimes
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="server_flag", evaluation_runtime="server")

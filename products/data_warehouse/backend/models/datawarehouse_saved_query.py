@@ -267,9 +267,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             parsed = urlparse(settings.BUCKET_URL)
             bucket_name = parsed.netloc
 
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None
