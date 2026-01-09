@@ -121,6 +121,7 @@ from . import (
     user,
     user_home_settings,
     web_vitals,
+    webauthn,
 )
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
@@ -569,6 +570,9 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
+router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
+router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
+router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(
