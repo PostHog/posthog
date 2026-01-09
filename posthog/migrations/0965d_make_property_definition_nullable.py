@@ -4,12 +4,12 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     """
-    Step 3: Remove old constraints and make property_definition nullable.
+    Step 4: Remove old constraints and make property_definition nullable.
     The column will be removed in a future migration after this deploys.
     """
 
     dependencies = [
-        ("posthog", "0965b_populate_property_name"),
+        ("posthog", "0965c_add_property_name_constraints"),
     ]
 
     operations = [
@@ -23,12 +23,12 @@ class Migration(migrations.Migration):
             model_name="materializedcolumnslot",
             name="posthog_mat_team_pr_idx",
         ),
-        # Remove old unconditional constraint (replaced by conditional one in 0965b)
+        # Remove old unconditional constraint (replaced by conditional one in 0965c)
         migrations.RemoveConstraint(
             model_name="materializedcolumnslot",
             name="unique_team_property_type_slot_index",
         ),
-        # Remove old unconditional check constraint (replaced by conditional one in 0965b)
+        # Remove old unconditional check constraint (replaced by conditional one in 0965c)
         migrations.RemoveConstraint(
             model_name="materializedcolumnslot",
             name="valid_slot_index",

@@ -74,7 +74,7 @@ class MaterializedColumnSlot(UUIDTModel):
         ]
         indexes = [
             models.Index(fields=["team", "state"], name="posthog_mat_team_st_idx"),
-            models.Index(fields=["team", "property_name"], name="posthog_mat_team_pr_idx"),
+            models.Index(fields=["team", "property_name"], name="posthog_mat_team_pn_idx"),
             models.Index(fields=["team", "property_type", "slot_index"], name="posthog_mat_team_ty_idx"),
             models.Index(fields=["backfill_temporal_workflow_id"], name="posthog_mat_backfi_idx"),
         ]
