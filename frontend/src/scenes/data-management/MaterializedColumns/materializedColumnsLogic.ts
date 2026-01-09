@@ -28,8 +28,7 @@ export interface PropertyDefinition {
 export interface MaterializedColumnSlot {
     id: string
     team: number
-    property_definition: number
-    property_definition_details: PropertyDefinition
+    property_name: string
     property_type: string
     slot_index: number
     state: MaterializedColumnSlotState

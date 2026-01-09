@@ -42,12 +42,7 @@ export function MaterializedColumns(): JSX.Element {
     const propertyColumn: SlotColumn = {
         title: 'Property',
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
-            return (
-                <div>
-                    <div className="font-semibold">{slot.property_definition_details?.name}</div>
-                    <div className="text-xs text-muted">ID: {slot.property_definition}</div>
-                </div>
-            )
+            return <div className="font-semibold">{slot.property_name}</div>
         },
     }
 
@@ -67,18 +62,11 @@ export function MaterializedColumns(): JSX.Element {
     }
 
     const slotIndexColumn: SlotColumn = {
-        title: 'Slot / Column',
+        title: 'Column',
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
-            // For EAV, show the value column that will be used
+            // EAV doesn't use a specific column - data is accessed via JOIN
             if (slot.materialization_type === MaterializationType.EAV) {
-                const typeToEavColumn: Record<string, string> = {
-                    String: 'value_string',
-                    Numeric: 'value_numeric',
-                    Boolean: 'value_bool',
-                    DateTime: 'value_datetime',
-                }
-                const eavColumn = typeToEavColumn[slot.property_type] || 'value_string'
-                return <div className="font-mono text-xs">event_properties.{eavColumn}</div>
+                return <span className="text-muted">—</span>
             }
 
             // For DMAT, show the column name

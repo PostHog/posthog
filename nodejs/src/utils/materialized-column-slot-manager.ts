@@ -1,12 +1,12 @@
 import { MaterializedColumnSlot } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader } from './lazy-loader'
+import { LazyLoader, TEAM_AND_SLOTS_REFRESH_AGE_MS, TEAM_AND_SLOTS_REFRESH_JITTER_MS } from './lazy-loader'
 
 /**
  * Manages materialized column slot assignments for teams.
  *
- * Uses the same TTL as TeamManager (2 minutes + 30s jitter) to ensure
- * consistent cache behavior across the ingestion pipeline.
+ * Uses the same TTL as TeamManager to ensure consistent cache behavior
+ * across the ingestion pipeline.
  */
 export class MaterializedColumnSlotManager {
     private lazyLoader: LazyLoader<MaterializedColumnSlot[]>
@@ -14,10 +14,8 @@ export class MaterializedColumnSlotManager {
     constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
             name: 'MaterializedColumnSlotManager',
-            // IMPORTANT: If you change these values, update posthog/temporal/eav_backfill/workflows.py
-            // The workflow waits 3 minutes to account for refreshAgeMs + refreshJitterMs + buffer
-            refreshAgeMs: 2 * 60 * 1000, // 2 minutes
-            refreshJitterMs: 30 * 1000, // 30 seconds
+            refreshAgeMs: TEAM_AND_SLOTS_REFRESH_AGE_MS,
+            refreshJitterMs: TEAM_AND_SLOTS_REFRESH_JITTER_MS,
             loader: async (teamIds: string[]) => {
                 return await this.fetchSlots(teamIds)
             },

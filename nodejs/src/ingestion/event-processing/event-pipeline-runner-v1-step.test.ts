@@ -57,8 +57,6 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     ...overrides,
 })
 
-const testTeam = createTestTeam()
-
 const createTestEventPipelineResult = (): EventPipelineResult => ({
     lastStep: 'test-step',
     person: {
@@ -79,7 +77,6 @@ const createTestEventPipelineResult = (): EventPipelineResult => ({
     },
     processPerson: true,
     historicalMigration: false,
-    team: testTeam,
 })
 
 describe('event-pipeline-runner-v1-step', () => {

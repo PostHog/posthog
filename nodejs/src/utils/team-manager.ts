@@ -2,7 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 
 import { OrganizationAvailableFeature, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader } from './lazy-loader'
+import { LazyLoader, TEAM_AND_SLOTS_REFRESH_AGE_MS, TEAM_AND_SLOTS_REFRESH_JITTER_MS } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'available_features'> & {
@@ -15,10 +15,8 @@ export class TeamManager {
     constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
             name: 'TeamManager',
-            // IMPORTANT: If you change these values, update posthog/temporal/backfill_materialized_property/workflows.py
-            // The workflow waits 3 minutes to account for refreshAgeMs + refreshJitterMs + buffer
-            refreshAgeMs: 2 * 60 * 1000, // 2 minute
-            refreshJitterMs: 30 * 1000, // 30 seconds
+            refreshAgeMs: TEAM_AND_SLOTS_REFRESH_AGE_MS,
+            refreshJitterMs: TEAM_AND_SLOTS_REFRESH_JITTER_MS,
             loader: async (teamIdOrTokens: string[]) => {
                 return await this.fetchTeams(teamIdOrTokens)
             },
