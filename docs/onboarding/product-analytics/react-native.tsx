@@ -3,7 +3,7 @@ import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper
 
 export interface StepDefinition {
     title: string
-    badge?: 'required' | 'optional'
+    badge?: 'required' | 'recommended' | 'optional'
     content: ReactNode
 }
 
@@ -86,7 +86,7 @@ export const getReactNativeSteps = (CodeBlock: any, Markdown: any, dedent: any):
         },
         {
             title: 'Send events',
-            badge: 'optional',
+            badge: 'recommended',
             content: (
                 <>
                     <Markdown>

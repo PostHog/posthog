@@ -15,7 +15,7 @@ interface OnboardingComponents {
     Step: React.ComponentType<{
         title: string
         subtitle?: string
-        badge?: 'required' | 'optional'
+        badge?: 'required' | 'recommended' | 'optional'
         checkpoint?: boolean
         docsOnly?: boolean
         children: ReactNode
@@ -89,7 +89,7 @@ function Step({
 }: {
     title: string
     subtitle?: string
-    badge?: 'required' | 'optional'
+    badge?: 'required' | 'recommended' | 'optional'
     checkpoint?: boolean
     docsOnly?: boolean
     stepNumber?: number
@@ -106,7 +106,10 @@ function Step({
             <div className="flex items-center gap-2">
                 <h3 className="m-0">{numberedTitle}</h3>
                 {badge && (
-                    <LemonTag type={badge === 'required' ? 'default' : 'option'} className="text-xs">
+                    <LemonTag
+                        type={badge === 'required' ? 'default' : badge === 'recommended' ? 'success' : 'option'}
+                        className="text-xs"
+                    >
                         {badge}
                     </LemonTag>
                 )}

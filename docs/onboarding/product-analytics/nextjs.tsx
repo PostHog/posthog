@@ -206,7 +206,82 @@ export const NextJSInstallation = (): JSX.Element => {
                 </CalloutBox>
             </Step>
 
-            <Step title="Send events">{JSEventCapture && <JSEventCapture />}</Step>
+            <Step title="Accessing PostHog in your code" badge="recommended">
+                <Tab.Group tabs={['Next.js 15.3+', 'App/Pages router']}>
+                    <Tab.List>
+                        <Tab>Next.js 15.3+</Tab>
+                        <Tab>App/Pages router</Tab>
+                    </Tab.List>
+                    <Tab.Panels>
+                        <Tab.Panel>
+                            <Markdown>
+                                Once initialized in `instrumentation-client.ts`, import `posthog` from `posthog-js`
+                                anywhere and call the methods you need:
+                            </Markdown>
+                            <CodeBlock
+                                blocks={[
+                                    {
+                                        language: 'typescript',
+                                        file: 'app/checkout/page.tsx',
+                                        code: dedent`
+                                            'use client'
+
+                                            import posthog from 'posthog-js'
+
+                                            export default function CheckoutPage() {
+                                                function handlePurchase() {
+                                                    posthog.capture('purchase_completed', { amount: 99 })
+                                                }
+
+                                                return <button onClick={handlePurchase}>Complete purchase</button>
+                                            }
+                                        `,
+                                    },
+                                ]}
+                            />
+                        </Tab.Panel>
+                        <Tab.Panel>
+                            <Markdown>
+                                Use the `usePostHog` hook to access PostHog in client components:
+                            </Markdown>
+                            <CodeBlock
+                                blocks={[
+                                    {
+                                        language: 'typescript',
+                                        file: 'app/checkout/page.tsx',
+                                        code: dedent`
+                                            'use client'
+
+                                            import { usePostHog } from 'posthog-js/react'
+
+                                            export default function CheckoutPage() {
+                                                const posthog = usePostHog()
+
+                                                function handlePurchase() {
+                                                    posthog.capture('purchase_completed', { amount: 99 })
+                                                }
+
+                                                return <button onClick={handlePurchase}>Complete purchase</button>
+                                            }
+                                        `,
+                                    },
+                                ]}
+                            />
+                            <CalloutBox type="caution" title="Client components only">
+                                <Markdown>
+                                    PostHog methods like `capture`, `identify`, and feature flags only work in client
+                                    components (marked with `'use client'`). For server-side analytics, use the
+                                    [PostHog Node.js library](https://posthog.com/docs/libraries/node).
+                                </Markdown>
+                            </CalloutBox>
+                        </Tab.Panel>
+                    </Tab.Panels>
+                </Tab.Group>
+            </Step>
+
+            <Step title="Send events" badge="recommended">
+                {JSEventCapture && <JSEventCapture />}
+            </Step>
         </Steps>
     )
 }

@@ -4,7 +4,7 @@ import { PersonProfiles } from './_snippets/person-profiles'
 
 export interface StepDefinition {
     title: string
-    badge?: 'required' | 'optional'
+    badge?: 'required' | 'recommended' | 'optional'
     content: ReactNode
 }
 
@@ -56,7 +56,7 @@ export const getRubySteps = (CodeBlock: any, Markdown: any, dedent: any): StepDe
         },
         {
             title: 'Send events',
-            badge: 'optional',
+            badge: 'recommended',
             content: (
                 <>
                     <Markdown>

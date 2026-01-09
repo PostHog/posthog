@@ -3,7 +3,7 @@ import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper
 
 export interface StepDefinition {
     title: string
-    badge?: 'required' | 'optional'
+    badge?: 'required' | 'recommended' | 'optional'
     content: ReactNode
 }
 
@@ -122,8 +122,59 @@ export const getReactSteps = (
             ),
         },
         {
+            title: 'Accessing PostHog in your code',
+            badge: 'recommended',
+            content: (
+                <>
+                    <Markdown>
+                        Use the `usePostHog` hook to access the PostHog instance in any component wrapped by
+                        `PostHogProvider`:
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'tsx',
+                                file: 'MyComponent.tsx',
+                                code: dedent`
+                                    import { usePostHog } from 'posthog-js/react'
+
+                                    function MyComponent() {
+                                        const posthog = usePostHog()
+
+                                        function handleClick() {
+                                            posthog.capture('button_clicked', { button_name: 'signup' })
+                                        }
+
+                                        return <button onClick={handleClick}>Sign up</button>
+                                    }
+                                `,
+                            },
+                        ]}
+                    />
+                    <Markdown>
+                        You can also import `posthog` directly for non-React code or utility functions:
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'tsx',
+                                file: 'utils/analytics.ts',
+                                code: dedent`
+                                    import posthog from 'posthog-js'
+
+                                    export function trackPurchase(amount: number) {
+                                        posthog.capture('purchase_completed', { amount })
+                                    }
+                                `,
+                            },
+                        ]}
+                    />
+                </>
+            ),
+        },
+        {
             title: 'Send events',
-            badge: 'optional',
+            badge: 'recommended',
             content: (
                 <>
                     <Markdown>
