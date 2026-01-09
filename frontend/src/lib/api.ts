@@ -1361,6 +1361,11 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
     }
 
+    // # Organization Integrations
+    public organizationIntegrations(): ApiRequest {
+        return this.organizations().current().addPathComponent('integrations')
+    }
+
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
@@ -4463,11 +4468,7 @@ const api = {
 
     organizationIntegrations: {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
-            return await new ApiRequest()
-                .organizations()
-                .current()
-                .addPathComponent('integrations')
-                .get()
+            return await new ApiRequest().organizationIntegrations().get()
         },
     },
 

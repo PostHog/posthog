@@ -3,7 +3,7 @@ import { IntegrationKind, IntegrationType } from '~/types'
 import { VercelIntegrationSuffix } from './VercelIntegrationSuffix'
 
 export type OrganizationIntegrationConfig = {
-    getSuffix: (integration: IntegrationType) => JSX.Element | null
+    getSuffix: (integration: IntegrationType) => JSX.Element | undefined
     getDisplayName: (integration: IntegrationType) => string
 }
 
@@ -15,7 +15,7 @@ const INTEGRATION_CONFIGS: Partial<Record<IntegrationKind, OrganizationIntegrati
 }
 
 const DEFAULT_INTEGRATION_CONFIG: OrganizationIntegrationConfig = {
-    getSuffix: () => null,
+    getSuffix: () => undefined,
     getDisplayName: (integration) => integration.display_name,
 }
 

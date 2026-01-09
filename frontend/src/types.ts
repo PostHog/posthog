@@ -4778,6 +4778,7 @@ export type APIScopeObject =
     | 'logs'
     | 'notebook'
     | 'organization'
+    | 'organization_integration'
     | 'organization_member'
     | 'person'
     | 'plugin'

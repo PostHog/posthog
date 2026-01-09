@@ -45,6 +45,7 @@ APIScopeObject = Literal[
     "logs",
     "notebook",
     "organization",
+    "organization_integration",
     "organization_member",
     "person",
     "persisted_folder",

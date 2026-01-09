@@ -5,6 +5,8 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationConfig } from 'lib/integrations/organizationIntegrationConfig'
 
+import { IntegrationType } from '~/types'
+
 import { organizationIntegrationsLogic } from './organizationIntegrationsLogic'
 
 export function OrganizationIntegrations(): JSX.Element | null {
@@ -25,7 +27,7 @@ export function OrganizationIntegrations(): JSX.Element | null {
 
     return (
         <div className="space-y-2">
-            {organizationIntegrations.map((integration) => {
+            {organizationIntegrations.map((integration: IntegrationType) => {
                 const config = getIntegrationConfig(integration.kind)
 
                 return (
