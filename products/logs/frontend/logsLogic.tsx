@@ -316,7 +316,8 @@ export const logsLogic = kea<logsLogicType>([
         filterGroup: [
             DEFAULT_UNIVERSAL_GROUP_FILTER,
             {
-                setFilterGroup: (_, { filterGroup }) => filterGroup,
+                setFilterGroup: (_, { filterGroup }) =>
+                    filterGroup && filterGroup.values ? filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
             },
         ],
         liveLogsCheckpoint: [

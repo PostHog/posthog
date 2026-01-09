@@ -28,12 +28,6 @@ export const NullEnumApi = {} as const
 
 export type ActionStepJSONApiPropertiesItem = { [key: string]: unknown }
 
-export type ActionStepJSONApiTextMatching = UrlMatchingEnumApi | NullEnumApi
-
-export type ActionStepJSONApiHrefMatching = UrlMatchingEnumApi | NullEnumApi
-
-export type ActionStepJSONApiUrlMatching = UrlMatchingEnumApi | NullEnumApi
-
 export interface ActionStepJSONApi {
     /** @nullable */
     event?: string | null
@@ -47,13 +41,13 @@ export interface ActionStepJSONApi {
     tag_name?: string | null
     /** @nullable */
     text?: string | null
-    text_matching?: ActionStepJSONApiTextMatching
+    text_matching?: UrlMatchingEnumApi | NullEnumApi
     /** @nullable */
     href?: string | null
-    href_matching?: ActionStepJSONApiHrefMatching
+    href_matching?: UrlMatchingEnumApi | NullEnumApi
     /** @nullable */
     url?: string | null
-    url_matching?: ActionStepJSONApiUrlMatching
+    url_matching?: UrlMatchingEnumApi | NullEnumApi
 }
 
 /**
@@ -87,14 +81,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type UserBasicApiHedgehogConfigAnyOf = { [key: string]: unknown }
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = UserBasicApiHedgehogConfigAnyOf | null | null
-
-export type UserBasicApiRoleAtOrganization = RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -114,7 +104,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: UserBasicApiRoleAtOrganization
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
 }
 
 /**

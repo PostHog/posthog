@@ -147,6 +147,19 @@
         }
     },
     {
+        "model": "allenai/olmo-3.1-32b-instruct",
+        "cost": {
+            "default": {
+                "prompt_token": 2e-7,
+                "completion_token": 6e-7
+            },
+            "deepinfra": {
+                "prompt_token": 2e-7,
+                "completion_token": 6e-7
+            }
+        }
+    },
+    {
         "model": "allenai/olmo-3.1-32b-think",
         "cost": {
             "default": {
