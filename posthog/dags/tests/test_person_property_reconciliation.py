@@ -16,9 +16,11 @@ from posthog.dags.person_property_reconciliation import (
     PersonPropertyDiffs,
     PropertyValue,
     SkipReason,
+    fetch_person_properties_from_clickhouse,
     filter_event_person_properties,
     get_person_property_updates_from_clickhouse,
     reconcile_person_properties,
+    reconcile_with_concurrent_changes,
     update_person_with_version_check,
 )
 
@@ -28,14 +30,17 @@ class TestClickHouseResultParsing:
 
     def test_parses_set_diff_tuples(self):
         """Test that set_diff array of tuples is correctly parsed."""
-        # Simulate ClickHouse returning: (person_id, set_diff, set_once_diff, unset_diff)
+        # Simulate ClickHouse returning: (person_id, person_version, set_diff, set_once_diff, unset_diff)
         # set_diff is an array of (key, value, timestamp) tuples
         # Values are raw JSON strings that get parsed via json.loads()
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000001",  # person_id (UUID as string)
+                1,  # person_version
                 [  # set_diff - array of (key, raw_json_value, timestamp) tuples
                     ("email", '"new@example.com"', datetime(2024, 1, 15, 12, 0, 0)),
                     ("name", '"John Doe"', datetime(2024, 1, 15, 12, 30, 0)),
@@ -54,6 +59,7 @@ class TestClickHouseResultParsing:
         assert len(results) == 1
         person_diffs = results[0]
         assert person_diffs.person_id == "018d1234-5678-0000-0000-000000000001"
+        assert person_diffs.person_version == 1
         assert len(person_diffs.set_updates) == 2
         assert len(person_diffs.set_once_updates) == 0
         assert len(person_diffs.unset_updates) == 0
@@ -71,10 +77,13 @@ class TestClickHouseResultParsing:
         """Test that set_once_diff array of tuples is correctly parsed."""
         # Values are raw JSON strings that get parsed via json.loads()
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000002",
+                1,  # person_version
                 [],  # set_diff - empty
                 [  # set_once_diff - array of (key, raw_json_value, timestamp) tuples
                     ("initial_referrer", '"google.com"', datetime(2024, 1, 10, 8, 0, 0)),
@@ -109,10 +118,13 @@ class TestClickHouseResultParsing:
         """Test parsing when both set_diff and set_once_diff have values."""
         # Values are raw JSON strings that get parsed via json.loads()
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000003",
+                1,  # person_version
                 [("email", '"updated@example.com"', datetime(2024, 1, 15, 12, 0, 0))],  # set_diff
                 [("initial_source", '"organic"', datetime(2024, 1, 10, 8, 0, 0))],  # set_once_diff
                 [],  # unset_diff - empty
@@ -143,22 +155,27 @@ class TestClickHouseResultParsing:
         """Test parsing results for multiple persons."""
         # Values are raw JSON strings that get parsed via json.loads()
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-0000-0000-0000-000000000001",
+                1,  # person_version
                 [("prop1", '"val1"', datetime(2024, 1, 15, 12, 0, 0))],
                 [],
                 [],  # unset_diff
             ),
             (
                 "018d1234-0000-0000-0000-000000000002",
+                2,  # person_version
                 [("prop2", '"val2"', datetime(2024, 1, 15, 13, 0, 0))],
                 [],
                 [],  # unset_diff
             ),
             (
                 "018d1234-0000-0000-0000-000000000003",
+                3,  # person_version
                 [],
                 [("prop3", '"val3"', datetime(2024, 1, 10, 8, 0, 0))],
                 [],  # unset_diff
@@ -188,10 +205,13 @@ class TestClickHouseResultParsing:
     def test_skips_persons_with_no_updates(self):
         """Test that persons with empty set_diff, set_once_diff, and unset_diff are skipped."""
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-0000-0000-0000-000000000001",
+                1,  # person_version
                 [],  # empty set_diff
                 [],  # empty set_once_diff
                 [],  # empty unset_diff
@@ -225,10 +245,13 @@ class TestClickHouseResultParsing:
         # - booleans: true, false -> True, False
         # - null -> None
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000001",
+                1,  # person_version
                 [
                     ("string_prop", '"hello"', datetime(2024, 1, 15, 12, 0, 0)),
                     ("int_prop", "123", datetime(2024, 1, 15, 12, 0, 0)),
@@ -278,10 +301,13 @@ class TestClickHouseResultParsing:
         # unset_diff is an array of (key, timestamp) tuples
         # Keys are already parsed in the query with JSON_VALUE (consistent with $set/$set_once)
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000001",
+                1,  # person_version
                 [],  # set_diff - empty
                 [],  # set_once_diff - empty
                 [  # unset_diff - array of (key, timestamp) tuples
@@ -316,10 +342,13 @@ class TestClickHouseResultParsing:
     def test_parses_mixed_set_set_once_and_unset(self):
         """Test parsing when all three operation types have values."""
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000004",
+                1,  # person_version
                 [("email", '"updated@example.com"', datetime(2024, 1, 15, 12, 0, 0))],  # set_diff
                 [("initial_source", '"organic"', datetime(2024, 1, 10, 8, 0, 0))],  # set_once_diff
                 [("old_field", datetime(2024, 1, 14, 10, 0, 0))],  # unset_diff - keys are already parsed
@@ -386,6 +415,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -408,6 +438,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={
                 "email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="new@example.com")
             },
@@ -430,6 +461,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={
                 "initial_referrer": PropertyValue(timestamp=datetime(2024, 1, 10, 8, 0, 0), value="google.com")
@@ -453,6 +485,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={
                 "initial_referrer": PropertyValue(timestamp=datetime(2024, 1, 10, 8, 0, 0), value="google.com")
@@ -475,6 +508,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={
                 "prop1": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="val1"),
                 "prop2": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="val2"),
@@ -504,6 +538,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -524,6 +559,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={},
             unset_updates={},
@@ -542,6 +578,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={},
             unset_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=None)},
@@ -566,6 +603,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={},
             unset_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=None)},
@@ -586,6 +624,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={},
             unset_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=None)},
@@ -628,6 +667,7 @@ class TestUpdatePersonWithVersionCheck:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=5,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -690,6 +730,7 @@ class TestUpdatePersonWithVersionCheck:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -725,6 +766,7 @@ class TestUpdatePersonWithVersionCheck:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-nonexistent",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -742,8 +784,15 @@ class TestUpdatePersonWithVersionCheck:
         assert result_data is None
         assert skip_reason == SkipReason.NOT_FOUND
 
-    def test_version_mismatch_retry(self):
-        """Test retry on version mismatch (concurrent modification)."""
+    @patch("posthog.dags.person_property_reconciliation.fetch_person_properties_from_clickhouse")
+    def test_version_mismatch_retry(self, mock_fetch_ch_properties):
+        """Test retry on version mismatch (concurrent modification).
+
+        When the first UPDATE fails due to version mismatch:
+        1. On retry, if Postgres version differs from CH version (person_version in diffs)
+        2. We fetch CH properties for 3-way merge
+        3. Apply changes and retry UPDATE with new target version
+        """
         person_data_v1 = {
             "id": 123,
             "uuid": "018d1234-5678-0000-0000-000000000001",
@@ -757,13 +806,16 @@ class TestUpdatePersonWithVersionCheck:
         person_data_v2 = {
             "id": 123,
             "uuid": "018d1234-5678-0000-0000-000000000001",
-            "properties": {},
-            "properties_last_updated_at": {},
-            "properties_last_operation": {},
+            "properties": {"other": "concurrent_change"},  # Concurrent change to Postgres
+            "properties_last_updated_at": {"other": "2024-01-14T00:00:00"},
+            "properties_last_operation": {"other": "set"},
             "version": 2,  # Version changed by concurrent update
             "is_identified": False,
             "created_at": datetime(2024, 1, 1, 0, 0, 0),
         }
+
+        # CH properties at version 1 (baseline for 3-way merge)
+        mock_fetch_ch_properties.return_value = {}
 
         cursor = MagicMock()
         # First fetch returns v1, second fetch returns v2
@@ -783,6 +835,7 @@ class TestUpdatePersonWithVersionCheck:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -800,6 +853,9 @@ class TestUpdatePersonWithVersionCheck:
         assert success is True
         assert result_data is not None
         assert result_data["version"] == 3  # v2 + 1
+        # Concurrent change should be preserved, our change should be applied
+        assert result_data["properties"]["other"] == "concurrent_change"
+        assert result_data["properties"]["email"] == "test@example.com"
 
     def test_exhausted_retries(self):
         """Test failure after exhausting all retries."""
@@ -820,6 +876,7 @@ class TestUpdatePersonWithVersionCheck:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -879,6 +936,7 @@ class TestBatchCommits:
             person_diffs_list.append(
                 PersonPropertyDiffs(
                     person_id=f"person-uuid-{i}",
+                    person_version=1,
                     set_updates={
                         "prop": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=f"value_{i}")
                     },
@@ -958,6 +1016,7 @@ class TestBatchCommits:
         person_diffs_list = [
             PersonPropertyDiffs(
                 person_id=uuid,
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=f"user{i}@example.com"
@@ -1048,6 +1107,7 @@ class TestBatchCommits:
         person_diffs_list = [
             PersonPropertyDiffs(
                 person_id="person-uuid-0",
+                person_version=1,
                 set_updates={
                     "prop": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="value_0")
                 },
@@ -1106,6 +1166,7 @@ class TestBackupFunctionality:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=5,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={"name": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="Test User")},
             unset_updates={},
@@ -1163,6 +1224,7 @@ class TestBackupFunctionality:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000002",
+            person_version=3,
             set_updates={"name": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="New Name")},
             set_once_updates={},
             unset_updates={},
@@ -1221,6 +1283,7 @@ class TestBackupFunctionality:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=5,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -1271,6 +1334,7 @@ class TestBackupFunctionality:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -1298,6 +1362,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="018d1234-5678-0000-0000-000000000001",
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="test@example.com"
@@ -1322,6 +1387,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="018d1234-5678-0000-0000-000000000001",
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 10, 12, 0, 0, tzinfo=UTC), value="test@example.com"
@@ -1346,6 +1412,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="018d1234-5678-0000-0000-000000000001",
+                person_version=1,
                 set_updates={},
                 set_once_updates={
                     "referrer": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="google.com")
@@ -1368,6 +1435,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="018d1234-5678-0000-0000-000000000001",
+                person_version=1,
                 set_updates={},
                 set_once_updates={
                     "referrer": PropertyValue(timestamp=datetime(2024, 1, 10, 12, 0, 0, tzinfo=UTC), value="google.com")
@@ -1390,6 +1458,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="018d1234-5678-0000-0000-000000000001",
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="test@example.com"
@@ -1416,6 +1485,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="person1",
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="p1@example.com"
@@ -1428,6 +1498,7 @@ class TestFilterEventPersonProperties:
             ),
             PersonPropertyDiffs(
                 person_id="person2",
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 10, 12, 0, 0, tzinfo=UTC), value="p2@example.com"
@@ -1490,12 +1561,14 @@ class TestPersonPropertyDiffsDataclass:
         """Test that PersonPropertyDiffs has expected fields."""
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime.now(), value="test@example.com")},
             set_once_updates={"referrer": PropertyValue(timestamp=datetime.now(), value="google.com")},
             unset_updates={"old_field": PropertyValue(timestamp=datetime.now(), value=None)},
         )
 
         assert person_diffs.person_id == "018d1234-5678-0000-0000-000000000001"
+        assert person_diffs.person_version == 1
         assert len(person_diffs.set_updates) == 1
         assert len(person_diffs.set_once_updates) == 1
         assert len(person_diffs.unset_updates) == 1
@@ -4519,3 +4592,341 @@ class TestKafkaClickHouseRoundTrip:
         assert not_reconciled_team1 == 3, f"Expected 3 not reconciled in team 1, got {not_reconciled_team1}"
         assert reconciled_team2 == 2, f"Expected 2 reconciled in team 2, got {reconciled_team2}"
         assert not_reconciled_team2 == 1, f"Expected 1 not reconciled in team 2, got {not_reconciled_team2}"
+
+
+@pytest.mark.django_db
+class TestFetchPersonPropertiesFromClickHouse:
+    """Integration tests for fetch_person_properties_from_clickhouse against real ClickHouse."""
+
+    def test_fetches_oldest_version_gte_min_version(self, cluster: ClickhouseCluster):
+        """Test that we fetch the oldest available version >= min_version.
+
+        The function uses argMin to get the oldest version that's at least as new as
+        the requested min_version. This handles cases where the exact version may have
+        been merged away by ReplacingMergeTree.
+        """
+        team_id = 99801
+        person_id = UUID("aaaaaaaa-aaaa-aaaa-aaaa-000000000001")
+        now = datetime.now().replace(microsecond=0)
+
+        # Insert each version in separate INSERT statements to create separate parts
+        def insert_v1(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                [(team_id, person_id, json.dumps({"email": "v1@example.com"}), 1, now - timedelta(days=5))],
+            )
+
+        def insert_v3(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                [(team_id, person_id, json.dumps({"email": "v3@example.com"}), 3, now - timedelta(days=3))],
+            )
+
+        def insert_v5(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                [(team_id, person_id, json.dumps({"email": "v5@example.com"}), 5, now - timedelta(days=1))],
+            )
+
+        cluster.any_host(insert_v1).result()
+        cluster.any_host(insert_v3).result()
+        cluster.any_host(insert_v5).result()
+
+        # min_version=1 should get v1 (oldest >= 1)
+        props = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=1)
+        assert props is not None
+        assert props["email"] == "v1@example.com"
+
+        # min_version=2 should get v3 (oldest >= 2, since v2 doesn't exist)
+        props = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=2)
+        assert props is not None
+        assert props["email"] == "v3@example.com"
+
+        # min_version=3 should get v3 (oldest >= 3)
+        props = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=3)
+        assert props is not None
+        assert props["email"] == "v3@example.com"
+
+        # min_version=4 should get v5 (oldest >= 4, since v4 doesn't exist)
+        props = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=4)
+        assert props is not None
+        assert props["email"] == "v5@example.com"
+
+        # min_version=5 should get v5
+        props = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=5)
+        assert props is not None
+        assert props["email"] == "v5@example.com"
+
+    def test_returns_none_when_no_version_gte_min(self, cluster: ClickhouseCluster):
+        """Test that None is returned when no version >= min_version exists."""
+        team_id = 99802
+        person_id = UUID("bbbbbbbb-bbbb-bbbb-bbbb-000000000002")
+        now = datetime.now().replace(microsecond=0)
+
+        # Insert person with only version 5
+        def insert_person(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                [(team_id, person_id, json.dumps({"email": "test@example.com"}), 5, now)],
+            )
+
+        cluster.any_host(insert_person).result()
+
+        # min_version=5 exists
+        result = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=5)
+        assert result is not None
+
+        # min_version=6 - no version >= 6 exists
+        assert fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=6) is None
+
+        # min_version=99 - no version >= 99 exists
+        assert fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=99) is None
+
+    def test_returns_none_for_nonexistent_person(self, cluster: ClickhouseCluster):
+        """Test that None is returned when the person doesn't exist."""
+        team_id = 99803
+        nonexistent_person_id = "cccccccc-cccc-cccc-cccc-000000000003"
+
+        result = fetch_person_properties_from_clickhouse(team_id, nonexistent_person_id, min_version=1)
+        assert result is None
+
+    def test_returns_empty_dict_for_empty_properties(self, cluster: ClickhouseCluster):
+        """Test that empty dict is returned when properties are empty."""
+        team_id = 99804
+        person_id = UUID("dddddddd-dddd-dddd-dddd-000000000004")
+        now = datetime.now().replace(microsecond=0)
+
+        # Insert person with empty properties
+        person_data = [(team_id, person_id, json.dumps({}), 1, now)]
+
+        def insert_person(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        result = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=1)
+        assert result == {}
+
+
+class TestReconcileWithConcurrentChanges:
+    """Unit tests for reconcile_with_concurrent_changes 3-way merge logic."""
+
+    def test_applies_event_changes_when_no_concurrent_postgres_changes(self):
+        """When Postgres hasn't changed from CH baseline, all event changes apply."""
+        ch_properties = {"email": "original@example.com", "name": "Original"}
+        postgres_person = {
+            "properties": {"email": "original@example.com", "name": "Original"},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="new@example.com")},
+            set_once_updates={},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        assert result["properties"]["email"] == "new@example.com"
+        assert result["properties"]["name"] == "Original"  # unchanged
+
+    def test_postgres_wins_on_conflict(self):
+        """When Postgres has changed a key that events also change, Postgres wins."""
+        ch_properties = {"email": "original@example.com"}
+        postgres_person = {
+            "properties": {"email": "postgres_changed@example.com"},  # Postgres changed this
+            "properties_last_updated_at": {"email": "2024-01-16T00:00:00"},
+            "properties_last_operation": {"email": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={
+                "email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="event_changed@example.com")
+            },
+            set_once_updates={},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        # No changes - Postgres already has a different value, so our change is skipped
+        assert result is None
+
+    def test_applies_event_change_to_unconflicted_key(self):
+        """Event changes apply to keys that Postgres hasn't concurrently modified."""
+        ch_properties = {"email": "original@example.com", "name": "Original"}
+        postgres_person = {
+            "properties": {"email": "postgres_changed@example.com", "name": "Original"},  # Only email changed
+            "properties_last_updated_at": {"email": "2024-01-16T00:00:00"},
+            "properties_last_operation": {"email": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={
+                "email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="event_email@example.com"),
+                "name": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="Event Name"),
+            },
+            set_once_updates={},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        # email: Postgres wins (concurrent change)
+        assert result["properties"]["email"] == "postgres_changed@example.com"
+        # name: event wins (no concurrent change)
+        assert result["properties"]["name"] == "Event Name"
+
+    def test_set_once_applies_for_new_key(self):
+        """set_once applies when key doesn't exist in Postgres."""
+        ch_properties = {}
+        postgres_person = {
+            "properties": {},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={},
+            set_once_updates={"referrer": PropertyValue(timestamp=datetime(2024, 1, 10, 8, 0, 0), value="google.com")},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        assert result["properties"]["referrer"] == "google.com"
+
+    def test_set_once_skipped_when_key_exists_in_postgres(self):
+        """set_once is skipped when key already exists in Postgres (even if added concurrently)."""
+        ch_properties = {}  # Key didn't exist at CH version
+        postgres_person = {
+            "properties": {"referrer": "facebook.com"},  # But now exists in Postgres
+            "properties_last_updated_at": {"referrer": "2024-01-12T00:00:00"},
+            "properties_last_operation": {"referrer": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={},
+            set_once_updates={"referrer": PropertyValue(timestamp=datetime(2024, 1, 10, 8, 0, 0), value="google.com")},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        # No change - key exists in Postgres
+        assert result is None
+
+    def test_unset_applies_when_key_not_concurrently_changed(self):
+        """$unset removes key when Postgres hasn't concurrently modified it."""
+        ch_properties = {"email": "original@example.com", "name": "Original"}
+        postgres_person = {
+            "properties": {"email": "original@example.com", "name": "Original"},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={},
+            set_once_updates={},
+            unset_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value=None)},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        assert "email" not in result["properties"]
+        assert result["properties"]["name"] == "Original"
+
+    def test_unset_skipped_when_key_concurrently_changed(self):
+        """$unset is skipped when Postgres has concurrently modified the key."""
+        ch_properties = {"email": "original@example.com"}
+        postgres_person = {
+            "properties": {"email": "postgres_updated@example.com"},  # Postgres changed this
+            "properties_last_updated_at": {"email": "2024-01-16T00:00:00"},
+            "properties_last_operation": {"email": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={},
+            set_once_updates={},
+            unset_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value=None)},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        # No change - Postgres has concurrent modification
+        assert result is None
+
+    def test_preserves_postgres_additions(self):
+        """Keys added to Postgres concurrently should be preserved."""
+        ch_properties = {"email": "original@example.com"}
+        postgres_person = {
+            "properties": {"email": "original@example.com", "new_key": "postgres_added"},
+            "properties_last_updated_at": {"new_key": "2024-01-16T00:00:00"},
+            "properties_last_operation": {"new_key": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={"name": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="Event Name")},
+            set_once_updates={},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        assert result["properties"]["email"] == "original@example.com"
+        assert result["properties"]["new_key"] == "postgres_added"  # Preserved
+        assert result["properties"]["name"] == "Event Name"  # Event change applied
+
+    def test_mixed_operations_with_conflicts(self):
+        """Test complex scenario with multiple operations and partial conflicts."""
+        ch_properties = {"a": "ch_a", "b": "ch_b", "c": "ch_c"}
+        postgres_person = {
+            "properties": {"a": "pg_a", "b": "ch_b", "c": "ch_c", "d": "pg_d"},  # a changed, d added
+            "properties_last_updated_at": {"a": "2024-01-16T00:00:00", "d": "2024-01-16T00:00:00"},
+            "properties_last_operation": {"a": "set", "d": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={
+                "a": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="event_a"),  # Conflict
+                "b": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="event_b"),  # No conflict
+            },
+            set_once_updates={
+                "e": PropertyValue(timestamp=datetime(2024, 1, 10, 8, 0, 0), value="event_e"),  # New key
+            },
+            unset_updates={
+                "c": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value=None),  # No conflict
+            },
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        assert result["properties"]["a"] == "pg_a"  # Postgres wins (conflict)
+        assert result["properties"]["b"] == "event_b"  # Event wins (no conflict)
+        assert "c" not in result["properties"]  # Unset applied (no conflict)
+        assert result["properties"]["d"] == "pg_d"  # Postgres addition preserved
+        assert result["properties"]["e"] == "event_e"  # set_once applied (new key)
