@@ -90,11 +90,10 @@ jobs:
             - name: Process timing data
               run: |
                   # Process each segment separately, then merge
-                  # --filter-existing removes stale tests that no longer exist in codebase
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
-                      --segment Core --filter-existing
+                      --segment Core
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
-                      --segment Temporal --filter-existing
+                      --segment Temporal
 
                   # Merge into single file (Core first, then Temporal overwrites any overlaps)
                   python3 -c "
