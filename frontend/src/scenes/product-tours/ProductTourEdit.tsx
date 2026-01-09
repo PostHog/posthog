@@ -4,18 +4,22 @@ import { Form } from 'kea-forms'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { featureFlagLogic as featureFlagSceneLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductTourStep } from '~/types'
 
 import { AutoShowSection } from './components/AutoShowSection'
 import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { ProductTourCustomization } from './components/ProductTourCustomization'
+import { ProductTourStepsEditor } from './editor'
 import { ProductTourEditTab, productTourLogic } from './productTourLogic'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
@@ -30,6 +34,9 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     const { editingProductTour, setProductTourFormValue, submitProductTourForm, setEditTab } = useActions(
         productTourLogic({ id })
     )
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showStepsEditor = featureFlags[FEATURE_FLAGS.PRODUCT_TOURS_RICH_TEXT]
 
     if (!productTour) {
         return <LemonSkeleton />
@@ -68,6 +75,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     onChange={(newTab) => setEditTab(newTab as ProductTourEditTab)}
                     tabs={[
                         { key: ProductTourEditTab.Configuration, label: 'Configuration' },
+                        ...(showStepsEditor ? [{ key: ProductTourEditTab.Steps, label: 'Steps' }] : []),
                         { key: ProductTourEditTab.Customization, label: 'Customization' },
                     ]}
                 />
@@ -123,7 +131,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                                     </Tooltip>
                                                 </h5>
                                                 <BindLogic
-                                                    logic={featureFlagLogic}
+                                                    logic={featureFlagSceneLogic}
                                                     props={{
                                                         id: productTour.internal_targeting_flag?.id
                                                             ? String(productTour.internal_targeting_flag.id)
@@ -191,6 +199,19 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                             </div>
                         </div>
                     </div>
+                )}
+
+                {editTab === ProductTourEditTab.Steps && (
+                    <ProductTourStepsEditor
+                        steps={productTourForm.content?.steps ?? []}
+                        appearance={productTourForm.content?.appearance}
+                        onChange={(steps: ProductTourStep[]) => {
+                            setProductTourFormValue('content', {
+                                ...productTourForm.content,
+                                steps,
+                            })
+                        }}
+                    />
                 )}
 
                 {editTab === ProductTourEditTab.Customization && (

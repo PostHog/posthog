@@ -113,6 +113,15 @@ export const seekbarLogic = kea<seekbarLogicType>([
         ],
     }),
     listeners(({ values, actions, cache }) => ({
+        setSlider: () => {
+            // When the slider is set (component mounted), initialize thumb position based on current timestamp
+            if (values.slider && values.sessionPlayerData.durationMs) {
+                const xValue =
+                    ((values.currentPlayerTime ?? 0) / values.sessionPlayerData.durationMs) * values.slider.offsetWidth
+                actions.setThumbLeftPos(xValue - THUMB_OFFSET, false)
+            }
+        },
+
         setCurrentTimestamp: () => {
             if (!values.slider) {
                 return
