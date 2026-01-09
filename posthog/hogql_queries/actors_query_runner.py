@@ -69,9 +69,22 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
+        previous_cache_key: Optional[str] = None,
+        cache_operation: Optional[str] = None,
+        cache_operation_index: Optional[int] = None,
     ):
         self.user = user
-        return super().run(execution_mode, user, query_id, insight_id, dashboard_id, cache_age_seconds)
+        return super().run(
+            execution_mode,
+            user,
+            query_id,
+            insight_id,
+            dashboard_id,
+            cache_age_seconds,
+            previous_cache_key,
+            cache_operation,
+            cache_operation_index,
+        )
 
     @property
     def group_type_index(self) -> int | None:

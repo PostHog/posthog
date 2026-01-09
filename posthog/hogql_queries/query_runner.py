@@ -1130,9 +1130,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
+        previous_cache_key: Optional[str] = None,
+        cache_operation: Optional[str] = None,
+        cache_operation_index: Optional[int] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         start_time = perf_counter()
         cache_key = self.get_cache_key()
+
+        if previous_cache_key and cache_operation:
+            patched_result = self._try_cache_operation(
+                previous_cache_key=previous_cache_key,
+                new_cache_key=cache_key,
+                cache_operation=cache_operation,
+                cache_operation_index=cache_operation_index,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
+            )
+            if patched_result is not None:
+                return patched_result
 
         with posthoganalytics.new_context():
             posthoganalytics.tag("cache_key", cache_key)
@@ -1382,6 +1397,61 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
+    def _try_cache_operation(
+        self,
+        previous_cache_key: str,
+        new_cache_key: str,
+        cache_operation: str,
+        cache_operation_index: Optional[int],
+        insight_id: Optional[int],
+        dashboard_id: Optional[int],
+    ) -> Optional[CR]:
+        from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
+
+        prev_cache_manager = DjangoCacheQueryCacheManager(
+            team_id=self.team.pk,
+            cache_key=previous_cache_key,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+        )
+        cached_data = prev_cache_manager.get_cache_data()
+        if not cached_data:
+            return None
+
+        CachedResponse: type[CR] = self.cached_response_type
+        try:
+            cached_response = CachedResponse(**cached_data)
+        except Exception:
+            return None
+
+        if cache_operation == "series_rename":
+            patched_response, _ = self.apply_series_custom_names(cached_response)
+        elif cache_operation == "series_delete":
+            if cache_operation_index is None:
+                return None
+            patched_response = self.apply_series_delete(cached_response, cache_operation_index)
+        elif cache_operation == "series_duplicate":
+            if cache_operation_index is None:
+                return None
+            patched_response = self.apply_series_duplicate(cached_response, cache_operation_index)
+        else:
+            return None
+
+        patched_response.cache_key = new_cache_key
+
+        new_cache_manager = DjangoCacheQueryCacheManager(
+            team_id=self.team.pk,
+            cache_key=new_cache_key,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+        )
+        new_cache_manager.set_cache_data(
+            response=patched_response.model_dump(),
+            target_age=patched_response.cache_target_age,
+        )
+
+        return patched_response
+
     def apply_series_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
         """
         Apply custom_name values from the current query's series to a cached response.
@@ -1479,6 +1549,195 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         was_modified = True
 
         return cached_response, was_modified
+
+    def apply_series_delete(self, cached_response: CR, deleted_index: int) -> CR:
+        """
+        Remove results for a deleted series and reindex remaining series.
+
+        When a series is deleted at index N:
+        - Results with order=N are removed
+        - Results with order>N have their order decremented by 1
+        """
+        if isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
+            return self._apply_trends_series_delete(cached_response, deleted_index)
+        elif isinstance(self.query, FunnelsQuery):
+            return self._apply_funnels_series_delete(cached_response, deleted_index)
+        return cached_response
+
+    def _apply_trends_series_delete(self, cached_response: CR, deleted_index: int) -> CR:
+        results = getattr(cached_response, "results", None)
+        if not results or not isinstance(results, list):
+            return cached_response
+
+        new_results = []
+        for result in results:
+            if not isinstance(result, dict):
+                new_results.append(result)
+                continue
+            action = result.get("action")
+            if not isinstance(action, dict):
+                new_results.append(result)
+                continue
+            order = action.get("order")
+            if order is None:
+                new_results.append(result)
+                continue
+            if order == deleted_index:
+                continue
+            if order > deleted_index:
+                action["order"] = order - 1
+            new_results.append(result)
+
+        results.clear()
+        results.extend(new_results)
+        return cached_response
+
+    def _apply_funnels_series_delete(self, cached_response: CR, deleted_index: int) -> CR:
+        results = getattr(cached_response, "results", None)
+        if not results or not isinstance(results, list):
+            return cached_response
+
+        def process_step(step: dict) -> dict | None:
+            order = step.get("order")
+            if order is None:
+                return step
+            if order == deleted_index:
+                return None
+            if order > deleted_index:
+                step["order"] = order - 1
+            return step
+
+        if results and len(results) > 0 and isinstance(results[0], list):
+            new_breakdown_results: list[list] = []
+            for breakdown_group in results:
+                new_group: list = []
+                for step in breakdown_group:
+                    if not isinstance(step, dict):
+                        new_group.append(step)
+                        continue
+                    processed = process_step(step)
+                    if processed is not None:
+                        new_group.append(processed)
+                new_breakdown_results.append(new_group)
+            results.clear()
+            results.extend(new_breakdown_results)
+        else:
+            new_flat_results: list = []
+            for step in results:
+                if not isinstance(step, dict):
+                    new_flat_results.append(step)
+                    continue
+                processed = process_step(step)
+                if processed is not None:
+                    new_flat_results.append(processed)
+            results.clear()
+            results.extend(new_flat_results)
+
+        return cached_response
+
+    def apply_series_duplicate(self, cached_response: CR, duplicated_index: int) -> CR:
+        """
+        Duplicate results for a series and reindex subsequent series.
+
+        When a series at index N is duplicated:
+        - Results with order=N are copied with order=N+1
+        - Results with order>N have their order incremented by 1
+        - The copy gets custom_name from the new series at N+1
+        """
+        if isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
+            return self._apply_trends_series_duplicate(cached_response, duplicated_index)
+        elif isinstance(self.query, FunnelsQuery):
+            return self._apply_funnels_series_duplicate(cached_response, duplicated_index)
+        return cached_response
+
+    def _apply_trends_series_duplicate(self, cached_response: CR, duplicated_index: int) -> CR:
+        import copy
+
+        series = getattr(self.query, "series", None)
+        results = getattr(cached_response, "results", None)
+        if not results or not isinstance(results, list):
+            return cached_response
+
+        new_results = []
+        for result in results:
+            if not isinstance(result, dict):
+                new_results.append(result)
+                continue
+            action = result.get("action")
+            if not isinstance(action, dict):
+                new_results.append(result)
+                continue
+            order = action.get("order")
+            if order is None:
+                new_results.append(result)
+                continue
+
+            if order == duplicated_index:
+                new_results.append(result)
+                duplicate = copy.deepcopy(result)
+                duplicate["action"]["order"] = order + 1
+                if series and len(series) > duplicated_index + 1:
+                    new_custom_name = getattr(series[duplicated_index + 1], "custom_name", None)
+                    duplicate["action"]["custom_name"] = new_custom_name
+                new_results.append(duplicate)
+            elif order > duplicated_index:
+                action["order"] = order + 1
+                new_results.append(result)
+            else:
+                new_results.append(result)
+
+        results.clear()
+        results.extend(new_results)
+        return cached_response
+
+    def _apply_funnels_series_duplicate(self, cached_response: CR, duplicated_index: int) -> CR:
+        import copy
+
+        series = getattr(self.query, "series", None)
+        results = getattr(cached_response, "results", None)
+        if not results or not isinstance(results, list):
+            return cached_response
+
+        def process_step(step: dict) -> list[dict]:
+            order = step.get("order")
+            if order is None:
+                return [step]
+            if order == duplicated_index:
+                duplicate = copy.deepcopy(step)
+                duplicate["order"] = order + 1
+                if series and len(series) > duplicated_index + 1:
+                    new_custom_name = getattr(series[duplicated_index + 1], "custom_name", None)
+                    duplicate["custom_name"] = new_custom_name
+                return [step, duplicate]
+            elif order > duplicated_index:
+                step["order"] = order + 1
+                return [step]
+            else:
+                return [step]
+
+        if results and len(results) > 0 and isinstance(results[0], list):
+            new_breakdown_results: list[list] = []
+            for breakdown_group in results:
+                new_group: list = []
+                for step in breakdown_group:
+                    if not isinstance(step, dict):
+                        new_group.append(step)
+                        continue
+                    new_group.extend(process_step(step))
+                new_breakdown_results.append(new_group)
+            results.clear()
+            results.extend(new_breakdown_results)
+        else:
+            new_flat_results: list = []
+            for step in results:
+                if not isinstance(step, dict):
+                    new_flat_results.append(step)
+                    continue
+                new_flat_results.extend(process_step(step))
+            results.clear()
+            results.extend(new_flat_results)
+
+        return cached_response
 
     def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
         """

@@ -1691,6 +1691,45 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
+export type CacheOperation = 'series_rename' | 'series_delete' | 'series_duplicate'
+
+/**
+ * Hint to allow cache patching instead of running a new ClickHouse query.
+ *
+ * When a user performs certain operations on insight series (rename, delete, duplicate),
+ * we don't need to re-run an expensive ClickHouse query if we have cached results.
+ * Instead, we can patch the cached data:
+ *
+ * - **series_rename**: Apply new custom_name values from the query to cached results
+ * - **series_delete**: Filter out results for the deleted series, reindex remaining
+ * - **series_duplicate**: Copy results for the duplicated series, reindex subsequent
+ *
+ * The backend will:
+ * 1. Look up the previous cached response using `previous_cache_key`
+ * 2. Apply the patch operation based on `cache_operation`
+ * 3. Store the patched results under the new query's cache key
+ * 4. Return the patched response with `is_cached: true`
+ *
+ * If the previous cache is not found or the operation fails, the backend falls back
+ * to running a normal query.
+ */
+export interface CacheSkippableHint {
+    /**
+     * Cache key from a previous query response (from response.cache_key).
+     */
+    previous_cache_key: string
+    /**
+     * Type of cache operation to perform.
+     */
+    cache_operation: CacheOperation
+    /**
+     * The series index affected by the cache operation.
+     * Required for delete (which series to remove) and duplicate (which series to copy).
+     * Not needed for rename (all series are updated from the query).
+     */
+    cache_operation_index?: number
+}
+
 export interface EndpointRequest {
     name?: string
     description?: string
@@ -1792,6 +1831,11 @@ export interface QueryRequest {
      * Up to 128 characters for a name.
      */
     name?: string
+    /**
+     * Hint to allow cache patching instead of running a new query.
+     * Used for operations like rename/delete/duplicate that can reuse cached data.
+     */
+    cache_skippable_hint?: CacheSkippableHint
 }
 
 export interface QueryUpgradeRequest {

@@ -70,7 +70,8 @@ describe('dataTableLogic', () => {
             expect.any(Function),
             undefined,
             undefined,
-            false
+            false,
+            undefined
         )
         expect(performQuery).toHaveBeenCalledTimes(1)
     })

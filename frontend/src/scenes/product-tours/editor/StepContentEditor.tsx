@@ -154,7 +154,7 @@ export function StepContentEditor({
                 defaultUpload.setFilesToUpload(files)
             }
         },
-        [uploadImage, editor, defaultUpload.setFilesToUpload]
+        [uploadImage, editor, defaultUpload.setFilesToUpload, defaultUpload]
     )
 
     const uploading = uploadImage ? customUploading : defaultUpload.uploading

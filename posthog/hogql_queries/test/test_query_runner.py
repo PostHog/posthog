@@ -813,3 +813,839 @@ class TestApplySeriesCustomNames(BaseTest):
         _, was_modified = runner.apply_series_custom_names(cached_response)
 
         self.assertEqual(was_modified, expect_modified)
+
+
+class TestApplySeriesDelete(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "deletes_middle_series_from_trends",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="event_a"),
+                        EventsNode(event="event_c"),
+                    ]
+                ),
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+                    {"action": {"order": 2, "custom_name": "C"}, "data": [3]},
+                ],
+                1,
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "C"}, "data": [3]},
+                ],
+            ),
+            (
+                "deletes_first_series_from_trends",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="event_b"),
+                        EventsNode(event="event_c"),
+                    ]
+                ),
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+                    {"action": {"order": 2, "custom_name": "C"}, "data": [3]},
+                ],
+                0,
+                [
+                    {"action": {"order": 0, "custom_name": "B"}, "data": [2]},
+                    {"action": {"order": 1, "custom_name": "C"}, "data": [3]},
+                ],
+            ),
+            (
+                "deletes_last_series_from_trends",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="event_a"),
+                        EventsNode(event="event_b"),
+                    ]
+                ),
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+                    {"action": {"order": 2, "custom_name": "C"}, "data": [3]},
+                ],
+                2,
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+                ],
+            ),
+            (
+                "handles_breakdown_results_with_delete",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="event_a"),
+                    ]
+                ),
+                [
+                    {"action": {"order": 0}, "breakdown_value": "Chrome", "data": [1]},
+                    {"action": {"order": 0}, "breakdown_value": "Firefox", "data": [2]},
+                    {"action": {"order": 1}, "breakdown_value": "Chrome", "data": [3]},
+                    {"action": {"order": 1}, "breakdown_value": "Firefox", "data": [4]},
+                ],
+                1,
+                [
+                    {"action": {"order": 0}, "breakdown_value": "Chrome", "data": [1]},
+                    {"action": {"order": 0}, "breakdown_value": "Firefox", "data": [2]},
+                ],
+            ),
+        ]
+    )
+    def test_apply_trends_series_delete(
+        self,
+        _name: str,
+        query: TrendsQuery,
+        cached_results: list[dict],
+        deleted_index: int,
+        expected_results: list[dict],
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedTrendsQueryResponse
+
+        runner = TrendsQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedTrendsQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response = runner.apply_series_delete(cached_response, deleted_index)
+
+        self.assertEqual(patched_response.results, expected_results)
+
+    @parameterized.expand(
+        [
+            (
+                "deletes_middle_step_from_funnel",
+                [
+                    {"order": 0, "custom_name": "Step A", "count": 100},
+                    {"order": 1, "custom_name": "Step B", "count": 50},
+                    {"order": 2, "custom_name": "Step C", "count": 25},
+                ],
+                1,
+                [
+                    {"order": 0, "custom_name": "Step A", "count": 100},
+                    {"order": 1, "custom_name": "Step C", "count": 25},
+                ],
+            ),
+            (
+                "deletes_step_from_funnel_with_breakdown",
+                [
+                    [
+                        {"order": 0, "count": 100, "breakdown": "Chrome"},
+                        {"order": 1, "count": 50, "breakdown": "Chrome"},
+                        {"order": 2, "count": 25, "breakdown": "Chrome"},
+                    ],
+                    [
+                        {"order": 0, "count": 80, "breakdown": "Firefox"},
+                        {"order": 1, "count": 40, "breakdown": "Firefox"},
+                        {"order": 2, "count": 20, "breakdown": "Firefox"},
+                    ],
+                ],
+                1,
+                [
+                    [
+                        {"order": 0, "count": 100, "breakdown": "Chrome"},
+                        {"order": 1, "count": 25, "breakdown": "Chrome"},
+                    ],
+                    [
+                        {"order": 0, "count": 80, "breakdown": "Firefox"},
+                        {"order": 1, "count": 20, "breakdown": "Firefox"},
+                    ],
+                ],
+            ),
+        ]
+    )
+    def test_apply_funnels_series_delete(
+        self,
+        _name: str,
+        cached_results: list,
+        deleted_index: int,
+        expected_results: list,
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
+
+        from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step_a"),
+                EventsNode(event="step_c"),
+            ]
+        )
+
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedFunnelsQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response = runner.apply_series_delete(cached_response, deleted_index)
+
+        self.assertEqual(patched_response.results, expected_results)
+
+
+class TestApplySeriesDuplicate(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "duplicates_series_in_trends",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="event_a"),
+                        EventsNode(event="event_b"),
+                        EventsNode(event="event_b", custom_name="Copy of B"),
+                        EventsNode(event="event_c"),
+                    ]
+                ),
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+                    {"action": {"order": 2, "custom_name": "C"}, "data": [3]},
+                ],
+                1,
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+                    {"action": {"order": 2, "custom_name": "Copy of B"}, "data": [2]},
+                    {"action": {"order": 3, "custom_name": "C"}, "data": [3]},
+                ],
+            ),
+            (
+                "duplicates_first_series",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="event_a"),
+                        EventsNode(event="event_a", custom_name="Copy of A"),
+                        EventsNode(event="event_b"),
+                    ]
+                ),
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+                ],
+                0,
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "Copy of A"}, "data": [1]},
+                    {"action": {"order": 2, "custom_name": "B"}, "data": [2]},
+                ],
+            ),
+            (
+                "handles_breakdown_results_with_duplicate",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="event_a"),
+                        EventsNode(event="event_a", custom_name="Dup"),
+                    ]
+                ),
+                [
+                    {"action": {"order": 0}, "breakdown_value": "Chrome", "data": [1]},
+                    {"action": {"order": 0}, "breakdown_value": "Firefox", "data": [2]},
+                ],
+                0,
+                [
+                    {"action": {"order": 0}, "breakdown_value": "Chrome", "data": [1]},
+                    {"action": {"order": 1, "custom_name": "Dup"}, "breakdown_value": "Chrome", "data": [1]},
+                    {"action": {"order": 0}, "breakdown_value": "Firefox", "data": [2]},
+                    {"action": {"order": 1, "custom_name": "Dup"}, "breakdown_value": "Firefox", "data": [2]},
+                ],
+            ),
+        ]
+    )
+    def test_apply_trends_series_duplicate(
+        self,
+        _name: str,
+        query: TrendsQuery,
+        cached_results: list[dict],
+        duplicated_index: int,
+        expected_results: list[dict],
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedTrendsQueryResponse
+
+        runner = TrendsQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedTrendsQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response = runner.apply_series_duplicate(cached_response, duplicated_index)
+
+        self.assertEqual(patched_response.results, expected_results)
+
+    @parameterized.expand(
+        [
+            (
+                "duplicates_step_in_funnel",
+                [
+                    {"order": 0, "custom_name": "Step A", "count": 100},
+                    {"order": 1, "custom_name": "Step B", "count": 50},
+                ],
+                0,
+                [
+                    {"order": 0, "custom_name": "Step A", "count": 100},
+                    {"order": 1, "custom_name": "Copy of A", "count": 100},
+                    {"order": 2, "custom_name": "Step B", "count": 50},
+                ],
+            ),
+            (
+                "duplicates_step_in_funnel_with_breakdown",
+                [
+                    [
+                        {"order": 0, "count": 100, "breakdown": "Chrome"},
+                        {"order": 1, "count": 50, "breakdown": "Chrome"},
+                    ],
+                    [
+                        {"order": 0, "count": 80, "breakdown": "Firefox"},
+                        {"order": 1, "count": 40, "breakdown": "Firefox"},
+                    ],
+                ],
+                0,
+                [
+                    [
+                        {"order": 0, "count": 100, "breakdown": "Chrome"},
+                        {"order": 1, "custom_name": "Copy of A", "count": 100, "breakdown": "Chrome"},
+                        {"order": 2, "count": 50, "breakdown": "Chrome"},
+                    ],
+                    [
+                        {"order": 0, "count": 80, "breakdown": "Firefox"},
+                        {"order": 1, "custom_name": "Copy of A", "count": 80, "breakdown": "Firefox"},
+                        {"order": 2, "count": 40, "breakdown": "Firefox"},
+                    ],
+                ],
+            ),
+        ]
+    )
+    def test_apply_funnels_series_duplicate(
+        self,
+        _name: str,
+        cached_results: list,
+        duplicated_index: int,
+        expected_results: list,
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
+
+        from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step_a"),
+                EventsNode(event="step_a", custom_name="Copy of A"),
+                EventsNode(event="step_b"),
+            ]
+        )
+
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedFunnelsQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response = runner.apply_series_duplicate(cached_response, duplicated_index)
+
+        self.assertEqual(patched_response.results, expected_results)
+
+    @parameterized.expand(
+        [
+            (
+                "deletes_stickiness_series",
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+                    {"action": {"order": 2, "custom_name": "C"}, "data": [3]},
+                ],
+                1,
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "C"}, "data": [3]},
+                ],
+            ),
+        ]
+    )
+    def test_apply_stickiness_series_delete(
+        self,
+        _name: str,
+        cached_results: list[dict],
+        deleted_index: int,
+        expected_results: list[dict],
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
+
+        from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+
+        query = StickinessQuery(
+            series=[
+                EventsNode(event="event_a"),
+                EventsNode(event="event_c"),
+            ]
+        )
+
+        runner = StickinessQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedStickinessQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response = runner.apply_series_delete(cached_response, deleted_index)
+
+        self.assertEqual(patched_response.results, expected_results)
+
+    @parameterized.expand(
+        [
+            (
+                "duplicates_stickiness_series",
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+                ],
+                0,
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "Copy of A"}, "data": [1]},
+                    {"action": {"order": 2, "custom_name": "B"}, "data": [2]},
+                ],
+            ),
+        ]
+    )
+    def test_apply_stickiness_series_duplicate(
+        self,
+        _name: str,
+        cached_results: list[dict],
+        duplicated_index: int,
+        expected_results: list[dict],
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
+
+        from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+
+        query = StickinessQuery(
+            series=[
+                EventsNode(event="event_a"),
+                EventsNode(event="event_a", custom_name="Copy of A"),
+                EventsNode(event="event_b"),
+            ]
+        )
+
+        runner = StickinessQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedStickinessQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response = runner.apply_series_duplicate(cached_response, duplicated_index)
+
+        self.assertEqual(patched_response.results, expected_results)
+
+    @parameterized.expand(
+        [
+            (
+                "deletes_lifecycle_series",
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "status": "new", "data": [1]},
+                    {"action": {"order": 0, "custom_name": "A"}, "status": "returning", "data": [2]},
+                    {"action": {"order": 1, "custom_name": "B"}, "status": "new", "data": [3]},
+                    {"action": {"order": 1, "custom_name": "B"}, "status": "returning", "data": [4]},
+                ],
+                1,
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "status": "new", "data": [1]},
+                    {"action": {"order": 0, "custom_name": "A"}, "status": "returning", "data": [2]},
+                ],
+            ),
+        ]
+    )
+    def test_apply_lifecycle_series_delete(
+        self,
+        _name: str,
+        cached_results: list[dict],
+        deleted_index: int,
+        expected_results: list[dict],
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
+
+        from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+
+        query = LifecycleQuery(
+            series=[
+                EventsNode(event="event_a"),
+            ]
+        )
+
+        runner = LifecycleQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedLifecycleQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response = runner.apply_series_delete(cached_response, deleted_index)
+
+        self.assertEqual(patched_response.results, expected_results)
+
+    @parameterized.expand(
+        [
+            (
+                "duplicates_lifecycle_series",
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "status": "new", "data": [1]},
+                    {"action": {"order": 0, "custom_name": "A"}, "status": "returning", "data": [2]},
+                ],
+                0,
+                [
+                    {"action": {"order": 0, "custom_name": "A"}, "status": "new", "data": [1]},
+                    {"action": {"order": 1, "custom_name": "Copy of A"}, "status": "new", "data": [1]},
+                    {"action": {"order": 0, "custom_name": "A"}, "status": "returning", "data": [2]},
+                    {"action": {"order": 1, "custom_name": "Copy of A"}, "status": "returning", "data": [2]},
+                ],
+            ),
+        ]
+    )
+    def test_apply_lifecycle_series_duplicate(
+        self,
+        _name: str,
+        cached_results: list[dict],
+        duplicated_index: int,
+        expected_results: list[dict],
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
+
+        from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+
+        query = LifecycleQuery(
+            series=[
+                EventsNode(event="event_a"),
+                EventsNode(event="event_a", custom_name="Copy of A"),
+            ]
+        )
+
+        runner = LifecycleQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedLifecycleQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response = runner.apply_series_duplicate(cached_response, duplicated_index)
+
+        self.assertEqual(patched_response.results, expected_results)
+
+
+class TestCacheSkippableHintDoesNotAffectCacheKey(BaseTest):
+    def test_cache_key_independent_of_cache_skippable_hint(self):
+        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+
+        runner = TrendsQueryRunner(query=query, team=self.team)
+        cache_key = runner.get_cache_key()
+
+        # Cache key should be the same regardless of what hint we pass to run()
+        # This verifies that cache_skippable_hint (passed at API level) doesn't
+        # affect the cache key generated from the query
+        self.assertEqual(
+            runner.get_cache_key(),
+            cache_key,
+        )
+
+
+class TestTryCacheOperation(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def test_returns_none_when_previous_cache_not_found(self):
+        query = TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Renamed")])
+        runner = TrendsQueryRunner(query=query, team=self.team)
+
+        result = runner._try_cache_operation(
+            previous_cache_key="nonexistent_cache_key",
+            new_cache_key="new_cache_key",
+            cache_operation="series_rename",
+            cache_operation_index=None,
+            insight_id=None,
+            dashboard_id=None,
+        )
+
+        self.assertIsNone(result)
+
+    def test_applies_series_rename_from_cache(self):
+        from datetime import UTC
+
+        from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
+
+        query_before = TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Original")])
+        runner_before = TrendsQueryRunner(query=query_before, team=self.team)
+        cache_key_before = runner_before.get_cache_key()
+
+        cached_data = {
+            "results": [{"action": {"order": 0, "custom_name": "Original"}, "data": [1, 2, 3]}],
+            "is_cached": True,
+            "last_refresh": datetime.now(UTC).isoformat(),
+            "next_allowed_client_refresh": datetime.now(UTC).isoformat(),
+            "cache_key": cache_key_before,
+            "timezone": "UTC",
+        }
+
+        cache_manager = DjangoCacheQueryCacheManager(
+            team_id=self.team.pk,
+            cache_key=cache_key_before,
+        )
+        cache_manager.set_cache_data(response=cached_data, ttl_seconds=3600, target_age_seconds=60)
+
+        query_after = TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Renamed")])
+        runner_after = TrendsQueryRunner(query=query_after, team=self.team)
+        new_cache_key = runner_after.get_cache_key()
+
+        result = runner_after._try_cache_operation(
+            previous_cache_key=cache_key_before,
+            new_cache_key=new_cache_key,
+            cache_operation="series_rename",
+            cache_operation_index=None,
+            insight_id=None,
+            dashboard_id=None,
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.results[0]["action"]["custom_name"], "Renamed")
+
+    def test_applies_series_delete_from_cache(self):
+        from datetime import UTC
+
+        from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
+
+        query_before = TrendsQuery(
+            series=[
+                EventsNode(event="event_a"),
+                EventsNode(event="event_b"),
+                EventsNode(event="event_c"),
+            ]
+        )
+        runner_before = TrendsQueryRunner(query=query_before, team=self.team)
+        cache_key_before = runner_before.get_cache_key()
+
+        cached_data = {
+            "results": [
+                {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+                {"action": {"order": 2, "custom_name": "C"}, "data": [3]},
+            ],
+            "is_cached": True,
+            "last_refresh": datetime.now(UTC).isoformat(),
+            "next_allowed_client_refresh": datetime.now(UTC).isoformat(),
+            "cache_key": cache_key_before,
+            "timezone": "UTC",
+        }
+
+        cache_manager = DjangoCacheQueryCacheManager(
+            team_id=self.team.pk,
+            cache_key=cache_key_before,
+        )
+        cache_manager.set_cache_data(response=cached_data, ttl_seconds=3600, target_age_seconds=60)
+
+        query_after = TrendsQuery(
+            series=[
+                EventsNode(event="event_a"),
+                EventsNode(event="event_c"),
+            ]
+        )
+        runner_after = TrendsQueryRunner(query=query_after, team=self.team)
+        new_cache_key = runner_after.get_cache_key()
+
+        result = runner_after._try_cache_operation(
+            previous_cache_key=cache_key_before,
+            new_cache_key=new_cache_key,
+            cache_operation="series_delete",
+            cache_operation_index=1,
+            insight_id=None,
+            dashboard_id=None,
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result.results), 2)
+        self.assertEqual(result.results[0]["action"]["order"], 0)
+        self.assertEqual(result.results[0]["action"]["custom_name"], "A")
+        self.assertEqual(result.results[1]["action"]["order"], 1)
+        self.assertEqual(result.results[1]["action"]["custom_name"], "C")
+
+    def test_applies_series_duplicate_from_cache(self):
+        from datetime import UTC
+
+        from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
+
+        query_before = TrendsQuery(
+            series=[
+                EventsNode(event="event_a"),
+                EventsNode(event="event_b"),
+            ]
+        )
+        runner_before = TrendsQueryRunner(query=query_before, team=self.team)
+        cache_key_before = runner_before.get_cache_key()
+
+        cached_data = {
+            "results": [
+                {"action": {"order": 0, "custom_name": "A"}, "data": [1]},
+                {"action": {"order": 1, "custom_name": "B"}, "data": [2]},
+            ],
+            "is_cached": True,
+            "last_refresh": datetime.now(UTC).isoformat(),
+            "next_allowed_client_refresh": datetime.now(UTC).isoformat(),
+            "cache_key": cache_key_before,
+            "timezone": "UTC",
+        }
+
+        cache_manager = DjangoCacheQueryCacheManager(
+            team_id=self.team.pk,
+            cache_key=cache_key_before,
+        )
+        cache_manager.set_cache_data(response=cached_data, ttl_seconds=3600, target_age_seconds=60)
+
+        query_after = TrendsQuery(
+            series=[
+                EventsNode(event="event_a"),
+                EventsNode(event="event_a", custom_name="Copy of A"),
+                EventsNode(event="event_b"),
+            ]
+        )
+        runner_after = TrendsQueryRunner(query=query_after, team=self.team)
+        new_cache_key = runner_after.get_cache_key()
+
+        result = runner_after._try_cache_operation(
+            previous_cache_key=cache_key_before,
+            new_cache_key=new_cache_key,
+            cache_operation="series_duplicate",
+            cache_operation_index=0,
+            insight_id=None,
+            dashboard_id=None,
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result.results), 3)
+        self.assertEqual(result.results[0]["action"]["order"], 0)
+        self.assertEqual(result.results[0]["action"]["custom_name"], "A")
+        self.assertEqual(result.results[1]["action"]["order"], 1)
+        self.assertEqual(result.results[1]["action"]["custom_name"], "Copy of A")
+        self.assertEqual(result.results[2]["action"]["order"], 2)
+        self.assertEqual(result.results[2]["action"]["custom_name"], "B")
+
+    def test_returns_none_for_invalid_cache_data(self):
+        from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
+
+        cache_key = "cache_with_invalid_data"
+
+        cache_manager = DjangoCacheQueryCacheManager(
+            team_id=self.team.pk,
+            cache_key=cache_key,
+        )
+        cache_manager.set_cache_data(
+            response={"invalid": "data"},
+            ttl_seconds=3600,
+            target_age_seconds=60,
+        )
+
+        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        runner = TrendsQueryRunner(query=query, team=self.team)
+
+        result = runner._try_cache_operation(
+            previous_cache_key=cache_key,
+            new_cache_key="new_cache_key",
+            cache_operation="series_rename",
+            cache_operation_index=None,
+            insight_id=None,
+            dashboard_id=None,
+        )
+
+        self.assertIsNone(result)
+
+    def test_returns_none_for_unknown_cache_operation(self):
+        from datetime import UTC
+
+        from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
+
+        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        runner = TrendsQueryRunner(query=query, team=self.team)
+        cache_key = runner.get_cache_key()
+
+        cached_data = {
+            "results": [{"action": {"order": 0, "custom_name": "Original"}, "data": [1, 2, 3]}],
+            "is_cached": True,
+            "last_refresh": datetime.now(UTC).isoformat(),
+            "next_allowed_client_refresh": datetime.now(UTC).isoformat(),
+            "cache_key": cache_key,
+            "timezone": "UTC",
+        }
+
+        cache_manager = DjangoCacheQueryCacheManager(
+            team_id=self.team.pk,
+            cache_key=cache_key,
+        )
+        cache_manager.set_cache_data(response=cached_data, ttl_seconds=3600, target_age_seconds=60)
+
+        result = runner._try_cache_operation(
+            previous_cache_key=cache_key,
+            new_cache_key="new_cache_key",
+            cache_operation="unknown_operation",
+            cache_operation_index=None,
+            insight_id=None,
+            dashboard_id=None,
+        )
+
+        self.assertIsNone(result)

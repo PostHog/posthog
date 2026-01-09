@@ -20,6 +20,7 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
+    CacheSkippableHint,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
@@ -4789,6 +4790,7 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
+            cacheSkippableHint?: CacheSkippableHint
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -4805,6 +4807,7 @@ const api = {
                 refresh: queryOptions?.refresh,
                 filters_override: queryOptions?.filtersOverride,
                 variables_override: queryOptions?.variablesOverride,
+                cache_skippable_hint: queryOptions?.cacheSkippableHint,
             },
         })
     },

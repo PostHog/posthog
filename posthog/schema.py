@@ -575,6 +575,29 @@ class BreakdownValue(BaseModel):
     value: str
 
 
+class CacheOperation(StrEnum):
+    SERIES_RENAME = "series_rename"
+    SERIES_DELETE = "series_delete"
+    SERIES_DUPLICATE = "series_duplicate"
+
+
+class CacheSkippableHint(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_operation: CacheOperation = Field(..., description="Type of cache operation to perform.")
+    cache_operation_index: float | None = Field(
+        default=None,
+        description=(
+            "The series index affected by the cache operation. Required for delete (which series to remove) and"
+            " duplicate (which series to copy). Not needed for rename (all series are updated from the query)."
+        ),
+    )
+    previous_cache_key: str = Field(
+        ..., description="Cache key from a previous query response (from response.cache_key)."
+    )
+
+
 class Results(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17322,6 +17345,13 @@ class QueryRequest(BaseModel):
         extra="forbid",
     )
     async_: bool | None = Field(default=None, alias="async")
+    cache_skippable_hint: CacheSkippableHint | None = Field(
+        default=None,
+        description=(
+            "Hint to allow cache patching instead of running a new query. Used for operations like"
+            " rename/delete/duplicate that can reuse cached data."
+        ),
+    )
     client_query_id: str | None = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )

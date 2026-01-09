@@ -118,6 +118,9 @@ def process_query_model(
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
     cache_age_seconds: Optional[int] = None,
+    previous_cache_key: Optional[str] = None,
+    cache_operation: Optional[str] = None,
+    cache_operation_index: Optional[int] = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -201,6 +204,9 @@ def process_query_model(
             insight_id=insight_id,
             dashboard_id=dashboard_id,
             cache_age_seconds=cache_age_seconds,
+            previous_cache_key=previous_cache_key,
+            cache_operation=cache_operation,
+            cache_operation_index=cache_operation_index,
         )
 
     return result
