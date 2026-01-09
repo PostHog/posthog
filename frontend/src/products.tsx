@@ -666,6 +666,7 @@ export const productUrls = {
         return `/replay/${id}`
     },
     replayFilePlayback: (): string => '/replay/file-playback',
+    replayKiosk: (): string => '/replay/kiosk',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
