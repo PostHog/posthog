@@ -12,6 +12,7 @@ from pytest_mock import MockerFixture
 from posthog.session_recordings.session_recording_helpers import (
     RRWEB_MAP_EVENT_TYPE,
     SessionRecordingEventSummary,
+    _analyze_snapshot_items_for_debug,
     is_active_event,
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
@@ -727,3 +728,109 @@ def test_snapshot_library_from_user_agent_splits_version_from_value(raw_snapshot
             },
         },
     ]
+
+
+# Tests for debug properties that capture first full snapshot timestamp
+
+
+def test_analyze_snapshot_items_with_full_snapshot_first():
+    """Test that recording with full snapshot first captures its timestamp."""
+    snapshot_items = [
+        {"type": RRWEB_MAP_EVENT_TYPE.FullSnapshot, "timestamp": 1000},
+        {"type": RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot, "timestamp": 1100},
+        {"type": RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot, "timestamp": 1200},
+    ]
+
+    debug_props = _analyze_snapshot_items_for_debug(snapshot_items)
+
+    assert debug_props == {
+        "$debug_first_full_snapshot_timestamp": 1000,
+    }
+
+
+def test_analyze_snapshot_items_with_incremental_before_full():
+    """Test that we capture the first full snapshot timestamp even when incrementals come first."""
+    snapshot_items = [
+        {"type": RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot, "timestamp": 1000},
+        {"type": RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot, "timestamp": 1050},
+        {"type": RRWEB_MAP_EVENT_TYPE.FullSnapshot, "timestamp": 1100},
+        {"type": RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot, "timestamp": 1200},
+    ]
+
+    debug_props = _analyze_snapshot_items_for_debug(snapshot_items)
+
+    # We only capture the first full snapshot timestamp
+    # Users can infer session rotation by comparing this with recording start time
+    assert debug_props == {
+        "$debug_first_full_snapshot_timestamp": 1100,
+    }
+
+
+def test_analyze_snapshot_items_with_missing_full_snapshot():
+    """Test that recordings missing full snapshot entirely return empty properties."""
+    snapshot_items = [
+        {"type": RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot, "timestamp": 1000},
+        {"type": RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot, "timestamp": 1100},
+        {"type": RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot, "timestamp": 1200},
+    ]
+
+    debug_props = _analyze_snapshot_items_for_debug(snapshot_items)
+
+    # No full snapshot found, so no debug properties
+    # Users can infer this by absence of the property
+    assert debug_props == {}
+
+
+def test_analyze_snapshot_items_with_empty_list():
+    """Test that empty snapshot list returns empty debug properties."""
+    debug_props = _analyze_snapshot_items_for_debug([])
+    assert debug_props == {}
+
+
+def test_analyze_snapshot_items_with_only_meta_events():
+    """Test that recordings with only meta events have no debug properties."""
+    snapshot_items = [
+        {"type": RRWEB_MAP_EVENT_TYPE.Meta, "timestamp": 1000},
+        {"type": RRWEB_MAP_EVENT_TYPE.Custom, "timestamp": 1100},
+    ]
+
+    debug_props = _analyze_snapshot_items_for_debug(snapshot_items)
+
+    # No full snapshot found
+    assert debug_props == {}
+
+
+def test_debug_properties_added_to_preprocessed_events(mocker: MockerFixture):
+    """Test that debug property is actually added to events during preprocessing."""
+    mocker.patch("time.time", return_value=0)
+
+    # Create events with incremental before full (session rotation issue)
+    events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "test-session",
+                "$window_id": "test-window",
+                "$snapshot_data": {"type": RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot, "timestamp": 1000},
+                "distinct_id": "test-user",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "test-session",
+                "$window_id": "test-window",
+                "$snapshot_data": {"type": RRWEB_MAP_EVENT_TYPE.FullSnapshot, "timestamp": 2000},
+                "distinct_id": "test-user",
+            },
+        },
+    ]
+
+    result = list(mock_capture_flow(events)[1])
+
+    assert len(result) == 1
+    props = result[0]["properties"]
+
+    # Check that debug property was added with the full snapshot timestamp
+    assert "$debug_first_full_snapshot_timestamp" in props
+    assert props["$debug_first_full_snapshot_timestamp"] == 2000

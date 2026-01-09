@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from datetime import timedelta
-from typing import Optional, cast
+from typing import cast
 
 import posthoganalytics
 
@@ -15,6 +15,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
 
@@ -56,7 +57,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         team: Team,
         query: RecordingsQuery,
         allow_event_property_expansion: bool = False,
-        hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
+        hogql_query_modifiers: HogQLQueryModifiers | None = None,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
@@ -100,6 +101,94 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             order_by=[ast.OrderExpr(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), order="DESC")],
             limit=limit_expr,
         )
+
+    def _is_hybrid_query_mode_enabled(self) -> bool:
+        """
+        Check if hybrid query mode is enabled via feature flag.
+        Hybrid mode does a two-stage query to find all sessions for persons matching properties,
+        including sessions from before identification.
+        """
+        return posthoganalytics.feature_enabled(
+            "enable-hybrid-poe-replay-filtering",
+            str(self._team.id),
+            send_feature_flag_events=False,
+        )
+
+    def _get_person_id_based_sessions_query(
+        self,
+        person_properties: list[AnyPropertyFilter],
+        skip_negative_properties: bool = False,
+    ) -> ast.SelectQuery | None:
+        """
+        Three-stage query for person properties in PoE mode with hybrid approach:
+        1. Find person_ids matching the properties (from events with those properties)
+        2. Get all distinct_ids for those person_ids (from person_distinct_ids mapping)
+        3. Find all sessions for those distinct_ids (including sessions before identification)
+
+        This ensures we get complete session history even if the person
+        was identified after some sessions occurred.
+
+        Example: User browses anonymously on Day 1, signs up with email on Day 3.
+        - Standard PoE: Only finds sessions from Day 3 onwards (when email existed)
+        - Hybrid: Finds sessions from Day 1 onwards (all sessions for that person)
+
+        The main replay query filters by distinct_id and min_first_timestamp without buffers,
+        so this query must return sessions that match those same criteria.
+        """
+        # Build person property filter expressions
+        person_property_exprs: list[ast.Expr] = []
+        for p in person_properties:
+            if skip_negative_properties and is_negative_prop(p):
+                continue
+            person_property_exprs.append(property_to_expr(p, team=self._team, scope="event"))
+
+        # Combine all person property filters
+        if len(person_property_exprs) == 0:
+            # No valid person properties to filter on
+            return None
+        elif len(person_property_exprs) == 1:
+            person_filter_expr = person_property_exprs[0]
+        else:
+            person_filter_expr = ast.And(exprs=person_property_exprs)
+
+        # First, get the person_ids matching the properties
+        # Then use those to filter the distinct_ids from raw_person_distinct_ids
+        query = parse_select(
+            """
+            SELECT DISTINCT `$session_id` as session_id
+            FROM events
+            WHERE distinct_id IN (
+                SELECT distinct_id
+                FROM (
+                    SELECT
+                        distinct_id,
+                        argMax(person_id, version) as person_id,
+                        argMax(is_deleted, version) as is_deleted
+                    FROM raw_person_distinct_ids
+                    WHERE team_id = {team_id}
+                    GROUP BY distinct_id
+                    HAVING is_deleted = 0 AND person_id IN (
+                        SELECT DISTINCT person_id
+                        FROM events
+                        WHERE {person_property_filters}
+                          AND timestamp >= {date_from}
+                          AND timestamp <= {date_to}
+                          AND person_id IS NOT NULL
+                    )
+                )
+            )
+            AND timestamp >= {date_from}
+            AND timestamp <= {date_to}
+            AND notEmpty(`$session_id`)
+            """,
+            {
+                "team_id": ast.Constant(value=self._team.pk),
+                "person_property_filters": person_filter_expr,
+                "date_from": ast.Constant(value=self.query_date_range.date_from()),
+                "date_to": ast.Constant(value=self.query_date_range.date_to()),
+            },
+        )
+        return cast(ast.SelectQuery, query)
 
     def _get_queries_for_matching(self, select_expr: ast.Expr, group_by: list[ast.Expr]) -> list[ast.SelectQuery]:
         """
@@ -154,13 +243,29 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 continue
             gathered_exprs.append(property_to_expr(p, team=self._team))
 
+        # Handle person properties with hybrid query mode if enabled
+        hybrid_query: ast.SelectQuery | None = None
         if self._team.person_on_events_mode and self.person_properties:
-            for p in self.person_properties:
-                if skip_negative_properties and is_negative_prop(p):
-                    continue
-                gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
+            if self._is_hybrid_query_mode_enabled():
+                # Use two-stage person-id based query for complete results
+                hybrid_query = self._get_person_id_based_sessions_query(
+                    self.person_properties, skip_negative_properties
+                )
+                # Don't add person properties to gathered_exprs - we've handled them via hybrid query
+            else:
+                # Use standard PoE approach (fast but potentially incomplete)
+                for p in self.person_properties:
+                    if skip_negative_properties and is_negative_prop(p):
+                        continue
+                    gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
 
         queries: list[ast.SelectQuery] = []
+
+        # Add hybrid query if we used it for person properties
+        if hybrid_query:
+            queries.append(hybrid_query)
+
+        # Add queries for all other filters
         for expr in gathered_exprs:
             # Increased LIMIT from 10000 to 1000000 to handle cases where:
             # 1. Session recording sampling is enabled (only small % of sessions have recordings)

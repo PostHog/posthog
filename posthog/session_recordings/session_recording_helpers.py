@@ -124,6 +124,35 @@ def snapshot_library_fallback_from(user_agent: str | None) -> str | None:
         return None
 
 
+def _analyze_snapshot_items_for_debug(snapshot_items: list[dict]) -> dict[str, Any]:
+    """
+    Analyze snapshot items to capture the timestamp of the first full snapshot.
+
+    This allows us to detect session rotation issues by comparing the first full snapshot
+    timestamp with the recording start timestamp. If they differ significantly, it suggests
+    the full snapshot was sent late or incremental snapshots were sent before it.
+
+    Returns debug properties that can be added to the event to help diagnose issues.
+    These properties are prefixed with $debug_ to indicate they are for debugging purposes.
+    """
+    if not snapshot_items:
+        return {}
+
+    # Find the first full snapshot (type == 2)
+    for item in snapshot_items:
+        item_type = item.get("type")
+        timestamp = item.get("timestamp")
+
+        if timestamp is None:
+            continue
+
+        if item_type == RRWEB_MAP_EVENT_TYPE.FullSnapshot:
+            return {"$debug_first_full_snapshot_timestamp": timestamp}
+
+    # No full snapshot found
+    return {}
+
+
 def preprocess_replay_events(
     _events: list[Event] | Generator[Event, None, None], max_size_bytes=1024 * 1024, user_agent: str | None = None
 ) -> Generator[Event, None, None]:
@@ -158,6 +187,11 @@ def preprocess_replay_events(
         lib_property = lib_property[:997] + "..."
 
     def new_event(items: list[dict] | None = None) -> Event:
+        snapshot_items = items or []
+
+        # Analyze snapshots for debug properties
+        debug_props = _analyze_snapshot_items_for_debug(snapshot_items)
+
         return {
             **events[0],
             "event": "$snapshot_items",  # New event name to avoid confusion with the old $snapshot event
@@ -166,9 +200,10 @@ def preprocess_replay_events(
                 "$session_id": session_id,
                 "$window_id": window_id or session_id,
                 # We instantiate here instead of in the arg to avoid mutable default args
-                "$snapshot_items": items or [],
+                "$snapshot_items": snapshot_items,
                 "$snapshot_source": snapshot_source,
                 "$lib": lib_property,
+                **debug_props,
             },
         }
 
