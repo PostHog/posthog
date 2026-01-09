@@ -1,6 +1,13 @@
 # hogli
 
-Developer CLI framework with YAML-based command definitions.
+A developer CLI framework for defining commands in YAML. Think of it as "GitHub Actions for your local dev environment" - declarative, composable, and easy to maintain.
+
+## Why hogli?
+
+- **Declarative**: Define commands in YAML instead of scattered shell scripts
+- **Composable**: Chain commands together with `steps`
+- **Discoverable**: Auto-generated help with categories, `--help` on every command
+- **Extensible**: Add complex commands in Python when YAML isn't enough
 
 ## Installation
 
@@ -10,9 +17,19 @@ pip install hogli
 
 ## Quick Start
 
-1. Create `hogli.yaml` in your repo root:
+Create `hogli.yaml` in your repo root:
 
 ```yaml
+config:
+    scripts_dir: bin  # Where bin_script looks for scripts (default: bin/)
+
+metadata:
+    categories:
+        - key: dev
+          title: Development
+        - key: test
+          title: Testing
+
 dev:
     dev:start:
         cmd: docker compose up -d && npm run dev
@@ -23,7 +40,7 @@ dev:
             - dev:stop
             - dev:clean
             - dev:start
-        description: Full reset
+        description: Full environment reset
 
 test:
     test:unit:
@@ -31,29 +48,29 @@ test:
         description: Run unit tests
 ```
 
-2. Run commands:
+Run commands:
 
 ```bash
 hogli dev:start
-hogli test:unit
-hogli --help
+hogli --help        # Shows all commands grouped by category
+hogli dev:start -h  # Help for specific command
 ```
 
 ## Command Types
 
-### Direct commands (`cmd`)
+### Shell commands (`cmd`)
 
-Execute shell commands directly:
+Run shell commands directly. Supports shell operators (`&&`, `||`, `|`):
 
 ```yaml
 build:
-    cmd: npm run build
-    description: Build the project
+    cmd: npm run build && npm run test
+    description: Build and test
 ```
 
 ### Script delegation (`bin_script`)
 
-Delegate to a script in your scripts directory (default: `bin/`):
+Delegate to scripts in your `scripts_dir`:
 
 ```yaml
 deploy:
@@ -61,11 +78,9 @@ deploy:
     description: Deploy to production
 ```
 
-Scripts are resolved relative to `config.scripts_dir` (see Configuration below).
-
 ### Composite commands (`steps`)
 
-Run multiple hogli commands in sequence:
+Chain multiple hogli commands:
 
 ```yaml
 release:
@@ -76,45 +91,80 @@ release:
     description: Full release pipeline
 ```
 
-## Custom Python Commands
+Steps can also include inline commands:
 
-Create `hogli/` folder next to `hogli.yaml` with Click commands:
+```yaml
+setup:
+    steps:
+        - name: Install deps
+          cmd: npm install
+        - name: Build
+          cmd: npm run build
+        - test:unit
+```
+
+## Command Options
+
+```yaml
+my:command:
+    cmd: echo "hello"
+    description: Short description for --help
+    destructive: true   # Prompts for confirmation before running
+    hidden: true        # Hides from --help (still runnable)
+```
+
+## Python Commands
+
+For complex logic, create Python commands using Click. Create a `commands.py` (or `__init__.py`) in your commands directory:
 
 ```python
-# hogli/commands.py
 import click
 from hogli.cli import cli
 
-@cli.command(name="my:thing")
-def my_thing():
-    """Custom command."""
-    click.echo("Hello!")
+@cli.command(name="db:migrate")
+@click.option("--dry-run", is_flag=True, help="Show SQL without executing")
+def db_migrate(dry_run: bool) -> None:
+    """Run database migrations."""
+    if dry_run:
+        click.echo("Would run migrations...")
+    else:
+        # Your migration logic here
+        pass
 ```
 
-## Configuration
+Configure the location in `hogli.yaml`:
 
 ```yaml
 config:
-    commands_dir: path/to/custom/commands  # Custom Python commands, defaults to hogli/
-    scripts_dir: scripts                    # For bin_script commands, defaults to bin/
+    commands_dir: tools/cli  # Defaults to hogli/ next to hogli.yaml
+```
+
+## Configuration Reference
+
+```yaml
+config:
+    commands_dir: path/to/commands  # Python commands directory (default: hogli/)
+    scripts_dir: scripts            # For bin_script resolution (default: bin/)
 
 metadata:
     categories:
         - key: dev
-          title: Development
+          title: Development Commands
         - key: test
-          title: Testing
+          title: Test Commands
 ```
 
-## Script Discovery
+## Built-in Commands
 
-hogli can auto-discover executable scripts in your `scripts_dir` that aren't yet in the manifest:
+- `hogli quickstart` - Getting started guide
+- `hogli meta:check` - Validate manifest, find undocumented scripts
+- `hogli meta:concepts` - Show infrastructure concepts (if defined)
 
-```bash
-hogli meta:check  # Shows scripts missing from manifest
-```
+## Requirements
 
-This helps keep your manifest in sync with available scripts.
+- Python 3.10+
+- click
+- pyyaml
 
 ## License
 
