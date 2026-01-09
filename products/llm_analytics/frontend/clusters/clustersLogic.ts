@@ -11,7 +11,7 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clustersLogicType } from './clustersLogicType'
-import { NOISE_CLUSTER_ID } from './constants'
+import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
     Cluster,
@@ -114,7 +114,7 @@ export const clustersLogic = kea<clustersLogicType>([
                             WHERE event = '$ai_trace_clusters'
                                 AND timestamp >= now() - INTERVAL 7 DAY
                             ORDER BY timestamp DESC
-                            LIMIT 20
+                            LIMIT ${MAX_CLUSTERING_RUNS}
                         `,
                         { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' },
                         { refresh: 'force_blocking' }
