@@ -42,7 +42,8 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor, UserVerificationRequirement
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
-from posthog.auth import WEBAUTHN_2FA_CHALLENGE_KEY, get_webauthn_rp_id, get_webauthn_rp_origin
+from posthog.api.webauthn import WEBAUTHN_2FA_CHALLENGE_KEY
+from posthog.auth import get_webauthn_rp_id, get_webauthn_rp_origin
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
@@ -319,7 +320,9 @@ class LoginSerializer(serializers.Serializer):
 class LoginPrecheckSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
-    def to_representation(self, instance: dict[str, str | list[WebauthnCredentialPrecheck]]) -> dict[str, Any]:
+    def to_representation(
+        self, instance: dict[str, str | list[WebauthnCredentialPrecheck]]
+    ) -> dict[str, str | list[WebauthnCredentialPrecheck]]:
         return instance
 
     def create(self, validated_data: dict[str, str]) -> Any:
@@ -629,7 +632,7 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         options = generate_authentication_options(
             rp_id=get_webauthn_rp_id(),
             allow_credentials=allow_credentials,
-            user_verification=UserVerificationRequirement.PREFERRED,
+            user_verification=UserVerificationRequirement.REQUIRED,
             timeout=300000,  # 5 minutes
         )
 

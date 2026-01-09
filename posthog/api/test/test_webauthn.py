@@ -96,6 +96,10 @@ class TestWebAuthnRegistration(APIBaseTest):
         self.assertEqual(credential.label, "My New Passkey")
         self.assertFalse(credential.verified)
 
+    def test_verification_begin_without_pending_credential_fails(self):
+        response = self.client.post("/api/webauthn/register/verify/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 class TestWebAuthnLogin(APIBaseTest):
     """Tests for WebAuthn passkey login flow."""

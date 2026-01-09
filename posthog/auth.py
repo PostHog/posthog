@@ -1,4 +1,5 @@
 import re
+import uuid
 import logging
 import functools
 from datetime import timedelta
@@ -627,7 +628,6 @@ class WebauthnBackend(BaseBackend):
         Args:
             request: The HTTP request object
             credential_id: The base64url-encoded credential ID (rawId)
-            challenge: The base64url-encoded challenge
             response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
         """
         if challenge is None or credential_id is None or response is None:
@@ -637,6 +637,32 @@ class WebauthnBackend(BaseBackend):
                 challenge=challenge,
                 response=response,
             )
+            return None
+
+        # Extract userHandle from response
+        user_handle_b64 = response.get("userHandle")
+        if not user_handle_b64:
+            structlog_logger.warning("invalid base64 when parsing webauthn user handle")
+            return None
+
+        try:
+            user_handle = base64url_to_bytes(user_handle_b64)
+            user_uuid = uuid.UUID(bytes=user_handle)
+        except (ValueError, TypeError) as e:
+            structlog_logger.warning(
+                "webauthn_login_invalid_user_handle", user_handle=user_handle_b64[:20], error=str(e)
+            )
+            return None
+
+        # Find the user
+        try:
+            user = User.objects.get(uuid=user_uuid)
+        except User.DoesNotExist:
+            structlog_logger.warning("webauthn_login_user_not_found", user_uuid=str(user_uuid))
+            return None
+
+        # Check if user is active
+        if not user.is_active:
             return None
 
         try:
@@ -654,10 +680,13 @@ class WebauthnBackend(BaseBackend):
                 structlog_logger.warning("webauthn_login_credential_not_found", credential_id=credential_id)
                 return None
 
-            user = credential.user
-            # Check if user is active
-            if not user.is_active:
-                structlog_logger.warning("webauthn_login_user_inactive", user_id=user.pk)
+            # Verify credential belongs to the user from userHandle
+            if credential.user != user:
+                structlog_logger.warning(
+                    "webauthn_login_credential_user_mismatch",
+                    credential_user_id=credential.user.pk,
+                    user_handle_user_id=user.pk,
+                )
                 return None
 
             # Construct credential dict for webauthn library
