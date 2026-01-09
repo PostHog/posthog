@@ -152,7 +152,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             SELECT
                 arraySort(t -> t.1, groupArray(tuple(
                     toFloat(timestamp),
-                    uuid,
+                    null,
                     {prop_selector},
                     arrayFilter((x) -> x != 0, [{steps}{exclusions}])
                 ))) as events_array,

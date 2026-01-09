@@ -148,7 +148,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 arraySort(t -> t.1, groupArray(tuple(
                     toFloat(timestamp),
                     _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')})),
-                    uuid,
+                    null,
                     {prop_selector},
                     arrayFilter((x) -> x != 0, [{steps}{exclusions}])
                 ))) as events_array,
