@@ -17,12 +17,14 @@ import {
     FeatureFlagsWebflowInstructions,
 } from '.'
 
-import { BooleanFlagSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/boolean-flag'
-import { FlagPayloadSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/flag-payload'
-import { MultivariateFlagSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/multivariate-flag'
-import { OnFeatureFlagsCallbackSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/on-feature-flags-callback'
-import { OverridePropertiesSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/override-properties'
-import { ReloadFlagsSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/reload-flags'
+import {
+    BooleanFlagSnippet,
+    FlagPayloadSnippet,
+    MultivariateFlagSnippet,
+    OnFeatureFlagsCallbackSnippet,
+    OverridePropertiesSnippet,
+    ReloadFlagsSnippet,
+} from '@posthog/shared-onboarding/feature-flags'
 import { APIInstallation } from '@posthog/shared-onboarding/feature-flags/api'
 import { GoInstallation } from '@posthog/shared-onboarding/feature-flags/go'
 import { JSWebInstallation } from '@posthog/shared-onboarding/feature-flags/js-web'
@@ -36,113 +38,49 @@ import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsCo
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-function FeatureFlagsJSWebInstructionsWrapper(): JSX.Element {
-    const snippets = {
-        BooleanFlagSnippet,
-        MultivariateFlagSnippet,
-        FlagPayloadSnippet,
-        OnFeatureFlagsCallbackSnippet,
-        ReloadFlagsSnippet,
+// Helper to create wrapped instruction components without recreating snippets on every render
+function withOnboardingDocsWrapper(
+    Installation: React.ComponentType,
+    snippets?: Record<string, React.ComponentType<any>>
+): () => JSX.Element {
+    return function WrappedInstallation() {
+        return (
+            <OnboardingDocsContentWrapper snippets={snippets}>
+                <Installation />
+            </OnboardingDocsContentWrapper>
+        )
     }
-
-    return (
-        <OnboardingDocsContentWrapper snippets={snippets}>
-            <JSWebInstallation />
-        </OnboardingDocsContentWrapper>
-    )
 }
 
-function FeatureFlagsReactInstructionsWrapper(): JSX.Element {
-    const snippets = {
-        BooleanFlagSnippet,
-        MultivariateFlagSnippet,
-        FlagPayloadSnippet,
-    }
-
-    return (
-        <OnboardingDocsContentWrapper snippets={snippets}>
-            <ReactInstallation />
-        </OnboardingDocsContentWrapper>
-    )
+// Snippet configurations (defined once, not recreated on render)
+const JS_WEB_SNIPPETS = {
+    BooleanFlagSnippet,
+    MultivariateFlagSnippet,
+    FlagPayloadSnippet,
+    OnFeatureFlagsCallbackSnippet,
+    ReloadFlagsSnippet,
 }
 
-function FeatureFlagsNodeInstructionsWrapper(): JSX.Element {
-    const snippets = {
-        BooleanFlagSnippet,
-        MultivariateFlagSnippet,
-        OverridePropertiesSnippet,
-    }
-
-    return (
-        <OnboardingDocsContentWrapper snippets={snippets}>
-            <NodeJSInstallation />
-        </OnboardingDocsContentWrapper>
-    )
+const REACT_SNIPPETS = {
+    BooleanFlagSnippet,
+    MultivariateFlagSnippet,
+    FlagPayloadSnippet,
 }
 
-function FeatureFlagsPythonInstructionsWrapper(): JSX.Element {
-    const snippets = {
-        BooleanFlagSnippet,
-        MultivariateFlagSnippet,
-        OverridePropertiesSnippet,
-    }
-
-    return (
-        <OnboardingDocsContentWrapper snippets={snippets}>
-            <PythonInstallation />
-        </OnboardingDocsContentWrapper>
-    )
+const SERVER_SDK_SNIPPETS = {
+    BooleanFlagSnippet,
+    MultivariateFlagSnippet,
+    OverridePropertiesSnippet,
 }
 
-function FeatureFlagsPHPInstructionsWrapper(): JSX.Element {
-    const snippets = {
-        BooleanFlagSnippet,
-        MultivariateFlagSnippet,
-        OverridePropertiesSnippet,
-    }
-
-    return (
-        <OnboardingDocsContentWrapper snippets={snippets}>
-            <PHPInstallation />
-        </OnboardingDocsContentWrapper>
-    )
-}
-
-function FeatureFlagsRubyInstructionsWrapper(): JSX.Element {
-    const snippets = {
-        BooleanFlagSnippet,
-        MultivariateFlagSnippet,
-        OverridePropertiesSnippet,
-    }
-
-    return (
-        <OnboardingDocsContentWrapper snippets={snippets}>
-            <RubyInstallation />
-        </OnboardingDocsContentWrapper>
-    )
-}
-
-function FeatureFlagsGoInstructionsWrapper(): JSX.Element {
-    const snippets = {
-        BooleanFlagSnippet,
-        MultivariateFlagSnippet,
-        OverridePropertiesSnippet,
-    }
-
-    return (
-        <OnboardingDocsContentWrapper snippets={snippets}>
-            <GoInstallation />
-        </OnboardingDocsContentWrapper>
-    )
-}
-
-function FeatureFlagsAPIInstructionsWrapper(): JSX.Element {
-    return (
-        <OnboardingDocsContentWrapper>
-            <APIInstallation />
-        </OnboardingDocsContentWrapper>
-    )
-}
+const FeatureFlagsJSWebInstructionsWrapper = withOnboardingDocsWrapper(JSWebInstallation, JS_WEB_SNIPPETS)
+const FeatureFlagsReactInstructionsWrapper = withOnboardingDocsWrapper(ReactInstallation, REACT_SNIPPETS)
+const FeatureFlagsNodeInstructionsWrapper = withOnboardingDocsWrapper(NodeJSInstallation, SERVER_SDK_SNIPPETS)
+const FeatureFlagsPythonInstructionsWrapper = withOnboardingDocsWrapper(PythonInstallation, SERVER_SDK_SNIPPETS)
+const FeatureFlagsPHPInstructionsWrapper = withOnboardingDocsWrapper(PHPInstallation, SERVER_SDK_SNIPPETS)
+const FeatureFlagsRubyInstructionsWrapper = withOnboardingDocsWrapper(RubyInstallation, SERVER_SDK_SNIPPETS)
+const FeatureFlagsGoInstructionsWrapper = withOnboardingDocsWrapper(GoInstallation, SERVER_SDK_SNIPPETS)
+const FeatureFlagsAPIInstructionsWrapper = withOnboardingDocsWrapper(APIInstallation)
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: FeatureFlagsJSWebInstructionsWrapper,

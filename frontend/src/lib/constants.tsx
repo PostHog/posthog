@@ -1,6 +1,6 @@
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { ChartDisplayCategory, ChartDisplayType, Region, SSOProvider } from '../types'
+import { ChartDisplayCategory, ChartDisplayType, Region, SDKKey, SSOProvider } from '../types'
 
 // Sync with backend DISPLAY_TYPES_TO_CATEGORIES
 export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayCategory> = {
@@ -478,3 +478,33 @@ export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
 export const INSIGHT_ALERT_FIRING_EVENT_ID = '$insight_alert_firing'
 
 export const COHORT_PERSONS_QUERY_LIMIT = 10000
+
+/** Maps SDK keys to their corresponding snippet language identifiers */
+export const SDK_KEY_TO_SNIPPET_LANGUAGE: Partial<Record<SDKKey, string>> = {
+    [SDKKey.JS_WEB]: 'javascript',
+    [SDKKey.REACT]: 'react',
+    [SDKKey.NODE_JS]: 'node.js',
+    [SDKKey.PYTHON]: 'python',
+    [SDKKey.PHP]: 'php',
+    [SDKKey.RUBY]: 'ruby',
+    [SDKKey.GO]: 'go',
+    [SDKKey.ANDROID]: 'android',
+    [SDKKey.IOS]: 'ios',
+    [SDKKey.REACT_NATIVE]: 'react-native',
+    [SDKKey.FLUTTER]: 'flutter',
+    [SDKKey.ANGULAR]: 'javascript',
+    [SDKKey.ASTRO]: 'javascript',
+    [SDKKey.BUBBLE]: 'javascript',
+    [SDKKey.DJANGO]: 'python',
+    [SDKKey.FRAMER]: 'javascript',
+    [SDKKey.LARAVEL]: 'php',
+    [SDKKey.NEXT_JS]: 'javascript',
+    [SDKKey.NUXT_JS]: 'javascript',
+    [SDKKey.REMIX]: 'javascript',
+    [SDKKey.SVELTE]: 'javascript',
+    [SDKKey.VUE_JS]: 'javascript',
+    [SDKKey.WEBFLOW]: 'javascript',
+    [SDKKey.API]: 'javascript',
+    [SDKKey.TANSTACK_START]: 'react',
+    [SDKKey.VITE]: 'react',
+}

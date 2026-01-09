@@ -1,6 +1,7 @@
+import { memo } from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const OverridePropertiesSnippet = ({ language = 'javascript' }: { language?: string }): JSX.Element => {
+export const OverridePropertiesSnippet = memo(function OverridePropertiesSnippet({ language = 'javascript' }: { language?: string }): JSX.Element {
     const { CodeBlock, dedent, Markdown } = useMDXComponents()
 
     const snippets: Record<string, string> = {
@@ -124,6 +125,4 @@ export const OverridePropertiesSnippet = ({ language = 'javascript' }: { languag
             <CodeBlock language={langMap[language] || 'javascript'} code={snippets[language] || snippets.javascript} />
         </>
     )
-}
-
-
+})

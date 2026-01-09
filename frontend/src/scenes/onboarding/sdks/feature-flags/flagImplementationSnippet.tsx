@@ -1,41 +1,12 @@
-import { BooleanFlagSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/boolean-flag'
-import { MultivariateFlagSnippet } from '@posthog/shared-onboarding/feature-flags/_snippets/multivariate-flag'
+import { BooleanFlagSnippet, MultivariateFlagSnippet } from '@posthog/shared-onboarding/feature-flags'
 
+import { SDK_KEY_TO_SNIPPET_LANGUAGE } from 'lib/constants'
 import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { SDKKey } from '~/types'
 
-const sdkKeyToLanguageMap: Record<SDKKey, string> = {
-    [SDKKey.JS_WEB]: 'javascript',
-    [SDKKey.REACT]: 'react',
-    [SDKKey.NODE_JS]: 'node.js',
-    [SDKKey.PYTHON]: 'python',
-    [SDKKey.PHP]: 'php',
-    [SDKKey.RUBY]: 'ruby',
-    [SDKKey.GO]: 'go',
-    [SDKKey.ANDROID]: 'android',
-    [SDKKey.IOS]: 'ios',
-    [SDKKey.REACT_NATIVE]: 'react-native',
-    [SDKKey.FLUTTER]: 'flutter',
-    [SDKKey.ANGULAR]: 'javascript',
-    [SDKKey.ASTRO]: 'javascript',
-    [SDKKey.BUBBLE]: 'javascript',
-    [SDKKey.DJANGO]: 'python',
-    [SDKKey.FRAMER]: 'javascript',
-    [SDKKey.LARAVEL]: 'php',
-    [SDKKey.NEXT_JS]: 'javascript',
-    [SDKKey.NUXT_JS]: 'javascript',
-    [SDKKey.REMIX]: 'javascript',
-    [SDKKey.SVELTE]: 'javascript',
-    [SDKKey.VUE_JS]: 'javascript',
-    [SDKKey.WEBFLOW]: 'javascript',
-    [SDKKey.API]: 'javascript',
-    [SDKKey.TANSTACK_START]: 'react',
-    [SDKKey.VITE]: 'react',
-}
-
 function FlagImplementationSnippetContent({ sdkKey }: { sdkKey: SDKKey }): JSX.Element {
-    const language = sdkKeyToLanguageMap[sdkKey] || 'javascript'
+    const language = SDK_KEY_TO_SNIPPET_LANGUAGE[sdkKey] || 'javascript'
 
     return (
         <>

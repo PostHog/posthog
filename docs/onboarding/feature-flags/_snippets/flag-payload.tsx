@@ -1,6 +1,7 @@
+import { memo } from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const FlagPayloadSnippet = ({ language = 'javascript' }: { language?: string }): JSX.Element => {
+export const FlagPayloadSnippet = memo(function FlagPayloadSnippet({ language = 'javascript' }: { language?: string }): JSX.Element {
     const { CodeBlock, dedent } = useMDXComponents()
 
     const snippets: Record<string, string> = {
@@ -58,6 +59,4 @@ export const FlagPayloadSnippet = ({ language = 'javascript' }: { language?: str
     }
 
     return <CodeBlock language={langMap[language] || 'javascript'} code={snippets[language] || snippets.javascript} />
-}
-
-
+})
