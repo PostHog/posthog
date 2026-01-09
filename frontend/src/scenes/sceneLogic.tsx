@@ -7,13 +7,10 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
-import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
@@ -46,7 +43,6 @@ import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { parseCouponCampaign } from './coupons/utils'
-import { getOnboardingEntryUrl } from './onboarding/utils'
 import { organizationLogic } from './organizationLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
@@ -271,9 +267,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
 const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WAREHOUSE]
 
 const pathPrefixesOnboardingNotRequiredFor = [
-    urls.onboarding(''),
-    urls.useCaseSelection(),
-    urls.products(),
+    urls.onboarding(),
     '/settings',
     urls.organizationBilling(),
     urls.billingAuthorizationStatus(),
@@ -320,22 +314,8 @@ export const sceneLogic = kea<sceneLogicType>([
 
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [
-            router,
-            ['locationChanged', 'push'],
-            commandBarLogic,
-            ['setCommandBar'],
-            inviteLogic,
-            ['hideInviteModal'],
-        ],
-        values: [
-            billingLogic,
-            ['billing'],
-            organizationLogic,
-            ['organizationBeingDeleted'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        actions: [router, ['locationChanged', 'push'], inviteLogic, ['hideInviteModal']],
+        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
@@ -1012,21 +992,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             persistTabs(values.tabs, values.homepage)
 
-            // Open search or command bar
-            const params = new URLSearchParams(search)
-            const searchBar = params.get('searchBar')
-            const commandBar = params.get('commandBar')
-
-            if (searchBar !== null) {
-                actions.setCommandBar(BarStatus.SHOW_SEARCH, searchBar)
-                params.delete('searchBar')
-                router.actions.replace(pathname, params, hash)
-            } else if (commandBar !== null) {
-                actions.setCommandBar(BarStatus.SHOW_ACTIONS, commandBar)
-                params.delete('commandBar')
-                router.actions.replace(pathname, params, hash)
-            }
-
             // Remove trailing slash
             if (pathname !== '/' && pathname.endsWith('/')) {
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
@@ -1048,7 +1013,8 @@ export const sceneLogic = kea<sceneLogicType>([
                 !equal(lastParams.params, params.params) ||
                 JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
             ) {
-                posthog.capture('$pageview')
+                const productKey = values.productFromUrl
+                posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
             }
 
             if (tabId !== lastTabId) {
@@ -1176,14 +1142,11 @@ export const sceneLogic = kea<sceneLogicType>([
                                 // Check if user is coming from a coupon campaign link
                                 const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
                                 if (campaign) {
-                                    router.actions.replace(urls.onboardingCoupon(campaign), { next: nextUrl })
+                                    router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
                                     return
                                 }
 
-                                router.actions.replace(
-                                    getOnboardingEntryUrl(values.featureFlags),
-                                    nextUrl ? { next: nextUrl } : undefined
-                                )
+                                router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
                                 return
                             }
 
@@ -1202,7 +1165,10 @@ export const sceneLogic = kea<sceneLogicType>([
                                     )
 
                                     router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
+                                        urls.onboarding({
+                                            productKey: productKeyFromUrl,
+                                            stepKey: OnboardingStepKey.INSTALL,
+                                        })
                                     )
                                     return
                                 }

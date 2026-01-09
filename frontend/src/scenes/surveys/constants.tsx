@@ -608,7 +608,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
 ]
 
 export const WEB_SAFE_FONTS = [
-    { value: 'inherit', label: 'inherit (uses your website font)' },
+    { value: 'inherit', label: 'inherit (your website font)' },
     { value: 'system-ui', label: 'system-ui' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Verdana', label: 'Verdana' },
@@ -679,6 +679,8 @@ export enum SURVEY_CREATED_SOURCE {
     EXPERIMENTS = 'experiments',
     INSIGHT_CROSS_SELL = 'insight_cross_sell',
     CUSTOMER_ANALYTICS_INSIGHT = 'customer_analytics_insight',
+    ERROR_TRACKING = 'error_tracking',
+    WEB_ANALYTICS = 'web_analytics',
 }
 
 export enum SURVEY_FORM_INPUT_IDS {

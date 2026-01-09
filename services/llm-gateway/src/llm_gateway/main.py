@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import time
 import uuid
@@ -11,8 +13,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
+from starlette.types import ASGIApp
 
+from llm_gateway.analytics import init_analytics_service, shutdown_analytics_service
 from llm_gateway.api.health import health_router
 from llm_gateway.api.routes import router
 from llm_gateway.config import get_settings
@@ -56,7 +61,7 @@ def update_db_pool_metrics(pool: asyncpg.Pool | None) -> None:
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())[:8]
         request_id_var.set(request_id)
         structlog.contextvars.bind_contextvars(request_id=request_id)
@@ -84,11 +89,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-async def init_redis(url: str | None) -> Redis | None:
+async def init_redis(url: str | None) -> Redis[bytes] | None:
     if not url:
         return None
     try:
-        redis = Redis.from_url(url)
+        redis: Redis[bytes] = Redis.from_url(url)
         await redis.ping()
         return redis
     except Exception:
@@ -98,7 +103,18 @@ async def init_redis(url: str | None) -> Redis | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    import os
+
     settings = get_settings()
+
+    if settings.anthropic_api_key:
+        os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+    if settings.openai_api_key:
+        os.environ["OPENAI_API_KEY"] = settings.openai_api_key
+    if settings.openai_api_base_url:
+        os.environ["OPENAI_BASE_URL"] = settings.openai_api_base_url
+    if settings.gemini_api_key:
+        os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
 
     logger.info("Initializing database pool...")
     app.state.db_pool = await init_db_pool(
@@ -120,7 +136,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         sustained_window=settings.rate_limit_sustained_window,
     )
 
+    init_analytics_service()
+
     yield
+
+    shutdown_analytics_service()
 
     if app.state.redis:
         await app.state.redis.aclose()
@@ -131,11 +151,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 class ContentSizeLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, max_content_size: int):
+    def __init__(self, app: ASGIApp, max_content_size: int) -> None:
         super().__init__(app)
         self.max_content_size = max_content_size
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > self.max_content_size:
             return JSONResponse(

@@ -48,9 +48,9 @@ export function SurveyFormAppearance({
             <LemonField.Pure label="Current question" className="max-w-xs gap-1" htmlFor="current-question-select">
                 <LemonSelect
                     onChange={(pageIndex) => handleSetSelectedPageIndex(pageIndex)}
-                    className="whitespace-nowrap"
                     id="current-question-select"
                     fullWidth
+                    truncateText={{ maxWidthClass: 'max-w-60' }}
                     value={previewPageIndex}
                     options={[
                         ...survey.questions.map((question, index) => ({

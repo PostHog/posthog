@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
-import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
@@ -53,6 +52,7 @@ import {
     MultipleSurveyQuestion,
     OnboardingStepKey,
     PersonType,
+    PropertyFilterType,
     QueryBasedInsightModel,
     type SDK,
     Survey,
@@ -615,12 +615,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             recommendedProducts,
         }),
         reportOnboardingUseCaseSkipped: true,
-        // command bar
-        reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
-        reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
-        reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
-        reportCommandBarActionSearch: (query: string) => ({ query }),
-        reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
+        reportOnboardingProductSelectionPath: (
+            path: 'ai' | 'use_case' | 'browsing_history' | 'manual',
+            properties?: {
+                useCase?: string
+                recommendedProducts?: string[]
+                hasBrowsingHistory?: boolean
+            }
+        ) => ({ path, properties }),
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -657,6 +659,65 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRevenueAnalyticsMRRBreakdownModalOpened: () => ({}),
         reportRevenueAnalyticsGoalConfigured: () => ({}),
         reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        reportWebAnalyticsHealthStatus: (props: {
+            has_pageviews: boolean
+            has_pageleaves: boolean
+            has_scroll_depth: boolean
+            has_web_vitals: boolean
+            has_authorized_urls: boolean
+            has_reverse_proxy: boolean
+            overall_status: string
+        }) => ({ props }),
+        reportWebAnalyticsHealthTabViewed: (props: {
+            overall_status: string
+            passed_count: number
+            warning_count: number
+            error_count: number
+        }) => ({ props }),
+        reportWebAnalyticsHealthSectionToggled: (props: { category: string; is_expanded: boolean }) => ({ props }),
+        reportWebAnalyticsHealthActionClicked: (props: {
+            check_id: string
+            category: string
+            status: string
+            is_urgent: boolean
+        }) => ({ props }),
+        reportWebAnalyticsHealthRefreshed: (props: { overall_status: string; passed_count: number }) => ({ props }),
+        reportWebAnalyticsFilterApplied: (props: {
+            filter_type: string
+            property_filter_category?: PropertyFilterType
+            total_filter_count: number
+        }) => ({ props }),
+        reportWebAnalyticsFilterRemoved: (props: {
+            filter_type: string
+            property_filter_category?: PropertyFilterType
+            total_filter_count: number
+        }) => ({ props }),
+        reportWebAnalyticsDateRangeChanged: (props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }) => ({ props }),
+        reportWebAnalyticsCompareToggled: (props: { enabled: boolean }) => ({ props }),
+        reportWebAnalyticsConversionGoalSet: (props: { goal_type: string | null }) => ({ props }),
+        reportWebAnalyticsPathCleaningToggled: (props: { enabled: boolean }) => ({ props }),
+        // Customer Analytics
+        reportCustomerAnalyticsDashboardBusinessModeChanged: ({ business_mode }) => ({ business_mode }),
+        reportCustomerAnalyticsDashboardConfigurationButtonClicked: () => true,
+        reportCustomerAnalyticsDashboardConfigurationViewed: () => true,
+        reportCustomerAnalyticsDashboardConfigureEventWithAIClicked: ({ event }) => ({ event }),
+        reportCustomerAnalyticsDashboardDateFilterApplied: ({ filter }) => ({ filter }),
+        reportCustomerAnalyticsDashboardEventPickerClicked: ({ event }) => ({ event }),
+        reportCustomerAnalyticsAddJoinButtonClicked: ({ table }) => ({ table }),
+        reportCustomerAnalyticsDashboardEventsSaved: () => true,
+        reportCustomerAnalyticsViewed: (delay?: number) => ({ delay }),
+        reportGroupProfileViewed: (delay?: number) => ({ delay }),
+        reportPersonProfileViewed: (delay?: number) => ({ delay }),
+        reportUsageMetricsSettingsViewed: () => true,
+        reportUsageMetricsCreateButtonClicked: () => true,
+        reportUsageMetricsUpdateButtonClicked: () => true,
+        reportUsageMetricCreated: () => true,
+        reportUsageMetricUpdated: () => true,
+        reportUsageMetricDeleted: () => true,
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1533,6 +1594,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportOnboardingUseCaseSkipped: () => {
             posthog.capture('onboarding use case skipped')
         },
+        reportOnboardingProductSelectionPath: ({ path, properties }) => {
+            posthog.capture('onboarding product selection path', {
+                path,
+                use_case: properties?.useCase,
+                recommended_products: properties?.recommendedProducts,
+                has_browsing_history: properties?.hasBrowsingHistory,
+            })
+        },
         reportSDKSelected: ({ sdk }) => {
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
@@ -1629,6 +1698,105 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('revenue analytics test account filter updated', {
                 filter_test_accounts: filterTestAccounts,
             })
+        },
+        reportWebAnalyticsHealthStatus: ({ props }) => {
+            posthog.capture('web analytics health status', props)
+        },
+        reportWebAnalyticsHealthTabViewed: ({ props }) => {
+            posthog.capture('web analytics health tab viewed', props)
+        },
+        reportWebAnalyticsHealthSectionToggled: ({ props }) => {
+            posthog.capture('web analytics health section toggled', props)
+        },
+        reportWebAnalyticsHealthActionClicked: ({ props }) => {
+            posthog.capture('web analytics health action clicked', props)
+        },
+        reportWebAnalyticsHealthRefreshed: ({ props }) => {
+            posthog.capture('web analytics health refreshed', props)
+        },
+        reportWebAnalyticsFilterApplied: ({ props }) => {
+            posthog.capture('web analytics filter applied', props)
+        },
+        reportWebAnalyticsFilterRemoved: ({ props }) => {
+            posthog.capture('web analytics filter removed', props)
+        },
+        reportWebAnalyticsDateRangeChanged: ({ props }) => {
+            posthog.capture('web analytics date range changed', props)
+        },
+        reportWebAnalyticsCompareToggled: ({ props }) => {
+            posthog.capture('web analytics compare toggled', props)
+        },
+        reportWebAnalyticsConversionGoalSet: ({ props }) => {
+            posthog.capture('web analytics conversion goal set', props)
+        },
+        reportWebAnalyticsPathCleaningToggled: ({ props }) => {
+            posthog.capture('web analytics path cleaning toggled', props)
+        },
+        // Customer Analytics
+        reportCustomerAnalyticsDashboardBusinessModeChanged: async ({ business_mode }) => {
+            posthog.capture('customer analytics dashboard business mode changed', { business_mode })
+        },
+        reportCustomerAnalyticsDashboardConfigurationButtonClicked: async () => {
+            posthog.capture('customer analytics dashboard configuration button clicked')
+        },
+        reportCustomerAnalyticsDashboardConfigurationViewed: async (_, breakpoint) => {
+            await breakpoint(500)
+            posthog.capture('customer analytics dashboard configuration viewed')
+        },
+        reportCustomerAnalyticsDashboardDateFilterApplied: async ({ filter }) => {
+            posthog.capture('customer analytics dashboard date filter applied', { filter })
+        },
+        reportCustomerAnalyticsDashboardEventPickerClicked: async ({ event }) => {
+            posthog.capture('customer analytics dashboard event picker clicked', { event })
+        },
+        reportCustomerAnalyticsDashboardConfigureEventWithAIClicked: async ({ event }) => {
+            posthog.capture('customer analytics dashboard configure event with AI clicked', { event })
+        },
+        reportCustomerAnalyticsAddJoinButtonClicked: async ({ table }) => {
+            posthog.capture('customer analytics add join button clicked', { table })
+        },
+        reportCustomerAnalyticsDashboardEventsSaved: async () => {
+            posthog.capture('customer analytics dashboard events saved')
+        },
+        reportUsageMetricsSettingsViewed: async (_, breakpoint) => {
+            await breakpoint(500)
+            posthog.capture('usage metrics settings viewed')
+        },
+        reportUsageMetricsCreateButtonClicked: async () => {
+            posthog.capture('usage metrics create button clicked')
+        },
+        reportUsageMetricsUpdateButtonClicked: async () => {
+            posthog.capture('usage metrics update button clicked')
+        },
+        reportUsageMetricCreated: async () => {
+            posthog.capture('usage metric created')
+        },
+        reportUsageMetricUpdated: async () => {
+            posthog.capture('usage metric updated')
+        },
+        reportUsageMetricDeleted: async () => {
+            posthog.capture('usage metric deleted')
+        },
+        reportCustomerAnalyticsViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'customer analytics analyzed' : 'customer analytics viewed'
+            posthog.capture(eventName, { delay })
+        },
+        reportGroupProfileViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'group profile analyzed' : 'group profile viewed'
+            posthog.capture(eventName, { delay })
+        },
+        reportPersonProfileViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
+            posthog.capture(eventName, { delay })
         },
     })),
 ])

@@ -344,10 +344,12 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         return updated_playlist
 
 
+@extend_schema(tags=["replay"])
 class SessionRecordingPlaylistViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
     scope_object = "session_recording_playlist"
+    scope_object_read_actions = ["list", "retrieve", "recordings"]
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]

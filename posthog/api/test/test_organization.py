@@ -144,6 +144,31 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.plugins_access_level, 3)
 
+    def test_is_active_fields_are_read_only(self):
+        """Test that is_active and is_not_active_reason are returned but cannot be updated via API."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Verify fields are returned in GET response
+        response = self.client.get(f"/api/organizations/{self.organization.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("is_active", response.json())
+        self.assertIn("is_not_active_reason", response.json())
+        self.assertEqual(response.json()["is_active"], True)
+        self.assertIsNone(response.json()["is_not_active_reason"])
+
+        # Attempt to update is_active - should be ignored
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}",
+            {"is_active": False, "is_not_active_reason": "Test reason"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify fields were not updated
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_active, True)
+        self.assertIsNone(self.organization.is_not_active_reason)
+
     @patch("posthoganalytics.capture")
     def test_enforce_2fa_for_everyone(self, mock_capture):
         # Only admins should be able to enforce 2fa
@@ -387,6 +412,38 @@ class TestOrganizationAPI(APIBaseTest):
                 "attr": None,
             },
         )
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("posthog.api.organization.get_cached_instance_license")
+    def test_cannot_delete_organization_with_active_subscription(self, mock_get_license, mock_get_billing):
+        mock_get_license.return_value = True
+        mock_get_billing.return_value = {"has_active_subscription": True}
+
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        with self.is_cloud(True):
+            response = self.client.delete(f"/api/organizations/{self.organization.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("active subscription", response.json()["detail"])
+        self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("posthog.api.organization.get_cached_instance_license")
+    def test_can_delete_organization_without_active_subscription(self, mock_get_license, mock_get_billing):
+        mock_get_license.return_value = True
+        mock_get_billing.return_value = {"has_active_subscription": False}
+
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        org_id = self.organization.id
+        with self.is_cloud(True):
+            response = self.client.delete(f"/api/organizations/{org_id}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Organization.objects.filter(id=org_id).exists())
 
 
 def create_organization(name: str) -> Organization:

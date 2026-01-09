@@ -11,6 +11,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconRobot } from 'lib/lemon-ui/icons'
 import {
@@ -22,6 +23,7 @@ import {
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
@@ -30,6 +32,7 @@ import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
+import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { StatusIndicator } from '../../components/Indicators'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -37,6 +40,7 @@ import { Metadata } from '../../components/IssueMetadata'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
+import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -66,18 +70,19 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     }, [issueId])
 
     return (
-        <ErrorTrackingSetupPrompt>
-            <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
-                    {issue && (
-                        <>
-                            <div className="px-4">
+        <StyleVariables>
+            <ErrorTrackingSetupPrompt>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
+                    <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
+                        {issue && (
+                            <div className="flex flex-col h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))]">
                                 <SceneTitleSection
                                     canEdit
                                     name={issue.name}
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
+                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0"
                                     actions={
                                         <div className="flex items-center gap-1">
                                             <StatusIndicator status={issue.status} withTooltip />
@@ -86,24 +91,48 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 onChange={updateAssignee}
                                                 disabled={issue.status != 'active'}
                                             />
+                                            <ViewRecordingsPlaylistButton
+                                                filters={{
+                                                    filter_group: {
+                                                        type: FilterLogicalOperator.And,
+                                                        values: [
+                                                            {
+                                                                type: FilterLogicalOperator.And,
+                                                                values: [
+                                                                    {
+                                                                        key: '$exception_issue_id',
+                                                                        type: PropertyFilterType.Event,
+                                                                        operator: PropertyOperator.Exact,
+                                                                        value: [issue.id],
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ],
+                                                    },
+                                                }}
+                                                size="small"
+                                                type="secondary"
+                                                data-attr="error-tracking-issue-view-recordings"
+                                            />
                                             <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                         </div>
                                     }
                                 />
-                            </div>
-                            <ErrorTrackingIssueScenePanel issue={issue} />
 
-                            <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
-                                <div className="flex flex-1 h-full w-full">
-                                    <LeftHandColumn />
-                                    <RightHandColumn />
+                                <ErrorTrackingIssueScenePanel issue={issue} />
+
+                                <div className="ErrorTrackingIssue flex flex-grow">
+                                    <div className="flex flex-1 h-full w-full">
+                                        <LeftHandColumn />
+                                        <RightHandColumn />
+                                    </div>
                                 </div>
                             </div>
-                        </>
-                    )}
+                        )}
+                    </BindLogic>
                 </BindLogic>
-            </BindLogic>
-        </ErrorTrackingSetupPrompt>
+            </ErrorTrackingSetupPrompt>
+        </StyleVariables>
     )
 }
 
@@ -114,13 +143,15 @@ const RightHandColumn = (): JSX.Element => {
     return (
         <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px]">
             <PostHogSDKIssueBanner event={selectedEvent} />
-
             <ExceptionCard
-                issue={issue ?? undefined}
-                issueLoading={issueLoading}
+                issueId={issue?.id ?? 'no-issue'}
+                issueName={issue?.name ?? null}
+                loading={issueLoading || initialEventLoading}
                 event={selectedEvent ?? undefined}
-                eventLoading={initialEventLoading}
                 label={tagRenderer(selectedEvent)}
+                renderStackTraceActions={() => {
+                    return issue ? <StackTraceActions issue={issue} /> : null
+                }}
             />
         </div>
     )
@@ -148,12 +179,12 @@ const LeftHandColumn = (): JSX.Element => {
                 width: desiredSize ?? '30%',
                 minWidth: 320,
             }}
-            className="flex flex-col relative bg-surface-primary"
+            className="flex flex-col h-full relative bg-surface-primary"
         >
             <TabsPrimitive
                 value={category}
                 onValueChange={(value) => setCategory(value as ErrorTrackingIssueSceneCategory)}
-                className="flex flex-col min-h-0"
+                className="flex flex-col flex-1 min-h-0"
             >
                 <div>
                     <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
@@ -182,10 +213,8 @@ const LeftHandColumn = (): JSX.Element => {
                 <TabsPrimitiveContent value="exceptions" className="h-full min-h-0">
                     <ExceptionsTab />
                 </TabsPrimitiveContent>
-                <TabsPrimitiveContent value="breakdowns">
-                    <BreakdownsSearchBar />
-                    <MiniBreakdowns />
-                    <BreakdownsChart />
+                <TabsPrimitiveContent value="breakdowns" className="flex-1 min-h-0">
+                    <BreakdownsTab />
                 </TabsPrimitiveContent>
                 {hasTasks && (
                     <TabsPrimitiveContent value="autofix">
@@ -232,6 +261,15 @@ const ExceptionsTab = (): JSX.Element => {
                     }}
                 />
             </Metadata>
+        </div>
+    )
+}
+const BreakdownsTab = (): JSX.Element => {
+    return (
+        <div className="flex flex-col h-full">
+            <BreakdownsSearchBar />
+            <MiniBreakdowns />
+            <BreakdownsChart />
         </div>
     )
 }

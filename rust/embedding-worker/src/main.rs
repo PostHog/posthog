@@ -8,7 +8,7 @@ use axum::{
 };
 use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
-use common_types::embedding::EmbeddingRequest;
+use common_types::embedding::{EmbeddingRecord, EmbeddingRequest};
 use embedding_worker::{
     ad_hoc::{handle_ad_hoc_request, AdHocEmbeddingRequest, AdHocEmbeddingResponse},
     app_context::AppContext,
@@ -17,6 +17,7 @@ use embedding_worker::{
 };
 
 use tokio::task::JoinHandle;
+use tracing::level_filters::LevelFilter;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 use uuid::Uuid;
@@ -24,11 +25,12 @@ use uuid::Uuid;
 common_alloc::used!();
 
 fn setup_tracing() {
-    let log_layer: tracing_subscriber::filter::Filtered<
-        tracing_subscriber::fmt::Layer<tracing_subscriber::Registry>,
-        EnvFilter,
-        tracing_subscriber::Registry,
-    > = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    let log_layer = tracing_subscriber::fmt::layer().with_filter(
+        EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy()
+            .add_directive("pyroscope=warn".parse().unwrap()),
+    );
     tracing_subscriber::registry().with(log_layer).init();
 }
 
@@ -77,6 +79,15 @@ async fn main() {
     info!("Starting up...");
 
     let config = Config::init_with_defaults().unwrap();
+
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            error!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
 
     match &config.posthog_api_key {
         Some(key) => {
@@ -133,7 +144,7 @@ async fn main() {
             };
         }
 
-        let embeddings = match handle_batch(to_process, &offsets, context.clone()).await {
+        let responses = match handle_batch(to_process, &offsets, context.clone()).await {
             Ok(embeddings) => embeddings,
             Err(failure) => {
                 error!("Error handling batch: {failure}");
@@ -149,20 +160,40 @@ async fn main() {
             }
         };
 
-        let results = txn
+        // Write the callback messages
+        let emit_results = txn
             .send_keyed_iter_to_kafka(
-                &context.config.output_topic,
+                &context.config.response_topic,
                 |_| Some(Uuid::now_v7().to_string()),
-                embeddings,
+                &responses,
             )
             .await;
 
-        for result in results.into_iter() {
-            result.expect("We can emit to kafka");
+        for res in emit_results.into_iter() {
+            res.expect("We can emit to kafka");
+        }
+
+        // Write the embedding records to CH
+        let records: Vec<EmbeddingRecord> = responses
+            .into_iter()
+            .flat_map(Vec::<EmbeddingRecord>::from)
+            .collect();
+
+        let emit_results = txn
+            .send_keyed_iter_to_kafka(
+                &context.config.output_topic,
+                |_| Some(Uuid::now_v7().to_string()),
+                &records,
+            )
+            .await;
+
+        for res in emit_results.into_iter() {
+            res.expect("We can emit to kafka");
         }
 
         let metadata = context.kafka_consumer.metadata();
 
+        // Associate the embedding request records with the offsets
         match txn.associate_offsets(offsets, &metadata) {
             Ok(_) => {}
             Err(e) => {
@@ -174,6 +205,7 @@ async fn main() {
             }
         }
 
+        // Commit the transaction
         match txn.commit() {
             Ok(_) => {}
             Err(e) => {

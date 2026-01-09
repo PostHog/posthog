@@ -59,7 +59,7 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
             },
         ],
         currentTab: [
-            'stacktrace',
+            'stack_trace',
             {
                 setCurrentTab: (_, { tab }: { tab: string }) => tab,
             },

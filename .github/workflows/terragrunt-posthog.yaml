@@ -28,24 +28,33 @@ jobs:
             matrix_data: ${{ steps.changes.outputs.matrix_data }}
         steps:
             - name: Checkout
-              uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 0
 
-            - name: Find all team folders
+            - name: Find all terraform modules
               id: changes
               run: |
-                  # Find all team directories (starting with `team-*`) and return them so that we can run plan on all of them
+                  # Find all directories containing .tf files within team-* folders.
+                  # This discovers both team-level modules and subdirectory modules.
                   # Terraform plan is idempotent - no changes = no comment
-                  # In the future we might want to make this smarter, but for now it gets the job done.
-                  MATRIX_DATA=$(find terraform -mindepth 2 -maxdepth 4 -type d -name 'team-*' | sort | jq -R -s -c '
-                    split("\n") |
-                    map(select(length > 0)) |
-                    map({
-                      working_dir: .,
-                      service_name: (. | split("/") | .[-1])
-                    })
-                  ')
+                  MATRIX_DATA=$(find terraform -mindepth 2 -maxdepth 5 -type f -name '*.tf' | \
+                    xargs -I {} dirname {} | \
+                    sort -u | \
+                    grep '/team-' | \
+                    jq -R -s -c '
+                      split("\n") |
+                      map(select(length > 0)) |
+                      map({
+                        working_dir: .,
+                        team_name: (. | split("/") | map(select(startswith("team-"))) | .[0] // "unknown"),
+                        folder_name: (. | split("/") | .[-1]),
+                        service_name: (
+                          (. | split("/") | map(select(startswith("team-"))) | .[0] // "unknown") + " [" +
+                          (. | split("/") | .[-1]) + "]"
+                        )
+                      })
+                    ')
                   echo "matrix_data=$MATRIX_DATA" >> $GITHUB_OUTPUT
 
             - name: Delete old PR comments
@@ -77,7 +86,7 @@ jobs:
             POSTHOG_PROVIDER_TF_STATE_REGION: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_REGION }}
         steps:
             - name: Checkout
-              uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+              uses: actions/checkout@v6
 
             - name: Configure AWS Credentials
               uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708
@@ -88,14 +97,14 @@ jobs:
 
             - name: Plan Terraform ${{ matrix.working_dir }}
               if: github.ref != 'refs/heads/master'
-              uses: datadrivers/terragrunt-action@3297746d3dc1b0846cdf4c7816e8839eb4531e41 # v2.1.0
+              uses: datadrivers/terragrunt-action@2e86aa69b6198c3ec87a090e58eaf9b7d3269615 # v4.0.3
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
                   terraform-version: ${{ env.TERRAFORM_VERSION }}
                   terragrunt-version: ${{ env.TERRAGRUNT_VERSION }}
                   use-aws-auth: false
-                  enable-terraform-change-pr-commenter: true
-                  terragrunt-working-directory: ${{ matrix.working_dir }}
+                  working-directory: ${{ matrix.working_dir }}
                   commands: |
                       exit_code=0
                       terragrunt --non-interactive run -- plan -detailed-exitcode -out="terraform.tfplan" -lock-timeout=10m || exit_code=$?
@@ -109,13 +118,13 @@ jobs:
 
             - name: Apply Terraform ${{ matrix.working_dir }}
               if: github.ref == 'refs/heads/master'
-              uses: datadrivers/terragrunt-action@3297746d3dc1b0846cdf4c7816e8839eb4531e41 # v2.1.0
+              uses: datadrivers/terragrunt-action@2e86aa69b6198c3ec87a090e58eaf9b7d3269615 # v4.0.3
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
                   terraform-version: ${{ env.TERRAFORM_VERSION }}
                   terragrunt-version: ${{ env.TERRAGRUNT_VERSION }}
                   use-aws-auth: false
-                  enable-terraform-change-pr-commenter: false
-                  terragrunt-working-directory: ${{ matrix.working_dir }}
+                  working-directory: ${{ matrix.working_dir }}
                   commands: |
                       terragrunt --non-interactive run -- apply -lock-timeout=10m -auto-approve

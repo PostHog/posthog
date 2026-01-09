@@ -1,8 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Literal
-
-from django.utils import timezone
 
 import dagster
 import pydantic
@@ -12,7 +9,7 @@ from posthog.dags.common.ops import get_all_team_ids_op
 from posthog.exceptions_capture import capture_exception
 from posthog.models.file_system.user_product_list import UserProductList, get_user_product_list_count
 from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models.user import ROLE_CHOICES, User
 from posthog.products import Products
 
 
@@ -42,16 +39,9 @@ class PopulateConfig(dagster.Config):
         default=None,
         description="Only create entries for users who already have this product enabled in their UserProductList",
     )
-    user_created_before: str | None = pydantic.Field(
+    role_at_organization: str | None = pydantic.Field(
         default=None,
-        description="ISO format date string. Only process users created before this date (e.g., '2024-01-01T00:00:00Z')",
-    )
-
-    # TODO: This should be removed after we've finished running the initial populate job
-    # since it's a very confusing configuration knob
-    only_users_without_products: bool = pydantic.Field(
-        default=False,
-        description="Only process users who don't have any existing UserProductList entries",
+        description="Only process users with this role_at_organization value (e.g., 'engineering', 'data', 'product')",
     )
 
 
@@ -62,8 +52,7 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
     - Set a specific reason for created entries
     - Set optional reason_text for display to users
     - Only create for users who have a specific product enabled
-    - Filter by user creation date
-    - Option to process only users without existing entries
+    - Filter by role_at_organization (e.g., 'engineering', 'data', 'product')
     """
     if not config.product_paths:
         raise dagster.Failure("product_paths cannot be empty")
@@ -80,27 +69,23 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
             f"Invalid require_existing_product: {config.require_existing_product}. Valid options: {sorted(valid_paths)}"
         )
 
-    # Validate these arguments are mutually exclusive
-    if config.require_existing_product is not None and config.only_users_without_products:
-        raise dagster.Failure("require_existing_product and only_users_without_products cannot be used together")
-
     # Validate reason if provided
     if config.reason:
         if config.reason not in UserProductList.Reason.values:
             raise dagster.Failure(f"Invalid reason: {config.reason}. Valid options: {UserProductList.Reason.values}")
 
+    # Validate role_at_organization if provided
+
+    valid_roles = [choice[0] for choice in ROLE_CHOICES]
+    if config.role_at_organization is not None and config.role_at_organization not in valid_roles:
+        raise dagster.Failure(
+            f"Invalid role_at_organization: {config.role_at_organization}. Valid options: {valid_roles}"
+        )
+
     context.log.info(f"Starting populate for {len(config.product_paths)} products: {config.product_paths}")
 
     # Build user queryset with filters
     users = User.objects.all().order_by("date_joined")
-
-    # Filter by creation date if specified
-    if config.user_created_before is not None:
-        created_before = datetime.fromisoformat(config.user_created_before.replace("Z", "+00:00"))
-        if created_before.tzinfo is None:
-            created_before = timezone.make_aware(created_before)
-        users = users.filter(date_joined__lt=created_before)
-        context.log.info(f"Filtering users created before {created_before}")
 
     # Filter by existing products requirement
     if config.require_existing_product:
@@ -112,11 +97,10 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
         users = users.filter(id__in=users_with_product)
         context.log.info(f"Only processing users with '{config.require_existing_product}' enabled")
 
-    # Filter to only users without any products if specified
-    if config.only_users_without_products:
-        user_ids_with_products = UserProductList.objects.values_list("user_id", flat=True).distinct()
-        users = users.exclude(id__in=user_ids_with_products)
-        context.log.info("Only processing users without existing UserProductList entries")
+    # Filter by role_at_organization if specified
+    if config.role_at_organization:
+        users = users.filter(role_at_organization=config.role_at_organization)
+        context.log.info(f"Only processing users with role_at_organization='{config.role_at_organization}'")
 
     # Respect user preference for sidebar suggestions
     users = users.exclude(allow_sidebar_suggestions=False)
@@ -171,8 +155,7 @@ def populate_user_product_list_job():
     - reason: Optional reason from UserProductList.Reason
     - reason_text: Optional freeform text to display to users on hover
     - require_existing_product: Only add for users who have this product enabled
-    - user_created_before: Only process users created before this date (ISO format)
-    - only_users_without_products: Only process users without existing entries
+    - role_at_organization: Only process users with this role (e.g., 'engineering', 'data')
     """
     populate_user_product_list()
 

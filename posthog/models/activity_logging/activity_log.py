@@ -73,6 +73,9 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "LLMTrace",
+    "WebAnalyticsFilterPreset",
+    "CustomerProfileConfig",
+    "Log",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
@@ -695,7 +698,7 @@ def log_activity(
     scope: str,
     activity: str,
     detail: Detail,
-    was_impersonated: Optional[bool],
+    was_impersonated: bool,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
@@ -783,7 +786,7 @@ class LogActivityEntry(TypedDict, total=False):
     scope: Required[str]
     activity: Required[str]
     detail: Required[Detail]
-    was_impersonated: Optional[bool]
+    was_impersonated: Required[bool]
     force_save: bool
 
 

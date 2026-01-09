@@ -129,7 +129,8 @@
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
          "posthog_survey"."headline_summary",
-         "posthog_survey"."headline_response_count"
+         "posthog_survey"."headline_response_count",
+         "posthog_survey"."question_summaries"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -169,7 +170,8 @@
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
          "posthog_survey"."headline_summary",
-         "posthog_survey"."headline_response_count"
+         "posthog_survey"."headline_response_count",
+         "posthog_survey"."question_summaries"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -236,6 +238,10 @@
          "posthog_scheduledchange"."executed_at",
          "posthog_scheduledchange"."failure_reason",
          "posthog_scheduledchange"."failure_count",
+         "posthog_scheduledchange"."is_recurring",
+         "posthog_scheduledchange"."recurrence_interval",
+         "posthog_scheduledchange"."last_executed_at",
+         "posthog_scheduledchange"."end_date",
          "posthog_scheduledchange"."team_id",
          "posthog_scheduledchange"."created_at",
          "posthog_scheduledchange"."created_by_id",
@@ -276,6 +282,7 @@
          "posthog_experiment"."primary_metrics_ordered_uuids",
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
+         "posthog_experiment"."scheduling_config",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
@@ -315,8 +322,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -409,8 +419,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -525,6 +538,7 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
@@ -569,8 +583,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -638,6 +655,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -871,7 +890,8 @@
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
          "posthog_survey"."headline_summary",
-         "posthog_survey"."headline_response_count"
+         "posthog_survey"."headline_response_count",
+         "posthog_survey"."question_summaries"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -911,7 +931,8 @@
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
          "posthog_survey"."headline_summary",
-         "posthog_survey"."headline_response_count"
+         "posthog_survey"."headline_response_count",
+         "posthog_survey"."question_summaries"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -993,6 +1014,7 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
@@ -1031,6 +1053,7 @@
          "posthog_experiment"."primary_metrics_ordered_uuids",
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
+         "posthog_experiment"."scheduling_config",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
@@ -1070,8 +1093,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -1164,8 +1190,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -1235,6 +1264,10 @@
          "posthog_scheduledchange"."executed_at",
          "posthog_scheduledchange"."failure_reason",
          "posthog_scheduledchange"."failure_count",
+         "posthog_scheduledchange"."is_recurring",
+         "posthog_scheduledchange"."recurrence_interval",
+         "posthog_scheduledchange"."last_executed_at",
+         "posthog_scheduledchange"."end_date",
          "posthog_scheduledchange"."team_id",
          "posthog_scheduledchange"."created_at",
          "posthog_scheduledchange"."created_by_id",
@@ -1254,6 +1287,10 @@
          "posthog_scheduledchange"."executed_at",
          "posthog_scheduledchange"."failure_reason",
          "posthog_scheduledchange"."failure_count",
+         "posthog_scheduledchange"."is_recurring",
+         "posthog_scheduledchange"."recurrence_interval",
+         "posthog_scheduledchange"."last_executed_at",
+         "posthog_scheduledchange"."end_date",
          "posthog_scheduledchange"."team_id",
          "posthog_scheduledchange"."created_at",
          "posthog_scheduledchange"."created_by_id",
@@ -1273,6 +1310,10 @@
          "posthog_scheduledchange"."executed_at",
          "posthog_scheduledchange"."failure_reason",
          "posthog_scheduledchange"."failure_count",
+         "posthog_scheduledchange"."is_recurring",
+         "posthog_scheduledchange"."recurrence_interval",
+         "posthog_scheduledchange"."last_executed_at",
+         "posthog_scheduledchange"."end_date",
          "posthog_scheduledchange"."team_id",
          "posthog_scheduledchange"."created_at",
          "posthog_scheduledchange"."created_by_id",
@@ -1292,6 +1333,10 @@
          "posthog_scheduledchange"."executed_at",
          "posthog_scheduledchange"."failure_reason",
          "posthog_scheduledchange"."failure_count",
+         "posthog_scheduledchange"."is_recurring",
+         "posthog_scheduledchange"."recurrence_interval",
+         "posthog_scheduledchange"."last_executed_at",
+         "posthog_scheduledchange"."end_date",
          "posthog_scheduledchange"."team_id",
          "posthog_scheduledchange"."created_at",
          "posthog_scheduledchange"."created_by_id",
@@ -1364,8 +1409,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -1433,6 +1481,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",

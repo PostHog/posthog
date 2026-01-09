@@ -17,7 +17,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -36,7 +36,9 @@ env:
     # this appears to fix it
     # absolute wild tbh https://stackoverflow.com/a/75503402
     DISPLAY: ':99.0'
-    OIDC_RSA_PRIVATE_KEY: ${{ secrets.OIDC_RSA_PRIVATE_KEY }}
+    # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
+    OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 permissions:
     contents: write
@@ -56,10 +58,12 @@ jobs:
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
+            llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
+            openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -68,7 +72,7 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -118,6 +122,16 @@ jobs:
                         - 'rust/bin/migrate-persons'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
+                      llm_gateway:
+                        - 'services/llm-gateway/**/*'
+                      openapi_types:
+                        # Generated OpenAPI types - validate they match schema
+                        - 'frontend/src/generated/**/*'
+                        - 'products/*/frontend/generated/**/*'
+                        # Generation tooling - changes here could affect output
+                        - 'frontend/bin/generate-openapi-types.mjs'
+                        - 'frontend/src/lib/api-orval-mutator.ts'
+                        - 'frontend/src/lib/api-stub-for-orval.ts'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -147,14 +161,14 @@ jobs:
 
     check-migrations:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
         timeout-minutes: 20
 
-        name: Validate Django and CH migrations
+        name: Validate migrations and OpenAPI types
         runs-on: depot-ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -169,14 +183,13 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d &
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: 3.12.12
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -187,13 +200,13 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
                   toolchain: 1.88.0
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
             - name: Install sqlx-cli
               run: |
@@ -201,7 +214,7 @@ jobs:
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   ref: master
                   clean: false
@@ -227,7 +240,7 @@ jobs:
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   clean: false
 
@@ -382,7 +395,7 @@ jobs:
 
             - name: Upload migration analysis artifact
               if: always() && github.event_name == 'pull_request'
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migration-analysis
                   path: migration_analysis.md
@@ -411,6 +424,38 @@ jobs:
               run: |
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.17.1
+                  cache: pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install --frozen-lockfile
+
+            - name: Check if OpenAPI types are up to date
+              run: |
+                  ./bin/hogli build:openapi
+                  if ! git diff --exit-code; then
+                      echo ""
+                      echo "::error::OpenAPI types are out of date!"
+                      echo ""
+                      echo "The TypeScript API types in products/*/frontend/generated/ are auto-generated"
+                      echo "from Django serializers and views. When you modify the backend API, you need"
+                      echo "to regenerate these types."
+                      echo ""
+                      echo "To fix, run locally:  hogli build:openapi"
+                      echo "Then commit the updated generated files."
+                      echo ""
+                      echo "More info: https://posthog.com/handbook/engineering/type-system"
+                      echo ""
+                      echo "Questions? #team-devex on Slack"
+                      exit 1
+                  fi
 
     django:
         needs: [changes, detect-snapshot-mode]
@@ -596,13 +641,11 @@ jobs:
                       group: 10
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
-                  # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_PAT || github.token }}
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -667,14 +710,13 @@ jobs:
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: ${{ matrix.python-version }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -687,14 +729,14 @@ jobs:
 
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
                   toolchain: 1.88.0
                   components: cargo
 
             - name: Cache Rust dependencies
               if: needs.changes.outputs.backend == 'true'
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
@@ -710,10 +752,10 @@ jobs:
                   echo "changed=$changed" >> $GITHUB_OUTPUT
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -722,7 +764,7 @@ jobs:
             # with exit code 134 _after passing_ all tests
             # this appears to fix it
             # absolute wild tbh https://stackoverflow.com/a/75503402
-            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
+            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
 
             - name: Install plugin_transpiler
               shell: bash
@@ -814,6 +856,7 @@ jobs:
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 --store-durations --clean-durations \
                       --splitting-algorithm=duration_based_chunks \
+                      --reruns 2 --reruns-delay 1 \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -843,6 +886,7 @@ jobs:
               run: |
                   pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                       --durations=1000 --durations-min=1.0 \
+                      --reruns 2 --reruns-delay 1 \
                       $PYTEST_ARGS
 
             - name: Run Temporal tests
@@ -859,6 +903,7 @@ jobs:
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations --clean-durations \
                       --splitting-algorithm=duration_based_chunks \
+                      --reruns 2 --reruns-delay 1 \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -876,7 +921,7 @@ jobs:
               run: docker compose -f docker-compose.dev.yml logs
 
             - name: Upload updated timing data as artifacts
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only upload timing data on main branch to avoid artifact bloat from PRs
               if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
               with:
@@ -911,7 +956,7 @@ jobs:
             - name: Upload snapshot patch
               # Only in UPDATE mode
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.segment }}-${{ matrix.group }}
                   path: /tmp/patches/
@@ -919,7 +964,7 @@ jobs:
                   retention-days: 1
 
             - name: Archive email renders
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events
               with:
                   name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
@@ -938,18 +983,26 @@ jobs:
             contents: write
             pull-requests: write
         steps:
+            # Use GitHub app token so Actions run after commiting updated snapshots
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  token: ${{ steps.app-token.outputs.token }}
                   fetch-depth: 1
 
             - name: Download all snapshot patches
               id: download-patches
               continue-on-error: true
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   pattern: snapshot-patch-*
                   path: /tmp/snapshot-patches
@@ -985,7 +1038,7 @@ jobs:
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  github-token: ${{ steps.app-token.outputs.token }}
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
@@ -1035,7 +1088,7 @@ jobs:
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 1
                   clean: false
@@ -1052,13 +1105,13 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d &
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -1070,13 +1123,13 @@ jobs:
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
                   toolchain: 1.88.0
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
             - name: Install sqlx-cli
               run: |
@@ -1105,7 +1158,7 @@ jobs:
 
             - name: Run async migrations tests
               run: |
-                  pytest -m "async_migrations"
+                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1
 
     calculate-running-time:
         name: Calculate running time
@@ -1139,8 +1192,38 @@ jobs:
                   echo running_time_run_id=${run_id} >> $GITHUB_ENV
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
             - name: Capture running time to PostHog
-              uses: PostHog/posthog-github-action@v0.1
+              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+
+    llm-gateway:
+        name: LLM Gateway Tests
+        needs: changes
+        if: needs.changes.outputs.llm_gateway == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        defaults:
+            run:
+                working-directory: services/llm-gateway
+
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version: '3.12'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+
+            - name: Install dependencies
+              run: uv sync --frozen --dev
+
+            - name: Run tests
+              env:
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+              run: uv run pytest tests/ -v --tb=short

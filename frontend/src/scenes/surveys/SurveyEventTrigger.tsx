@@ -24,7 +24,7 @@ import { surveyLogic } from './surveyLogic'
 
 // Only include operators supported by the SDK's property matching system
 // Exclude is_set and is_not_set as they're not supported
-const SUPPORTED_OPERATORS: PropertyOperator[] = [
+export const SUPPORTED_OPERATORS: PropertyOperator[] = [
     'exact',
     'is_not',
     'icontains',
@@ -37,7 +37,7 @@ const SUPPORTED_OPERATORS: PropertyOperator[] = [
     'lte',
 ] as PropertyOperator[]
 
-function convertPropertyFiltersToArray(
+export function convertPropertyFiltersToArray(
     propertyFilters?: SurveyEventsWithProperties['propertyFilters']
 ): EventPropertyFilter[] {
     if (!propertyFilters) {
@@ -52,7 +52,9 @@ function convertPropertyFiltersToArray(
     }))
 }
 
-function convertArrayToPropertyFilters(filters: AnyPropertyFilter[]): SurveyEventsWithProperties['propertyFilters'] {
+export function convertArrayToPropertyFilters(
+    filters: AnyPropertyFilter[]
+): SurveyEventsWithProperties['propertyFilters'] {
     if (filters.length === 0) {
         return undefined
     }
@@ -256,7 +258,7 @@ export function SurveyEventTrigger(): JSX.Element {
         <SurveyEventSelector
             conditionField="events"
             label="User sends events"
-            info="It only triggers when the event is captured in the current user session and using the PostHog SDK. Filtering by event properties requires posthog-js SDK at least v1.268.0, and it's supported only for web surveys."
+            info="It only triggers when the event is captured in the current user session and using the PostHog SDK. Filtering by event properties requires posthog-js >= v1.268.0 or posthog-react-native >= v4.15.0. Not supported for other SDKs."
             emptyTitle="No events selected"
             emptyDescription="Add events to trigger this survey when those events are captured in the current user session"
             showRepeatedActivation

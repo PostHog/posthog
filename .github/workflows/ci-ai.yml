@@ -24,8 +24,13 @@ jobs:
                 github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
             )
 
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
+
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   # Check out the actual branch instead of merge commit with master,
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
@@ -45,12 +50,12 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -60,13 +65,13 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
                   toolchain: 1.88.0
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
@@ -93,9 +98,8 @@ jobs:
             - name: Post eval summary to PR
               # always() because we want to post even if `pytest` exited with an error (likely just one eval suite errored)
               if: always() && github.event_name == 'pull_request'
-              uses: actions/github-script@v8
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const fs = require("fs")
                       const script = require('.github/scripts/post-eval-summary.js')

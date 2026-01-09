@@ -4,6 +4,7 @@ use std::{
 };
 
 use aws_config::{BehaviorVersion, Region};
+use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
 use tracing::{info, warn};
@@ -13,6 +14,9 @@ pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
@@ -139,6 +143,9 @@ pub struct Config {
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
 
+    #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6479/")]
+    pub issue_buckets_redis_url: String,
+
     #[envconfig(default = "100")]
     pub redis_response_timeout_ms: u64,
 
@@ -153,6 +160,11 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub auto_assignment_enabled: bool, // Comma seperated list of users to either filter in (process) or filter out (ignore)
+
+    // Comma separated list of team IDs that can receive spike alerts.
+    // If empty, all teams can receive alerts
+    #[envconfig(default = "")]
+    pub spike_alert_enabled_team_ids: String,
 }
 
 impl Config {

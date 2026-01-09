@@ -1,11 +1,13 @@
 use anyhow::{Context, Result};
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::{
     api::symbol_sets::{self, SymbolSetUpload},
     invocation_context::context,
     sourcemaps::{
-        args::FileSelectionArgs, plain::inject::is_javascript_file, source_pairs::read_pairs,
+        args::{FileSelectionArgs, ReleaseArgs},
+        plain::inject::is_javascript_file,
+        source_pairs::read_pairs,
     },
     utils::files::{delete_files, FileSelection},
 };
@@ -29,13 +31,8 @@ pub struct Args {
     #[arg(long, default_value = "50")]
     pub batch_size: usize,
 
-    /// DEPRECATED: Does nothing. Set project during `inject` instead
-    #[arg(long)]
-    pub project: Option<String>,
-
-    /// DEPRECATED: Does nothing. Set version during `inject` instead
-    #[arg(long)]
-    pub version: Option<String>,
+    #[clap(flatten)]
+    pub release: ReleaseArgs,
 
     /// DEPRECATED - use top-level `--skip-ssl-verification` instead
     #[arg(long, default_value = "false")]
@@ -43,22 +40,18 @@ pub struct Args {
 }
 
 pub fn upload_cmd(args: &Args) -> Result<()> {
-    if args.project.is_some() || args.version.is_some() {
-        warn!("`--project` and `--version` are deprecated and do nothing. Set project and version during `inject` instead.");
-    }
-
+    args.file_selection.validate()?;
     context().capture_command_invoked("sourcemap_upload");
     upload(args)
 }
 
 pub fn upload(args: &Args) -> Result<()> {
-    if args.project.is_some() || args.version.is_some() {
-        warn!("`--project` and `--version` are deprecated and do nothing. Set project and version during `inject` instead.");
-    }
+    let selection = FileSelection::try_from(args.file_selection.clone())?;
 
-    let selection = FileSelection::from(args.file_selection.clone()).filter(is_javascript_file);
-
-    let pairs = read_pairs(selection, &args.public_path_prefix)?;
+    let pairs = read_pairs(
+        selection.into_iter().filter(is_javascript_file),
+        &args.public_path_prefix,
+    );
 
     let sourcemap_paths = pairs
         .iter()

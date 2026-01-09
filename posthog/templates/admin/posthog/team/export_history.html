@@ -1,0 +1,57 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<p><a href="{% url 'admin:posthog_team_change' team.pk %}">&larr; Back to team</a></p>
+
+{% if exports %}
+<table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+    <thead>
+        <tr style="background: #f5f5f5;">
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">ID</th>
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Session ID</th>
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Reason</th>
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Created By</th>
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Created At</th>
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Status</th>
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Download</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for export in exports %}
+        <tr style="border-bottom: 1px solid #eee;">
+            <td style="padding: 10px;">{{ export.id }}</td>
+            <td style="padding: 10px;">{{ export.session_id }}</td>
+            <td style="padding: 10px;">{{ export.reason|default:"-" }}</td>
+            <td style="padding: 10px;">{{ export.created_by.email|default:"-" }}</td>
+            <td style="padding: 10px;">{{ export.created_at }}</td>
+            <td style="padding: 10px;">
+                {% if export.is_expired %}
+                    <span style="color: gray;">Expired</span>
+                {% elif export.status == "complete" %}
+                    <span style="color: green;">Complete</span>
+                {% elif export.status == "failed" %}
+                    <span style="color: red;">Failed</span>
+                {% elif export.status == "running" %}
+                    <span style="color: blue;">Running</span>
+                {% else %}
+                    <span style="color: orange;">Pending</span>
+                {% endif %}
+            </td>
+            <td style="padding: 10px;">
+                {% if export.is_expired %}
+                    -
+                {% elif export.export_location %}
+                    <a href="/admin/posthog/team/{{ team.pk }}/download-export/{{ export.id }}/" class="button" style="font-size: 11px;">Download</a>
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p style="margin-top: 20px; color: #666;">No exports found for this team.</p>
+{% endif %}
+{% endblock %}

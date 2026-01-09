@@ -1433,7 +1433,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "BigQueryAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        # Column indices: 0=match_key, 1=campaign, 2=id, 3=source, 4=impressions, 5=clicks, 6=cost, 7=reported_conversion, 8=reported_conversion_value
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
         total_cost = sum(float(row[6] or 0) for row in results)
         total_impressions = sum(int(row[4] or 0) for row in results)
         total_clicks = sum(int(row[5] or 0) for row in results)
@@ -1467,7 +1468,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "GoogleAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        # Column indices: 0=match_key, 1=campaign, 2=id, 3=source, 4=impressions, 5=clicks, 6=cost, 7=reported_conversion, 8=reported_conversion_value
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
         total_cost = sum(float(row[6] or 0) for row in results)
         total_impressions = sum(int(row[4] or 0) for row in results)
         total_clicks = sum(int(row[5] or 0) for row in results)
@@ -1501,7 +1503,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "Expected adapter to build a valid query"
         results = self._execute_query_and_validate(query)
 
-        # Column indices: 0=match_key, 1=campaign, 2=id, 3=source, 4=impressions, 5=clicks, 6=cost, 7=reported_conversion, 8=reported_conversion_value
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
         total_cost = sum(float(row[6] or 0) for row in results)
         total_impressions = sum(int(row[4] or 0) for row in results)
         total_clicks = sum(int(row[5] or 0) for row in results)
@@ -1535,7 +1538,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "RedditAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        # Column indices: 0=match_key, 1=campaign, 2=id, 3=source, 4=impressions, 5=clicks, 6=cost, 7=reported_conversion, 8=reported_conversion_value
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
         total_cost = sum(float(row[6] or 0) for row in results)
         total_impressions = sum(int(row[4] or 0) for row in results)
         total_clicks = sum(int(row[5] or 0) for row in results)
@@ -1598,7 +1602,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         union_query = ast.SelectSetQuery.create_from_queries([facebook_query, tiktok_query], "UNION ALL")
         results = self._execute_query_and_validate(union_query)
 
-        # Column indices: 0=match_key, 1=campaign, 2=id, 3=source, 4=impressions, 5=clicks, 6=cost, 7=reported_conversion, 8=reported_conversion_value
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
         total_cost = sum(float(row[6] or 0) for row in results)
         total_impressions = sum(int(row[4] or 0) for row in results)
         total_clicks = sum(int(row[5] or 0) for row in results)

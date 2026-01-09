@@ -301,27 +301,50 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
         cast(dict, cohort.query), team=team, limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
 
+    uses_distinct_id = False
+    uses_actor_id = False
+
     for select_query in extract_select_queries(query):
         columns: dict[str, ast.Expr] = {}
+
         for expr in select_query.select:
             if isinstance(expr, ast.Alias):
                 columns[expr.alias] = expr.expr
             elif isinstance(expr, ast.Field):
                 columns[str(expr.chain[-1])] = expr
+
         column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
         if isinstance(column, ast.Alias):
             select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
+            uses_actor_id = True
         elif isinstance(column, ast.Field):
             select_query.select = [ast.Alias(expr=column, alias="actor_id")]
+            uses_actor_id = True
         else:
             # Support the most common use cases
             table = select_query.select_from.table if select_query.select_from else None
             if isinstance(table, ast.Field) and table.chain[-1] == "events":
                 select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
+                uses_actor_id = True
             elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
                 select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
+                uses_actor_id = True
             else:
-                raise ValueError("Could not find a person_id, actor_id, or id column in the query")
+                # Check if we have a distinct_id column
+                distinct_id_column = columns.get("distinct_id")
+                if distinct_id_column is not None:
+                    # Use distinct_id and mark that we need to resolve it to person_id
+                    select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
+                    uses_distinct_id = True
+                else:
+                    raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
+
+    # Check for mixed ID types in UNION queries
+    if uses_distinct_id and uses_actor_id:
+        raise ValueError(
+            "UNION queries with mixed ID types are not currently supported. "
+            "All SELECT queries in the UNION must use the same ID type (either person_id/actor_id or distinct_id)."
+        )
 
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False
@@ -329,6 +352,32 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     # Apply HogQL global settings to ensure consistency with regular queries
     settings = HogQLGlobalSettings()
+
+    # If we're using distinct_id, wrap the query to resolve to person_id
+    if uses_distinct_id:
+        # Print the inner query without settings - we'll add them to the wrapper
+        base_query = prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse")[0]
+
+        # Format settings as key=value pairs
+        settings_pairs = {k: str(v) for k, v in settings.model_dump().items() if v is not None}
+        settings_clause = ""
+        if settings_pairs:
+            settings_str = ", ".join([f"{key}={value}" for key, value in settings_pairs.items()])
+            settings_clause = f" SETTINGS {settings_str}"
+
+        # Wrap with person_distinct_id2 lookup using raw SQL since it's not a HogQL table
+        wrapped_query = f"""
+        SELECT DISTINCT argMax(person_id, version) as actor_id
+        FROM person_distinct_id2
+        WHERE distinct_id IN (
+            SELECT DISTINCT distinct_id FROM ({base_query})
+        ) AND team_id = %(team_id)s
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0
+        """.strip()
+
+        return f"{wrapped_query}{settings_clause}"
+
     return prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
 
 
@@ -526,10 +575,11 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     )
 
 
-def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
-    count = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id).count()
-
-    return count
+def get_static_cohort_size(*, cohort_id: int, team_id: int, using_database: str | None = None) -> int:
+    qs = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id)
+    if using_database:
+        qs = qs.using(using_database)
+    return qs.count()
 
 
 def recalculate_cohortpeople(
@@ -655,7 +705,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
-    tag_queries(name="get_cohort_size", feature=Feature.COHORT)
+    tag_queries(name="get_cohort_size", feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id)
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
         {

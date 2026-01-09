@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_database::get_pool;
+use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
 use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
@@ -169,7 +170,7 @@ impl ServerHandle {
             let cohort_cache = Arc::new(
                 feature_flags::cohorts::cohort_cache_manager::CohortCacheManager::new(
                     non_persons_reader.clone(),
-                    Some(config.cache_max_cohort_entries),
+                    Some(config.cohort_cache_capacity_bytes),
                     Some(config.cache_ttl_seconds),
                 ),
             );
@@ -212,6 +213,22 @@ impl ServerHandle {
                 test_before_acquire: *config.test_before_acquire,
             });
 
+            // Create HyperCacheReader for tests
+            let hypercache_config = HyperCacheConfig::new(
+                "feature_flags".to_string(),
+                "flags.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            let flags_hypercache_reader =
+                match HyperCacheReader::new(redis_reader_client.clone(), hypercache_config).await {
+                    Ok(reader) => Arc::new(reader),
+                    Err(e) => {
+                        tracing::error!("Failed to create HyperCacheReader: {:?}", e);
+                        return;
+                    }
+                };
+
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
                 None,                        // No dedicated flags Redis in tests
@@ -222,6 +239,7 @@ impl ServerHandle {
                 feature_flags_billing_limiter,
                 session_replay_billing_limiter,
                 cookieless_manager,
+                flags_hypercache_reader,
                 config,
             );
 

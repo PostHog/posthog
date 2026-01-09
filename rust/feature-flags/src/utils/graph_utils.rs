@@ -274,6 +274,11 @@ where
         Self::compute_stages(&self.graph, &mut out_degree)
     }
 
+    /// Returns an iterator over all nodes (items) in the graph.
+    pub fn iter_nodes(&self) -> impl Iterator<Item = &T> {
+        self.graph.node_indices().map(|idx| &self.graph[idx])
+    }
+
     fn build_evaluation_maps(&self) -> Result<HashMap<NodeIndex, usize>, T::Error> {
         use petgraph::Direction::Outgoing;
         let node_count = self.graph.node_count();
@@ -486,17 +491,17 @@ pub fn log_dependency_graph_construction_errors(
     team_id: common_types::TeamId,
 ) {
     for error in errors {
-        let (failure_type, flag_id) = match error {
-            GraphError::MissingDependency(id) => ("flag_dependency_missing", id),
-            GraphError::CycleDetected(id) => ("flag_dependency_cycle", id),
+        let failure_type = match error {
+            GraphError::MissingDependency(_) => "flag_dependency_missing",
+            GraphError::CycleDetected(_) => "flag_dependency_cycle",
         };
 
         inc(
             TOMBSTONE_COUNTER,
             &[
-                ("failure_type".to_string(), failure_type.to_string()),
-                ("team_id".to_string(), team_id.to_string()),
-                ("flag_id".to_string(), flag_id.to_string()),
+                ("namespace".to_string(), "feature_flags".to_string()),
+                ("operation".to_string(), failure_type.to_string()),
+                ("component".to_string(), "graph_utils".to_string()),
             ],
             1,
         );

@@ -8,6 +8,13 @@
             "intents": []
         },
         {
+            "path": "Conversations",
+            "category": "Unreleased",
+            "iconType": "conversations",
+            "type": "conversations",
+            "intents": ["conversations"]
+        },
+        {
             "path": "Customer analytics",
             "category": "Analytics",
             "iconType": "cohort",
@@ -102,6 +109,13 @@
         },
         { "path": "Notebooks", "category": "Tools", "iconType": "notebook", "type": "notebook", "intents": [] },
         {
+            "path": "Product tours",
+            "category": "Behavior",
+            "iconType": "product_tour",
+            "type": "product_tour",
+            "intents": []
+        },
+        {
             "path": "Session replay",
             "category": "Behavior",
             "iconType": "session_replay",
@@ -174,6 +188,8 @@
             "type": null,
             "intents": []
         },
+        { "path": "Conversations", "category": "Unreleased", "iconType": null, "type": null, "intents": [] },
+        { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Sources",
             "category": "Pipeline",

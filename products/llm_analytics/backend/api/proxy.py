@@ -25,7 +25,7 @@ from rest_framework.response import Response
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
+from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -84,7 +84,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
-        return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle()]
+        return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle(), LLMProxyDailyRateThrottle()]
 
     def validate_messages(self, messages: list[dict[str, Any]]) -> TypeGuard[list[MessageParam]]:
         if not messages:

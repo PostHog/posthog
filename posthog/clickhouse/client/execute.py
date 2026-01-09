@@ -31,10 +31,8 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     get_query_tags,
 )
-from posthog.cloud_utils import is_cloud
 from posthog.errors import ch_error_type, wrap_query_error
-from posthog.exceptions import ClickHouseAtCapacity
-from posthog.settings import API_QUERIES_ON_ONLINE_CLUSTER, CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
 
@@ -154,16 +152,6 @@ def sync_execute(
         workload = Workload.ONLINE
         ch_user = ClickHouseUser.API if is_personal_api_key else ClickHouseUser.APP
 
-    # Customer is paying for API
-    if (
-        team_id
-        and workload == Workload.OFFLINE
-        and tags.chargeable
-        and is_cloud()
-        and team_id in API_QUERIES_ON_ONLINE_CLUSTER
-    ):
-        workload = Workload.ONLINE
-
     if tags.workload == Workload.ENDPOINTS:
         workload = Workload.ENDPOINTS
 
@@ -239,11 +227,6 @@ def sync_execute(
                 chargeable=str(tags.chargeable or "0"),
             ).inc()
             err = wrap_query_error(e)
-            if isinstance(err, ClickHouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
-                workload = Workload.ONLINE
-                tags.clickhouse_exception_type = exception_type
-                tags.workload = str(workload)
-                continue
             raise err from e
         finally:
             execution_time = perf_counter() - start_time
@@ -273,12 +256,15 @@ def query_with_columns(
     *,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
+    settings: Optional[dict[str, Any]] = None,
 ) -> list[dict]:
     if columns_to_remove is None:
         columns_to_remove = []
     if columns_to_rename is None:
         columns_to_rename = {}
-    metrics, types = sync_execute(query, args, with_column_types=True, workload=workload, team_id=team_id)
+    metrics, types = sync_execute(
+        query, args, settings=settings, with_column_types=True, workload=workload, team_id=team_id
+    )
     type_names = [key for key, _type in types]
 
     rows = []

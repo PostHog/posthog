@@ -13,6 +13,8 @@ export interface ErrorTrackingException {
     }
 }
 
+export type ErrorTrackingExceptionList = ErrorTrackingException[]
+
 export type ErrorTrackingRuntime =
     | 'web'
     | 'python'
@@ -32,11 +34,12 @@ export type ErrorTrackingRuntime =
     | 'dotnet'
     | 'unknown'
 
-interface ErrorTrackingRawStackTrace {
+export interface ErrorTrackingRawStackTrace {
     type: 'raw'
     frames: any[] // TODO: type more concretely if we end up needing this (right now we show the $cymbal_errors instead)
 }
-interface ErrorTrackingResolvedStackTrace {
+
+export interface ErrorTrackingResolvedStackTrace {
     type: 'resolved'
     frames: ErrorTrackingStackFrame[]
 }

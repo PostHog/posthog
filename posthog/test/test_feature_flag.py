@@ -12,7 +12,6 @@ from django.db import IntegrityError, connection, connections
 from django.test import TransactionTestCase
 from django.utils import timezone
 
-from flaky import flaky
 from parameterized import parameterized
 
 from posthog.models import Cohort, FeatureFlag, Person
@@ -6032,6 +6031,47 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     # Should match first group
                     self.assertEqual(match_result.condition_index, 0)
 
+    def test_date_comparison_with_milliseconds_format(self):
+        """
+        Test date comparison with ISO 8601 format including milliseconds (without timezone).
+
+        The format "2025-12-19T00:00:00.000" (with milliseconds but no timezone)
+        should be parsed correctly when comparing dates.
+        """
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_user"],
+            properties={
+                "signup_date": "2025-12-19T00:00:00.000",
+            },
+        )
+
+        flag = self.create_feature_flag(
+            key="test-date-with-milliseconds",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "signup_date",
+                                "type": "person",
+                                "value": "2025-12-01",
+                                "operator": "is_date_after",
+                            },
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        match_result = self.match_flag(flag, "test_user")
+        self.assertTrue(
+            match_result.match,
+            "Flag should match: 2025-12-19 is after 2025-12-01",
+        )
+        self.assertEqual(match_result.condition_index, 0)
+
 
 class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
     person: Person
@@ -6484,7 +6524,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "default-flag": True,
             }
 
-    @flaky(max_runs=3, min_passes=1)
+    @pytest.mark.flaky(reruns=2)
     def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self, *args):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")

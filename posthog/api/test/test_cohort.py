@@ -2606,8 +2606,18 @@ email@example.org,
         while response.json()["is_calculating"]:
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/duplicate_as_static_cohort")
-        self.assertEqual(response.status_code, 200, response.content)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            data={
+                "is_static": True,
+                "name": "cohort A (static copy)",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"SELECT person_id FROM cohort_people WHERE cohort_id = {cohort_id}",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
 
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
@@ -2642,8 +2652,18 @@ email@example.org,
         self.assertEqual(cohort.count, 2, "Original cohort should have 2 people")
 
         # Duplicate static cohort as static
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/duplicate_as_static_cohort")
-        self.assertEqual(response.status_code, 200, response.content)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            data={
+                "is_static": True,
+                "name": f"{cohort.name} (static copy)",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort.id}",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
 
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)

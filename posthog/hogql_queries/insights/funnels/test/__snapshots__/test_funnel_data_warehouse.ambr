@@ -36,7 +36,7 @@
                   if(1, 1, 0) AS step_0,
                   if(1, 1, 0) AS step_1
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String)') AS e
-           WHERE and(and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toDateTime64('2025-11-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), toDateTime64('2025-11-07 23:59:59.999999', 6, 'UTC')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2025-11-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-11-07 23:59:59.999999', 6, 'UTC'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -120,7 +120,7 @@
                                0 AS step_0,
                                if(1, 1, 0) AS step_1
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String)') AS e
-              WHERE and(and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0)), ifNull(equals(step_1, 1), 0))) AS e)
+              WHERE and(and(greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))) AS e)
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown

@@ -5,12 +5,20 @@ import { LemonButton, LemonLabel, Link } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EntityTypes, FilterType } from '~/types'
+
+import { ConfigureWithAIButton } from 'products/customer_analytics/frontend/components/ConfigureWithAIButton'
+import { isPageviewWithoutFilters } from 'products/customer_analytics/frontend/utils'
 
 import { customerAnalyticsDashboardEventsLogic } from './customerAnalyticsDashboardEventsLogic'
 
@@ -19,50 +27,67 @@ export interface EventSelectorProps {
     filters: FilterType | null
     setFilters: (filters: FilterType) => void
     title: string
+    prompt: string
+    relatedSeries: string[]
 }
 
-function EventSelector({ filters, setFilters, title, caption }: EventSelectorProps): JSX.Element {
+function EventSelector({ filters, setFilters, title, caption, prompt }: EventSelectorProps): JSX.Element {
     const { eventsToHighlight } = useValues(customerAnalyticsDashboardEventsLogic)
     const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
+    const { reportCustomerAnalyticsDashboardEventPickerClicked } = useActions(eventUsageLogic)
+
+    const shouldShowAIButton =
+        !filters || isPageviewWithoutFilters(actionsAndEventsToSeries(filters as any, true, MathAvailability.None)[0])
 
     return (
         <div className={`py-2 ${highlight}`}>
             <div className="ml-1">
-                <LemonLabel>{title}</LemonLabel>
+                <div className="flex items-center gap-2">
+                    <LemonLabel>{title}</LemonLabel>
+                    {shouldShowAIButton && <ConfigureWithAIButton event={title} prompt={prompt} />}
+                </div>
                 <p className="text-xs text-muted-alt">{caption}</p>
             </div>
             {filters ? (
-                <ActionFilter
-                    hideRename
-                    hideDuplicate
-                    hideFilter={false}
-                    propertyFiltersPopover
-                    filters={filters}
-                    setFilters={setFilters}
-                    typeKey={`customer-analytics-${title.toLowerCase()}`}
-                    mathAvailability={MathAvailability.None}
-                    actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                    buttonCopy="Select event or action"
-                    entitiesLimit={1}
-                />
+                <div className="flex">
+                    <ActionFilter
+                        hideRename
+                        hideDuplicate
+                        hideFilter={false}
+                        propertyFiltersPopover
+                        filters={filters}
+                        setFilters={(filters) => {
+                            setFilters(filters)
+                            reportCustomerAnalyticsDashboardEventPickerClicked({ event: title })
+                        }}
+                        typeKey={`customer-analytics-${title.toLowerCase()}`}
+                        mathAvailability={MathAvailability.None}
+                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                        buttonCopy="Select event or action"
+                        entitiesLimit={1}
+                    />
+                </div>
             ) : (
-                <LemonButton
-                    type="tertiary"
-                    icon={<IconPlusSmall />}
-                    onClick={() => {
-                        setFilters({
-                            events: [
-                                {
-                                    id: '$pageview',
-                                    name: '$pageview',
-                                    type: EntityTypes.EVENTS,
-                                },
-                            ],
-                        })
-                    }}
-                >
-                    Select event or action
-                </LemonButton>
+                <div className="flex">
+                    <LemonButton
+                        type="tertiary"
+                        icon={<IconPlusSmall />}
+                        onClick={() => {
+                            setFilters({
+                                events: [
+                                    {
+                                        id: '$pageview',
+                                        name: '$pageview',
+                                        type: EntityTypes.EVENTS,
+                                    },
+                                ],
+                            })
+                            reportCustomerAnalyticsDashboardEventPickerClicked({ event: title })
+                        }}
+                    >
+                        Select event or action
+                    </LemonButton>
+                </div>
             )}
         </div>
     )
@@ -73,17 +98,29 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
     const { saveEvents, clearFilterSelections, clearEventsToHighlight } = useActions(
         customerAnalyticsDashboardEventsLogic
     )
+    const { addProductIntent } = useActions(teamLogic)
+    const { reportCustomerAnalyticsDashboardConfigurationViewed, reportCustomerAnalyticsDashboardEventsSaved } =
+        useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const handleSave = (): void => {
         saveEvents()
         clearEventsToHighlight()
+        reportCustomerAnalyticsDashboardEventsSaved()
+        addProductIntent({
+            product_type: ProductKey.CUSTOMER_ANALYTICS,
+            intent_context: ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_EVENTS_SAVED,
+        })
     }
 
     const handleClear = (): void => {
         clearFilterSelections()
         clearEventsToHighlight()
     }
+
+    useOnMountEffect(() => {
+        reportCustomerAnalyticsDashboardConfigurationViewed()
+    })
 
     return (
         <div className="space-y-4">
@@ -113,7 +150,7 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 pt-4">
-                <LemonButton type="secondary" onClick={handleClear}>
+                <LemonButton type="secondary" onClick={handleClear} disabledReason={hasChanges ? null : 'No changes'}>
                     Clear changes
                 </LemonButton>
                 <LemonButton

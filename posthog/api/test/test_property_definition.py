@@ -287,7 +287,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                     "$virt_initial_channel_type",
                     "$virt_initial_referring_domain_type",
                     "$virt_revenue",
-                    "$virt_revenue_last_30_days",
+                    "$virt_mrr",
                 ],
             ),
             ("Search person properties containing 'prop'", "type=person&search=prop", ["person property"]),
@@ -336,12 +336,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             (
                 "Get all group1 properties",
                 "type=group&group_type_index=1",
-                ["group1 another", "group1 property", "$virt_revenue", "$virt_revenue_last_30_days"],
+                ["group1 another", "group1 property", "$virt_revenue", "$virt_mrr"],
             ),
             (
                 "Get all group2 properties",
                 "type=group&group_type_index=2",
-                ["group2 property", "$virt_revenue", "$virt_revenue_last_30_days"],
+                ["group2 property", "$virt_revenue", "$virt_mrr"],
             ),
             (
                 "Search group1 properties containing 'prop'",
@@ -613,8 +613,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                     "tags": [],
                 },
                 {
-                    "id": "builtin_virt_revenue_last_30_days",
-                    "name": "$virt_revenue_last_30_days",
+                    "id": "builtin_virt_mrr",
+                    "name": "$virt_mrr",
                     "is_numerical": True,
                     "property_type": "Numeric",
                     "tags": [],
@@ -630,8 +630,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             assert len(virtual_props) == 4
             assert all(prop["is_numerical"] for prop in virtual_props)
             assert all(
-                prop["name"]
-                in ["$virt_session_count", "$virt_pageview_count", "$virt_revenue", "$virt_revenue_last_30_days"]
+                prop["name"] in ["$virt_session_count", "$virt_pageview_count", "$virt_revenue", "$virt_mrr"]
                 for prop in virtual_props
             )
 

@@ -10,13 +10,14 @@ from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import AlertState
+from posthog.schema import AlertCondition, AlertState, InsightThreshold, TrendsAlertConfig
 
+from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.models import User
+from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.alert import (
     AlertCheck,
@@ -29,7 +30,24 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.utils import relative_date_parse
 
 
+@extend_schema_field(InsightThreshold)  # type: ignore[arg-type]
+class ThresholdConfigurationField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(AlertCondition)  # type: ignore[arg-type]
+class AlertConditionField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(TrendsAlertConfig)  # type: ignore[arg-type]
+class TrendsAlertConfigField(serializers.JSONField):
+    pass
+
+
 class ThresholdSerializer(serializers.ModelSerializer):
+    configuration = ThresholdConfigurationField()
+
     class Meta:
         model = Threshold
         fields = [
@@ -94,12 +112,18 @@ class AlertSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(many=True, read_only=True)
     threshold = ThresholdSerializer()
+    condition = AlertConditionField(required=False, allow_null=True)
+    config = TrendsAlertConfigField(required=False, allow_null=True)
+    insight = serializers.PrimaryKeyRelatedField(
+        queryset=Insight.objects.all(),
+        help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
+    )
     subscribed_users = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(is_active=True),
         many=True,
         required=True,
-        write_only=True,
         allow_empty=True,
+        help_text="User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.",
     )
     snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
 

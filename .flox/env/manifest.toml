@@ -20,25 +20,16 @@ brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
 openssl = { pkg-path = "openssl", version = "3.4.1", pkg-group = "openssl" }
 nodemon = { pkg-path = "nodemon" }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)
-cargo.pkg-path = "cargo"
-cargo.pkg-group = "rust-toolchain"
-cargo.version = "1.88.0"
-rustc.pkg-path = "rustc"
-rustc.pkg-group = "rust-toolchain"
-clippy.pkg-path = "clippy"
-clippy.pkg-group = "rust-toolchain"
-rustfmt.pkg-path = "rustfmt"
-rustfmt.pkg-group = "rust-toolchain"
-rust-lib-src.pkg-path = "rustPlatform.rustLibSrc"
-rust-lib-src.pkg-group = "rust-toolchain"
-libiconv.pkg-path = "libiconv"
-libiconv.systems = ["aarch64-darwin"]
-libiconv.pkg-group = "rust-toolchain"
-# rust-analyzer should be isolated in its own group, details in cookbook example
-rust-analyzer.pkg-path = "rust-analyzer"
-rust-analyzer.pkg-group = "rust-analyzer"
+cargo = { pkg-path = "cargo", pkg-group = "rust-toolchain", version = "1.88.0" }
+rustc = { pkg-path = "rustc", pkg-group = "rust-toolchain" }
+clippy = { pkg-path = "clippy", pkg-group = "rust-toolchain" }
+rustfmt = { pkg-path = "rustfmt", pkg-group = "rust-toolchain" }
+rust-lib-src = { pkg-path = "rustPlatform.rustLibSrc", pkg-group = "rust-toolchain" }
+libiconv = { pkg-path = "libiconv", systems = ["aarch64-darwin"], pkg-group = "rust-toolchain" }
+rust-analyzer = { pkg-path = "rust-analyzer", pkg-group = "rust-analyzer" } # rust-analyzer should be isolated in its own group, details in cookbook example
 # Go
-go = { pkg-path = "go", version = "1.22", pkg-group = "go" }
+go = { pkg-path = "go", version = "1.24", pkg-group = "go" }
+golangci-lint = { pkg-path = "golangci-lint", pkg-group = "go" }
 # CLI tools
 mprocs = { pkg-path = "mprocs" }
 util-linux = { pkg-path = "util-linux" } # flock
@@ -122,7 +113,7 @@ fi
 
 # Install top-level Node dependencies - This also sets up pre-commit hooks via Husky
 echo -e "  \033[1;34m📦 Node packages\033[0m"
-echo -e "    \033[1;33m📦 Installing Node dependencies and pre-commits hooks...\033[0m"
+echo -e "    \033[1;33m📦 Installing Node dependencies and pre-commits hooks (this might take a while)...\033[0m"
 pnpm install --silent
 echo -e "    \033[32m✅ Node dependencies installed\033[0m"
 

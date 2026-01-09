@@ -10,7 +10,6 @@ from collections import defaultdict
 
 import structlog
 from temporalio import workflow
-from temporalio.worker import Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -24,7 +23,7 @@ from posthog.temporal.ai import (
     WORKFLOWS as AI_WORKFLOWS,
 )
 from posthog.temporal.common.logger import configure_logger, get_logger
-from posthog.temporal.common.worker import create_worker
+from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_imports.settings import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
@@ -41,6 +40,10 @@ from posthog.temporal.delete_recordings import (
     ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
     WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
 )
+from posthog.temporal.dlq_replay import (
+    ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
+    WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
+)
 from posthog.temporal.ducklake import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
@@ -49,9 +52,17 @@ from posthog.temporal.enforce_max_replay_retention import (
     ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
+from posthog.temporal.export_recording import (
+    ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
+    WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
+)
 from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
     WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
+)
+from posthog.temporal.import_recording import (
+    ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
+    WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
 )
 from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
@@ -81,6 +92,10 @@ from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
+from posthog.temporal.sync_person_distinct_ids import (
+    ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
+    WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
+)
 from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
     WORKFLOWS as TEST_WORKFLOWS,
@@ -103,6 +118,8 @@ from products.tasks.backend.temporal import (
     WORKFLOWS as TASKS_WORKFLOWS,
 )
 
+# When adding modules to a queue, also update the corresponding CI trigger
+# in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
@@ -131,14 +148,18 @@ _task_queue_specs = [
         + USAGE_REPORTS_WORKFLOWS
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
-        + LLM_ANALYTICS_WORKFLOWS,
+        + LLM_ANALYTICS_WORKFLOWS
+        + DLQ_REPLAY_WORKFLOWS
+        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
-        + LLM_ANALYTICS_ACTIVITIES,
+        + LLM_ANALYTICS_ACTIVITIES
+        + DLQ_REPLAY_ACTIVITIES
+        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,
@@ -177,8 +198,14 @@ _task_queue_specs = [
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        DELETE_RECORDING_WORKFLOWS + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
-        DELETE_RECORDING_ACTIVITIES + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
+        DELETE_RECORDING_WORKFLOWS
+        + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+        + EXPORT_RECORDING_WORKFLOWS
+        + IMPORT_RECORDING_WORKFLOWS,
+        DELETE_RECORDING_ACTIVITIES
+        + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
+        + EXPORT_RECORDING_ACTIVITIES
+        + IMPORT_RECORDING_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
@@ -328,13 +355,13 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
+        def shutdown_worker_on_signal(worker: ManagedWorker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
             nonlocal shutdown_task
 
             logger.info("Signal %s received", sig)
 
-            if worker.is_shutdown:
+            if worker.is_shutdown():
                 logger.info("Temporal worker already shut down")
                 return
 

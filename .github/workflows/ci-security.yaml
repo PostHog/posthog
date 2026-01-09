@@ -9,8 +9,6 @@ name: Security
 
 permissions:
     contents: read
-    actions: read
-    security-events: write
 
 env:
     SEMGREP_ENABLE_VERSION_CHECK: 'false'
@@ -20,9 +18,9 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
             - name: Ensure SHA pinned actions
-              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@9e9574ef04ea69da568d6249bd69539ccc704e74 # v4.0.0
+              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@6124774845927d14c601359ab8138699fa5b70c3 # v4.0.1
               with:
                   allowlist: |
                       actions/
@@ -40,27 +38,22 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Run Semgrep
               run: |
                   semgrep \
                     --config "p/python" \
                     --config "p/owasp-top-ten" \
+                    --config "p/security-audit" \
                     --config "p/trailofbits" \
                     --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                    --exclude-rule "python.django.security.audit.csrf-exempt.no-csrf-exempt" \
+                    --exclude-rule "generic.html-templates.security.var-in-href.var-in-href" \
                     --error \
                     --metrics=off \
                     --verbose \
-                    --sarif-output semgrep-python.sarif \
                     common/ ee/ posthog/ products/
-
-            - name: Upload results
-              if: ${{ !cancelled() }}
-              uses: github/codeql-action/upload-sarif@v4
-              with:
-                  sarif_file: semgrep-python.sarif
-                  category: semgrep-python
 
     semgrep-go:
         runs-on: ubuntu-latest
@@ -69,7 +62,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Run Semgrep
               run: |
@@ -83,15 +76,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    --sarif-output semgrep-go.sarif \
                     livestream/
-
-            - name: Upload results
-              if: ${{ !cancelled() }}
-              uses: github/codeql-action/upload-sarif@v4
-              with:
-                  sarif_file: semgrep-go.sarif
-                  category: semgrep-go
 
     semgrep-rust:
         runs-on: ubuntu-latest
@@ -100,7 +85,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Run Semgrep
               run: |
@@ -116,15 +101,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    --sarif-output semgrep-rust.sarif \
                     cli/ rust/
-
-            - name: Upload results
-              if: ${{ !cancelled() }}
-              uses: github/codeql-action/upload-sarif@v4
-              with:
-                  sarif_file: semgrep-rust.sarif
-                  category: semgrep-rust
 
     semgrep-js:
         runs-on: ubuntu-latest
@@ -133,7 +110,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Run Semgrep
               run: |
@@ -145,15 +122,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    --sarif-output semgrep-js.sarif \
-                    frontend/ plugin-server/
-
-            - name: Upload results
-              if: ${{ !cancelled() }}
-              uses: github/codeql-action/upload-sarif@v4
-              with:
-                  sarif_file: semgrep-js.sarif
-                  category: semgrep-js
+                    frontend/ nodejs/
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
@@ -163,7 +132,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             # exclude all directories already scanned by other jobs
             - name: Run Semgrep
@@ -172,31 +141,23 @@ jobs:
                     --config "p/owasp-top-ten" \
                     --config "p/security-audit" \
                     --config "p/trailofbits" \
+                    --config "p/github-actions" \
                     --exclude-rule dockerfile.security.no-sudo-in-dockerfile.no-sudo-in-dockerfile \
-                    --exclude-rule trailofbits.yaml.github-actions.aws-secret-key.aws-secret-key \
                     --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
                     --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces \
                     --error \
                     --metrics=off \
                     --verbose \
-                    --sarif-output semgrep-general.sarif \
                     --exclude ./cli/ \
                     --exclude ./common/ \
                     --exclude ./ee/ \
                     --exclude ./frontend/ \
                     --exclude ./livestream/ \
-                    --exclude ./plugin-server/ \
+                    --exclude ./nodejs/ \
                     --exclude ./posthog/ \
                     --exclude ./products/ \
                     --exclude ./rust/ \
                     .
-
-            - name: Upload results
-              if: ${{ !cancelled() }}
-              uses: github/codeql-action/upload-sarif@v4
-              with:
-                  sarif_file: semgrep-general.sarif
-                  category: semgrep-general
 
     semgrep_checks:
         needs: [semgrep-python, semgrep-go, semgrep-rust, semgrep-js, semgrep-general]
