@@ -16,7 +16,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import MaxTool from 'scenes/max/MaxTool'
 
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
+import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType, PropertyFilterType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
@@ -73,8 +73,16 @@ export function HogFunctionFilters({
     showTriggerOptions?: boolean
 }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters, isLegacyPlugin } =
-        useValues(hogFunctionConfigurationLogic)
+    const {
+        configuration,
+        type,
+        useMapping,
+        filtersContainPersonProperties,
+        oldFilters,
+        newFilters,
+        isLegacyPlugin,
+        currentTeam,
+    } = useValues(hogFunctionConfigurationLogic)
     const {
         setOldFilters,
         setNewFilters,
@@ -102,6 +110,11 @@ export function HogFunctionFilters({
             '$exception_message',
         ],
     }
+
+    const hasCohortTestAccountFilters =
+        currentTeam?.test_account_filters?.some(
+            (filter: AnyPropertyFilter) => filter.type === PropertyFilterType.Cohort
+        ) ?? false
 
     if (type === 'transformation') {
         excludedProperties[TaxonomicFilterGroupType.Events] = ['$exception']
@@ -200,6 +213,8 @@ export function HogFunctionFilters({
                 {({ value, onChange: _onChange }) => {
                     const filters = (value ?? {}) as CyclotronJobFiltersType
                     const currentFilters = newFilters ?? filters
+                    const isTestAccountFiltersEnabled = currentFilters?.filter_test_accounts ?? false
+                    const isTestAccountFiltersBlocked = hasCohortTestAccountFilters && !isTestAccountFiltersEnabled
 
                     const onChange = (newValue: CyclotronJobFiltersType): void => {
                         if (oldFilters && newFilters) {
@@ -220,7 +235,13 @@ export function HogFunctionFilters({
                                     )}
                                     {!isTransformation && (
                                         <TestAccountFilterSwitch
-                                            checked={currentFilters?.filter_test_accounts ?? false}
+                                            checked={isTestAccountFiltersEnabled}
+                                            disabled={isTestAccountFiltersBlocked}
+                                            disabledReason={
+                                                isTestAccountFiltersBlocked
+                                                    ? "Cohorts aren't supported in real-time filters. Remove cohorts from internal and test user filters to enable this."
+                                                    : undefined
+                                            }
                                             onChange={(filter_test_accounts) => {
                                                 const newValue = { ...currentFilters, filter_test_accounts }
                                                 onChange(newValue)

@@ -77,9 +77,10 @@ function TestAccountFiltersConfig(): JSX.Element {
         <div className="mb-4 flex flex-col gap-2">
             <div className="mb-4 flex flex-col gap-2">
                 <LemonBanner type="info">
-                    When filtering out internal users by person properties, like email, we recommend creating a Cohort
-                    with those properties, and then adding that cohort with a "not in" operator in your ‘Filter out
-                    internal and test users’ settings.
+                    To filter out internal users by person properties (like email), add those properties directly here
+                    with an exclusive operator such as "does not contain". Cohorts can be useful for analytics queries
+                    because they include events from users who were anonymous at the time, but cohorts are not supported
+                    in real-time destinations yet.
                 </LemonBanner>
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">
@@ -159,8 +160,8 @@ export function ProjectAccountFiltersSetting(): JSX.Element {
                 <strong>Example filters</strong>
                 <ul className="list-disc pl-4 mb-2">
                     <li>
-                        Add a cohort where "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to
-                        exclude your team.
+                        Add a person property filter where "<strong>Email</strong> does not contain{' '}
+                        <strong>yourcompany.com</strong>" to exclude your team.
                     </li>
                     <li>
                         Add "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude local
