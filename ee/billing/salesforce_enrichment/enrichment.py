@@ -24,6 +24,25 @@ from .salesforce_client import get_salesforce_client
 LOGGER = get_logger(__name__)
 
 
+def _extract_domain(url: str | None) -> str | None:
+    """Extract and normalize domain from URL or domain string.
+
+    Returns:
+        Normalized domain (lowercase, no www prefix) or None if invalid
+    """
+    if not url:
+        return None
+
+    try:
+        parsed = urlparse(url if url.startswith(("http://", "https://")) else f"https://{url}")
+        domain = parsed.netloc or url
+    except Exception:
+        domain = url
+
+    normalized = domain.lower().strip().removeprefix("www.")
+    return normalized or None
+
+
 def is_excluded_domain(domain: str | None) -> bool:
     """Check if domain should be excluded from enrichment (personal email domains, etc)."""
     if not domain:
@@ -293,6 +312,51 @@ def bulk_update_salesforce_accounts(sf, update_records):
     )
 
 
+def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
+    """Query Salesforce for all accounts matching the given domain.
+
+    Args:
+        domain: Domain to search for (e.g., "posthog.com")
+
+    Returns:
+        List of account record dicts with Id, Name, Website (empty list if none found)
+    """
+    logger = LOGGER.bind()
+
+    try:
+        sf = get_salesforce_client()
+    except Exception as e:
+        logger.exception("Failed to connect to Salesforce", error=str(e))
+        capture_exception(e)
+        return []
+
+    # Normalize domain
+    normalized_domain = domain.lower().strip().removeprefix("www.")
+
+    # Query for all accounts matching the domain
+    query = f"""
+        SELECT Id, Name, Domain__c, CreatedDate
+        FROM Account
+        WHERE Domain__c LIKE '%{normalized_domain}%'
+        ORDER BY CreatedDate DESC
+    """
+
+    try:
+        result = sf.query_all(query)
+        accounts = result["records"]
+        if accounts:
+            logger.info("Found Salesforce accounts", account_count=len(accounts), domain=domain)
+            for account in accounts:
+                logger.info("  Account", account_id=account["Id"], account_name=account["Name"])
+        else:
+            logger.info("No Salesforce accounts found for domain", domain=domain)
+        return accounts
+    except Exception as e:
+        logger.exception("Failed to query Salesforce for domain", domain=domain, error=str(e))
+        capture_exception(e)
+        return []
+
+
 async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
     """
     Async version of Salesforce account querying with Redis cache-first approach.
@@ -375,6 +439,7 @@ async def enrich_accounts_chunked_async(
     chunk_number: int = 0,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     estimated_total_chunks: int | None = None,
+    specific_domain: str | None = None,
 ) -> dict[str, Any]:
     """Enrich Salesforce accounts with Harmonic data using concurrent API calls.
 
@@ -387,10 +452,14 @@ async def enrich_accounts_chunked_async(
         chunk_number: Zero-based chunk index
         chunk_size: Accounts per chunk (default: 5000)
         estimated_total_chunks: For progress logging
+        specific_domain: Optional domain/URL to enrich directly, skipping Salesforce query.
+                        When provided, only enriches this domain and returns the data without
+                        updating Salesforce.
 
     Returns:
         Dict with total_accounts_in_chunk (critical for workflow control), records_processed,
-        records_enriched, records_updated, success_rate, errors
+        records_enriched, records_updated, success_rate, errors.
+        When specific_domain is provided, also includes enriched_data with the Harmonic response.
     """
     logger = LOGGER.bind()
     start_time = time.time()
@@ -399,6 +468,134 @@ async def enrich_accounts_chunked_async(
     log_context = {"chunk_number": chunk_number, "chunk_size": chunk_size}
     if estimated_total_chunks:
         log_context["estimated_total_chunks"] = estimated_total_chunks
+
+    # Handle specific domain enrichment (debug mode with Salesforce update)
+    if specific_domain:
+        domain = _extract_domain(specific_domain)
+
+        if not domain or is_excluded_domain(domain):
+            return {
+                **_build_result(chunk_number, start_time, records_processed=1),
+                "summary": {
+                    "harmonic_data_found": False,
+                    "salesforce_update_succeeded": False,
+                    "domain": domain,
+                    "error": "Domain excluded (personal email domain)",
+                },
+                "error": f"Domain '{domain}' is excluded (personal email domain)",
+            }
+
+        # Query Salesforce for all accounts matching domain
+        accounts = get_salesforce_accounts_by_domain(domain)
+
+        if not accounts:
+            return {
+                **_build_result(chunk_number, start_time, records_processed=1),
+                "summary": {
+                    "harmonic_data_found": False,
+                    "salesforce_update_succeeded": False,
+                    "salesforce_accounts_count": 0,
+                    "domain": domain,
+                    "error": "No Salesforce accounts found",
+                },
+                "error": f"No Salesforce accounts found for domain '{domain}'",
+            }
+
+        # Enrich with Harmonic API (once for the domain)
+        async with AsyncHarmonicClient() as harmonic_client:
+            harmonic_results = await harmonic_client.enrich_companies_batch([domain])
+            harmonic_result = harmonic_results[0] if harmonic_results else None
+
+            if not harmonic_result:
+                return {
+                    **_build_result(chunk_number, start_time, records_processed=len(accounts)),
+                    "summary": {
+                        "harmonic_data_found": False,
+                        "salesforce_update_succeeded": False,
+                        "salesforce_accounts_count": len(accounts),
+                        "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
+                        "domain": domain,
+                        "error": "No Harmonic data found",
+                    },
+                    "error": f"No Harmonic data found for domain '{domain}'",
+                }
+
+            # Transform Harmonic data
+            harmonic_data = transform_harmonic_data(harmonic_result)
+
+            if not harmonic_data:
+                return {
+                    **_build_result(chunk_number, start_time, records_processed=len(accounts)),
+                    "summary": {
+                        "harmonic_data_found": False,
+                        "salesforce_update_succeeded": False,
+                        "salesforce_accounts_count": len(accounts),
+                        "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
+                        "domain": domain,
+                        "error": "Failed to transform Harmonic data",
+                    },
+                    "error": f"Failed to transform Harmonic data for domain '{domain}'",
+                }
+
+            # Prepare Salesforce updates for all matching accounts
+            update_records = []
+            for account in accounts:
+                update_data = prepare_salesforce_update_data(account["Id"], harmonic_data)
+                if update_data:
+                    update_records.append(update_data)
+
+            # Execute bulk update for all accounts
+            salesforce_updated = False
+            update_error = None
+            records_updated = 0
+
+            try:
+                if update_records:
+                    sf = get_salesforce_client()
+                    bulk_update_salesforce_accounts(sf, update_records)
+                    salesforce_updated = True
+                    records_updated = len(update_records)
+                    logger.info(
+                        "Debug mode: Successfully updated Salesforce accounts",
+                        accounts_updated=records_updated,
+                        domain=domain,
+                    )
+                else:
+                    update_error = "Failed to prepare Salesforce update data for any accounts"
+            except Exception as e:
+                update_error = f"Salesforce update failed: {str(e)}"
+                logger.exception(
+                    "Debug mode: Failed to update Salesforce",
+                    accounts_count=len(accounts),
+                    domain=domain,
+                    error=str(e),
+                )
+                capture_exception(e)
+
+            summary = {
+                "harmonic_data_found": True,
+                "salesforce_update_succeeded": salesforce_updated,
+                "salesforce_accounts_count": len(accounts),
+                "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
+                "accounts_updated": records_updated,
+                "domain": domain,
+            }
+            if update_error:
+                summary["error"] = update_error
+
+            return {
+                **_build_result(
+                    chunk_number,
+                    start_time,
+                    records_processed=len(accounts),
+                    records_enriched=1,
+                    records_updated=records_updated,
+                ),
+                "summary": summary,
+                "enriched_data": harmonic_data,
+                "raw_harmonic_response": harmonic_result,
+                "error": update_error,
+            }
 
     # Initialize Salesforce client
     try:
@@ -424,13 +621,8 @@ async def enrich_accounts_chunked_async(
         account_id = account["Id"]
         website = account["Website"]
 
-        try:
-            parsed = urlparse(website if website.startswith(("http://", "https://")) else f"https://{website}")
-            domain = parsed.netloc
-        except Exception:
-            continue
-
-        if is_excluded_domain(domain):
+        domain = _extract_domain(website)
+        if not domain or is_excluded_domain(domain):
             continue
 
         account_data.append({"account_id": account_id, "domain": domain, "account": account})

@@ -1,14 +1,29 @@
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, patch
 
 from ee.billing.salesforce_enrichment.enrichment import (
+    enrich_accounts_chunked_async,
     is_excluded_domain,
     prepare_salesforce_update_data,
     transform_harmonic_data,
 )
+
+
+@contextmanager
+def mock_harmonic_client():
+    """Context manager providing a mocked AsyncHarmonicClient."""
+    with patch("ee.billing.salesforce_enrichment.enrichment.AsyncHarmonicClient") as mock_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_class.return_value = mock_client
+        yield mock_client
 
 
 def load_harmonic_fixture():
@@ -281,3 +296,76 @@ class TestHarmonicDataTransformation(BaseTest):
         assert "headcount" in result["metrics"]
         assert result["metrics"]["headcount"]["current_value"] == 5015
         assert result["metrics"]["headcount"]["historical"] == {}
+
+
+class TestSpecificDomainEnrichment(BaseTest):
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_enrichment_success(self):
+        """Test enriching a specific domain returns Harmonic data."""
+        harmonic_response = load_harmonic_fixture()
+
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+
+            result = await enrich_accounts_chunked_async(specific_domain="example.com")
+
+            assert result["records_processed"] == 1
+            assert result["records_enriched"] == 1
+            assert result["enriched_data"] is not None
+            assert result["enriched_data"]["company_info"]["name"] == "Example Corp"
+            assert result["raw_harmonic_response"] == harmonic_response
+            mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_enrichment_with_full_url(self):
+        """Test enriching a specific domain from a full URL."""
+        harmonic_response = load_harmonic_fixture()
+
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+
+            result = await enrich_accounts_chunked_async(specific_domain="https://www.example.com/path")
+
+            assert result["records_enriched"] == 1
+            assert result["enriched_data"] is not None
+            mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+
+    @pytest.mark.asyncio
+    async def test_specific_domain_enrichment_excluded_domain(self):
+        """Test that personal email domains are excluded."""
+        result = await enrich_accounts_chunked_async(specific_domain="gmail.com")
+
+        assert result["records_processed"] == 1
+        assert result["records_enriched"] == 0
+        assert result["enriched_data"] is None
+        assert "excluded" in result["error"]
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_enrichment_no_harmonic_data(self):
+        """Test handling when Harmonic returns no data for domain."""
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[None])
+
+            result = await enrich_accounts_chunked_async(specific_domain="unknown-domain.xyz")
+
+            assert result["records_processed"] == 1
+            assert result["records_enriched"] == 0
+            assert result["enriched_data"] is None
+            assert "No Harmonic data found" in result["error"]
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_does_not_call_salesforce(self):
+        """Test that specific_domain skips Salesforce entirely."""
+        harmonic_response = load_harmonic_fixture()
+
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+
+            with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_sf_client:
+                await enrich_accounts_chunked_async(specific_domain="example.com")
+
+                mock_sf_client.assert_not_called()
