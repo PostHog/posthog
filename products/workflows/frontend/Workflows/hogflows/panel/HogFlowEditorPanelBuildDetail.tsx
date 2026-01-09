@@ -35,12 +35,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
      */
     const [outputResultPath, setOutputResultPath] = useState(selectedNode?.data.output_variable?.result_path || '')
     useEffect(() => {
-        if (selectedNode?.data.output_variable?.result_path !== undefined) {
+        if (selectedNode) {
             setWorkflowAction(selectedNode.data.id, {
                 ...selectedNode.data,
                 output_variable: {
                     ...selectedNode.data.output_variable,
-                    result_path: outputResultPath || null,
+                    result_path: outputResultPath ?? null,
                 },
             } as HogFlowAction)
         }
@@ -151,6 +151,11 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 className="w-full"
                                             >
                                                 <LemonInput
+                                                    disabledReason={
+                                                        !action.output_variable?.key
+                                                            ? 'Select a variable above to enable setting a result path.'
+                                                            : undefined
+                                                    }
                                                     type="text"
                                                     prefix={<span>result.</span>}
                                                     value={outputResultPath}
