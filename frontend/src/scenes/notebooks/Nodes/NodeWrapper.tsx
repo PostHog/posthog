@@ -264,6 +264,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                                     <LemonMenuOverlay items={pythonRunMenuItems} />
                                                                 ),
                                                             },
+                                                            divider: false,
                                                             'aria-label': 'Open run options',
                                                             disabledReason: pythonRunDisabledReason,
                                                         }}
