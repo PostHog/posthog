@@ -1,10 +1,11 @@
-from django.db import migrations
+import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
     """
-    Step 3: Remove old property_definition FK and associated constraints/indexes.
-    Deploy after 0963b is verified working.
+    Step 3: Remove old constraints and make property_definition nullable.
+    The column will be removed in a future migration after this deploys.
     """
 
     dependencies = [
@@ -22,19 +23,28 @@ class Migration(migrations.Migration):
             model_name="materializedcolumnslot",
             name="posthog_mat_team_pr_idx",
         ),
-        # Remove old unconditional constraint (replaced by conditional one in 0963b)
+        # Remove old unconditional constraint (replaced by conditional one in 0965b)
         migrations.RemoveConstraint(
             model_name="materializedcolumnslot",
             name="unique_team_property_type_slot_index",
         ),
-        # Remove old unconditional check constraint (replaced by conditional one in 0963b)
+        # Remove old unconditional check constraint (replaced by conditional one in 0965b)
         migrations.RemoveConstraint(
             model_name="materializedcolumnslot",
             name="valid_slot_index",
         ),
-        # Drop the property_definition FK
-        migrations.RemoveField(
+        # Make property_definition nullable (instead of removing it)
+        # This preserves backwards compatibility - column removal will be in a future migration
+        migrations.AlterField(
             model_name="materializedcolumnslot",
             name="property_definition",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="materialized_column_slots",
+                related_query_name="materialized_column_slot",
+                to="posthog.propertydefinition",
+            ),
         ),
     ]

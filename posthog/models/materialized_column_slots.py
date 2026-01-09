@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.models.property_definition import PropertyType
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel
 
@@ -25,6 +25,16 @@ class MaterializedColumnSlot(UUIDTModel):
         on_delete=models.CASCADE,
         related_name="materialized_column_slots",
         related_query_name="materialized_column_slot",
+    )
+    # Deprecated: Use property_name instead. Kept nullable for backwards compatibility,
+    # will be removed in a future migration.
+    property_definition = models.ForeignKey(
+        PropertyDefinition,
+        on_delete=models.CASCADE,
+        related_name="materialized_column_slots",
+        related_query_name="materialized_column_slot",
+        null=True,
+        blank=True,
     )
     property_name = models.CharField(max_length=400)
     property_type = models.CharField(max_length=50, choices=PropertyType.choices)
