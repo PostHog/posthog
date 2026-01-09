@@ -1081,6 +1081,98 @@ class TestProperty(BaseTest):
             self._parse_expr("person.properties.score <= 100"),
         )
 
+    def test_property_to_expr_semver_operators(self):
+        # Test semver_eq
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_gt
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_gt", "value": "1.2.3"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) > sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_gte
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_gte", "value": "1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_lt
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_lt", "value": "1.2.3"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) < sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_lte
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_lte", "value": "1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) <= sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_tilde (~1.2.3 means >=1.2.3 <1.3.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_tilde", "value": "1.2.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3') AND sortableSemver(person.properties.app_version) < sortableSemver('1.3.0'))"
+            ),
+        )
+
+        # Test semver_caret (^1.2.3 means >=1.2.3 <2.0.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "1.2.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3') AND sortableSemver(person.properties.app_version) < sortableSemver('2.0.0'))"
+            ),
+        )
+
+        # Test semver_wildcard (1.2.* means >=1.2.0 <1.3.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_wildcard", "value": "1.2.*"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.0') AND sortableSemver(person.properties.app_version) < sortableSemver('1.3.0'))"
+            ),
+        )
+
+        # Test semver_wildcard with major version (1.* means >=1.0.0 <2.0.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_wildcard", "value": "1.*"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.0.0') AND sortableSemver(person.properties.app_version) < sortableSemver('2.0.0'))"
+            ),
+        )
+
+    def test_property_to_expr_semver_validation(self):
+        # Test tilde requires at least major.minor
+        with self.assertRaisesMessage(QueryError, "Tilde operator requires a valid semver string"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "1"})
+
+        # Test caret requires valid semver
+        with self.assertRaisesMessage(QueryError, "Caret operator requires a valid semver string"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_caret", "value": "abc.def"})
+
+        # Test wildcard requires valid pattern
+        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver pattern"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": "*"})
+
+        # Test wildcard requires valid pattern
+        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver pattern"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": ".*"})
+
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     # Sentinel to indicate a property should not be included in the event
