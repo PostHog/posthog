@@ -11,7 +11,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { DateRange } from '~/queries/schema/schema-general'
-import { Breadcrumb, FeatureFlagFilters, ProductTour, ProductTourContent } from '~/types'
+import { Breadcrumb, FeatureFlagFilters, ProductTour, ProductTourContent, ProductTourStepButton } from '~/types'
 
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
@@ -275,19 +275,33 @@ export const productTourLogic = kea<productTourLogicType>([
                     name: !name ? 'Name is required' : undefined,
                 }
 
-                if (content.type === 'announcement') {
-                    for (const step of content.steps || []) {
-                        const primaryButton = step.buttons?.primary
-                        const secondaryButton = step.buttons?.secondary
+                const validateButton = (
+                    button: ProductTourStepButton | undefined,
+                    errorLabel: string
+                ): string | undefined => {
+                    if (!button?.action) {
+                        return undefined
+                    }
+                    if (!button.text?.trim()) {
+                        return `${errorLabel} requires a label`
+                    }
+                    if (button.action === 'link' && !button.link?.trim()) {
+                        return `${errorLabel} requires a URL`
+                    }
+                    if (button.action === 'trigger_tour' && !button.tourId) {
+                        return `${errorLabel} requires a tour selection`
+                    }
+                    return undefined
+                }
 
-                        if (primaryButton?.action === 'link' && !primaryButton.link?.trim()) {
-                            errors._form = 'Primary button requires a URL'
-                            break
-                        }
-                        if (secondaryButton?.action === 'link' && !secondaryButton.link?.trim()) {
-                            errors._form = 'Secondary button requires a URL'
-                            break
-                        }
+                for (const step of content.steps || []) {
+                    const error =
+                        validateButton(step.buttons?.primary, 'Primary button') ||
+                        validateButton(step.buttons?.secondary, 'Secondary button')
+
+                    if (error) {
+                        errors._form = error
+                        break
                     }
                 }
 

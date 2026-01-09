@@ -12,7 +12,7 @@ import {
     IconQuestion,
     IconTrash,
 } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppearancePositionSelector'
 
@@ -27,6 +27,7 @@ import {
 } from '~/types'
 
 import { ProductTourPreview } from '../components/ProductTourPreview'
+import { StepButtonsEditor } from './StepButtonsEditor'
 import { StepContentEditor } from './StepContentEditor'
 import { StepLayoutSettings } from './StepLayoutSettings'
 import { StepScreenshotThumbnail } from './StepScreenshotThumbnail'
@@ -263,17 +264,27 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                     placeholder={`Type '/' for commands, or start writing your step ${selectedStepIndex + 1} content...`}
                                 />
 
-                                {/* Step settings */}
-                                <LemonDivider className="my-4" />
-
-                                <div className="ProductTourStepsEditor__step-settings">
-                                    <h4 className="font-semibold mb-3">Step settings</h4>
-
-                                    <StepLayoutSettings
-                                        step={selectedStep}
-                                        onChange={(updates) => updateStep(selectedStepIndex, updates)}
-                                        showPosition={selectedStep.type === 'modal'}
+                                {/* Step configuration */}
+                                <div className="mt-4 p-4 bg-fill-primary rounded-lg space-y-6">
+                                    <StepButtonsEditor
+                                        buttons={selectedStep.buttons}
+                                        onChange={(buttons) => updateStep(selectedStepIndex, { buttons })}
+                                        isTourContext={true}
+                                        stepIndex={selectedStepIndex}
+                                        totalSteps={steps.length}
+                                        layout="horizontal"
                                     />
+
+                                    <div>
+                                        <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">
+                                            Layout
+                                        </div>
+                                        <StepLayoutSettings
+                                            step={selectedStep}
+                                            onChange={(updates) => updateStep(selectedStepIndex, updates)}
+                                            showPosition={selectedStep.type === 'modal'}
+                                        />
+                                    </div>
                                 </div>
                             </>
                         )}
