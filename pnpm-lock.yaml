@@ -838,8 +838,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.314.0
-        version: 1.314.0
+        specifier: 1.316.1
+        version: 1.316.1
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1809,8 +1809,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.314.0
-        version: 1.314.0
+        specifier: 1.316.1
+        version: 1.316.1
       react:
         specifier: '*'
         version: 18.2.0
@@ -2132,8 +2132,8 @@ importers:
         specifier: '*'
         version: 5.4.1
       posthog-js:
-        specifier: 1.314.0
-        version: 1.314.0
+        specifier: 1.316.1
+        version: 1.316.1
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2451,8 +2451,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.314.0
-        version: 1.314.0
+        specifier: 1.316.1
+        version: 1.316.1
       react:
         specifier: '*'
         version: 18.2.0
@@ -2523,8 +2523,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.314.0
-        version: 1.314.0
+        specifier: 1.316.1
+        version: 1.316.1
       react:
         specifier: '*'
         version: 18.2.0
@@ -6745,8 +6745,8 @@ packages:
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
 
-  '@posthog/core@1.9.0':
-    resolution: {integrity: sha512-j7KSWxJTUtNyKynLt/p0hfip/3I46dWU2dk+pt7dKRoz2l5CYueHuHK4EO7Wlgno5yo1HO4sc4s30MXMTICHJw==}
+  '@posthog/core@1.9.1':
+    resolution: {integrity: sha512-kRb1ch2dhQjsAapZmu6V66551IF2LnCbc1rnrQqnR7ArooVyJN9KOPXre16AJ3ObJz2eTfuP7x25BMyS2Y5Exw==}
 
   '@posthog/icons@0.35.2':
     resolution: {integrity: sha512-JLPjPzaK+K7xy8VSXQ8+u+Bpq9jl1vddIeofX6GcbH98X+C+UG14JFYoCejjAen/xL1o7fBco6uvvmeu+mDfEQ==}
@@ -6789,6 +6789,9 @@ packages:
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
+
+  '@posthog/types@1.316.1':
+    resolution: {integrity: sha512-rh8GSOnmnwd0fUIBYzQcXt4WYXMg9QPkY0tE46K0eneWYVyqNYXFXzcdf2U37g+ZYNiBq9ubLeCD7h0C0MDJgw==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -16881,8 +16884,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.314.0:
-    resolution: {integrity: sha512-qW1T73UAFpA0g2Ln0blsOUJxRhv0Tn4DrPdhGyTpw+MupW+qvVjzEg/i9jWQ4Al+8AkrNcmZFafJcSWXxWsWqg==}
+  posthog-js@1.316.1:
+    resolution: {integrity: sha512-4B0PHnMZwjV9aoQRQ5OqrPa40aCVlqRx1aZMCZCbZ4Z7c91bpOJDpENGGyxFvjUoNN+f8MP8LHZBdn5DPQyWTg==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -16910,11 +16913,8 @@ packages:
   pprof-format@2.2.1:
     resolution: {integrity: sha512-p4tVN7iK19ccDqQv8heyobzUmbHyds4N2FI6aBMcXz6y99MglTWDxIyhFkNaLeEXs6IFUEzT0zya0icbSLLY0g==}
 
-  preact@10.28.0:
-    resolution: {integrity: sha512-rytDAoiXr3+t6OIP3WGlDd0ouCUG1iCWzkcY3++Nreuoi17y6T5i/zRhe6uYfoVcxq6YU+sBtJouuRDsq8vvqA==}
-
-  preact@10.28.1:
-    resolution: {integrity: sha512-u1/ixq/lVQI0CakKNvLDEcW5zfCjUQfZdK9qqWuIJtsezuyG6pk9TWj75GMuI/EzRSZB/VAE43sNWWZfiy8psw==}
+  preact@10.28.2:
+    resolution: {integrity: sha512-lbteaWGzGHdlIuiJ0l2Jq454m6kcpI1zNje6d8MlGAFlYvP2GO4ibnat7P74Esfz4sPTdM6UxtTwh/d3pwM9JA==}
 
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
@@ -19412,8 +19412,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.339.0:
-    resolution: {integrity: sha512-zrHqtaT2y8wD5Qjn4w+sPmpaHvhdAzG0FF1NyAGlP+NS7rcr00cXEtPtwMB9r9lDsoqu2E3drT4wKd/MXyrTqQ==}
+  unlayer-types@1.342.0:
+    resolution: {integrity: sha512-8+ga8rm40tISfLOOFsK5UQJaH9jB5xk78vSwT+aFzPbLCGt3jGMPpkfPfC/aMDaq4+RcIbqLTtCwplznN3g2dg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -26270,7 +26270,7 @@ snapshots:
     dependencies:
       cross-spawn: 7.0.6
 
-  '@posthog/core@1.9.0':
+  '@posthog/core@1.9.1':
     dependencies:
       cross-spawn: 7.0.6
 
@@ -26320,6 +26320,8 @@ snapshots:
       mitt: 3.0.0
 
   '@posthog/siphash@1.1.1': {}
+
+  '@posthog/types@1.316.1': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -29036,7 +29038,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -34913,7 +34915,7 @@ snapshots:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.28.0
+      preact: 10.28.2
       qs: 6.9.7
       search-insights: 2.13.0
 
@@ -35790,7 +35792,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -36070,7 +36072,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.4.1
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -39098,12 +39100,13 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.314.0:
+  posthog-js@1.316.1:
     dependencies:
-      '@posthog/core': 1.9.0
+      '@posthog/core': 1.9.1
+      '@posthog/types': 1.316.1
       core-js: 3.40.0
       fflate: 0.4.8
-      preact: 10.28.1
+      preact: 10.28.2
       web-vitals: 4.2.4
 
   posthog-node@5.10.4:
@@ -39131,9 +39134,7 @@ snapshots:
 
   pprof-format@2.2.1: {}
 
-  preact@10.28.0: {}
-
-  preact@10.28.1: {}
+  preact@10.28.2: {}
 
   prelude-ls@1.2.1: {}
 
@@ -39926,7 +39927,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.339.0
+      unlayer-types: 1.342.0
 
   react-error-overlay@6.0.9: {}
 
@@ -42096,7 +42097,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.339.0: {}
+  unlayer-types@1.342.0: {}
 
   unpipe@1.0.0: {}
 
