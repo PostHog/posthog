@@ -48,7 +48,6 @@ class TestClickHouseResultParsing:
             results = get_person_property_updates_from_clickhouse(
                 team_id=1,
                 bug_window_start="2024-01-01T00:00:00Z",
-                bug_window_end="2024-01-31T00:00:00Z",
             )
 
         assert len(results) == 1
@@ -88,7 +87,6 @@ class TestClickHouseResultParsing:
             results = get_person_property_updates_from_clickhouse(
                 team_id=1,
                 bug_window_start="2024-01-01T00:00:00Z",
-                bug_window_end="2024-01-31T00:00:00Z",
             )
 
         assert len(results) == 1
@@ -124,7 +122,6 @@ class TestClickHouseResultParsing:
             results = get_person_property_updates_from_clickhouse(
                 team_id=1,
                 bug_window_start="2024-01-01T00:00:00Z",
-                bug_window_end="2024-01-31T00:00:00Z",
             )
 
         assert len(results) == 1
@@ -171,7 +168,6 @@ class TestClickHouseResultParsing:
             results = get_person_property_updates_from_clickhouse(
                 team_id=1,
                 bug_window_start="2024-01-01T00:00:00Z",
-                bug_window_end="2024-01-31T00:00:00Z",
             )
 
         assert len(results) == 3
@@ -205,7 +201,6 @@ class TestClickHouseResultParsing:
             results = get_person_property_updates_from_clickhouse(
                 team_id=1,
                 bug_window_start="2024-01-01T00:00:00Z",
-                bug_window_end="2024-01-31T00:00:00Z",
             )
 
         # Person with no updates should be filtered out
@@ -217,7 +212,6 @@ class TestClickHouseResultParsing:
             results = get_person_property_updates_from_clickhouse(
                 team_id=1,
                 bug_window_start="2024-01-01T00:00:00Z",
-                bug_window_end="2024-01-31T00:00:00Z",
             )
 
         assert results == []
@@ -251,7 +245,6 @@ class TestClickHouseResultParsing:
             results = get_person_property_updates_from_clickhouse(
                 team_id=1,
                 bug_window_start="2024-01-01T00:00:00Z",
-                bug_window_end="2024-01-31T00:00:00Z",
             )
 
         assert len(results) == 1
@@ -301,7 +294,6 @@ class TestClickHouseResultParsing:
             results = get_person_property_updates_from_clickhouse(
                 team_id=1,
                 bug_window_start="2024-01-01T00:00:00Z",
-                bug_window_end="2024-01-31T00:00:00Z",
             )
 
         assert len(results) == 1
@@ -337,7 +329,6 @@ class TestClickHouseResultParsing:
             results = get_person_property_updates_from_clickhouse(
                 team_id=1,
                 bug_window_start="2024-01-01T00:00:00Z",
-                bug_window_end="2024-01-31T00:00:00Z",
             )
 
         assert len(results) == 1
@@ -357,6 +348,28 @@ class TestClickHouseResultParsing:
         # Verify unset update
         assert "old_field" in person_diffs.unset_updates
         assert person_diffs.unset_updates["old_field"].value is None
+
+    def test_no_bug_window_end_parameter_regression(self):
+        """Regression test: get_person_property_updates_from_clickhouse should NOT accept bug_window_end.
+
+        The function uses ClickHouse's now() for the upper bound, ensuring all events
+        from bug_window_start until the current time are included. This is intentional:
+        - bug_window_start/end is used to FIND teams with affected events
+        - When processing a team, we read ALL events from bug_window_start to now()
+
+        This prevents missing events that occurred after the initial bug window discovery.
+        """
+        import inspect
+
+        sig = inspect.signature(get_person_property_updates_from_clickhouse)
+        param_names = list(sig.parameters.keys())
+
+        assert "bug_window_end" not in param_names, (
+            "bug_window_end should not be a parameter. "
+            "The function should use ClickHouse's now() for the upper bound."
+        )
+        assert "team_id" in param_names
+        assert "bug_window_start" in param_names
 
 
 class TestReconcilePersonProperties:
@@ -1506,7 +1519,6 @@ class TestClickHouseQueryIntegration:
         # Use naive datetimes since ClickHouse returns naive datetimes
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         # Two timestamps for the same $unset operation
         earlier_ts = now - timedelta(days=5)
@@ -1565,7 +1577,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -1597,7 +1608,6 @@ class TestClickHouseQueryIntegration:
         # Use naive datetimes since ClickHouse returns naive datetimes
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         earlier_ts = now - timedelta(days=5)
         later_ts = now - timedelta(days=2)
@@ -1631,7 +1641,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -1652,7 +1661,6 @@ class TestClickHouseQueryIntegration:
         # Use naive datetimes since ClickHouse returns naive datetimes
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         earlier_ts = now - timedelta(days=5)
         later_ts = now - timedelta(days=2)
@@ -1686,7 +1694,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -1712,7 +1719,6 @@ class TestClickHouseQueryIntegration:
         # Use naive datetimes since ClickHouse returns naive datetimes
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         set_ts = now - timedelta(days=5)
         unset_ts = now - timedelta(days=2)
@@ -1748,7 +1754,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -1771,7 +1776,6 @@ class TestClickHouseQueryIntegration:
         # Use naive datetimes since ClickHouse returns naive datetimes
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -1823,7 +1827,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -1847,7 +1850,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("66666666-6666-6666-6666-000000000006")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -1917,7 +1919,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -1957,7 +1958,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("77777777-7777-7777-7777-000000000007")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2016,7 +2016,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -2037,7 +2036,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("88888888-8888-8888-8888-000000000008")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2097,7 +2095,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -2137,7 +2134,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("99999999-9999-9999-9999-000000000009")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2191,7 +2187,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -2220,7 +2215,6 @@ class TestClickHouseQueryIntegration:
         merged_person_id = UUID("aaaa0000-0000-0000-0000-000000000002")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2292,7 +2286,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Should get results for merged_person_id, not original_person_id
@@ -2312,7 +2305,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("bbbb0000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         earlier_ts = now - timedelta(days=5)
         later_ts = now - timedelta(days=2)
@@ -2346,7 +2338,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Should have one result with the latest value (aggregated from both distinct_ids)
@@ -2364,7 +2355,6 @@ class TestClickHouseQueryIntegration:
         merged_person_id = UUID("eeee0000-0000-0000-0000-000000000002")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2424,7 +2414,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Since override is deleted, should use original_person_id
@@ -2441,7 +2430,6 @@ class TestClickHouseQueryIntegration:
         final_merged_person_id = UUID("ffff0000-0000-0000-0000-000000000003")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2495,7 +2483,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Should use final_merged_person_id (version 2)
@@ -2511,7 +2498,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("11110000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2552,7 +2538,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Deleted persons should NOT be processed
@@ -2567,7 +2552,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("22220000-0000-0000-0000-000000000002")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2609,7 +2593,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Should compare against v2_value (latest version)
@@ -2629,7 +2612,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("cccc0000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         set_once_ts = now - timedelta(days=5)
         set_ts = now - timedelta(days=2)
@@ -2668,7 +2650,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -2692,7 +2673,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("dddd0000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2724,7 +2704,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Should be empty - no diff when values are the same
@@ -2739,7 +2718,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("eeee0000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2771,7 +2749,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Should be empty - set_diff doesn't include missing properties
@@ -2786,7 +2763,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("ffff0000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2818,7 +2794,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Should be empty - unset_diff doesn't include missing properties
@@ -2832,7 +2807,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("11110000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2863,7 +2837,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Empty $set should produce no results
@@ -2875,7 +2848,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("22220000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -2914,7 +2886,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -2931,24 +2902,26 @@ class TestClickHouseQueryIntegration:
 
     # ==================== Window Filtering Tests ====================
 
-    def test_events_outside_bug_window_filtered(self, cluster: ClickhouseCluster):
-        """Events with timestamp outside bug window should be filtered."""
+    def test_events_before_bug_window_start_filtered(self, cluster: ClickhouseCluster):
+        """Events with timestamp before bug_window_start should be filtered.
+
+        Events after bug_window_start are included (up to now()).
+        """
         team_id = 99918
         person_id = UUID("33330000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=5)
-        bug_window_end = now - timedelta(days=2)
 
-        # Event BEFORE window
+        # Event BEFORE bug_window_start - should be filtered
         before_ts = now - timedelta(days=7)
-        # Event AFTER window
-        after_ts = now - timedelta(days=1)
-        # Event IN window
+        # Event AFTER bug_window_start - should be included (reads up to now())
+        after_start_ts = now - timedelta(days=1)
+        # Event IN window (also after bug_window_start)
         in_window_ts = now - timedelta(days=3)
 
         events = [
             (team_id, "distinct_1", person_id, before_ts, json.dumps({"$set": {"before": "value"}})),
-            (team_id, "distinct_1", person_id, after_ts, json.dumps({"$set": {"after": "value"}})),
+            (team_id, "distinct_1", person_id, after_start_ts, json.dumps({"$set": {"after_start": "value"}})),
             (team_id, "distinct_1", person_id, in_window_ts, json.dumps({"$set": {"in_window": "value"}})),
         ]
 
@@ -2965,9 +2938,9 @@ class TestClickHouseQueryIntegration:
             (
                 team_id,
                 person_id,
-                json.dumps({"before": "old", "after": "old", "in_window": "old"}),
+                json.dumps({"before": "old", "after_start": "old", "in_window": "old"}),
                 1,
-                now - timedelta(days=4),  # Person _timestamp in window
+                now - timedelta(days=4),  # Person _timestamp after bug_window_start
             )
         ]
 
@@ -2983,26 +2956,28 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
         updates = {key: pv.value for key, pv in results[0].set_updates.items()}
 
-        # Only in_window should be included
+        # Events after bug_window_start should be included
         assert "in_window" in updates
+        assert "after_start" in updates
+        # Events before bug_window_start should NOT be included
         assert "before" not in updates
-        assert "after" not in updates
 
-    def test_person_outside_bug_window_no_results(self, cluster: ClickhouseCluster):
-        """Person with _timestamp outside bug window should not be joined."""
+    def test_person_before_bug_window_start_no_results(self, cluster: ClickhouseCluster):
+        """Person with _timestamp before bug_window_start should not be joined.
+
+        This ensures we only reconcile persons that were modified after the bug started.
+        """
         team_id = 99919
         person_id = UUID("44440000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=5)
-        bug_window_end = now - timedelta(days=2)
 
-        # Event IN window
+        # Event after bug_window_start
         event_ts = now - timedelta(days=3)
 
         events = [
@@ -3018,7 +2993,7 @@ class TestClickHouseQueryIntegration:
 
         cluster.any_host(insert_events).result()
 
-        # Person _timestamp OUTSIDE window (before)
+        # Person _timestamp BEFORE bug_window_start - should not be joined
         person_data = [(team_id, person_id, json.dumps({"prop": "old"}), 1, now - timedelta(days=10))]
 
         def insert_person(client):
@@ -3033,10 +3008,9 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
-        # No results because person _timestamp is outside window
+        # No results because person _timestamp is before bug_window_start
         assert len(results) == 0
 
     # ==================== Edge Case Tests ====================
@@ -3050,7 +3024,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("55550000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         # Same timestamp for both events
         same_ts = now - timedelta(days=3)
@@ -3083,7 +3056,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         # Should get exactly one result with one of the values
@@ -3097,7 +3069,6 @@ class TestClickHouseQueryIntegration:
         person_id = UUID("66660000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
 
         event_ts = now - timedelta(days=3)
 
@@ -3161,7 +3132,6 @@ class TestClickHouseQueryIntegration:
         results = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(results) == 1
@@ -3220,7 +3190,6 @@ class TestBatchCommitsEndToEnd:
         # Time setup
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
         event_ts = now - timedelta(days=5)
 
         # Create persons in Postgres with old property values
@@ -3287,7 +3256,6 @@ class TestBatchCommitsEndToEnd:
         person_property_updates = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert (
@@ -3386,7 +3354,6 @@ class TestBatchCommitsEndToEnd:
 
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
-        bug_window_end = now + timedelta(days=1)
         event_ts = now - timedelta(days=5)
 
         # Create only 3 persons in Postgres
@@ -3474,7 +3441,6 @@ class TestBatchCommitsEndToEnd:
         person_property_updates = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         assert len(person_property_updates) == 4

@@ -71,7 +71,6 @@ def ensure_utc_datetime(ts: datetime) -> datetime:
 def get_person_property_updates_from_clickhouse(
     team_id: int,
     bug_window_start: str,
-    bug_window_end: str,
 ) -> list[PersonPropertyDiffs]:
     """
     Query ClickHouse to get property updates per person that differ from current state.
@@ -179,7 +178,7 @@ def get_person_property_updates_from_clickhouse(
                         ) AS kv_tuple
                     WHERE e.team_id = %(team_id)s
                       AND e.timestamp > %(bug_window_start)s
-                      AND e.timestamp < %(bug_window_end)s
+                      AND e.timestamp < now()
                       AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
                     GROUP BY person_id, kv_tuple.2, kv_tuple.1
                 )
@@ -193,7 +192,6 @@ def get_person_property_updates_from_clickhouse(
             FROM person
             WHERE team_id = %(team_id)s
               AND _timestamp > %(bug_window_start)s
-              AND _timestamp < %(bug_window_end)s
             GROUP BY id
             -- Filter out deleted persons (latest version has is_deleted=1)
             HAVING argMax(is_deleted, version) = 0
@@ -219,7 +217,6 @@ def get_person_property_updates_from_clickhouse(
     params = {
         "team_id": team_id,
         "bug_window_start": bug_window_start,
-        "bug_window_end": bug_window_end,
     }
 
     rows = sync_execute(query, params)
@@ -861,13 +858,9 @@ def reconcile_team_chunk(
 
     metrics_client = MetricsClient(cluster)
 
-    from datetime import UTC
-
-    team_bug_window_end = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-
     context.log.info(
         f"Starting reconciliation for team_id: {team_id}, "
-        f"bug_window_start: {config.bug_window_start}, team_bug_window_end: {team_bug_window_end}, "
+        f"bug_window_start: {config.bug_window_start}, "
         f"dry_run: {config.dry_run}"
     )
 
@@ -879,12 +872,9 @@ def reconcile_team_chunk(
         start_time = time.time()
 
         # Query ClickHouse for all persons with property updates in this team
-        from datetime import UTC
-
         person_property_diffs = get_person_property_updates_from_clickhouse(
             team_id=team_id,
             bug_window_start=config.bug_window_start,
-            bug_window_end=team_bug_window_end,
         )
 
         # Filter conflicting set/unset operations
