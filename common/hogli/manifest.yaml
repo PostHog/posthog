@@ -222,6 +222,10 @@ start:
         bin_script: start-rust-service
         description: Build and run live Rust microservice with auto-restart on crash
         hidden: true
+    start:go:service:
+        bin_script: start-go-service
+        description: Build and run Go microservices with auto-restart on crash
+        hidden: true
 deploy:
     deploy:hobby:
         bin_script: deploy-hobby
