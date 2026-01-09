@@ -184,6 +184,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "type": "actions",
                     "order": 0,
                     "math": "total",
+                    "custom_name": self.query.series[0].custom_name,
                 }
             elif isinstance(self.query.series[0], EventsNode):
                 event = self.query.series[0].event
@@ -194,6 +195,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "type": "events",
                     "order": 0,
                     "math": "total",
+                    "custom_name": self.query.series[0].custom_name,
                 }
 
             additional_values = {"label": label, "status": val[2]}

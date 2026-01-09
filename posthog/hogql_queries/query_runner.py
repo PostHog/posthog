@@ -1394,7 +1394,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             Tuple of (patched_response, was_modified) - was_modified is True if any
             custom_name values were actually changed.
         """
-        if isinstance(self.query, TrendsQuery):
+        if isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
             return self._apply_trends_custom_names(cached_response)
         elif isinstance(self.query, FunnelsQuery):
             return self._apply_funnels_custom_names(cached_response)
