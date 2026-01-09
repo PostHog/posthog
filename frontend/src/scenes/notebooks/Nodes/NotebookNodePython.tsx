@@ -8,7 +8,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
-import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookNodeAttributeProperties, NotebookNodeType } from '../types'
 import { VariableUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionResult } from './pythonExecution'
@@ -249,7 +249,7 @@ const OutputBlock = ({
     )
 }
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
+const Component = (): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded, displayedGlobals, exportedGlobals, usageByVariable, pythonExecution } = useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
@@ -289,9 +289,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
                         ) : null}
                     </>
                 ) : (
-                    <div className="text-xs text-muted font-mono">
-                        Run the cell to see execution results for: {attributes.code || '...'}
-                    </div>
+                    <div className="text-xs text-muted font-mono">Run the cell to see execution results.</div>
                 )}
             </div>
             {exportedGlobals.length > 0 ? (
