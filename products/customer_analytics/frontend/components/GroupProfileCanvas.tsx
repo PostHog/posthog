@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -25,11 +26,15 @@ export const GroupProfileCanvas = ({ group, tabId }: GroupProfileCanvasProps): J
     const groupTypeIndex = group.group_type_index
     const mode = 'canvas'
     const shortId = `${mode}-${groupKey}-${tabId}`
-    const customerProfileLogicProps = {
-        attrs: {
+    const attrs = useMemo(
+        () => ({
             groupKey,
             groupTypeIndex,
-        },
+        }),
+        [groupKey, groupTypeIndex]
+    )
+    const customerProfileLogicProps = {
+        attrs,
         scope: CustomerProfileScope[`GROUP_${groupTypeIndex}`],
         key: `customer-profile-${groupKey}-${tabId}`,
         canvasShortId: shortId,
