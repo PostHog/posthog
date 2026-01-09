@@ -6,8 +6,8 @@ from posthog.models.oauth import OAuthApplication
 class OAuthApplicationPublicMetadataSerializer(serializers.ModelSerializer):
     class Meta:
         model = OAuthApplication
-        fields = ["name", "client_id"]
-        read_only_fields = ["name", "client_id"]
+        fields = ["name", "client_id", "is_verified"]
+        read_only_fields = ["name", "client_id", "is_verified"]
 
 
 class OAuthApplicationPublicMetadataViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):

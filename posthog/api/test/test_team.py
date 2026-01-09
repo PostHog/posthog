@@ -17,8 +17,8 @@ from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
