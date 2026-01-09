@@ -2,7 +2,7 @@ import time
 import asyncio
 import datetime as dt
 import dataclasses
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import temporalio.activity
 import temporalio.workflow
@@ -22,6 +22,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+
+if TYPE_CHECKING:
+    from posthog.kafka_client.client import _KafkaProducer
 
 LOGGER = get_logger(__name__)
 
@@ -72,7 +75,7 @@ class RealtimeCohortCalculationWorkflowInputs:
 
 
 async def flush_kafka_batch(
-    kafka_producer: KafkaProducer,
+    kafka_producer: "_KafkaProducer",
     pending_messages: list,
     cohort_id: int,
     idx: int,
