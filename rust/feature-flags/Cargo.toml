@@ -62,6 +62,7 @@ opentelemetry_sdk = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tokio-retry = "0.3"
 serde-pickle = { version = "1.1.1" }
+semver = "1.0.27"
 
 [lints]
 workspace = true
