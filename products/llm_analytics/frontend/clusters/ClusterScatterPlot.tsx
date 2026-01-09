@@ -68,8 +68,7 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
 
             return {
                 type: 'scatter',
-                // ScatterDataset is compatible with Chart.js dataset type
-                data: { datasets: scatterPlotDatasets as unknown as undefined },
+                data: { datasets: scatterPlotDatasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,

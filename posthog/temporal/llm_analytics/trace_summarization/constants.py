@@ -1,12 +1,14 @@
 """Constants for batch trace summarization workflows."""
 
+from datetime import timedelta
+
 from temporalio.common import RetryPolicy
 
 from products.llm_analytics.backend.summarization.models import GeminiModel, SummarizationMode, SummarizationProvider
 
 # Window processing configuration
 DEFAULT_MAX_TRACES_PER_WINDOW = 100  # Max traces to process per window (conservative for worst-case 30s/trace)
-DEFAULT_BATCH_SIZE = 5  # Number of traces to process in parallel per batch
+DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_PROVIDER = SummarizationProvider.GEMINI
@@ -34,7 +36,14 @@ WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (i
 
 # Retry policies
 SAMPLE_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
-SUMMARIZE_RETRY_POLICY = RetryPolicy(maximum_attempts=2)  # Fewer retries due to LLM cost
+# Summarize retries with exponential backoff for rate limit handling (429s)
+# Gemini rate limits reset per minute, so 15s initial with 2x backoff handles most cases
+SUMMARIZE_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=4,
+    initial_interval=timedelta(seconds=15),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=60),
+)
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event schema
