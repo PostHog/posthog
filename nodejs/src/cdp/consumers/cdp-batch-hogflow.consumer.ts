@@ -201,16 +201,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
-                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued).catch((err) => {
-                    captureException(err)
-                    logger.error('🔴', 'Error queuing hogflow invocations', {
-                        err,
-                        invocationCount: invocationsToBeQueued.length,
-                        teamIds: [...new Set(invocationsToBeQueued.map((i) => i.teamId))],
-                        functionIds: [...new Set(invocationsToBeQueued.map((i) => i.functionId))],
-                    })
-                    throw err
-                }),
+                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
                 this.hogFunctionMonitoringService.flush().catch((err) => {
                     captureException(err)
                     logger.error('🔴', 'Error producing queued messages for monitoring', { err })
