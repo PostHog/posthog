@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0965_rename_dcr_client_id_issued_at"),
+        ("posthog", "0968_rename_dcr_client_id_issued_at"),
     ]
 
     operations = [

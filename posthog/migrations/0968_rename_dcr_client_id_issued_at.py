@@ -5,8 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0963_oauth_dcr_fields"),
-        ("posthog", "0964_webauthncredential"),
+        ("posthog", "0967_oauth_dcr_fields"),
     ]
 
     operations = [

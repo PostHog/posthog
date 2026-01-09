@@ -5,7 +5,8 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0962_webanalyticsfilterpreset"),
+        ("posthog", "0963_add_azure_blob_destination"),
+        ("posthog", "0964_webauthncredential"),
     ]
 
     operations = [
