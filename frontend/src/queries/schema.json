@@ -18284,7 +18284,8 @@
                 "reddit-ads",
                 "databricks",
                 "tiktok-ads",
-                "bing-ads"
+                "bing-ads",
+                "vercel"
             ],
             "type": "string"
         },
