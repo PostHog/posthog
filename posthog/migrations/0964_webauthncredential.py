@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0962_webanalyticsfilterpreset"),
+        ("posthog", "0963_add_azure_blob_destination"),
     ]
 
     operations = [

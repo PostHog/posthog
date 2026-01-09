@@ -683,8 +683,8 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
-                          if docker compose -f docker-compose.dev.yml down && \
-                            docker compose -f docker-compose.dev.yml up -d; then
+                          if docker compose -f docker-compose.dev.yml -f products/batch_exports/backend/tests/docker-compose.yml down && \
+                            docker compose -f docker-compose.dev.yml -f products/batch_exports/backend/tests/docker-compose.yml up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
