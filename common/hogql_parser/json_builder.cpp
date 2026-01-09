@@ -1,5 +1,8 @@
 #include "json_builder.h"
+
+#include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 
 JSONBuilder::JSONBuilder() {
@@ -79,9 +82,9 @@ void JSONBuilder::addFloat(double value) {
   // Handle special float values
   if (value != value) {  // NaN
     buffer << "\"NaN\"";
-  } else if (value == std::numeric_limits<double>::infinity()) {
+  } else if (value == numeric_limits<double>::infinity()) {
     buffer << "\"Infinity\"";
-  } else if (value == -std::numeric_limits<double>::infinity()) {
+  } else if (value == -numeric_limits<double>::infinity()) {
     buffer << "\"-Infinity\"";
   } else {
     buffer << std::setprecision(17) << value;
