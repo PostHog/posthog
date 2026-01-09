@@ -34,7 +34,7 @@ BLOCKED_CLIENT_NAME_PREFIXES = ["posthog"]  # Block names starting with these
 BLOCKED_CLIENT_NAME_WORDS = ["official", "verified", "trusted"]  # Block names containing these
 
 
-def validate_client_name(value: str) -> str:
+def validate_client_name(value: str) -> None:
     """Validate that client name doesn't impersonate official apps."""
     lower_value = value.lower()
     for prefix in BLOCKED_CLIENT_NAME_PREFIXES:
@@ -43,7 +43,6 @@ def validate_client_name(value: str) -> str:
     for word in BLOCKED_CLIENT_NAME_WORDS:
         if word in lower_value:
             raise serializers.ValidationError(f"Client name cannot contain '{word}'")
-    return value
 
 
 class DCRBurstThrottle(IPThrottle):
