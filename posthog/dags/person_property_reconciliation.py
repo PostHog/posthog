@@ -94,6 +94,37 @@ def get_person_property_updates_from_clickhouse(
         List of PersonPropertyDiffs, each containing 3 maps (set, set_once, unset) keyed by property key
     """
     query = """
+    -- CTE 1: Get distinct_id -> person_id overrides for merged persons
+    WITH overrides AS (
+        SELECT
+            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+    ),
+    -- CTE 2: Get affected person_ids from events in the time window
+    affected_persons AS (
+        SELECT DISTINCT if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id
+        FROM events e
+        LEFT OUTER JOIN overrides o ON e.distinct_id = o.distinct_id
+        WHERE e.team_id = %(team_id)s
+          AND e.timestamp > %(bug_window_start)s
+          AND e.timestamp < now()
+          AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
+    ),
+    -- CTE 3: Get person properties only for affected persons (optimization: avoid scanning all persons)
+    person_props AS (
+        SELECT
+            id,
+            argMax(properties, version) as person_properties
+        FROM person
+        WHERE team_id = %(team_id)s
+          AND id IN (SELECT person_id FROM affected_persons)
+        GROUP BY id
+        HAVING argMax(is_deleted, version) = 0
+    )
     SELECT
         with_person_props.person_id,
         -- For $set: only include properties where the key exists in person properties AND the value differs
@@ -146,7 +177,7 @@ def get_person_property_updates_from_clickhouse(
                     groupArray(tuple(key, value, kv_timestamp, prop_type)) AS grouped_props
                 FROM (
                     SELECT
-                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
+                        if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id,
                         kv_tuple.2 AS key,
                         kv_tuple.1 AS prop_type,
                         -- $set: newest event wins, $set_once: first event wins, $unset: newest event wins
@@ -157,15 +188,7 @@ def get_person_property_updates_from_clickhouse(
                         ) AS value,
                         if(kv_tuple.1 = 'set_once', min(e.timestamp), max(e.timestamp)) AS kv_timestamp
                     FROM events e
-                    LEFT OUTER JOIN (
-                        SELECT
-                            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                            person_distinct_id_overrides.distinct_id AS distinct_id
-                        FROM person_distinct_id_overrides
-                        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
-                        GROUP BY person_distinct_id_overrides.distinct_id
-                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
-                    ) AS overrides ON e.distinct_id = overrides.distinct_id
+                    LEFT OUTER JOIN overrides o ON e.distinct_id = o.distinct_id
                     -- Extract $set, $set_once, and $unset properties, filtering out null/empty values
                     ARRAY JOIN
                         arrayConcat(
@@ -194,16 +217,7 @@ def get_person_property_updates_from_clickhouse(
                 GROUP BY person_id
             )
         ) AS merged
-        INNER JOIN (
-            SELECT
-                id,
-                argMax(properties, version) as person_properties
-            FROM person
-            WHERE team_id = %(team_id)s
-            GROUP BY id
-            -- Filter out deleted persons (latest version has is_deleted=1)
-            HAVING argMax(is_deleted, version) = 0
-        ) AS p ON p.id = merged.person_id
+        INNER JOIN person_props AS p ON p.id = merged.person_id
     ) AS with_person_props
     WHERE length(set_diff) > 0 OR length(set_once_diff) > 0 OR length(unset_diff) > 0
     ORDER BY with_person_props.person_id
@@ -214,7 +228,6 @@ def get_person_property_updates_from_clickhouse(
         format_csv_allow_double_quotes=0,
         max_ast_elements=4000000,
         max_expanded_ast_elements=4000000,
-        max_bytes_before_external_group_by=0,
         allow_experimental_analyzer=1,
         transform_null_in=1,
         optimize_min_equality_disjunction_chain_length=4294967295,
