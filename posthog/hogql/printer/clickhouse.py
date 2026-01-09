@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal, Union, cast
 from uuid import UUID
 
-from posthog.schema import MaterializedColumnsOptimizationMode, PropertyGroupsMode
+from posthog.schema import PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
@@ -31,6 +31,16 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
         right=ast.Constant(value=context.team_id),
         type=ast.BooleanType(),
     )
+
+
+COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
+    "mat_$ai_trace_id",
+    "mat_$ai_session_id",
+    "mat_$ai_is_error",
+    "$ai_trace_id",
+    "$ai_session_id",
+    "$ai_is_error",
+}
 
 
 class ClickHousePrinter(HogQLPrinter):
@@ -252,14 +262,12 @@ class ClickHousePrinter(HogQLPrinter):
         For example, instead of:
             ifNull(equals(nullIf(nullIf(events.`mat_$feature_flag`, ''), 'null'), 'some_value'), 0)
         We can emit:
-            equals(events.`mat_$feature_flag`, 'some_value')
+            ifNull(equals(events.`mat_$feature_flag`, 'some_value'), 0)
 
         This is safe because we know 'some_value' is neither empty string nor 'null', so the nullIf
-        checks are redundant for the comparison result.
+        checks are redundant for the comparison result. We keep the outer ifNull to ensure proper
+        boolean semantics when composed with not() or other logical operations.
         """
-        if self.context.modifiers.materializedColumnsOptimizationMode != MaterializedColumnsOptimizationMode.OPTIMIZED:
-            return None
-
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             return None
 
@@ -295,14 +303,30 @@ class ClickHousePrinter(HogQLPrinter):
         if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
+        # These are optimized elsewhere
+        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            return None
+
         # Build the optimized comparison using the raw materialized column
         materialized_column_sql = str(property_source)
         constant_sql = self.visit(constant_expr)
 
+        # Wrap in additional handling to ensure proper boolean semantics when composed with not() or other logic.
+        # - equals(NULL, 'value') → NULL, but should be 0 (false) so not() works correctly
+        # - notEquals(NULL, 'value') → NULL, but should be 1 (true) since NULL != 'value'
+        # Use a compound expression for the Eq case to allow skip indexes to be used (which are broken by ifNull)
         if node.op == ast.CompareOperationOp.Eq:
-            return f"equals({materialized_column_sql}, {constant_sql})"
-        else:  # NotEq
-            return f"notEquals({materialized_column_sql}, {constant_sql})"
+            if property_source.is_nullable:
+                return (
+                    f"(equals({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
+                )
+            else:
+                return f"equals({materialized_column_sql}, {constant_sql})"
+        else:
+            if property_source.is_nullable:
+                return f"ifNull(notEquals({materialized_column_sql}, {constant_sql}), 1)"
+            else:
+                return f"notEquals({materialized_column_sql}, {constant_sql})"
 
     def _optimize_in_with_string_values(
         self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
@@ -483,20 +507,7 @@ class ClickHousePrinter(HogQLPrinter):
 
         # :HACK: Prevent ifNull() wrapping for $ai_trace_id, $ai_session_id, and $ai_is_error to allow index usage
         # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
-        if (
-            "mat_$ai_trace_id" in left
-            or "mat_$ai_trace_id" in right
-            or "mat_$ai_session_id" in left
-            or "mat_$ai_session_id" in right
-            or "mat_$ai_is_error" in left
-            or "mat_$ai_is_error" in right
-            or "$ai_trace_id" in left
-            or "$ai_trace_id" in right
-            or "$ai_session_id" in left
-            or "$ai_session_id" in right
-            or "$ai_is_error" in left
-            or "$ai_is_error" in right
-        ):
+        if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
             not_nullable = True
 
         constant_lambda = None
