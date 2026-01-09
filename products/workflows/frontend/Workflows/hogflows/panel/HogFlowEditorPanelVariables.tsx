@@ -8,13 +8,13 @@ import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelVariables(): JSX.Element | null {
-    const { workflow } = useValues(hogFlowEditorLogic)
+    const { workflowUnderEdit } = useValues(hogFlowEditorLogic)
     const { setWorkflowInfo } = useActions(hogFlowEditorLogic)
 
     const addNewVariable = (): void => {
-        const newVariableName = `VARIABLE_${(workflow?.variables?.length || 0) + 1}`
+        const newVariableName = `VARIABLE_${(workflowUnderEdit?.variables?.length || 0) + 1}`
         const updatedVariables = [
-            ...(workflow?.variables || []),
+            ...(workflowUnderEdit?.variables || []),
             { key: newVariableName, label: newVariableName, type: 'string' as const, default: '' },
         ]
         setWorkflowInfo({
@@ -23,7 +23,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
     }
 
     const editVariableKey = (idx: number, key: string): void => {
-        const updatedVariables = [...(workflow?.variables || [])]
+        const updatedVariables = [...(workflowUnderEdit?.variables || [])]
         const sanitizedKey = key.replace(/\s+/g, '_')
         updatedVariables[idx].key = sanitizedKey
         updatedVariables[idx].label = sanitizedKey
@@ -33,7 +33,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
     }
 
     const editVariableDefaultValue = (idx: number, defaultValue: string): void => {
-        const updatedVariables = [...(workflow?.variables || [])]
+        const updatedVariables = [...(workflowUnderEdit?.variables || [])]
         updatedVariables[idx].default = defaultValue
         setWorkflowInfo({
             variables: updatedVariables,
@@ -43,7 +43,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
     const deleteVariable = (idx: number): void => {
         LemonDialog.open({
             title: 'Delete variable',
-            description: `Are you sure you want to delete the variable "${workflow.variables?.[idx]?.key}"?`,
+            description: `Are you sure you want to delete the variable "${workflowUnderEdit?.variables?.[idx]?.key}"?`,
             primaryButton: {
                 children: 'Delete',
                 status: 'danger',
@@ -74,8 +74,11 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                 <IconCode className="text-lg" /> Workflow variables
             </LemonLabel>
 
-            {workflow.variables?.map((variable, idx) => (
-                <div key={`${workflow.id}_${idx}`} className="w-full flex flex-grow items-end justify-end gap-2">
+            {workflowUnderEdit?.variables?.map((variable, idx) => (
+                <div
+                    key={`${workflowUnderEdit?.id}_${idx}`}
+                    className="w-full flex flex-grow items-end justify-end gap-2"
+                >
                     <LemonField.Pure className="w-36" label="Key">
                         <LemonInput
                             type="text"
@@ -89,7 +92,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                     <LemonField.Pure label="Default value" className="flex-1">
                         <LemonInput
                             type="text"
-                            value={workflow?.variables?.[idx]?.default || ''}
+                            value={workflowUnderEdit?.variables?.[idx]?.default || ''}
                             placeholder="Default value"
                             onChange={(defaultValue) => {
                                 editVariableDefaultValue(idx, defaultValue)

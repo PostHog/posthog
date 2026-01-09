@@ -7,8 +7,8 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 
 export function StepSchemaErrors(): JSX.Element | null {
     const { selectedNode } = useValues(hogFlowEditorLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
+    const { workflowActionValidationErrorsById } = useValues(workflowLogic)
+    const validationResult = workflowActionValidationErrorsById[selectedNode?.id ?? '']
 
     if (!validationResult?.schema) {
         return null

@@ -11,7 +11,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
     return (
         <div className="relative border rounded-md h-[calc(100vh-280px)]">
             <BindLogic logic={workflowLogic} props={props}>
-                {!originalWorkflow && workflowLoading ? <SpinnerOverlay /> : <HogFlowEditor />}
+                {!originalWorkflow && workflowLoading ? <SpinnerOverlay /> : <HogFlowEditor {...props} />}
             </BindLogic>
         </div>
     )

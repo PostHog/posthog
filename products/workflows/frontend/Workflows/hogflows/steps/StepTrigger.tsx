@@ -42,6 +42,7 @@ import { PropertyFilterType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters } from '../filters/HogFlowFilters'
+import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
@@ -52,11 +53,11 @@ export function StepTriggerConfiguration({
     node: Node<Extract<HogFlowAction, { type: 'trigger' }>>
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { workflowActionValidationErrorsById } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const type = node.data.config.type
-    const validationResult = actionValidationErrorsById[node.id]
+    const validationResult = workflowActionValidationErrorsById[node.id]
 
     const triggerOptions = [
         {
@@ -240,8 +241,8 @@ function StepTriggerConfigurationEvents({
     config: Extract<HogFlowAction['config'], { type: 'event' }>
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[action.id]
+    const { workflowActionValidationErrorsById } = useValues(workflowLogic)
+    const validationResult = workflowActionValidationErrorsById[action.id]
 
     return (
         <>
@@ -277,11 +278,14 @@ function StepTriggerConfigurationWebhook({
     action: Extract<HogFlowAction, { type: 'trigger' }>
     config: Extract<HogFlowAction['config'], { type: 'webhook' }>
 }): JSX.Element {
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
-    const { workflow, actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[action.id]
+    const { setWorkflowActionConfig } = useActions(hogFlowEditorLogic)
+    const { workflowUnderEdit, workflowActionValidationErrorsById } = useValues(hogFlowEditorLogic)
+    const validationResult = workflowActionValidationErrorsById[action.id]
 
-    const webhookUrl = workflow.id === 'new' ? null : publicWebhooksHostOrigin() + '/public/webhooks/' + workflow.id
+    const webhookUrl =
+        workflowUnderEdit?.id === 'new'
+            ? null
+            : publicWebhooksHostOrigin() + '/public/webhooks/' + workflowUnderEdit?.id
 
     return (
         <>
@@ -354,8 +358,8 @@ function StepTriggerConfigurationSchedule({
     config: Extract<HogFlowAction['config'], { type: 'schedule' }>
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[action.id]
+    const { workflowActionValidationErrorsById } = useValues(workflowLogic)
+    const validationResult = workflowActionValidationErrorsById[action.id]
 
     const scheduledDateTime = config.scheduled_at ? dayjs(config.scheduled_at) : null
 
@@ -426,8 +430,8 @@ function StepTriggerConfigurationBatch({
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[action.id]
+    const { workflowActionValidationErrorsById } = useValues(workflowLogic)
+    const validationResult = workflowActionValidationErrorsById[action.id]
 
     const scheduledDateTime = config.scheduled_at ? dayjs(config.scheduled_at) : null
 
@@ -516,8 +520,8 @@ function StepTriggerConfigurationTrackingPixel({
     config: Extract<HogFlowAction['config'], { type: 'tracking_pixel' }>
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
-    const { workflow, actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[action.id]
+    const { workflow, workflowActionValidationErrorsById } = useValues(workflowLogic)
+    const validationResult = workflowActionValidationErrorsById[action.id]
 
     const trackingPixelUrl =
         workflow.id !== 'new' ? `${publicWebhooksHostOrigin()}/public/webhooks/${workflow.id}` : null

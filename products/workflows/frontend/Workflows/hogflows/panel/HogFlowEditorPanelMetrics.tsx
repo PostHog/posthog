@@ -16,14 +16,14 @@ import { EXIT_NODE_ID, TRIGGER_NODE_ID } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
-    const { selectedNode, workflow } = useValues(hogFlowEditorLogic)
+    const { selectedNode, workflowUnderEdit } = useValues(hogFlowEditorLogic)
     const { loadActionMetricsById } = useActions(hogFlowEditorLogic)
     const actionId = selectedNode?.data.id
     const id = useMemo(() => {
         return actionId ? ([TRIGGER_NODE_ID, EXIT_NODE_ID].includes(actionId) ? '' : actionId) : undefined
     }, [actionId])
 
-    const logicKey = `hog-flow-metrics-${workflow.id}`
+    const logicKey = `hog-flow-metrics-${workflowUnderEdit?.id || ''}`
 
     const metricName = useMemo(() => {
         return actionId === TRIGGER_NODE_ID
@@ -39,7 +39,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
         loadOnMount: true,
         forceParams: {
             appSource: 'hog_flow',
-            appSourceId: workflow.id,
+            appSourceId: workflowUnderEdit?.id || '',
             instanceId: id,
             breakdownBy: 'metric_name',
             metricName,
@@ -72,7 +72,11 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     return (
         <>
             <div className="border-b">
-                <LemonButton to={urls.workflow(workflow.id, 'metrics')} size="xsmall" sideIcon={<IconOpenInApp />}>
+                <LemonButton
+                    to={urls.workflow(workflowUnderEdit?.id || '', 'metrics')}
+                    size="xsmall"
+                    sideIcon={<IconOpenInApp />}
+                >
                     Click here to open in full metrics viewer
                 </LemonButton>
             </div>

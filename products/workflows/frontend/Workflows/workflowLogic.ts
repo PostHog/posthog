@@ -1,34 +1,35 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
-import { lazyLoaders, loaders } from 'kea-loaders'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
-import { LiquidRenderer } from 'lib/utils/liquid'
-import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
-import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { HogFunctionTemplateType } from '~/types'
 
-import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
-import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
+import { type HogFlow, type HogFlowAction, type HogFlowEdge } from './hogflows/types'
+import {
+    type TemplateFormDefaults,
+    determineTemplateScope,
+    getActionValidationErrors,
+    getDefaultTemplateFormValues,
+    loadHogFunctionTemplatesById,
+    sanitizeWorkflowCore,
+} from './workflowEditorUtils'
 import type { workflowLogicType } from './workflowLogicType'
 import { workflowSceneLogic } from './workflowSceneLogic'
 
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
-    editTemplateId?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -80,43 +81,18 @@ const NEW_WORKFLOW: HogFlow = {
     updated_at: '',
 }
 
-function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
-    if (templating === 'liquid' && typeof value === 'string') {
-        try {
-            LiquidRenderer.parse(value)
-        } catch (e: any) {
-            return `Liquid template error: ${e.message}`
-        }
-    }
-}
-
-export function sanitizeWorkflow(
-    workflow: HogFlow,
-    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
-): HogFlow {
-    // Sanitize all function-like actions the same as we would a hog function
-    workflow.actions.forEach((action) => {
-        if (isFunctionAction(action) || isTriggerFunction(action)) {
-            const inputs = action.config.inputs
-            const template = hogFunctionTemplatesById[action.config.template_id]
-            if (template) {
-                action.config.inputs = sanitizeInputs({
-                    inputs_schema: template.inputs_schema,
-                    inputs: inputs,
-                })
-            }
-        }
-    })
-    return workflow
+// Re-export for backwards compatibility
+export function sanitizeWorkflow(workflow: HogFlow, hogFunctionTemplatesById: Record<string, any>): HogFlow {
+    return sanitizeWorkflowCore(workflow, hogFunctionTemplatesById) as HogFlow
 }
 
 export const workflowLogic = kea<workflowLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
     props({ id: 'new' } as WorkflowLogicProps),
     key((props) => props.id || 'new'),
-    connect(() => ({
+    connect({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
-    })),
+    }),
     actions({
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
             actionId,
@@ -139,6 +115,8 @@ export const workflowLogic = kea<workflowLogicType>([
         discardChanges: true,
         duplicate: true,
         deleteWorkflow: true,
+        showSaveAsTemplateModal: true,
+        hideSaveAsTemplateModal: true,
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -146,14 +124,6 @@ export const workflowLogic = kea<workflowLogicType>([
             {
                 loadWorkflow: async () => {
                     if (!props.id || props.id === 'new') {
-                        if (props.editTemplateId) {
-                            // Editing a template - load it and add a temporary status field for the editor
-                            const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
-                            return {
-                                ...templateWorkflow,
-                                status: 'draft' as const, // Temporary status for editor compatibility, won't be saved
-                            } as HogFlow
-                        }
                         if (props.templateId) {
                             const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.templateId)
 
@@ -177,7 +147,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     return api.hogFlows.getHogFlow(props.id)
                 },
                 saveWorkflow: async (updates: HogFlow) => {
-                    updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
+                    updates = sanitizeWorkflowCore(updates, values.workflowHogFunctionTemplatesById) as HogFlow
 
                     if (!props.id || props.id === 'new') {
                         const result = await api.hogFlows.createHogFlow(updates)
@@ -195,25 +165,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 },
             },
         ],
-    })),
-    lazyLoaders(() => ({
-        hogFunctionTemplatesById: [
-            {} as Record<string, HogFunctionTemplateType>,
+        workflowHogFunctionTemplatesById: [
+            {} as Record<string, any>,
             {
-                loadHogFunctionTemplatesById: async () => {
-                    const allTemplates = await api.hogFunctions.listTemplates({
-                        types: ['destination', 'source_webhook'],
-                    })
-
-                    const allTemplatesById = allTemplates.results.reduce(
-                        (acc, template) => {
-                            acc[template.id] = template
-                            return acc
-                        },
-                        {} as Record<string, HogFunctionTemplateType>
-                    )
-
-                    return allTemplatesById
+                loadWorkflowHogFunctionTemplatesById: async () => {
+                    return loadHogFunctionTemplatesById()
                 },
             },
         ],
@@ -224,7 +180,9 @@ export const workflowLogic = kea<workflowLogicType>([
             errors: ({ name, actions }) => {
                 const errors = {
                     name: !name ? 'Name is required' : undefined,
-                    actions: actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
+                    actions: actions.some(
+                        (action) => !(values.workflowActionValidationErrorsById[action.id]?.valid ?? true)
+                    )
                         ? 'Some fields need work'
                         : undefined,
                 } as DeepPartialMap<HogFlow, ValidationErrorType>
@@ -239,15 +197,41 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.saveWorkflow(values)
             },
         },
+        saveAsTemplateForm: {
+            defaults: getDefaultTemplateFormValues(),
+            errors: ({ name }: TemplateFormDefaults) => ({
+                name: !name ? 'Name is required' : undefined,
+            }),
+            submit: async (formValues: TemplateFormDefaults) => {
+                const workflow = values.workflow
+                if (!workflow) {
+                    return
+                }
+
+                const scope = determineTemplateScope(values.user?.is_staff, formValues.scope)
+
+                try {
+                    await api.hogFlowTemplates.createHogFlowTemplate({
+                        ...workflow,
+                        name: formValues.name || workflow.name || '',
+                        description: formValues.description || workflow.description || '',
+                        image_url: formValues.image_url || undefined,
+                        scope,
+                    })
+                    lemonToast.success('Workflow template created')
+                    actions.hideSaveAsTemplateModal()
+                } catch (e: any) {
+                    const errorMessage = e?.detail || e?.message || 'Failed to create workflow template'
+                    lemonToast.error(errorMessage)
+                    throw e
+                }
+            },
+        },
     })),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
-        isTemplateEditMode: [
-            () => [(_, props: WorkflowLogicProps) => props],
-            (props: WorkflowLogicProps): boolean => !!props.editTemplateId,
-        ],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
-        edgesByActionId: [
+        workflowEdgesByActionId: [
             (s) => [s.workflow],
             (workflow): Record<string, HogFlowEdge[]> => {
                 return workflow.edges.reduce(
@@ -269,107 +253,14 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
-        actionValidationErrorsById: [
-            (s) => [s.workflow, s.hogFunctionTemplatesById],
-            (workflow, hogFunctionTemplatesById): Record<string, HogFlowActionValidationResult | null> => {
-                return workflow.actions.reduce(
-                    (acc, action) => {
-                        const result: HogFlowActionValidationResult = {
-                            valid: true,
-                            schema: null,
-                            errors: {},
-                        }
-                        const schemaValidation = HogFlowActionSchema.safeParse(action)
-
-                        if (!schemaValidation.success) {
-                            result.valid = false
-                            result.schema = schemaValidation.error
-                        } else if (action.type === 'function_email') {
-                            // special case for function_email which has nested email inputs, so basic hog input validation is not enough
-                            // TODO: modify email/native_email input type to flatten email inputs so we don't need this special case
-                            const emailValue = action.config.inputs?.email?.value as any | undefined
-                            const emailTemplating = action.config.inputs?.email?.templating
-
-                            const emailTemplateErrors: Partial<EmailTemplate> = {
-                                html: !emailValue?.html
-                                    ? 'HTML is required'
-                                    : getTemplatingError(emailValue?.html, emailTemplating),
-                                subject: !emailValue?.subject
-                                    ? 'Subject is required'
-                                    : getTemplatingError(emailValue?.subject, emailTemplating),
-                                from: !emailValue?.from?.email
-                                    ? 'From is required'
-                                    : getTemplatingError(emailValue?.from?.email, emailTemplating),
-                                to: !emailValue?.to?.email
-                                    ? 'To is required'
-                                    : getTemplatingError(emailValue?.to?.email, emailTemplating),
-                            }
-
-                            const combinedErrors = Object.values(emailTemplateErrors)
-                                .filter((v) => !!v)
-                                .join(', ')
-
-                            if (combinedErrors) {
-                                result.valid = false
-                                result.errors = {
-                                    email: combinedErrors,
-                                }
-                            }
-                        }
-
-                        if (isFunctionAction(action) || isTriggerFunction(action)) {
-                            const template = hogFunctionTemplatesById[action.config.template_id]
-                            if (!template) {
-                                result.valid = false
-                                result.errors = {
-                                    // This is a special case for the template_id field which might need to go to a generic error message
-                                    _template_id: 'Template not found',
-                                }
-                            } else {
-                                const configValidation = CyclotronJobInputsValidation.validate(
-                                    action.config.inputs,
-                                    template.inputs_schema ?? []
-                                )
-                                result.valid = configValidation.valid
-                                result.errors = configValidation.errors
-                            }
-                        }
-
-                        if (action.type === 'trigger') {
-                            // custom validation here that we can't easily express in the schema
-                            if (action.config.type === 'event') {
-                                if (!action.config.filters.events?.length && !action.config.filters.actions?.length) {
-                                    result.valid = false
-                                    result.errors = {
-                                        filters: 'At least one event or action is required',
-                                    }
-                                }
-                            } else if (action.config.type === 'schedule') {
-                                if (!action.config.scheduled_at) {
-                                    result.valid = false
-                                    result.errors = {
-                                        scheduled_at: 'A scheduled time is required',
-                                    }
-                                }
-                            } else if (action.config.type === 'batch') {
-                                if (!action.config.filters.properties?.length) {
-                                    result.valid = false
-                                    result.errors = {
-                                        filters: 'At least one property filter is required for batch workflows',
-                                    }
-                                }
-                            }
-                        }
-
-                        acc[action.id] = result
-                        return acc
-                    },
-                    {} as Record<string, HogFlowActionValidationResult>
-                )
+        workflowActionValidationErrorsById: [
+            (s) => [s.workflow, s.workflowHogFunctionTemplatesById],
+            (workflow, workflowHogFunctionTemplatesById) => {
+                return getActionValidationErrors(workflow, workflowHogFunctionTemplatesById)
             },
         ],
 
-        triggerAction: [
+        workflowTriggerAction: [
             (s) => [s.workflow],
             (workflow): TriggerAction | null => {
                 return (workflow.actions.find((action) => action.type === 'trigger') as TriggerAction) ?? null
@@ -377,9 +268,21 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         workflowSanitized: [
-            (s) => [s.workflow, s.hogFunctionTemplatesById],
-            (workflow, hogFunctionTemplatesById): HogFlow => {
-                return sanitizeWorkflow(workflow, hogFunctionTemplatesById)
+            (s) => [s.workflow, s.workflowHogFunctionTemplatesById],
+            (workflow, workflowHogFunctionTemplatesById): HogFlow => {
+                // TODOdin: Can we improve type safety on this and avoid casting? (also check other uses of sanitizeWorkflowCore)
+                // Consider just passing in and returning actions
+                return sanitizeWorkflowCore(workflow, workflowHogFunctionTemplatesById) as HogFlow
+            },
+        ],
+    }),
+    reducers({
+        saveAsTemplateModalVisible: [
+            false,
+            {
+                showSaveAsTemplateModal: () => true,
+                hideSaveAsTemplateModal: () => false,
+                submitSaveAsTemplateFormSuccess: () => false,
             },
         ],
     }),
@@ -455,7 +358,7 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         setWorkflowActionEdges: async ({ actionId, edges }) => {
             // Helper method - Replaces all edges related to the action with the new edges
-            const actionEdges = values.edgesByActionId[actionId] ?? []
+            const actionEdges = values.workflowEdgesByActionId[actionId] ?? []
             const newEdges = values.workflow.edges.filter((e) => !actionEdges.includes(e))
 
             actions.setWorkflowValues({ edges: [...newEdges, ...edges] })
@@ -566,9 +469,17 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
         },
+        showSaveAsTemplateModal: async () => {
+            const workflow = values.workflow
+            if (workflow) {
+                actions.setSaveAsTemplateFormValues(
+                    getDefaultTemplateFormValues(workflow.name || '', workflow.description || '', null)
+                )
+            }
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadWorkflow()
-        actions.loadHogFunctionTemplatesById()
+        actions.loadWorkflowHogFunctionTemplatesById()
     }),
 ])

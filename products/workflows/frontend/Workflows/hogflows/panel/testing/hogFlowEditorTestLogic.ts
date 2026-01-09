@@ -118,7 +118,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     connect((props: WorkflowLogicProps) => ({
         values: [
             workflowLogic(props),
-            ['workflow', 'workflowSanitized', 'triggerAction'],
+            ['workflow', 'workflowSanitized', 'workflowTriggerAction'],
             hogFlowEditorLogic,
             ['selectedNodeId'],
         ],
@@ -388,24 +388,24 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
     selectors(() => ({
         shouldLoadSampleGlobals: [
-            (s) => [s.triggerAction],
-            (triggerAction): boolean => {
+            (s) => [s.workflowTriggerAction],
+            (workflowTriggerAction): boolean => {
                 // Only load samples if the trigger is event
-                return !!(triggerAction && triggerAction.config.type === 'event')
+                return !!(workflowTriggerAction && workflowTriggerAction.config.type === 'event')
             },
         ],
         // TODO(workflows): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
         matchingFilters: [
-            (s) => [s.triggerAction],
-            (triggerAction): PropertyGroupFilter => {
-                if (!triggerAction || triggerAction.config.type !== 'event') {
+            (s) => [s.workflowTriggerAction],
+            (workflowTriggerAction): PropertyGroupFilter => {
+                if (!workflowTriggerAction || workflowTriggerAction.config.type !== 'event') {
                     return {
                         type: FilterLogicalOperator.And,
                         values: [],
                     }
                 }
 
-                const triggerActionConfig = triggerAction.config
+                const triggerActionConfig = workflowTriggerAction.config
 
                 const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,

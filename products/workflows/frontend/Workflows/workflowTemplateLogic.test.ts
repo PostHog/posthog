@@ -33,6 +33,7 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
 const mockApi = api.hogFlowTemplates as jest.Mocked<typeof api.hogFlowTemplates>
 const mockToast = require('lib/lemon-ui/LemonToast').lemonToast
 
+// TODOdin: Split these tests into "create from workflow" tests (to workflowLogic.test.ts) and "edit template" tests (to workflowTemplateEditingLogic.test.ts)
 describe('workflowTemplateLogic', () => {
     beforeEach(() => {
         initKeaTests()

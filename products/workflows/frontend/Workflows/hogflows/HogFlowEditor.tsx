@@ -15,7 +15,7 @@ import { useEffect, useRef } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { workflowLogic } from '../workflowLogic'
+import { WorkflowLogicProps } from '../workflowLogic'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
 import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
@@ -80,8 +80,10 @@ function HogFlowEditorContent(): JSX.Element {
     )
 }
 
-export function HogFlowEditor(): JSX.Element {
-    const { logicProps } = useValues(workflowLogic)
+export function HogFlowEditor(props?: WorkflowLogicProps & { editTemplateId?: string }): JSX.Element {
+    // Use props directly if provided, otherwise default to 'new'
+    const logicProps: WorkflowLogicProps & { editTemplateId?: string } = props || { id: 'new' }
+
     return (
         <ReactFlowProvider>
             <BindLogic logic={hogFlowEditorLogic} props={logicProps}>

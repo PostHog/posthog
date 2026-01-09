@@ -19,11 +19,11 @@ import { EmailActionTestContent } from './testing/HogFlowEditorNotificationPanel
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
-    const { selectedNode, mode, selectedNodeCanBeDeleted, workflow } = useValues(hogFlowEditorLogic)
+    const { selectedNode, mode, selectedNodeCanBeDeleted, workflowUnderEdit } = useValues(hogFlowEditorLogic)
     const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { deleteElements } = useReactFlow()
 
-    const variablesCount = workflow?.variables?.length || 0
+    const variablesCount = workflowUnderEdit?.variables?.length || 0
 
     const tabs: LemonTab<HogFlowEditorMode>[] = HOG_FLOW_EDITOR_MODES.map((mode) => ({
         label: (
@@ -40,8 +40,8 @@ export function HogFlowEditorPanel(): JSX.Element | null {
     const width = mode !== 'build' ? '37rem' : selectedNode ? '37rem' : '25rem'
 
     const Step = useHogFlowStep(selectedNode?.data)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
+    const { workflowActionValidationErrorsById } = useValues(workflowLogic)
+    const validationResult = workflowActionValidationErrorsById[selectedNode?.id ?? '']
 
     return (
         <div

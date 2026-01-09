@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { workflowLogic } from '../../workflowLogic'
+import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { StepFunctionNode } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { actionValidationErrorsById } = useValues(hogFlowEditorLogic)
+    const { partialSetWorkflowActionConfig } = useActions(hogFlowEditorLogic)
 
     const templateId = node.data.config.template_id
     const validationResult = actionValidationErrorsById[node.id]

@@ -24,7 +24,7 @@ import { isOptOutEligibleAction } from '../steps/types'
 import { HogFlowAction } from '../types'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
-    const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
+    const { selectedNode, workflowUnderEdit, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
 
     const Step = useHogFlowStep(selectedNode?.data)
@@ -110,7 +110,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 <LemonSelect
                                                     options={[
                                                         { value: null, label: 'Do not store' },
-                                                        ...(workflow.variables || []).map(({ key }) => ({
+                                                        ...(workflowUnderEdit?.variables || []).map(({ key }) => ({
                                                             value: key,
                                                             label: key,
                                                         })),

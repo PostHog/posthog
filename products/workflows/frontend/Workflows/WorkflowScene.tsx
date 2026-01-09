@@ -16,9 +16,12 @@ import { ActivityScope } from '~/types'
 import { Workflow } from './Workflow'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
+import { WorkflowTemplate } from './WorkflowTemplate'
+import { WorkflowTemplateEditingSceneHeader } from './WorkflowTemplateEditingSceneHeader'
 import { renderWorkflowLogMessage } from './logs/log-utils'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+import { workflowTemplateEditingLogic } from './workflowTemplateEditingLogic'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -32,25 +35,31 @@ export const scene: SceneExport<WorkflowSceneLogicProps> = {
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { currentTab } = useValues(workflowSceneLogic)
     const { searchParams } = useValues(router)
-    const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
 
-    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
-    const { workflowLoading, workflow, originalWorkflow } = useValues(logic)
+    // Use template editor logic when editing a template, otherwise use workflow logic
+    const isTemplateEdit = !!editTemplateId
 
-    if (!originalWorkflow && workflowLoading) {
+    const { workflowLoading, workflow, originalWorkflow } = useValues(workflowLogic({ id: props.id }))
+    const { template, templateLoading } = useValues(workflowTemplateEditingLogic({ editTemplateId }))
+
+    const isLoading = isTemplateEdit ? workflowLoading : templateLoading
+    const hasData = isTemplateEdit ? template : originalWorkflow
+
+    if (isLoading) {
         return <SpinnerOverlay sceneLevel />
     }
 
-    if (!originalWorkflow) {
-        return <NotFound object="workflow" />
+    if (!hasData) {
+        // TODOdin: Test this for template
+        return <NotFound object={isTemplateEdit ? 'template' : 'workflow'} />
     }
 
     const tabs: (LemonTab<WorkflowTab> | null)[] = [
         {
             label: 'Workflow',
             key: 'workflow',
-            content: <Workflow {...props} />,
+            content: <Workflow id={props.id} />,
         },
 
         {
@@ -91,10 +100,16 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     return (
         <SceneContent className="flex flex-col">
-            <WorkflowSceneHeader {...props} />
-            {/* Only show Logs and Metrics tabs if the workflow has already been created */}
-            {!props.id || props.id === 'new' ? (
-                <Workflow {...props} />
+            {isTemplateEdit && editTemplateId ? (
+                <WorkflowTemplateEditingSceneHeader editTemplateId={editTemplateId} workflowProps={props} />
+            ) : (
+                <WorkflowSceneHeader {...props} />
+            )}
+            {/* Only show Logs and Metrics tabs if the workflow has already been created and we're not editing a template */}
+            {isTemplateEdit ? (
+                <WorkflowTemplate editTemplateId={editTemplateId} />
+            ) : !props.id || props.id === 'new' ? (
+                <Workflow id={props.id} />
             ) : (
                 <LemonTabs
                     activeKey={currentTab}

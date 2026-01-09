@@ -1,8 +1,6 @@
 import { useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { Spinner } from '@posthog/lemon-ui'
-
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 
@@ -26,9 +24,9 @@ export function HogFlowFunctionConfiguration({
     setMappings?: (mappings: HogFunctionMappingType[]) => void
     errors?: Record<string, string>
 }): JSX.Element {
-    const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
+    const { workflow, workflowHogFunctionTemplatesById } = useValues(workflowLogic)
 
-    const template = hogFunctionTemplatesById[templateId]
+    const template = workflowHogFunctionTemplatesById[templateId]
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
         if (template && Object.keys(inputs ?? {}).length === 0) {
@@ -36,13 +34,8 @@ export function HogFlowFunctionConfiguration({
         }
     }, [templateId])
 
-    if (hogFunctionTemplatesByIdLoading) {
-        return (
-            <div className="flex justify-center items-center">
-                <Spinner />
-            </div>
-        )
-    }
+    // Note: Loading state is handled by the loader in workflowLogic/workflowTemplateEditorLogic
+    // If templates are not loaded yet, template will be undefined and we'll show "Template not found!"
 
     if (!template) {
         return <div>Template not found!</div>

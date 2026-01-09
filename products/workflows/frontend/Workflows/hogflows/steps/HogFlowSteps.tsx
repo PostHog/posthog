@@ -162,13 +162,13 @@ export function getHogFlowStep<T extends HogFlowAction['type']>(
 export function useHogFlowStep<T extends HogFlowAction['type']>(
     action?: Extract<HogFlowAction, { type: T }>
 ): HogFlowStep<T> | undefined {
-    const { hogFunctionTemplatesById } = useValues(workflowLogic)
+    const { workflowHogFunctionTemplatesById } = useValues(workflowLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     return useMemo(() => {
         if (!action) {
             return undefined
         }
-        return getHogFlowStep(action, hogFunctionTemplatesById, isDarkModeOn)
-    }, [action, hogFunctionTemplatesById, isDarkModeOn])
+        return getHogFlowStep(action, workflowHogFunctionTemplatesById, isDarkModeOn)
+    }, [action, workflowHogFunctionTemplatesById, isDarkModeOn])
 }

@@ -6,41 +6,40 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { userLogic } from 'scenes/userLogic'
 
-import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+import { WorkflowTemplateEditorLogicProps, workflowTemplateEditingLogic } from './workflowTemplateEditingLogic'
 
-interface SaveAsTemplateModalProps {
-    workflowProps: WorkflowLogicProps
+interface UpdateTemplateModalProps {
+    templateProps: WorkflowTemplateEditorLogicProps
 }
 
-export function SaveAsTemplateModal({ workflowProps }: SaveAsTemplateModalProps): JSX.Element {
+export function UpdateTemplateModal({ templateProps }: UpdateTemplateModalProps): JSX.Element {
     const { user } = useValues(userLogic)
-
-    const wfLogic = workflowLogic(workflowProps)
-    const { saveAsTemplateModalVisible, isSaveAsTemplateFormSubmitting, saveAsTemplateForm } = useValues(wfLogic)
-    const { hideSaveAsTemplateModal, submitSaveAsTemplateForm } = useActions(wfLogic)
+    const templateLogic = workflowTemplateEditingLogic(templateProps)
+    const { updateTemplateModalVisible, isUpdateTemplateFormSubmitting, updateTemplateForm } = useValues(templateLogic)
+    const { hideUpdateTemplateModal, submitUpdateTemplateForm } = useActions(templateLogic)
 
     return (
         <LemonModal
-            onClose={hideSaveAsTemplateModal}
-            isOpen={saveAsTemplateModalVisible}
-            title="Save as template"
+            onClose={hideUpdateTemplateModal}
+            isOpen={updateTemplateModalVisible}
+            title="Update template"
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={hideSaveAsTemplateModal}>
+                    <LemonButton type="secondary" onClick={hideUpdateTemplateModal}>
                         Cancel
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={submitSaveAsTemplateForm}
-                        loading={isSaveAsTemplateFormSubmitting}
-                        disabledReason={!saveAsTemplateForm.name ? 'Name is required' : undefined}
+                        onClick={submitUpdateTemplateForm}
+                        loading={isUpdateTemplateFormSubmitting}
+                        disabledReason={!updateTemplateForm.name ? 'Name is required' : undefined}
                     >
-                        Save template
+                        Update template
                     </LemonButton>
                 </>
             }
         >
-            <Form logic={workflowLogic} props={workflowProps} formKey="saveAsTemplateForm">
+            <Form logic={workflowTemplateEditingLogic} props={templateProps} formKey="updateTemplateForm">
                 <div className="space-y-4">
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Template name" autoFocus />
@@ -57,7 +56,7 @@ export function SaveAsTemplateModal({ workflowProps }: SaveAsTemplateModalProps)
                     {user?.is_staff && (
                         <LemonField name="scope" label="Scope">
                             <LemonSelect
-                                value={saveAsTemplateForm.scope}
+                                value={updateTemplateForm.scope}
                                 options={[
                                     { value: 'team', label: 'Team only' },
                                     { value: 'global', label: 'Official (visible to everyone)' },

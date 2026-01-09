@@ -24,13 +24,21 @@ import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
+import { workflowTemplateEditingLogic } from '../workflowTemplateEditingLogic'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
-import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
+import type {
+    DropzoneNode,
+    HogFlow,
+    HogFlowAction,
+    HogFlowActionEdge,
+    HogFlowActionNode,
+    HogFlowTemplate,
+} from './types'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string =>
     `${edge.from}->${edge.to} ${edge.type} ${edge.index ?? ''}`.trim()
@@ -77,24 +85,63 @@ export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 
     branchEdges?: number
 }
 
+interface HogFlowEditorLogicProps extends WorkflowLogicProps {
+    editTemplateId?: string
+}
+
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
-    props({} as WorkflowLogicProps),
+    props({ editTemplateId: undefined } as HogFlowEditorLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
-    key((props) => `${props.id}`),
-    connect((props: WorkflowLogicProps) => ({
-        values: [
-            workflowLogic(props),
-            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
-            optOutCategoriesLogic(),
-            ['categories', 'categoriesLoading'],
-        ],
-        actions: [
-            workflowLogic(props),
-            ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
-            optOutCategoriesLogic(),
-            ['loadCategories'],
-        ],
-    })),
+    key((props) => `${props.id} ${props.editTemplateId ?? ''}`),
+    connect((props: HogFlowEditorLogicProps) => {
+        // Always connect to both logics
+
+        const workflowLogicInstance = workflowLogic({ id: props.id })
+        const templateEditingLogicInstance = workflowTemplateEditingLogic({ editTemplateId: props.editTemplateId })
+
+        return {
+            values: [
+                workflowLogicInstance,
+                [
+                    'workflow',
+                    'workflowEdgesByActionId',
+                    'workflowHogFunctionTemplatesById',
+                    'workflowActionValidationErrorsById',
+                ],
+                templateEditingLogicInstance,
+                [
+                    'workflowTemplate',
+                    'templateEdgesByActionId',
+                    'templateHogFunctionTemplatesById',
+                    'templateActionValidationErrorsById',
+                ],
+                optOutCategoriesLogic(),
+                ['categories', 'categoriesLoading'],
+            ],
+            actions: [
+                workflowLogicInstance,
+                [
+                    'setWorkflowInfo',
+                    'setWorkflowAction',
+                    'setWorkflowActionEdges',
+                    'setWorkflowActionConfig',
+                    'partialSetWorkflowActionConfig',
+                    'loadWorkflowSuccess',
+                ],
+                templateEditingLogicInstance,
+                [
+                    'setTemplateInfo',
+                    'setTemplateAction',
+                    'setTemplateActionEdges',
+                    'setTemplateActionConfig',
+                    'partialSetTemplateActionConfig',
+                    'loadTemplateSuccess',
+                ],
+                optOutCategoriesLogic(),
+                ['loadCategories'],
+            ],
+        }
+    }),
     actions({
         onEdgesChange: (edges: EdgeChange<HogFlowActionEdge>[]) => ({ edges }),
         onNodesChange: (nodes: NodeChange<HogFlowActionNode>[]) => ({ nodes }),
@@ -118,6 +165,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
+        // Wrapper actions that call the correct underlying action based on which workflow exists
+        setWorkflowActionConfig: (actionId: string, config: HogFlowAction['config']) => ({ actionId, config }),
+        partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
+            actionId,
+            config,
+        }),
         startCopyingNode: (node: HogFlowActionNode) => ({ node }),
         stopCopyingNode: true,
         copyNodeToHighlightedDropzone: true,
@@ -225,6 +278,62 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
 
                 return new Set(outgoingNodes.map((node) => node.id)).size === 1
+            },
+        ],
+        actionValidationErrorsById: [
+            (s, props) => [
+                s.workflowActionValidationErrorsById,
+                s.templateActionValidationErrorsById,
+                props.editTemplateId,
+            ],
+            (
+                workflowActionValidationErrorsById: Record<string, any>,
+                templateActionValidationErrorsById: Record<string, any>,
+                editTemplateId?: string
+            ) => {
+                if (editTemplateId) {
+                    return templateActionValidationErrorsById ?? {}
+                }
+                return workflowActionValidationErrorsById ?? {}
+            },
+        ],
+        hogFunctionTemplatesById: [
+            (s, props) => [
+                s.workflowHogFunctionTemplatesById,
+                s.templateHogFunctionTemplatesById,
+                props.editTemplateId,
+            ],
+            (
+                workflowHogFunctionTemplatesById: Record<string, any>,
+                templateHogFunctionTemplatesById: Record<string, any>,
+                editTemplateId?: string
+            ) => {
+                if (editTemplateId) {
+                    return templateHogFunctionTemplatesById ?? {}
+                }
+                return workflowHogFunctionTemplatesById ?? {}
+            },
+        ],
+        edgesByActionId: [
+            (s, props) => [s.workflowEdgesByActionId, s.templateEdgesByActionId, props.editTemplateId],
+            (
+                workflowEdgesByActionId: Record<string, any[]>,
+                templateEdgesByActionId: Record<string, any[]>,
+                editTemplateId?: string
+            ) => {
+                if (editTemplateId) {
+                    return templateEdgesByActionId ?? {}
+                }
+                return workflowEdgesByActionId ?? {}
+            },
+        ],
+        workflowUnderEdit: [
+            (s, props) => [s.workflow, s.workflowTemplate, props.editTemplateId],
+            (workflow, workflowTemplate, editTemplateId) => {
+                if (editTemplateId) {
+                    return workflowTemplate
+                }
+                return workflow
             },
         ],
     }),
@@ -360,7 +469,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 })
 
                 const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
-                    const step = getHogFlowStep(action, values.hogFunctionTemplatesById)
+                    const hogFunctionTemplatesById = values.hogFunctionTemplatesById
+                    const step = getHogFlowStep(action, hogFunctionTemplatesById)
 
                     if (!step) {
                         // Migrate old function actions to the basic functon action type
@@ -404,7 +514,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             const deletedNodeIds = deleted.map((node) => node.id)
 
             // Find all edges connected to the deleted node then reconnect them to avoid orphaned nodes
-            const updatedEdges = values.workflow.edges
+            const workflowUnderEdit = values.workflowUnderEdit
+
+            if (!workflowUnderEdit) {
+                return
+            }
+            const updatedEdges = workflowUnderEdit.edges
                 .map((hogFlowEdge) => {
                     if (deletedNodeIds.includes(hogFlowEdge.to)) {
                         // Find the deleted node
@@ -429,7 +544,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 )
 
             // Update workflow actions to match the new flow
-            const updatedActions = values.workflow.actions.filter((action) => !deletedNodeIds.includes(action.id))
+            const updatedActions = workflowUnderEdit.actions.filter((action) => !deletedNodeIds.includes(action.id))
 
             actions.setWorkflowInfo({ actions: updatedActions, edges: updatedEdges })
         },
@@ -513,6 +628,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
 
             if (values.nodeToBeAdded && dropzoneNode) {
+                const workflowUnderEdit = values.workflowUnderEdit
+                const hogFunctionTemplatesById = values.hogFunctionTemplatesById
                 const edgeToInsertNodeInto = dropzoneNode?.data.edge
 
                 // Check if nodeToBeAdded is a HogFlowActionNode (has 'data' property) or CreateActionType
@@ -521,7 +638,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     ? (values.nodeToBeAdded as HogFlowActionNode).data
                     : (values.nodeToBeAdded as CreateActionType)
 
-                const newAction = {
+                const newAction: HogFlowAction = {
                     id: isHogFlowActionNode
                         ? (values.nodeToBeAdded as HogFlowActionNode).id
                         : `action_${partialNewAction.type}_${uuid()}`,
@@ -531,9 +648,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     config: partialNewAction.config,
                     created_at: Date.now(),
                     updated_at: Date.now(),
-                } as HogFlowAction
+                }
 
-                const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
+                const step = getHogFlowStep(newAction, hogFunctionTemplatesById)
 
                 const branchEdges = isHogFlowActionNode ? 0 : ((partialNewAction as CreateActionType).branchEdges ?? 0)
                 const isBranchJoinDropzone = dropzoneNode?.data.isBranchJoinDropzone ?? false
@@ -551,7 +668,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                      * If isBranchJoinDropzone is set, we know to connect this new node on top with all previous target's sources
                      * and below with the original edges' shared target
                      */
-                    edgesToBeReplacedIndexes = values.workflow.edges
+                    edgesToBeReplacedIndexes = workflowUnderEdit.edges
                         .map((edge, index) => ({
                             edge,
                             index,
@@ -561,7 +678,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 } else {
                     // There is just the one *very specific* (i.e. getEdgeId must be used) target edge that needs to be replaced
                     edgesToBeReplacedIndexes = [
-                        values.workflow.edges.findIndex((edge) => getEdgeId(edge) === edgeToInsertNodeInto.id),
+                        workflowUnderEdit.edges.findIndex((edge) => getEdgeId(edge) === edgeToInsertNodeInto.id),
                     ]
                 }
 
@@ -572,10 +689,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 // We add the new action with two new edges - the continue edge and the target edge
                 // We also then check for any other missing edges based on the type of edge being replaced
 
-                const newEdges: HogFlow['edges'] = [...values.workflow.edges]
+                const newEdges: HogFlow['edges'] = [...workflowUnderEdit.edges]
 
                 // First remove the edge to be replaced
-                const edgesToBeReplaced = edgesToBeReplacedIndexes.map((index) => values.workflow.edges[index])
+                const edgesToBeReplaced = edgesToBeReplacedIndexes.map((index) => workflowUnderEdit.edges[index])
 
                 // Sort indexes in descending order to avoid index shifting during removal
                 edgesToBeReplacedIndexes
@@ -611,7 +728,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     from: newAction.id,
                 })
 
-                const oldActions = values.workflow.actions
+                const oldActions = workflowUnderEdit.actions
                 const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
 
                 actions.setWorkflowInfo({ actions: newActions, edges: newEdges })
@@ -678,12 +795,82 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.stopCopyingNode()
             }
         },
+        // Wrapper actions that call the correct underlying action based on which workflow exists
+        setWorkflowActionConfig: async ({ actionId, config }, _breakpoint, __, props) => {
+            // Determine which workflow we're editing and call the appropriate action
+            const isEditingTemplate = !!(props as HogFlowEditorLogicProps).editTemplateId
+            if (isEditingTemplate) {
+                // Editing a template - find the template editor logic instance and call its action
+                const templateEditorLogicInstance = workflowTemplateEditingLogic.findMounted({
+                    editTemplateId: (props as HogFlowEditorLogicProps).editTemplateId!,
+                })
+                if (templateEditorLogicInstance) {
+                    templateEditorLogicInstance.actions.setTemplateActionConfig(actionId, config)
+                }
+            } else {
+                // Editing a workflow - find the workflow logic instance and call its action
+                const workflowLogicInstance = workflowLogic.findMounted({
+                    id: props.id,
+                    editTemplateId: undefined,
+                })
+                if (workflowLogicInstance) {
+                    workflowLogicInstance.actions.setWorkflowActionConfig(actionId, config)
+                }
+            }
+        },
+        partialSetWorkflowActionConfig: async ({ actionId, config }, _breakpoint, __, props) => {
+            // Determine which workflow we're editing and call the appropriate action
+            const isEditingTemplate = !!(props as HogFlowEditorLogicProps).editTemplateId
+            if (isEditingTemplate) {
+                // Editing a template - find the template editor logic instance and call its action
+                const templateEditorLogicInstance = workflowTemplateEditingLogic.findMounted({
+                    editTemplateId: (props as HogFlowEditorLogicProps).editTemplateId!,
+                })
+                if (templateEditorLogicInstance) {
+                    templateEditorLogicInstance.actions.partialSetTemplateActionConfig(actionId, config)
+                }
+            } else {
+                // Editing a workflow - find the workflow logic instance and call its action
+                const workflowLogicInstance = workflowLogic.findMounted({
+                    id: props.id,
+                    editTemplateId: undefined,
+                })
+                if (workflowLogicInstance) {
+                    workflowLogicInstance.actions.partialSetWorkflowActionConfig(actionId, config)
+                }
+            }
+        },
     })),
 
-    subscriptions(({ actions }) => ({
+    listeners(({ actions }) => ({
+        loadWorkflowSuccess: async ({ originalWorkflow }: { originalWorkflow: HogFlow | null }) => {
+            // When workflow loads successfully, reset the flow with the loaded workflow
+            if (originalWorkflow && originalWorkflow.id && originalWorkflow.id !== 'new') {
+                actions.resetFlowFromHogFlow(originalWorkflow)
+            }
+        },
+        loadTemplateSuccess: async ({ originalTemplate }: { originalTemplate: HogFlowTemplate | null }) => {
+            // When template loads successfully, reset the flow with the loaded template
+            if (originalTemplate) {
+                actions.resetFlowFromHogFlow(originalTemplate as HogFlow)
+            }
+        },
+    })),
+    subscriptions(({ actions, props }) => ({
         workflow: (hogFlow?: HogFlow) => {
-            if (hogFlow) {
+            // Only reset if we're NOT editing a template and workflow has a real id
+
+            const isEditingTemplate = !!(props as HogFlowEditorLogicProps).editTemplateId
+            if (!isEditingTemplate && hogFlow && hogFlow.id && hogFlow.id !== 'new' && hogFlow.actions.length > 0) {
                 actions.resetFlowFromHogFlow(hogFlow)
+            }
+        },
+        workflowTemplate: (hogFlowTemplate?: HogFlowTemplate) => {
+            // Only reset from template if we're editing a template and template is not the default
+            const isEditingTemplate = !!(props as HogFlowEditorLogicProps).editTemplateId
+            const isDefaultTemplate = hogFlowTemplate?.name === 'New template' && hogFlowTemplate?.actions.length === 2
+            if (isEditingTemplate && hogFlowTemplate && hogFlowTemplate.actions.length > 0 && !isDefaultTemplate) {
+                actions.resetFlowFromHogFlow(hogFlowTemplate as HogFlow)
             }
         },
     })),

@@ -20,7 +20,7 @@ import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode } = useActions(hogFlowEditorLogic)
-    const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
+    const { workflowActionValidationErrorsById, logicProps } = useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
 
     const isSelected = selectedNode?.id === action.id
@@ -59,7 +59,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         }
     }, [action, isSelected, Step])
 
-    const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
+    const hasValidationError = workflowActionValidationErrorsById[action.id]?.valid === false
 
     return (
         <div
