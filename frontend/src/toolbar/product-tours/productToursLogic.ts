@@ -155,6 +155,7 @@ export const productToursLogic = kea<productToursLogicType>([
         newTour: true,
         saveTour: true,
         previewTour: true,
+        startPreviewMode: true,
         stopPreview: true,
         deleteTour: (id: string) => ({ id }),
 
@@ -207,7 +208,7 @@ export const productToursLogic = kea<productToursLogicType>([
         isPreviewing: [
             false,
             {
-                previewTour: () => true,
+                startPreviewMode: () => true,
                 stopPreview: () => false,
                 selectTour: () => false,
             },
@@ -583,6 +584,18 @@ export const productToursLogic = kea<productToursLogicType>([
                 return
             }
 
+            // Check if the first element step's target exists on this page
+            const firstElementStep = tourForm.steps.find((step) => step.type === 'element' && step.selector)
+            if (firstElementStep && !getStepElement(firstElementStep)) {
+                // eslint-disable-next-line no-alert
+                alert(
+                    "Can't preview tour: the first step targets an element not found on this page.\n\nNavigate to a page where this element exists, or update the selector."
+                )
+                return
+            }
+
+            // Validation passed - now enter preview mode
+            actions.startPreviewMode()
             toolbarLogic.actions.toggleMinimized(true)
 
             // Get appearance from the saved tour if editing an existing one

@@ -1,11 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox, LemonModal } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { logDetailsModalLogic } from './logDetailsModalLogic'
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
+import { logsViewerLogic } from '../logsViewerLogic'
+import { LogComments } from './LogComments'
+import { LogExploreAI } from './Tabs/ExploreWithAI'
+import { LogDetailsTab, logDetailsModalLogic } from './logDetailsModalLogic'
 
 const SEVERITY_COLORS: Record<string, string> = {
     trace: 'bg-muted-alt',
@@ -44,8 +49,16 @@ interface LogDetailsModalProps {
 }
 
 export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element | null {
-    const { isOpen, selectedLog, jsonParseAllFields } = useValues(logDetailsModalLogic)
-    const { closeLogDetails, setJsonParseAllFields } = useActions(logDetailsModalLogic)
+    const { isOpen, selectedLog, jsonParseAllFields, activeTab } = useValues(logDetailsModalLogic)
+    const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
+    const { addFilter } = useActions(logsViewerLogic)
+
+    const handleApplyFilter = (key: string, value: string, attributeType: 'log' | 'resource'): void => {
+        const filterType =
+            attributeType === 'resource' ? PropertyFilterType.LogResourceAttribute : PropertyFilterType.LogAttribute
+        addFilter(key, value, PropertyOperator.Exact, filterType)
+        closeLogDetails()
+    }
 
     if (!selectedLog) {
         return null
@@ -62,7 +75,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
             isOpen={isOpen}
             onClose={closeLogDetails}
             simple
-            overlayClassName="backdrop-blur-none flex items-stretch justify-end pr-16 py-4 pointer-events-none h-screen"
+            overlayClassName="backdrop-blur-none bg-transparent flex items-stretch justify-end pr-16 py-4 pointer-events-none h-screen"
             className="m-0! max-w-3xl w-[50vw] pointer-events-auto min-h-full"
         >
             <div className="flex flex-col h-full">
@@ -91,19 +104,47 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                     </div>
                 </LemonModal.Header>
                 <LemonModal.Content>
-                    <div className="flex flex-col gap-2">
-                        <div className="flex items-center">
-                            <LemonCheckbox
-                                checked={jsonParseAllFields}
-                                onChange={setJsonParseAllFields}
-                                label="JSON parse all fields"
-                                size="small"
-                            />
-                        </div>
-                        <div className="p-2 bg-bg-light rounded overflow-auto">
-                            <JSONViewer src={displayData} collapsed={2} sortKeys />
-                        </div>
-                    </div>
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(key) => setActiveTab(key as LogDetailsTab)}
+                        tabs={[
+                            {
+                                key: 'details',
+                                label: 'Details',
+                                content: (
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex items-center">
+                                            <LemonCheckbox
+                                                checked={jsonParseAllFields}
+                                                onChange={setJsonParseAllFields}
+                                                label="JSON parse all fields"
+                                                size="small"
+                                            />
+                                        </div>
+                                        <div className="p-2 bg-bg-light rounded overflow-auto">
+                                            <JSONViewer src={displayData} collapsed={2} sortKeys />
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                            {
+                                key: 'explore-ai',
+                                label: 'Explore with AI',
+                                content: (
+                                    <LogExploreAI
+                                        logUuid={selectedLog.uuid}
+                                        logTimestamp={selectedLog.timestamp}
+                                        onApplyFilter={handleApplyFilter}
+                                    />
+                                ),
+                            },
+                            {
+                                key: 'comments',
+                                label: 'Comments',
+                                content: <LogComments log={selectedLog} />,
+                            },
+                        ]}
+                    />
                 </LemonModal.Content>
             </div>
         </LemonModal>

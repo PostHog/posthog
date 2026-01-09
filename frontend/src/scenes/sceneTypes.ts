@@ -105,8 +105,6 @@ export enum Scene {
     PreflightCheck = 'PreflightCheck',
     ProductTour = 'ProductTour',
     ProductTours = 'ProductTours',
-    Products = 'Products',
-    UseCaseSelection = 'UseCaseSelection',
     ProjectCreateFirst = 'ProjectCreate',
     ProjectHomepage = 'ProjectHomepage',
     PropertyDefinition = 'PropertyDefinition',

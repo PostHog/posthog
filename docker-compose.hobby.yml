@@ -127,6 +127,7 @@ services:
             OTEL_SDK_DISABLED: 'true'
             USE_GRANIAN: 'true'
             GRANIAN_WORKERS: '2'
+            OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
         depends_on:
             - db
             - redis

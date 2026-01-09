@@ -23,9 +23,9 @@ def build_function_call(
     context: Optional[HogQLContext] = None,
     table_size_mib: Optional[float] = None,
 ) -> str:
-    if access_key is None and access_secret is None:
-        access_key = settings.AIRBYTE_BUCKET_KEY
-        access_secret = settings.AIRBYTE_BUCKET_SECRET
+    if access_key is None and access_secret is None and (settings.DEBUG or settings.TEST or settings.USE_LOCAL_SETUP):
+        access_key = settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
+        access_secret = settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
 
     use_s3_cluster = False
     if table_size_mib is not None and table_size_mib >= 1024:  # 1 GiB

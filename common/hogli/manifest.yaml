@@ -276,6 +276,26 @@ build:
             - build:schema-python
             - build:schema-latest-versions
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
+    build:openapi-schema:
+        cmd: 'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py
+            spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI
+            schema written to frontend/tmp/openapi.json"
+
+            '
+        description: Generate OpenAPI schema from Django backend (writes to gitignored
+            temp location)
+        services:
+            - postgresql
+            - clickhouse
+            - django
+    build:openapi-types:
+        cmd: pnpm --filter=@posthog/frontend run openapi:types
+        description: Generate TypeScript API types from the backend OpenAPI schema
+    build:openapi:
+        steps:
+            - build:openapi-schema
+            - build:openapi-types
+        description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (Python and C++)
@@ -402,6 +422,33 @@ db:
         services:
             - postgresql
             - docker
+    db:download-schema:
+        cmd: |
+            set -e
+            mkdir -p .postgres-backups
+            echo "Downloading pre-migrated schema from CI..."
+            gh run download --name migrated-schema -R PostHog/posthog -D /tmp/migrated-schema-dl
+            mv /tmp/migrated-schema-dl/schema.sql.gz .postgres-backups/schema-latest.sql.gz
+            rm -rf /tmp/migrated-schema-dl
+            echo "✅ Downloaded to .postgres-backups/schema-latest.sql.gz"
+        description: Download pre-migrated schema artifact from CI (requires gh CLI)
+    db:restore-schema:
+        steps:
+            - db:download-schema
+            - db:dump
+            - name: restore-schema
+              cmd: |
+                  set -e
+                  set -o pipefail
+                  echo "Restoring schema to database..."
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog
+                  echo "✅ Schema restored"
+            - db:migrate
+        description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
+        destructive: true
+        services:
+            - postgresql
+            - docker
 tests:
     test:python:
         cmd: pytest
@@ -447,6 +494,7 @@ quality:
         description: Fix Python code quality issues
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
+            "$@" && pnpm exec prettier --write "$@"
         description: Format Markdown files
 tools:
     tool:temporal-django-worker:
@@ -508,11 +556,37 @@ tools:
         hidden: true
     start:llm:gateway:
         bin_script: start-llm-gateway
-        description: 'TODO: add description for start-llm-gateway'
+        description: Start the LLM gateway service
         hidden: true
     posthog:node:
         bin_script: posthog-node
-        description: 'TODO: add description for posthog-node'
+        description: Start the posthog-node service (old plugin-server)
+        hidden: true
+    posthog:hobby-installer:
+        bin_script: hobby-installer
+        description: Run the hobby-installer installation script for Linux, don't use
+            it on your MacOS development environment
+        hidden: true
+    posthog:hobby-installer:darwin:
+        bin_script: hobby-installer-darwin
+        description: Run the hobby-installer installation script for MacOS
+        hidden: true
+    posthog:hobby-installer:demo:
+        bin_script: hobby-installer-demo
+        description: Run a demo check for the PostHog hobby installation, useful while
+            developing the installation script
+        hidden: true
+    posthog:hobby-installer:development:
+        bin_script: hobby-installer-development
+        description: Run the development version for the hobby-installer deployment
+        hidden: true
+    start:mcp:server:
+        bin_script: start-mcp-server
+        description: Start the MCP server
+        hidden: true
+    posthog:hobby:
+        bin_script: posthog-hobby
+        description: 'TODO: add description for posthog-hobby'
         hidden: true
 utilities:
     nuke:

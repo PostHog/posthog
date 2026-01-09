@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { ZenModeButton } from './ZenModeButton'
@@ -20,19 +21,23 @@ export function MinimalNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { hasOnboardedAnyProduct, currentTeam } = useValues(teamLogic)
-    const { sceneConfig } = useValues(sceneLogic)
+    const { titleAndIcon } = useValues(sceneLogic)
     const { zenMode } = useValues(navigation3000Logic)
 
     const shouldShowOnboarding = !hasOnboardedAnyProduct && !currentTeam?.ingested_event
-    const logoUrl = shouldShowOnboarding ? urls.useCaseSelection() : urls.projectRoot()
+    const logoUrl = shouldShowOnboarding ? urls.onboarding() : urls.projectRoot()
+
+    const iconType: FileSystemIconType | undefined = ['loading', 'blank'].includes(titleAndIcon.iconType)
+        ? undefined
+        : (titleAndIcon.iconType as FileSystemIconType)
 
     return (
         <nav className="flex items-center gap-2 p-2 border-b">
             <LemonButton noPadding icon={<IconLogomark className="text-3xl mx-2" />} to={logoUrl} />
-            {sceneConfig?.name && zenMode && (
+            {zenMode && (
                 <span className="font-semibold text-base flex items-center gap-2">
-                    {sceneConfig.iconType ? iconForType(sceneConfig.iconType) : null}
-                    {sceneConfig.name}
+                    {iconType ? iconForType(iconType) : null}
+                    {titleAndIcon.title}
                 </span>
             )}
             <div className="flex items-center justify-end gap-2 flex-1">

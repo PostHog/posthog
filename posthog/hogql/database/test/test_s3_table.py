@@ -49,8 +49,8 @@ class TestS3Table(BaseTest):
 
     def test_s3_table_select(self):
         with override_settings(
-            AIRBYTE_BUCKET_KEY=None,
-            AIRBYTE_BUCKET_SECRET=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
         ):
             self._init_database()
 
@@ -69,8 +69,8 @@ class TestS3Table(BaseTest):
 
     def test_s3_table_select_with_alias(self):
         with override_settings(
-            AIRBYTE_BUCKET_KEY=None,
-            AIRBYTE_BUCKET_SECRET=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
         ):
             self._init_database()
 
@@ -87,8 +87,8 @@ class TestS3Table(BaseTest):
 
     def test_s3_table_select_join(self):
         with override_settings(
-            AIRBYTE_BUCKET_KEY=None,
-            AIRBYTE_BUCKET_SECRET=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
         ):
             self._init_database()
 
@@ -113,8 +113,8 @@ class TestS3Table(BaseTest):
 
     def test_s3_table_select_join_with_alias(self):
         with override_settings(
-            AIRBYTE_BUCKET_KEY=None,
-            AIRBYTE_BUCKET_SECRET=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
         ):
             self._init_database()
 
@@ -140,8 +140,8 @@ class TestS3Table(BaseTest):
 
     def test_s3_table_select_and_non_s3_join(self):
         with override_settings(
-            AIRBYTE_BUCKET_KEY=None,
-            AIRBYTE_BUCKET_SECRET=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
         ):
             self._init_database()
 
@@ -166,8 +166,8 @@ class TestS3Table(BaseTest):
 
     def test_s3_table_select_and_non_s3_join_first(self):
         with override_settings(
-            AIRBYTE_BUCKET_KEY=None,
-            AIRBYTE_BUCKET_SECRET=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
         ):
             self._init_database()
             with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", True):
@@ -212,8 +212,8 @@ class TestS3Table(BaseTest):
 
     def test_s3_table_select_alias_escaped(self):
         with override_settings(
-            AIRBYTE_BUCKET_KEY=None,
-            AIRBYTE_BUCKET_SECRET=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
         ):
             self._init_database()
 
@@ -269,8 +269,8 @@ class TestS3Table(BaseTest):
 
     def test_s3_table_select_in(self):
         with override_settings(
-            AIRBYTE_BUCKET_KEY=None,
-            AIRBYTE_BUCKET_SECRET=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
         ):
             self._init_database()
             with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", True):
@@ -435,3 +435,22 @@ class TestS3Table(BaseTest):
             res
             == "s3Cluster('posthog', 'http://url.com/path/to/table_name__query_12345/**.parquet', 'key', 'secret', 'Parquet', 'some structure')"
         )
+
+    def test_s3_build_function_call_with_debug_disabled(self):
+        with (
+            override_settings(DEBUG=False, TEST=False, USE_LOCAL_SETUP=False),
+        ):
+            res = build_function_call(
+                "http://url.com/path/to/table_name",
+                DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                "table_name__query_12345",
+                None,
+                None,
+                "some structure",
+                None,
+                4000,
+            )
+            assert (
+                res
+                == "s3Cluster('posthog', 'http://url.com/path/to/table_name__query_12345/**.parquet', 'Parquet', 'some structure')"
+            )
