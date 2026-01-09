@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="oauthapplication",
-            name="client_id_issued_at",
+            name="dcr_client_id_issued_at",
             field=models.DateTimeField(
                 blank=True, help_text="When the client_id was issued (for DCR clients)", null=True
             ),
