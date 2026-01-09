@@ -348,16 +348,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Data Warehouse Table',
                         getIcon: () => <IconServer />,
                     },
-                    {
-                        name: 'Data warehouse properties',
-                        searchPlaceholder: 'data warehouse properties',
-                        type: TaxonomicFilterGroupType.DataWarehouseProperties,
-                        options: schemaColumns,
-                        getName: (col: DatabaseSchemaField) => col.name,
-                        getValue: (col: DatabaseSchemaField) => col.name,
-                        getPopoverHeader: () => 'Data Warehouse Column',
-                        getIcon: () => <IconServer />,
-                    },
+                    ...(schemaColumns.length > 0
+                        ? [
+                              {
+                                  name: 'Data warehouse properties',
+                                  searchPlaceholder: 'data warehouse properties',
+                                  type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                                  options: schemaColumns,
+                                  getName: (col: DatabaseSchemaField) => col.name,
+                                  getValue: (col: DatabaseSchemaField) => col.name,
+                                  getPopoverHeader: () => 'Data Warehouse Column',
+                                  getIcon: () => <IconServer />,
+                              },
+                          ]
+                        : []),
                     {
                         name: 'Extended person properties',
                         searchPlaceholder: 'extended person properties',
@@ -880,8 +884,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         taxonomicGroupTypes: [
             (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
-            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
-                groupTypes || taxonomicGroups.map((g) => g.type),
+            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] => {
+                const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
+                const resolvedGroupTypes = groupTypes || taxonomicGroups.map((group) => group.type)
+                return resolvedGroupTypes.filter((groupType) => availableGroupTypes.has(groupType))
+            },
         ],
         groupAnalyticsTaxonomicGroupNames: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],

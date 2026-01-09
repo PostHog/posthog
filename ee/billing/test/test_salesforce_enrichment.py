@@ -394,9 +394,10 @@ class TestSalesforceAccountQuery(BaseTest):
             # Test with URL instead of plain domain
             get_salesforce_accounts_by_domain("https://www.example.com/path")
 
-            # Should query with normalized domain
+            # Should query with normalized domain in LIKE clause
             actual_query = mock_sf.query_all.call_args[0][0]
-            assert "example.com" in actual_query
+            # Check for exact SOQL LIKE pattern with normalized domain
+            assert "WHERE Domain__c LIKE '%example.com%'" in actual_query
             assert "www." not in actual_query
             assert "https://" not in actual_query
 
