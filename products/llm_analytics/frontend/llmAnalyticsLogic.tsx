@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -18,8 +19,10 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { isAnyPropertyFilters } from '~/queries/schema-guards'
 import {
+    AnyResponseType,
     DataTableNode,
     LLMTrace,
     NodeKind,
@@ -113,6 +116,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             ['featureFlags'],
             userLogic,
             ['user'],
+            dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }),
+            ['areAnyLoading'],
         ],
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -143,6 +148,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         loadFullTraceFailure: (traceId: string, error: Error) => ({ traceId, error }),
         loadLLMDashboards: true,
+        setTabsLastRefresh: (time: Dayjs | null) => ({ time }),
+        setWasLoading: (wasLoading: boolean) => ({ wasLoading }),
+        setCachedTracesResults: (results: AnyResponseType | null) => ({ results }),
+        setCachedGenerationsResults: (results: AnyResponseType | null) => ({ results }),
+        setCachedUsersResults: (results: AnyResponseType | null) => ({ results }),
+        setCachedErrorsResults: (results: AnyResponseType | null) => ({ results }),
+        setCachedSessionsResults: (results: AnyResponseType | null) => ({ results }),
     }),
 
     reducers({
@@ -402,6 +414,76 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     // Otherwise, select first available dashboard (new or after deletion)
                     return availableDashboards[0].id
                 },
+            },
+        ],
+
+        wasLoading: [
+            false,
+            {
+                setWasLoading: (_, { wasLoading }) => wasLoading,
+            },
+        ],
+
+        tabsLastRefresh: [
+            null as Dayjs | null,
+            {
+                setTabsLastRefresh: (_, { time }) => time,
+            },
+        ],
+
+        cachedTracesResults: [
+            null as AnyResponseType | null,
+            {
+                setCachedTracesResults: (_, { results }) => results,
+                setDates: () => null,
+                setPropertyFilters: () => null,
+                setShouldFilterTestAccounts: () => null,
+                setShouldFilterSupportTraces: () => null,
+            },
+        ],
+
+        cachedGenerationsResults: [
+            null as AnyResponseType | null,
+            {
+                setCachedGenerationsResults: (_, { results }) => results,
+                setDates: () => null,
+                setPropertyFilters: () => null,
+                setShouldFilterTestAccounts: () => null,
+                setGenerationsColumns: () => null,
+                setGenerationsSort: () => null,
+            },
+        ],
+
+        cachedUsersResults: [
+            null as AnyResponseType | null,
+            {
+                setCachedUsersResults: (_, { results }) => results,
+                setDates: () => null,
+                setPropertyFilters: () => null,
+                setShouldFilterTestAccounts: () => null,
+                setUsersSort: () => null,
+            },
+        ],
+
+        cachedErrorsResults: [
+            null as AnyResponseType | null,
+            {
+                setCachedErrorsResults: (_, { results }) => results,
+                setDates: () => null,
+                setPropertyFilters: () => null,
+                setShouldFilterTestAccounts: () => null,
+                setErrorsSort: () => null,
+            },
+        ],
+
+        cachedSessionsResults: [
+            null as AnyResponseType | null,
+            {
+                setCachedSessionsResults: (_, { results }) => results,
+                setDates: () => null,
+                setPropertyFilters: () => null,
+                setShouldFilterTestAccounts: () => null,
+                setSessionsSort: () => null,
             },
         ],
     }),
@@ -1452,6 +1534,20 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     actions.setRefreshStatus(`tile-${index}`, false)
                 })
             }
+        },
+    })),
+
+    subscriptions(({ actions, values }) => ({
+        areAnyLoading: (isLoading: boolean) => {
+            // Update timestamp when:
+            // 1. Loading completes (was loading, now not loading), OR
+            // 2. First observation of non-loading state (data already loaded on mount)
+            if (!isLoading && (values.wasLoading || !values.tabsLastRefresh)) {
+                actions.setTabsLastRefresh(dayjs())
+            }
+
+            // Track loading state for detecting transitions
+            actions.setWasLoading(isLoading)
         },
     })),
 ])

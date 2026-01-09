@@ -11,8 +11,10 @@ import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { AnyResponseType } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 
+import { LLMAnalyticsDataTableReload } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
@@ -27,6 +29,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
         toggleSessionExpanded,
         toggleTraceExpanded,
         toggleGenerationExpanded,
+        setCachedSessionsResults,
     } = useActions(llmAnalyticsLogic)
     const {
         sessionsQuery,
@@ -39,6 +42,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
         loadingSessionTraces,
         loadingFullTraces,
         fullTraces,
+        cachedSessionsResults,
     } = useValues(llmAnalyticsLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(sessionsSort, setSessionsSort)
@@ -60,7 +64,14 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                 setShouldFilterTestAccounts(filters.filterTestAccounts || false)
                 setPropertyFilters(filters.properties || [])
             }}
+            cachedResults={cachedSessionsResults ?? undefined}
             context={{
+                customReloadComponent: LLMAnalyticsDataTableReload,
+                onData: (data) => {
+                    if (data) {
+                        setCachedSessionsResults(data as AnyResponseType)
+                    }
+                },
                 emptyStateHeading: 'There were no AI sessions in this period',
                 emptyStateDetail: (
                     <>

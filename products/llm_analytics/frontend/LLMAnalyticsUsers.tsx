@@ -3,15 +3,18 @@ import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { AnyResponseType } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 
+import { LLMAnalyticsDataTableReload } from './LLMAnalyticsReloadAction'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 
 export function LLMAnalyticsUsers(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setUsersSort } = useActions(llmAnalyticsLogic)
-    const { usersQuery, usersSort } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setUsersSort, setCachedUsersResults } =
+        useActions(llmAnalyticsLogic)
+    const { usersQuery, usersSort, cachedUsersResults } = useValues(llmAnalyticsLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(usersSort, setUsersSort)
 
@@ -32,7 +35,14 @@ export function LLMAnalyticsUsers(): JSX.Element {
                 setShouldFilterTestAccounts(filters.filterTestAccounts || false)
                 setPropertyFilters(filters.properties || [])
             }}
+            cachedResults={cachedUsersResults ?? undefined}
             context={{
+                customReloadComponent: LLMAnalyticsDataTableReload,
+                onData: (data) => {
+                    if (data) {
+                        setCachedUsersResults(data as AnyResponseType)
+                    }
+                },
                 columns: {
                     user: llmAnalyticsColumnRenderers.user,
                     first_seen: {

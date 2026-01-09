@@ -10,15 +10,18 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { AnyResponseType } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { LLMAnalyticsDataTableReload } from './LLMAnalyticsReloadAction'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 
 export function LLMAnalyticsErrors(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setErrorsSort } = useActions(llmAnalyticsLogic)
-    const { errorsQuery, errorsSort } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setErrorsSort, setCachedErrorsResults } =
+        useActions(llmAnalyticsLogic)
+    const { errorsQuery, errorsSort, cachedErrorsResults } = useValues(llmAnalyticsLogic)
     const { searchParams } = useValues(router)
 
     const { renderSortableColumnTitle } = useSortableColumns(errorsSort, setErrorsSort)
@@ -40,7 +43,14 @@ export function LLMAnalyticsErrors(): JSX.Element {
                 setShouldFilterTestAccounts(filters.filterTestAccounts || false)
                 setPropertyFilters(filters.properties || [])
             }}
+            cachedResults={cachedErrorsResults ?? undefined}
             context={{
+                customReloadComponent: LLMAnalyticsDataTableReload,
+                onData: (data) => {
+                    if (data) {
+                        setCachedErrorsResults(data as AnyResponseType)
+                    }
+                },
                 columns: {
                     error: {
                         renderTitle: () => (

@@ -45,13 +45,13 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { AnyResponseType, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { DashboardPlacement, EventType } from '~/types'
 
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
-import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
+import { LLMAnalyticsDataTableReload, LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
@@ -221,6 +221,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
         setGenerationsColumns,
         toggleGenerationExpanded,
         setGenerationsSort,
+        setCachedGenerationsResults,
     } = useActions(llmAnalyticsLogic)
     const {
         generationsQuery,
@@ -228,6 +229,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
         expandedGenerationIds,
         loadedTraces,
         generationsSort,
+        cachedGenerationsResults,
     } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -285,7 +287,14 @@ function LLMAnalyticsGenerations(): JSX.Element {
                     setGenerationsColumns(query.source.select)
                 }
             }}
+            cachedResults={cachedGenerationsResults ?? undefined}
             context={{
+                customReloadComponent: LLMAnalyticsDataTableReload,
+                onData: (data) => {
+                    if (data) {
+                        setCachedGenerationsResults(data as AnyResponseType)
+                    }
+                },
                 emptyStateHeading: 'There were no generations in this period',
                 emptyStateDetail: 'Try changing the date range or filters.',
                 columns: {

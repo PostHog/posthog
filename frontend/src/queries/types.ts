@@ -59,6 +59,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableRowsTransformer?: (rows: DataTableRow[]) => DataTableRow[]
     /** Compare filter for Web Analytics queries */
     compareFilter?: any
+    /** Custom reload button component. Falls back to default Reload if not provided. */
+    customReloadComponent?: ComponentType
+    /** Callback when data is successfully loaded. */
+    onData?: (data: Record<string, unknown> | null | undefined) => void
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

@@ -9,19 +9,26 @@ import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { DataTableNode, LLMTrace } from '~/queries/schema/schema-general'
+import { AnyResponseType, DataTableNode, LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { LLMAnalyticsDataTableReload } from './LLMAnalyticsReloadAction'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
-        useActions(llmAnalyticsLogic)
-    const { tracesQuery, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsLogic)
+    const {
+        setDates,
+        setShouldFilterTestAccounts,
+        setShouldFilterSupportTraces,
+        setPropertyFilters,
+        setCachedTracesResults,
+    } = useActions(llmAnalyticsLogic)
+    const { tracesQuery, propertyFilters: currentPropertyFilters, cachedTracesResults } = useValues(llmAnalyticsLogic)
+    const baseContext = useTracesQueryContext()
 
     return (
         <DataTable
@@ -42,7 +49,15 @@ export function LLMAnalyticsTraces(): JSX.Element {
                     setPropertyFilters(newPropertyFilters)
                 }
             }}
-            context={useTracesQueryContext()}
+            cachedResults={cachedTracesResults ?? undefined}
+            context={{
+                ...baseContext,
+                onData: (data) => {
+                    if (data) {
+                        setCachedTracesResults(data as AnyResponseType)
+                    }
+                },
+            }}
             uniqueKey="llm-analytics-traces"
         />
     )
@@ -50,6 +65,7 @@ export function LLMAnalyticsTraces(): JSX.Element {
 
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
     return {
+        customReloadComponent: LLMAnalyticsDataTableReload,
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
         columns: {

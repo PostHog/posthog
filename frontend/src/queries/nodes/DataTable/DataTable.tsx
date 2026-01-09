@@ -164,6 +164,7 @@ export function DataTable({
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
+        onData: context?.onData,
     }
     const {
         response,
@@ -759,8 +760,9 @@ export function DataTable({
         ) : null,
     ].filter((x) => !!x)
 
+    const CustomReloadComponent = context?.customReloadComponent
     const secondRowLeft = [
-        showReload ? <Reload key="reload" /> : null,
+        showReload ? CustomReloadComponent ? <CustomReloadComponent key="reload" /> : <Reload key="reload" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
