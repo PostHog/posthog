@@ -231,6 +231,20 @@ jobs:
             # Use unique keys to avoid race conditions where concurrent runs
             # delete the cache before saving (see logs showing "Cache not found")
 
+            - name: Delete old caches on new incident
+              if: steps.process.outputs.delete_old_caches == 'true'
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Delete ALL old incident caches to prevent divergent cache branches
+                  # This ensures the new incident cache becomes the single source of truth
+                  echo "Deleting old incident caches..."
+                  gh cache list --key master-ci-incident- --json id,key -q '.[] | "\(.id) \(.key)"' | while read id key; do
+                    echo "Deleting cache: $key"
+                    gh cache delete "$id" || true
+                  done
+
             - name: Save incident to cache
               if: steps.process.outputs.save_cache == 'true'
               uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1

@@ -7,6 +7,20 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface ErrorTrackingFingerprintApi {
+    fingerprint: string
+    readonly issue_id: string
+    readonly created_at: string
+}
+
+export interface PaginatedErrorTrackingFingerprintListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingFingerprintApi[]
+}
 
 /**
  * * `archived` - Archived
@@ -15,6 +29,8 @@
  * `pending_release` - Pending release
  * `suppressed` - Suppressed
  */
+export type ErrorTrackingIssueFullStatusEnumApi =
+    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ErrorTrackingIssueFullStatusEnumApi = {
@@ -24,6 +40,11 @@ export const ErrorTrackingIssueFullStatusEnumApi = {
     pending_release: 'pending_release',
     suppressed: 'suppressed',
 } as const
+
+export interface ErrorTrackingIssueAssignmentApi {
+    readonly id: string
+    readonly type: string
+}
 
 /**
  * * `slack` - Slack
@@ -48,6 +69,7 @@ export const ErrorTrackingIssueFullStatusEnumApi = {
  * `clickup` - Clickup
  * `vercel` - Vercel
  * `databricks` - Databricks
+ * `azure-blob` - Azure Blob
  */
 export type KindEnumApi = (typeof KindEnumApi)[keyof typeof KindEnumApi]
 
@@ -75,33 +97,22 @@ export const KindEnumApi = {
     clickup: 'clickup',
     vercel: 'vercel',
     databricks: 'databricks',
+    'azure-blob': 'azure-blob',
 } as const
 
-export type ErrorTrackingIssueFullStatusEnumApi =
-    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
-
-export interface PaginatedErrorTrackingFingerprintListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingFingerprintApi[]
+export interface ErrorTrackingExternalReferenceIntegrationApi {
+    readonly id: number
+    readonly kind: KindEnumApi
+    readonly display_name: string
 }
 
-export interface ErrorTrackingFingerprintApi {
-    fingerprint: string
-    readonly issue_id: string
-    readonly created_at: string
-}
-
-export interface PaginatedErrorTrackingIssueFullListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingIssueFullApi[]
+export interface ErrorTrackingExternalReferenceApi {
+    readonly id: string
+    readonly integration: ErrorTrackingExternalReferenceIntegrationApi
+    integration_id: number
+    config: unknown
+    issue: string
+    readonly external_url: string
 }
 
 export interface ErrorTrackingIssueFullApi {
@@ -117,6 +128,15 @@ export interface ErrorTrackingIssueFullApi {
     readonly cohort: string
 }
 
+export interface PaginatedErrorTrackingIssueFullListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingIssueFullApi[]
+}
+
 export interface PatchedErrorTrackingIssueFullApi {
     readonly id?: string
     status?: ErrorTrackingIssueFullStatusEnumApi
@@ -130,6 +150,16 @@ export interface PatchedErrorTrackingIssueFullApi {
     readonly cohort?: string
 }
 
+export interface ErrorTrackingReleaseApi {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    metadata?: unknown
+    version: string
+    project: string
+}
+
 export interface PaginatedErrorTrackingReleaseListApi {
     count: number
     /** @nullable */
@@ -139,36 +169,25 @@ export interface PaginatedErrorTrackingReleaseListApi {
     results: ErrorTrackingReleaseApi[]
 }
 
-/**
- * @nullable
- */
-export type ErrorTrackingReleaseApiMetadata = unknown | null
-
-export interface ErrorTrackingReleaseApi {
-    readonly id: string
-    hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    /** @nullable */
-    metadata?: ErrorTrackingReleaseApiMetadata
-    version: string
-    project: string
-}
-
-/**
- * @nullable
- */
-export type PatchedErrorTrackingReleaseApiMetadata = unknown | null
-
 export interface PatchedErrorTrackingReleaseApi {
     readonly id?: string
     hash_id?: string
     readonly team_id?: number
     readonly created_at?: string
-    /** @nullable */
-    metadata?: PatchedErrorTrackingReleaseApiMetadata
+    metadata?: unknown
     version?: string
     project?: string
+}
+
+export interface ErrorTrackingStackFrameApi {
+    readonly id: string
+    readonly raw_id: string
+    readonly created_at: string
+    contents: unknown
+    resolved: boolean
+    context?: unknown
+    symbol_set_ref?: string
+    readonly release: ErrorTrackingReleaseApi
 }
 
 export interface PaginatedErrorTrackingStackFrameListApi {
@@ -178,32 +197,6 @@ export interface PaginatedErrorTrackingStackFrameListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingStackFrameApi[]
-}
-
-/**
- * @nullable
- */
-export type ErrorTrackingStackFrameApiContext = unknown | null
-
-export interface ErrorTrackingStackFrameApi {
-    readonly id: string
-    readonly raw_id: string
-    readonly created_at: string
-    contents: unknown
-    resolved: boolean
-    /** @nullable */
-    context?: ErrorTrackingStackFrameApiContext
-    symbol_set_ref?: string
-    readonly release: ErrorTrackingReleaseApi
-}
-
-export interface PaginatedErrorTrackingSymbolSetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingSymbolSetApi[]
 }
 
 export interface ErrorTrackingSymbolSetApi {
@@ -220,6 +213,15 @@ export interface ErrorTrackingSymbolSetApi {
     readonly release: string
 }
 
+export interface PaginatedErrorTrackingSymbolSetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingSymbolSetApi[]
+}
+
 export interface PatchedErrorTrackingSymbolSetApi {
     readonly id?: string
     ref?: string
@@ -232,26 +234,6 @@ export interface PatchedErrorTrackingSymbolSetApi {
     /** @nullable */
     failure_reason?: string | null
     readonly release?: string
-}
-
-export interface ErrorTrackingIssueAssignmentApi {
-    readonly id: string
-    readonly type: string
-}
-
-export interface ErrorTrackingExternalReferenceApi {
-    readonly id: string
-    readonly integration: ErrorTrackingExternalReferenceIntegrationApi
-    integration_id: number
-    config: unknown
-    issue: string
-    readonly external_url: string
-}
-
-export interface ErrorTrackingExternalReferenceIntegrationApi {
-    readonly id: number
-    readonly kind: KindEnumApi
-    readonly display_name: string
 }
 
 export type EnvironmentsErrorTrackingFingerprintsListParams = {

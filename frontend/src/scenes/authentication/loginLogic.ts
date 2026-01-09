@@ -1,3 +1,4 @@
+import type { PublicKeyCredentialDescriptorJSON } from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -25,6 +26,7 @@ export interface PrecheckResponseType {
     sso_enforcement?: SSOProvider | null
     saml_available: boolean
     status: 'pending' | 'completed'
+    webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
 }
 
 // Routes that should be handled by Django, not the React router
@@ -172,13 +174,26 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
     })),
-    listeners({
+    listeners(({ values }) => ({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
-    }),
+        precheckSuccess: async () => {
+            const { precheckResponse } = values
+            // Auto-trigger passkey prompt if user has passkeys and SSO is not enforced
+            if (
+                precheckResponse.webauthn_credentials &&
+                precheckResponse.webauthn_credentials.length > 0 &&
+                !precheckResponse.sso_enforcement
+            ) {
+                // Dynamic import to avoid circular dependency
+                const { passkeyLogic } = await import('./passkeyLogic')
+                passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
+            }
+        },
+    })),
     urlToAction(({ actions }) => ({
         '/login': (_, { error_code, error_detail, email, message }) => {
             if (error_code) {

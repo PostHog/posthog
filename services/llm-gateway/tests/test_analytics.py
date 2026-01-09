@@ -227,3 +227,85 @@ class TestAnalyticsCapture:
 
             # Request should succeed despite analytics failure
             assert result["model"] == "claude-3-opus-20240229"
+
+    @pytest.mark.asyncio
+    async def test_captures_default_product(
+        self,
+        authenticated_user: AuthenticatedUser,
+        anthropic_response: MagicMock,
+        mock_analytics_service: MagicMock,
+    ) -> None:
+        mock_llm = AsyncMock(return_value=anthropic_response)
+
+        await handle_llm_request(
+            request_data={"model": "claude-3", "messages": []},
+            user=authenticated_user,
+            model="claude-3",
+            is_streaming=False,
+            provider_config=ANTHROPIC_CONFIG,
+            llm_call=mock_llm,
+        )
+
+        mock_analytics_service.capture.assert_called_once()
+        call_kwargs = mock_analytics_service.capture.call_args.kwargs
+        assert call_kwargs["product"] == "llm_gateway"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "product",
+        [
+            pytest.param("llm_gateway", id="llm_gateway"),
+            pytest.param("wizard", id="wizard"),
+        ],
+    )
+    async def test_captures_custom_product(
+        self,
+        authenticated_user: AuthenticatedUser,
+        anthropic_response: MagicMock,
+        mock_analytics_service: MagicMock,
+        product: str,
+    ) -> None:
+        mock_llm = AsyncMock(return_value=anthropic_response)
+
+        await handle_llm_request(
+            request_data={"model": "claude-3", "messages": []},
+            user=authenticated_user,
+            model="claude-3",
+            is_streaming=False,
+            provider_config=ANTHROPIC_CONFIG,
+            llm_call=mock_llm,
+            product=product,
+        )
+
+        mock_analytics_service.capture.assert_called_once()
+        call_kwargs = mock_analytics_service.capture.call_args.kwargs
+        assert call_kwargs["product"] == product
+
+    @pytest.mark.asyncio
+    async def test_captures_product_in_streaming_request(
+        self,
+        authenticated_user: AuthenticatedUser,
+        mock_analytics_service: MagicMock,
+    ) -> None:
+        async def mock_stream():
+            yield MagicMock(model_dump=MagicMock(return_value={"content": "chunk1"}))
+
+        mock_llm = AsyncMock(return_value=mock_stream())
+
+        response = await handle_llm_request(
+            request_data={"model": "claude-3", "messages": []},
+            user=authenticated_user,
+            model="claude-3",
+            is_streaming=True,
+            provider_config=ANTHROPIC_CONFIG,
+            llm_call=mock_llm,
+            product="wizard",
+        )
+
+        assert isinstance(response, StreamingResponse)
+        async for _ in response.body_iterator:
+            pass
+
+        mock_analytics_service.capture.assert_called_once()
+        call_kwargs = mock_analytics_service.capture.call_args.kwargs
+        assert call_kwargs["product"] == "wizard"

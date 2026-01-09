@@ -455,7 +455,7 @@ export function OverViewTab({
                 type: true,
                 status: true,
                 createdBy: true,
-                tags: true,
+                tags: hasAvailableFeature(AvailableFeature.TAGGING),
                 runtime: true,
             }}
         />

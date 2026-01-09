@@ -92,6 +92,8 @@ pub struct FlagsCanonicalLogLine {
     pub flags_experience_continuity: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
+    /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
+    pub flags_cache_source: Option<&'static str>,
 
     // Deep evaluation metrics (populated via task_local from flag_matching.rs)
     /// Total number of database property fetch operations (aggregate counter).
@@ -124,6 +126,10 @@ pub struct FlagsCanonicalLogLine {
     // Rate limiting
     pub rate_limited: bool,
 
+    // Cache sources (populated during data fetching)
+    /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
+    pub team_cache_source: Option<&'static str>,
+
     // Outcome (populated at response time)
     pub http_status: u16,
     /// Error code from FlagError::error_code(). Uses &'static str to avoid allocation.
@@ -146,6 +152,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_experience_continuity: 0,
             flags_disabled: false,
             quota_limited: false,
+            flags_cache_source: None,
             db_property_fetches: 0,
             person_queries: 0,
             group_queries: 0,
@@ -161,6 +168,7 @@ impl Default for FlagsCanonicalLogLine {
             hash_key_override_succeeded: false,
             hash_key_override_skipped: false,
             rate_limited: false,
+            team_cache_source: None,
             http_status: 200,
             error_code: None,
         }
@@ -182,23 +190,24 @@ impl FlagsCanonicalLogLine {
 
         // Truncate user_agent to prevent log bloat from very long headers (some bots send KB+).
         // Note: distinct_id is already truncated at request parsing time (see MAX_DISTINCT_ID_LEN).
-        let user_agent = self.user_agent.as_ref().map(|ua| truncate_chars(ua, 512));
+        let user_agent = self.user_agent.as_deref().map(|ua| truncate_chars(ua, 512));
 
         tracing::info!(
             request_id = %self.request_id,
-            team_id = ?self.team_id,
-            distinct_id = ?self.distinct_id,
+            team_id = self.team_id,
+            distinct_id = self.distinct_id.as_deref(),
             ip = %self.ip,
-            user_agent = ?user_agent,
-            lib = ?self.lib,
-            lib_version = ?self.lib_version,
-            api_version = ?self.api_version,
+            user_agent = user_agent,
+            lib = self.lib,
+            lib_version = self.lib_version.as_deref(),
+            api_version = self.api_version.as_deref(),
             duration_ms = duration_ms,
             http_status = self.http_status,
             flags_evaluated = self.flags_evaluated,
             flags_experience_continuity = self.flags_experience_continuity,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
+            flags_cache_source = self.flags_cache_source,
             db_property_fetches = self.db_property_fetches,
             person_queries = self.person_queries,
             group_queries = self.group_queries,
@@ -214,7 +223,8 @@ impl FlagsCanonicalLogLine {
             hash_key_override_succeeded = self.hash_key_override_succeeded,
             hash_key_override_skipped = self.hash_key_override_skipped,
             rate_limited = self.rate_limited,
-            error_code = ?self.error_code,
+            team_cache_source = self.team_cache_source,
+            error_code = self.error_code,
             "canonical_log_line"
         );
     }
@@ -255,6 +265,7 @@ mod tests {
         assert_eq!(log.flags_experience_continuity, 0);
         assert!(!log.flags_disabled);
         assert!(!log.quota_limited);
+        assert!(log.flags_cache_source.is_none());
         assert_eq!(log.db_property_fetches, 0);
         assert_eq!(log.person_queries, 0);
         assert_eq!(log.group_queries, 0);
@@ -270,6 +281,7 @@ mod tests {
         assert!(!log.hash_key_override_succeeded);
         assert!(!log.hash_key_override_skipped);
         assert!(!log.rate_limited);
+        assert!(log.team_cache_source.is_none());
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
     }
@@ -293,6 +305,7 @@ mod tests {
         log.flags_experience_continuity = 2;
         log.flags_disabled = false;
         log.quota_limited = true;
+        log.flags_cache_source = Some("redis");
         log.db_property_fetches = 3;
         log.property_cache_hits = 5;
         log.property_cache_misses = 2;
@@ -301,6 +314,7 @@ mod tests {
         log.hash_key_override_attempted = true;
         log.hash_key_override_succeeded = true;
         log.rate_limited = false;
+        log.team_cache_source = Some("redis");
         log.http_status = 200;
         log.emit();
     }
@@ -533,7 +547,6 @@ mod tests {
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
         #[case(FlagError::RedisDataParsingError, 503, "redis_parsing_error")]
         #[case(FlagError::DeserializeFiltersError, 500, "deserialize_filters_error")]
-        #[case(FlagError::CacheUpdateError, 500, "cache_update_error")]
         #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
         #[case(FlagError::TimeoutError(None), 503, "timeout")]
