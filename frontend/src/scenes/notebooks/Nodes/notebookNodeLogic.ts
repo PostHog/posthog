@@ -207,6 +207,20 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (nodeAttributes): { name: string; type: string }[] => nodeAttributes.globalsExportedWithTypes ?? [],
         ],
         pythonExecution: [(s) => [s.nodeAttributes], (nodeAttributes) => nodeAttributes.pythonExecution ?? null],
+        displayedGlobals: [
+            (s) => [s.exportedGlobals, s.pythonExecution],
+            (exportedGlobals, pythonExecution): { name: string; type: string }[] => {
+                if (!pythonExecution?.variables?.length) {
+                    return exportedGlobals
+                }
+
+                const typeByName = new Map(pythonExecution.variables.map((variable) => [variable.name, variable.type]))
+                return exportedGlobals.map(({ name, type }) => ({
+                    name,
+                    type: typeByName.get(name) ?? type,
+                }))
+            },
+        ],
 
         pythonNodeIndex: [
             (s) => [s.pythonNodeSummaries, s.nodeId],
@@ -231,6 +245,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                                   {
                                       nodeId: node.nodeId,
                                       pythonIndex: node.pythonIndex,
+                                      title: node.title,
                                   },
                               ]
                             : []

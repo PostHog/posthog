@@ -287,8 +287,6 @@ class KernelRuntimeService:
             if status == "ok":
                 parsed[name] = {
                     "status": "ok",
-                    "data": payload.get("data", {}),
-                    "metadata": payload.get("metadata", {}),
                 }
             else:
                 parsed[name] = {

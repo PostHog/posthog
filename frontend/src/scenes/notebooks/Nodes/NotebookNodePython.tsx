@@ -40,6 +40,11 @@ const VariableUsageOverlay = ({
     }, {})
     const sortedUsageEntries = Object.values(groupedUsageEntries).sort((a, b) => a.pythonIndex - b.pythonIndex)
 
+    const usageLabel = (usage: VariableUsage): string => {
+        const trimmedTitle = usage.title.trim()
+        return trimmedTitle ? trimmedTitle : `Python cell ${usage.pythonIndex}`
+    }
+
     return (
         <div className="p-2 text-xs max-w-[320px]">
             <div className="flex items-center justify-between gap-2">
@@ -58,10 +63,10 @@ const VariableUsageOverlay = ({
                                         className="text-muted hover:text-default underline underline-offset-2"
                                         onClick={() => onNavigateToNode(usage.nodeId)}
                                     >
-                                        Python cell {usage.pythonIndex}
+                                        {usageLabel(usage)}
                                     </button>
                                 ) : (
-                                    <div className="text-muted">Python cell {usage.pythonIndex}</div>
+                                    <div className="text-muted">{usageLabel(usage)}</div>
                                 )}
                             </div>
                         ))}
@@ -246,7 +251,7 @@ const OutputBlock = ({
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, exportedGlobals, usageByVariable, pythonExecution } = useValues(nodeLogic)
+    const { expanded, displayedGlobals, exportedGlobals, usageByVariable, pythonExecution } = useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
 
     if (!expanded) {
@@ -295,7 +300,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
                         <IconCornerDownRight />
                     </span>
                     <div className="flex flex-wrap gap-1">
-                        {exportedGlobals.map(({ name, type }) => (
+                        {displayedGlobals.map(({ name, type }) => (
                             <VariableDependencyBadge
                                 key={name}
                                 name={name}
