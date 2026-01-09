@@ -10,8 +10,8 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { shouldQueryBeAsync } from '~/queries/utils'
 
 export function Reload(): JSX.Element {
-    const { responseLoading, query } = useValues(dataNodeLogic)
-    const { loadData, cancelQuery } = useActions(dataNodeLogic)
+    const { responseLoading, query, canLoadNewData } = useValues(dataNodeLogic)
+    const { loadData, loadNewData, cancelQuery } = useActions(dataNodeLogic)
 
     return (
         <LemonButton
@@ -19,6 +19,8 @@ export function Reload(): JSX.Element {
             onClick={() => {
                 if (responseLoading) {
                     cancelQuery()
+                } else if (canLoadNewData) {
+                    loadNewData()
                 } else {
                     loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                 }

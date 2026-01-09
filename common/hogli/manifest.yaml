@@ -422,6 +422,33 @@ db:
         services:
             - postgresql
             - docker
+    db:download-schema:
+        cmd: |
+            set -e
+            mkdir -p .postgres-backups
+            echo "Downloading pre-migrated schema from CI..."
+            gh run download --name migrated-schema -R PostHog/posthog -D /tmp/migrated-schema-dl
+            mv /tmp/migrated-schema-dl/schema.sql.gz .postgres-backups/schema-latest.sql.gz
+            rm -rf /tmp/migrated-schema-dl
+            echo "✅ Downloaded to .postgres-backups/schema-latest.sql.gz"
+        description: Download pre-migrated schema artifact from CI (requires gh CLI)
+    db:restore-schema:
+        steps:
+            - db:download-schema
+            - db:dump
+            - name: restore-schema
+              cmd: |
+                  set -e
+                  set -o pipefail
+                  echo "Restoring schema to database..."
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog
+                  echo "✅ Schema restored"
+            - db:migrate
+        description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
+        destructive: true
+        services:
+            - postgresql
+            - docker
 tests:
     test:python:
         cmd: pytest
@@ -529,15 +556,37 @@ tools:
         hidden: true
     start:llm:gateway:
         bin_script: start-llm-gateway
-        description: 'Start the LLM gateway service'
+        description: Start the LLM gateway service
         hidden: true
     posthog:node:
         bin_script: posthog-node
-        description: 'TODO: add description for posthog-node'
+        description: Start the posthog-node service (old plugin-server)
+        hidden: true
+    posthog:hobby-installer:
+        bin_script: hobby-installer
+        description: Run the hobby-installer installation script for Linux, don't use
+            it on your MacOS development environment
+        hidden: true
+    posthog:hobby-installer:darwin:
+        bin_script: hobby-installer-darwin
+        description: Run the hobby-installer installation script for MacOS
+        hidden: true
+    posthog:hobby-installer:demo:
+        bin_script: hobby-installer-demo
+        description: Run a demo check for the PostHog hobby installation, useful while
+            developing the installation script
+        hidden: true
+    posthog:hobby-installer:development:
+        bin_script: hobby-installer-development
+        description: Run the development version for the hobby-installer deployment
         hidden: true
     start:mcp:server:
         bin_script: start-mcp-server
-        description: 'Start the MCP server'
+        description: Start the MCP server
+        hidden: true
+    posthog:hobby:
+        bin_script: posthog-hobby
+        description: 'TODO: add description for posthog-hobby'
         hidden: true
 utilities:
     nuke:

@@ -252,7 +252,7 @@ export enum Region {
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
-export type LoginMethod = SSOProvider | 'password' | null
+export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -844,8 +844,6 @@ export type ReplayTab = {
 
 export enum ExperimentsTabs {
     All = 'all',
-    Yours = 'yours',
-    Archived = 'archived',
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
     History = 'history',
@@ -5335,6 +5333,20 @@ export type BatchExportServiceDatabricks = {
     }
 }
 
+export type BatchExportServiceAzureBlob = {
+    type: 'AzureBlob'
+    integration: number
+    config: {
+        container_name: string
+        prefix: string
+        compression: string | null
+        file_format: string
+        max_file_size_mb: number | null
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 export type BatchExportRealtimeDestinationBackfill = {
     type: 'Workflows'
     config: {}
@@ -5351,6 +5363,7 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'Redshift',
     'HTTP',
     'Databricks',
+    'AzureBlob',
     'Workflows',
 ]
 export type BatchExportService =
@@ -5361,6 +5374,7 @@ export type BatchExportService =
     | BatchExportServiceRedshift
     | BatchExportServiceHTTP
     | BatchExportServiceDatabricks
+    | BatchExportServiceAzureBlob
     | BatchExportRealtimeDestinationBackfill
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
@@ -5803,6 +5817,7 @@ export type HogFunctionSubTemplateIdType =
     | 'activity-log'
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
+    | 'error-tracking-issue-spiking'
     | 'insight-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
@@ -5824,6 +5839,7 @@ export type HogFunctionSubTemplateType = Pick<
     sub_template_id: HogFunctionSubTemplateIdType
     name?: string
     description?: string
+    flag?: string
 }
 
 export type HogFunctionTemplateType = Pick<
