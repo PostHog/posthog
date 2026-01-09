@@ -184,8 +184,10 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "type": "actions",
                     "order": 0,
                     "math": "total",
-                    "custom_name": getattr(self.query.series[0], "custom_name", None),
                 }
+                custom_name = getattr(self.query.series[0], "custom_name", None)
+                if custom_name is not None:
+                    action_object["custom_name"] = custom_name
             elif isinstance(self.query.series[0], EventsNode):
                 event = self.query.series[0].event
                 label = "{} - {}".format("All events" if event is None else event, val[2])
@@ -195,8 +197,10 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "type": "events",
                     "order": 0,
                     "math": "total",
-                    "custom_name": getattr(self.query.series[0], "custom_name", None),
                 }
+                custom_name = getattr(self.query.series[0], "custom_name", None)
+                if custom_name is not None:
+                    action_object["custom_name"] = custom_name
 
             additional_values = {"label": label, "status": val[2]}
             res.append(
