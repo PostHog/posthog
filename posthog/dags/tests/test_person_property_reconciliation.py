@@ -60,11 +60,11 @@ class TestClickHouseResultParsing:
         # Verify set updates - values are parsed from raw JSON to native types
         assert "email" in person_diffs.set_updates
         assert person_diffs.set_updates["email"].value == "new@example.com"
-        assert person_diffs.set_updates["email"].timestamp == datetime(2024, 1, 15, 12, 0, 0)
+        assert person_diffs.set_updates["email"].timestamp == datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
 
         assert "name" in person_diffs.set_updates
         assert person_diffs.set_updates["name"].value == "John Doe"
-        assert person_diffs.set_updates["name"].timestamp == datetime(2024, 1, 15, 12, 30, 0)
+        assert person_diffs.set_updates["name"].timestamp == datetime(2024, 1, 15, 12, 30, 0, tzinfo=UTC)
 
     def test_parses_set_once_diff_tuples(self):
         """Test that set_once_diff array of tuples is correctly parsed."""
@@ -99,11 +99,11 @@ class TestClickHouseResultParsing:
         # Verify set_once updates - values are parsed from raw JSON to native types
         assert "initial_referrer" in person_diffs.set_once_updates
         assert person_diffs.set_once_updates["initial_referrer"].value == "google.com"
-        assert person_diffs.set_once_updates["initial_referrer"].timestamp == datetime(2024, 1, 10, 8, 0, 0)
+        assert person_diffs.set_once_updates["initial_referrer"].timestamp == datetime(2024, 1, 10, 8, 0, 0, tzinfo=UTC)
 
         assert "first_seen" in person_diffs.set_once_updates
         assert person_diffs.set_once_updates["first_seen"].value == "2024-01-10"
-        assert person_diffs.set_once_updates["first_seen"].timestamp == datetime(2024, 1, 10, 8, 0, 0)
+        assert person_diffs.set_once_updates["first_seen"].timestamp == datetime(2024, 1, 10, 8, 0, 0, tzinfo=UTC)
 
     def test_parses_mixed_set_and_set_once(self):
         """Test parsing when both set_diff and set_once_diff have values."""
@@ -312,12 +312,12 @@ class TestClickHouseResultParsing:
         # Verify first unset
         assert "email" in person_diffs.unset_updates
         assert person_diffs.unset_updates["email"].value is None
-        assert person_diffs.unset_updates["email"].timestamp == datetime(2024, 1, 15, 12, 0, 0)
+        assert person_diffs.unset_updates["email"].timestamp == datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
 
         # Verify second unset
         assert "old_property" in person_diffs.unset_updates
         assert person_diffs.unset_updates["old_property"].value is None
-        assert person_diffs.unset_updates["old_property"].timestamp == datetime(2024, 1, 15, 12, 30, 0)
+        assert person_diffs.unset_updates["old_property"].timestamp == datetime(2024, 1, 15, 12, 30, 0, tzinfo=UTC)
 
     def test_parses_mixed_set_set_once_and_unset(self):
         """Test parsing when all three operation types have values."""
