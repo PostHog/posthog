@@ -20,6 +20,7 @@ DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-clustering"
+COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"
 
 # Activity timeouts (per activity type)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
@@ -82,6 +83,8 @@ LABELING_AGENT_TIMEOUT = 600.0  # 10 minutes for full agent run
 
 # HDBSCAN clustering parameters
 DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.01  # 1% of samples as minimum cluster size
+MIN_CLUSTER_SIZE_FRACTION_MIN = 0.01  # Minimum allowed value for min_cluster_size_fraction
+MIN_CLUSTER_SIZE_FRACTION_MAX = 0.5  # Maximum allowed value for min_cluster_size_fraction
 DEFAULT_HDBSCAN_MIN_SAMPLES = 5  # Minimum samples in neighborhood for core points
 DEFAULT_UMAP_N_COMPONENTS = 100  # Dimensionality for clustering (not visualization)
 DEFAULT_UMAP_N_NEIGHBORS = 15  # UMAP neighborhood size

@@ -1,6 +1,6 @@
 """Clustering utilities: HDBSCAN and k-means implementations."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from sklearn.cluster import HDBSCAN, KMeans
@@ -10,6 +10,9 @@ from sklearn.metrics import silhouette_score
 from umap import UMAP
 
 from posthog.temporal.llm_analytics.trace_clustering.models import HDBSCANResult, KMeansResult
+
+if TYPE_CHECKING:
+    from umap import UMAP
 
 
 def perform_kmeans_with_optimal_k(
@@ -143,6 +146,9 @@ def compute_2d_coordinates(
             centroid_coords = combined_coords[n_samples:]
 
     else:  # default to umap
+        # Lazy import to avoid numba JIT compilation at Django startup
+        from umap import UMAP
+
         # Adjust n_neighbors if we have fewer samples
         effective_n_neighbors = min(n_neighbors, n_samples - 1)
 
@@ -170,7 +176,7 @@ def reduce_dimensions_for_clustering(
     n_neighbors: int = 15,
     min_dist: float = 0.0,
     random_state: int = 42,
-) -> tuple[np.ndarray, UMAP]:
+) -> tuple[np.ndarray, "UMAP | None"]:
     """
     Reduce high-dimensional embeddings using UMAP for clustering.
 
@@ -187,6 +193,9 @@ def reduce_dimensions_for_clustering(
     Returns:
         Tuple of (reduced_embeddings, fitted_reducer)
     """
+    # Lazy import to avoid numba JIT compilation at Django startup
+    from umap import UMAP
+
     n_samples = len(embeddings)
 
     if n_samples < 2:
@@ -269,6 +278,16 @@ def perform_hdbscan_clustering(
 
     if n_samples == 0:
         raise ValueError("Cannot cluster empty embeddings array")
+
+    from posthog.temporal.llm_analytics.trace_clustering.constants import (
+        MIN_CLUSTER_SIZE_FRACTION_MAX,
+        MIN_CLUSTER_SIZE_FRACTION_MIN,
+    )
+
+    if not MIN_CLUSTER_SIZE_FRACTION_MIN <= min_cluster_size_fraction <= MIN_CLUSTER_SIZE_FRACTION_MAX:
+        raise ValueError(
+            f"min_cluster_size_fraction must be between {MIN_CLUSTER_SIZE_FRACTION_MIN} and {MIN_CLUSTER_SIZE_FRACTION_MAX}"
+        )
 
     # Calculate min_cluster_size from fraction, with minimum of 5 but capped at n_samples
     # HDBSCAN requires min_cluster_size <= n_samples

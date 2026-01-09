@@ -760,8 +760,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             errors: ({ input }) => ({
                 input:
                     input === null || Number.isInteger(input)
-                        ? input > 25000
-                            ? 'Please enter a number less than 25,000'
+                        ? input > 50000
+                            ? 'Please enter a number less than 50,000'
                             : undefined
                         : 'Please enter a whole number',
             }),

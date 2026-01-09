@@ -10,10 +10,12 @@ export const conversationsSettingsLogic = kea<conversationsSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'conversationsSettingsLogic']),
     connect({
         values: [teamLogic, ['currentTeam']],
-        actions: [teamLogic, ['updateCurrentTeam']],
+        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
     }),
     actions({
         generateNewToken: true,
+        setConversationsEnabledLoading: (loading: boolean) => ({ loading }),
+        setWidgetEnabledLoading: (loading: boolean) => ({ loading }),
         // Domain management actions
         setIsAddingDomain: (isAdding: boolean) => ({ isAdding }),
         setEditingDomainIndex: (index: number | null) => ({ index }),
@@ -24,6 +26,20 @@ export const conversationsSettingsLogic = kea<conversationsSettingsLogicType>([
         cancelDomainEdit: true,
     }),
     reducers({
+        conversationsEnabledLoading: [
+            false,
+            {
+                setConversationsEnabledLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+            },
+        ],
+        widgetEnabledLoading: [
+            false,
+            {
+                setWidgetEnabledLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+            },
+        ],
         isAddingDomain: [
             false,
             {

@@ -1,5 +1,5 @@
 import re
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -46,7 +46,9 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
             for endpoint in list(ENDPOINTS)
         ]
 
-    def validate_credentials(self, config: ChargebeeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: ChargebeeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z-]+$")
         if not subdomain_regex.match(config.site_name):
             return False, "Chargebee site name is incorrect"

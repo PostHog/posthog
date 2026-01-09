@@ -8,6 +8,7 @@ from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, Sch
 
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
+    COORDINATOR_WORKFLOW_NAME,
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_MAX_K,
     DEFAULT_MAX_SAMPLES,
@@ -26,7 +27,7 @@ async def create_trace_clustering_coordinator_schedule(client: Client):
     """
     coordinator_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            "llma-trace-clustering-coordinator",
+            COORDINATOR_WORKFLOW_NAME,
             TraceClusteringCoordinatorInputs(
                 lookback_days=DEFAULT_LOOKBACK_DAYS,
                 max_samples=DEFAULT_MAX_SAMPLES,

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -150,7 +150,9 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
 
         return schemas
 
-    def validate_credentials(self, config: MySQLSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
