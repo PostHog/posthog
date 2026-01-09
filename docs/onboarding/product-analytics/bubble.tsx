@@ -31,13 +31,14 @@ export const BubbleInstallation = (): JSX.Element => {
 
             <Step title="Add to Bubble" badge="required">
                 <Markdown>
+                { dedent`
                     Go to your Bubble site settings by clicking on the icon in the left-hand menu. If you haven't
                     already, sign up for at least the **Starter** site plan. This enables you to add custom code. Then:
-                </Markdown>
-                <Markdown>
-                    {`1. Go to the **SEO / metatags** tab in site settings.
-2. Paste your PostHog snippet in the **Script/meta tags in header** section.
-3. Deploy your site to live.`}
+             		
+             		1. Go to the **SEO / metatags** tab in site settings.
+					2. Paste your PostHog snippet in the **Script/meta tags in header** section.
+					3. Deploy your site to live.
+				`}
                 </Markdown>
             </Step>
 
