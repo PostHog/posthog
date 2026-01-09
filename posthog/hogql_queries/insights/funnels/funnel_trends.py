@@ -63,10 +63,6 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         self.just_summarize = just_summarize
         self.funnel_order = FunnelUDF(context=self.context)
 
-        # In base, these fields only get added if you're running an actors query
-        if "uuid" not in self._extra_event_fields:
-            self._extra_event_fields.append("uuid")
-
     def get_step_counts_query(self):
         max_steps = self.context.max_steps
         return self._get_step_counts_query(
