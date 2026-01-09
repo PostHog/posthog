@@ -198,7 +198,7 @@ export const NextJSInstallation = (): JSX.Element => {
                     </Tab.Panels>
                 </Tab.Group>
 
-                <CalloutBox type="fyi" title="defaults option">
+                <CalloutBox type="fyi" title="Defaults option">
                     <Markdown>
                         The `defaults` option automatically configures PostHog with recommended settings for new
                         projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for details.
