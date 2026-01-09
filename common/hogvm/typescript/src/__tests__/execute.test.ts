@@ -156,7 +156,7 @@ describe('hogvm execute', () => {
             'Cannot compare null or undefined values'
         )
 
-        // Ordering comparisons with undefined should also throw
+        // Ordering comparisons with null in mixed-type scenarios should also throw
         expect(() => execSync(['_h', op.NULL, op.STRING, '18', op.LT_EQ], options)).toThrow(
             'Cannot compare null or undefined values'
         )
