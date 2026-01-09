@@ -20,6 +20,7 @@ from posthog.errors import (
     CHQueryErrorUnknownFunction,
 )
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.tasks.exporter import ExportCancelled
 
 # =============================================================================
 # Export Failure Classification
@@ -65,6 +66,7 @@ USER_QUERY_ERRORS = (
 TIMEOUT_ERRORS = (
     SoftTimeLimitExceeded,
     TimeoutError,
+    ExportCancelled,
 )
 
 # Intentionally uncategorized errors (neither retryable nor user errors):
