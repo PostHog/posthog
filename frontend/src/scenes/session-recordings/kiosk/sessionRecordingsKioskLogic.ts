@@ -67,9 +67,7 @@ export const sessionRecordingsKioskLogic = kea<sessionRecordingsKioskLogicType>(
                     if (state.includes(id)) {
                         return state
                     }
-                    const newIds = [...state, id]
-                    savePlayedRecordingIds(newIds)
-                    return newIds
+                    return [...state, id]
                 },
             },
         ],
@@ -117,6 +115,9 @@ export const sessionRecordingsKioskLogic = kea<sessionRecordingsKioskLogicType>(
         hasRecordings: [(s) => [s.unplayedRecordings], (unplayedRecordings): boolean => unplayedRecordings.length > 0],
     }),
     listeners(({ actions, values }) => ({
+        markRecordingPlayed: () => {
+            savePlayedRecordingIds(values.playedRecordingIds)
+        },
         advanceToNextRecording: () => {
             clearStuckTimeout()
 
