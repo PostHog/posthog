@@ -5,6 +5,7 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { hogql } from '~/queries/utils'
@@ -355,6 +356,10 @@ export const clustersLogic = kea<clustersLogicType>([
             if (currentRun) {
                 actions.loadTraceSummariesForRun(currentRun)
             }
+        },
+
+        loadClusteringRunFailure: () => {
+            lemonToast.error('Failed to load clustering run')
         },
 
         loadClusteringRunsSuccess: ({ clusteringRuns }) => {
