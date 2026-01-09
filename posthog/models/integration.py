@@ -1552,7 +1552,7 @@ class GitHubIntegration:
 
         issue = response.json()
 
-        return {"number": issue["number"], "html_url": issue["html_url"], "repository": repository}
+        return {"number": issue["number"], "repository": repository}
 
     def get_default_branch(self, repository: str) -> str:
         """Get the default branch for a repository."""

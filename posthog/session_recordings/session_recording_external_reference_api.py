@@ -41,7 +41,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     external_url = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
     issue_id = serializers.SerializerMethodField()
-    metadata = serializers.SerializerMethodField()
+    metadata = serializers.SerializerMethodField(required=False)
 
     class Meta:
         model = SessionRecordingExternalReference
@@ -65,7 +65,10 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             url_key = LinearIntegration(reference.integration).url_key()
             return f"https://linear.app/{url_key}/issue/{external_context['id']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
-            return external_context.get("url", "")
+            org = GitHubIntegration(reference.integration).organization()
+            repository = external_context.get("repository", "")
+            issue_number = external_context.get("id", "").lstrip("#")
+            return f"https://github.com/{org}/{repository}/issues/{issue_number}"
         else:
             return ""
 
@@ -144,7 +147,6 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             response = GitHubIntegration(integration).create_issue(config)
             external_context = {
                 "id": f"#{response.get('number', '')}",
-                "url": response.get("html_url", ""),
                 "title": title,
                 "repository": response.get("repository", ""),
             }

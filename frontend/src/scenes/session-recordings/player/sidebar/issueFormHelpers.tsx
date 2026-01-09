@@ -78,7 +78,7 @@ export const createGitHubIssueForm = (
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
             repositories: (repositories) =>
-                repositories && repositories.length === 0 ? 'You must choose a repository' : undefined,
+                !repositories || repositories.length === 0 ? 'You must choose a repository' : undefined,
         },
         onSubmit: ({ title, body, repositories }) => {
             onSubmit(integration.id, { repository: repositories[0], title, body })
