@@ -4171,7 +4171,7 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             printed_query = self._print_query(hogql_parsed_select)
 
             if poe_v1 or poe_v2:
-                assert re.search(r"equals\(events\.mat_pp_rgInternal, %\(hogql_val_\d+\)s\)", printed_query)
+                assert "ifNull(equals(nullIf(nullIf(events.mat_pp_rgInternal, ''), 'null')" in printed_query
             else:
                 assert re.search(
                     r"tupleElement\(argMax\(tuple\(replaceRegexpAll\(nullIf\(nullIf\(JSONExtractRaw\(person\.properties, %\(hogql_val_\d+\)s\), ''\), 'null'\), '^\"|\"\$', ''\)\), person\.version\), 1\) AS properties___rgInternal",
