@@ -2967,21 +2967,28 @@ class TestClickHouseQueryIntegration:
         # Events before bug_window_start should NOT be included
         assert "before" not in updates
 
-    def test_person_before_bug_window_start_no_results(self, cluster: ClickhouseCluster):
-        """Person with _timestamp before bug_window_start should not be joined.
+    def test_person_created_before_bug_window_with_events_after_is_included(self, cluster: ClickhouseCluster):
+        """Regression test: Person created before bug_window_start with events after should be included.
 
-        This ensures we only reconcile persons that were modified after the bug started.
+        Scenario:
+        - Person was created/last modified BEFORE bug_window_start (their _timestamp is old)
+        - After bug_window_start, there are $set events for this person
+        - These events SHOULD be included in the reconciliation
+
+        This is important because we want to reconcile ALL persons that have property-setting
+        events after bug_window_start, regardless of when the person was originally created.
+        The bug window is about when the ingestion bug occurred, not when persons were created.
         """
-        team_id = 99919
-        person_id = UUID("44440000-0000-0000-0000-000000000001")
+        team_id = 99920
+        person_id = UUID("55550000-0000-0000-0000-000000000002")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=5)
 
-        # Event after bug_window_start
+        # Event AFTER bug_window_start - should be included
         event_ts = now - timedelta(days=3)
 
         events = [
-            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$set": {"prop": "value"}})),
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$set": {"email": "new@example.com"}})),
         ]
 
         def insert_events(client):
@@ -2993,8 +3000,9 @@ class TestClickHouseQueryIntegration:
 
         cluster.any_host(insert_events).result()
 
-        # Person _timestamp BEFORE bug_window_start - should not be joined
-        person_data = [(team_id, person_id, json.dumps({"prop": "old"}), 1, now - timedelta(days=10))]
+        # Person _timestamp BEFORE bug_window_start (person was created before the bug window)
+        # but with a property that differs from the event's $set value
+        person_data = [(team_id, person_id, json.dumps({"email": "old@example.com"}), 1, now - timedelta(days=10))]
 
         def insert_person(client):
             client.execute(
@@ -3010,8 +3018,12 @@ class TestClickHouseQueryIntegration:
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
-        # No results because person _timestamp is before bug_window_start
-        assert len(results) == 0
+        # Person SHOULD be included because they have events after bug_window_start
+        # The person's _timestamp being before bug_window_start should NOT exclude them
+        assert len(results) == 1
+        assert str(results[0].person_id) == str(person_id)
+        assert "email" in results[0].set_updates
+        assert results[0].set_updates["email"].value == "new@example.com"
 
     # ==================== Edge Case Tests ====================
 

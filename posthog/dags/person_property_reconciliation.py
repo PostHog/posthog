@@ -191,7 +191,6 @@ def get_person_property_updates_from_clickhouse(
                 argMax(properties, version) as person_properties
             FROM person
             WHERE team_id = %(team_id)s
-              AND _timestamp > %(bug_window_start)s
             GROUP BY id
             -- Filter out deleted persons (latest version has is_deleted=1)
             HAVING argMax(is_deleted, version) = 0
