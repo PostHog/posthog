@@ -29,6 +29,7 @@ libiconv = { pkg-path = "libiconv", systems = ["aarch64-darwin"], pkg-group = "r
 rust-analyzer = { pkg-path = "rust-analyzer", pkg-group = "rust-analyzer" } # rust-analyzer should be isolated in its own group, details in cookbook example
 # Go
 go = { pkg-path = "go", version = "1.22", pkg-group = "go" }
+air = { pkg-path = "air" }
 # CLI tools
 mprocs = { pkg-path = "mprocs" }
 util-linux = { pkg-path = "util-linux" } # flock

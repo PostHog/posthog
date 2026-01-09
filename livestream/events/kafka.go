@@ -129,7 +129,7 @@ type PostHogKafkaConsumer struct {
 
 func NewPostHogKafkaConsumer(
 	brokers string, securityProtocol string, groupID string, topic string, geolocator geo.GeoLocator,
-	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
+	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int, debug bool) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":          brokers,
@@ -140,6 +140,13 @@ func NewPostHogKafkaConsumer(
 		"fetch.message.max.bytes":    1_000_000_000,
 		"fetch.max.bytes":            1_000_000_000,
 		"queued.max.messages.kbytes": 2_000_000,
+	}
+
+	// Speed up consumer group rebalancing for local dev so we don't have to wait 45 seconds every reload
+	if debug {
+		config.SetKey("session.timeout.ms", 6000)
+		config.SetKey("heartbeat.interval.ms", 1000)
+		config.SetKey("max.poll.interval.ms", 6000)
 	}
 
 	consumer, err := kafka.NewConsumer(config)
@@ -159,8 +166,14 @@ func NewPostHogKafkaConsumer(
 }
 
 func (c *PostHogKafkaConsumer) Consume() {
-	if err := c.consumer.SubscribeTopics([]string{c.topic}, nil); err != nil {
-		// TODO capture error to PostHog
+	rebalanceCallback := func(consumer *kafka.Consumer, event kafka.Event) error {
+		if _, ok := event.(kafka.AssignedPartitions); ok {
+			log.Printf("✅ Livestream service ready")
+		}
+		return nil
+	}
+
+	if err := c.consumer.SubscribeTopics([]string{c.topic}, rebalanceCallback); err != nil {
 		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
 

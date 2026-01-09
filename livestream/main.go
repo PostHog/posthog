@@ -68,7 +68,7 @@ func main() {
 	go sessionStats.KeepStats(ctx, sessionStatsChan)
 
 	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka.Brokers, config.Kafka.SecurityProtocol, config.Kafka.GroupID, config.Kafka.Topic, geolocator, phEventChan,
-		statsChan, config.Parallelism)
+		statsChan, config.Parallelism, config.Debug)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
@@ -224,11 +224,19 @@ func main() {
 	}
 
 	// Start HTTP server in goroutine
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	port = ":" + port
+
 	go func() {
-		if err := e.Start(":8080"); err != nil && err != http.ErrServerClosed {
+		if err := e.Start(port); err != nil && err != http.ErrServerClosed {
 			e.Logger.Fatal(err)
 		}
 	}()
+
+	log.Printf("Livestream server starting on %s", port)
 
 	// Wait for shutdown signal
 	<-shutdownHTTP
