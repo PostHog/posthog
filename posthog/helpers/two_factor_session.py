@@ -18,8 +18,8 @@ from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
 from posthog.cloud_utils import is_dev_mode
-from posthog.email import is_email_available
-from posthog.helpers.email_utils import check_esp_suppression
+from posthog.email import is_email_available, is_http_email_service_available
+from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
 from posthog.models.user import User
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
@@ -295,6 +295,19 @@ class EmailMFAVerifier:
 
         if not is_email_available(with_absolute_urls=True):
             return EmailMFACheckResult(should_send=False)
+
+        if not is_http_email_service_available():
+            mfa_logger.info(
+                "Email MFA bypassed - HTTP email service not configured",
+                user_id=user.pk,
+            )
+            self._capture_suppression_bypass_event(user, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE, False)
+            return EmailMFACheckResult(
+                should_send=False,
+                suppression_bypassed=True,
+                suppression_reason=ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE,
+                suppression_cached=False,
+            )
 
         try:
             organization = user.organization

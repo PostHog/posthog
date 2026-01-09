@@ -5,6 +5,7 @@ while maintaining backwards compatibility with existing data that may have mixed
 
 import hashlib
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
@@ -114,16 +115,23 @@ class EmailValidationHelper:
         return EmailLookupHandler.get_user_by_email(email) is not None
 
 
-ESP_SUPPRESSION_CACHE_TTL = TWO_FACTOR_REMEMBER_COOKIE_AGE  # 30 days, aligned with remember-me cookie
-ESP_SUPPRESSION_ERROR_CACHE_TTL = 60  # Short TTL for errors to prevent thundering herd during outages
-ESP_SUPPRESSION_API_TIMEOUT = 5
+ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = TWO_FACTOR_REMEMBER_COOKIE_AGE  # 30 days, aligned with remember-me cookie
+ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS = 60  # Short TTL for errors to prevent thundering herd during outages
+ESP_SUPPRESSION_API_TIMEOUT_IN_SECONDS = 5
+
+
+class ESPSuppressionReason(str, Enum):
+    SUPPRESSED = "suppressed"
+    EMPTY_EMAIL = "empty_email"
+    NO_EMAIL_HTTP_SERVICE = "no_email_http_service"
+    API_FAILURE_FALLBACK = "api_failure_fallback"
 
 
 @dataclass
 class ESPSuppressionResult:
     is_suppressed: bool
     from_cache: bool
-    reason: Optional[str] = None
+    reason: Optional[ESPSuppressionReason] = None
 
 
 def _esp_suppression_api_failure_fallback(
@@ -138,13 +146,13 @@ def _esp_suppression_api_failure_fallback(
 
     We cache the error state briefly to prevent thundering herd during outages.
     """
-    cache.set(_get_esp_suppression_error_cache_key(email), True, ESP_SUPPRESSION_ERROR_CACHE_TTL)
+    cache.set(_get_esp_suppression_error_cache_key(email), True, ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS)
 
     logger.warning(
         "ESP suppression API failure - allowing user through",
         error_type=error_type,
         error_details=error_details,
-        cached_for_seconds=ESP_SUPPRESSION_ERROR_CACHE_TTL,
+        cached_for_seconds=ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS,
     )
     _capture_esp_suppression_analytics(
         email=email,
@@ -154,7 +162,7 @@ def _esp_suppression_api_failure_fallback(
         api_status_code=api_status_code,
         error_type=error_type,
     )
-    return ESPSuppressionResult(is_suppressed=True, from_cache=False, reason="api_failure_fallback")
+    return ESPSuppressionResult(is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.API_FAILURE_FALLBACK)
 
 
 def _hash_email(email: str) -> str:
@@ -198,7 +206,7 @@ def _capture_esp_suppression_analytics(
 def check_esp_suppression(email: str) -> ESPSuppressionResult:
     """Check if an email address is on the ESP suppression list."""
     if not email:
-        return ESPSuppressionResult(is_suppressed=False, from_cache=False, reason="empty_email")
+        return ESPSuppressionResult(is_suppressed=False, from_cache=False, reason=ESPSuppressionReason.EMPTY_EMAIL)
 
     cache_key = _get_esp_suppression_cache_key(email)
     cached_result = cache.get(cache_key)
@@ -211,14 +219,16 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
             cache_type="success_cache",
         )
         return ESPSuppressionResult(
-            is_suppressed=cached_result, from_cache=True, reason="suppressed" if cached_result else None
+            is_suppressed=cached_result,
+            from_cache=True,
+            reason=ESPSuppressionReason.SUPPRESSED if cached_result else None,
         )
 
     # Check if we recently had an API error for this email (prevents thundering herd)
     if cache.get(_get_esp_suppression_error_cache_key(email)):
         logger.info(
             "ESP suppression check returning cached error fallback",
-            email_hash=_hash_email(email)[:8],
+            email_hash=_hash_email(email),
         )
         _capture_esp_suppression_analytics(
             email=email,
@@ -226,11 +236,13 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
             from_cache=True,
             cache_type="error_cache",
         )
-        return ESPSuppressionResult(is_suppressed=True, from_cache=True, reason="api_failure_fallback")
+        return ESPSuppressionResult(
+            is_suppressed=True, from_cache=True, reason=ESPSuppressionReason.API_FAILURE_FALLBACK
+        )
 
     try:
         api_response = _fetch_esp_suppression_from_api(email)
-        cache.set(cache_key, api_response.is_suppressed, ESP_SUPPRESSION_CACHE_TTL)
+        cache.set(cache_key, api_response.is_suppressed, ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS)
         _capture_esp_suppression_analytics(
             email=email,
             outcome="suppressed" if api_response.is_suppressed else "not_suppressed",
@@ -241,11 +253,9 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
         return ESPSuppressionResult(
             is_suppressed=api_response.is_suppressed,
             from_cache=False,
-            reason="suppressed" if api_response.is_suppressed else None,
+            reason=ESPSuppressionReason.SUPPRESSED if api_response.is_suppressed else None,
         )
     except ESPSuppressionAPIError as e:
-        if e.error_type == "no_api_key":
-            return ESPSuppressionResult(is_suppressed=False, from_cache=False, reason="no_api_key")
         return _esp_suppression_api_failure_fallback(email, e.error_type, e.error_details, e.status_code)
     except Exception as e:
         logger.exception("ESP suppression check unexpected error", error=str(e))
@@ -278,9 +288,6 @@ class ESPSuppressionAPIError(Exception):
 
 def _fetch_esp_suppression_from_api(email: str) -> ESPSuppressionAPIResponse:
     """Fetches suppression status from Customer.io API."""
-    if not settings.CUSTOMER_IO_API_KEY:
-        raise ESPSuppressionAPIError("no_api_key")
-
     headers = {
         "Authorization": f"Bearer {settings.CUSTOMER_IO_API_KEY}",
         "Content-Type": "application/json",
@@ -291,7 +298,7 @@ def _fetch_esp_suppression_from_api(email: str) -> ESPSuppressionAPIResponse:
             f"{settings.CUSTOMER_IO_API_URL}/v1/esp/suppressions",
             params={"email": email},
             headers=headers,
-            timeout=ESP_SUPPRESSION_API_TIMEOUT,
+            timeout=ESP_SUPPRESSION_API_TIMEOUT_IN_SECONDS,
         )
 
         if response.status_code == 200:

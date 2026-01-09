@@ -6,11 +6,12 @@ import requests
 from parameterized import parameterized
 
 from posthog.helpers.email_utils import (
-    ESP_SUPPRESSION_CACHE_TTL,
-    ESP_SUPPRESSION_ERROR_CACHE_TTL,
+    ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS,
+    ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS,
     EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
+    ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
 )
@@ -92,7 +93,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
         result = check_esp_suppression("")
 
         self.assertFalse(result.is_suppressed)
-        self.assertEqual(result.reason, "empty_email")
+        self.assertEqual(result.reason, ESPSuppressionReason.EMPTY_EMAIL)
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
@@ -137,13 +138,13 @@ class TestESPSuppressionCheck(SimpleTestCase):
         check_esp_suppression("test@example.com")
 
         call_args = mock_cache.set.call_args
-        self.assertEqual(call_args[0][2], ESP_SUPPRESSION_CACHE_TTL)
+        self.assertEqual(call_args[0][2], ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS)
 
     @parameterized.expand(
         [
-            ("timeout", requests.Timeout(), True, "api_failure_fallback"),
-            ("network_error", requests.ConnectionError(), True, "api_failure_fallback"),
-            ("500_error", None, True, "api_failure_fallback"),
+            ("timeout", requests.Timeout(), True, ESPSuppressionReason.API_FAILURE_FALLBACK),
+            ("network_error", requests.ConnectionError(), True, ESPSuppressionReason.API_FAILURE_FALLBACK),
+            ("500_error", None, True, ESPSuppressionReason.API_FAILURE_FALLBACK),
             ("404_not_found", None, False, None),
         ]
     )
@@ -193,7 +194,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
         set_calls = list(mock_cache.set.call_args_list)
         error_cache_call = [c for c in set_calls if "error" in c[0][0]]
         self.assertEqual(len(error_cache_call), 1)
-        self.assertEqual(error_cache_call[0][0][2], ESP_SUPPRESSION_ERROR_CACHE_TTL)
+        self.assertEqual(error_cache_call[0][0][2], ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS)
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
@@ -212,7 +213,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
             mock_get.assert_not_called()
             self.assertTrue(result.is_suppressed)
             self.assertTrue(result.from_cache)
-            self.assertEqual(result.reason, "api_failure_fallback")
+            self.assertEqual(result.reason, ESPSuppressionReason.API_FAILURE_FALLBACK)
 
 
 class TestESPSuppressionAnalytics(SimpleTestCase):
