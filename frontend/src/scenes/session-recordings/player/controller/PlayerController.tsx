@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { isChristmas, isHalloween } from 'lib/holidays'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen, IconGhost, IconSanta } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -32,15 +33,13 @@ function PlayPauseButton(): JSX.Element {
     const showPause = playingState === SessionPlayerState.PLAY
 
     const getPlayIcon = (): JSX.Element => {
-        const localTime = new Date()
-
         // If between October 28th and October 31st
-        if (localTime.getMonth() == 9 && localTime.getDate() >= 28) {
+        if (isHalloween()) {
             return <IconGhost className="text-3xl" />
         }
 
         // If between December 1st and December 28th
-        if (localTime.getMonth() == 11 && localTime.getDate() <= 28) {
+        if (isChristmas()) {
             return <IconSanta className="text-3xl" />
         }
 

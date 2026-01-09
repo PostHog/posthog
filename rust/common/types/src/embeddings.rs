@@ -1,8 +1,12 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-// Requests the embedding worker can process
+use crate::format::format_ch_datetime;
+
+// Requests the embedding worker can process. These are consumed over kafka by the embedding worker.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingRequest {
     pub team_id: i32,
@@ -13,6 +17,33 @@ pub struct EmbeddingRequest {
     pub timestamp: DateTime<Utc>,
     pub content: String,
     pub models: Vec<EmbeddingModel>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, Value>,
+}
+
+// Responses from an embedding request - these are written to the response
+// kafka topic, to allow other systems to take a callback action. These differ from
+// the EmbeddingRecord struct by representing all embeddings of a given document -
+// they're 1:1 with the EmbeddingRequest struct, whereas records are per-model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingResponse {
+    #[serde(flatten)]
+    pub request: EmbeddingRequest,
+    pub results: Vec<ModelResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelResult {
+    pub model: EmbeddingModel,
+    #[serde(flatten)]
+    pub outcome: EmbeddingResult,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum EmbeddingResult {
+    Success { embedding: Vec<f64> },
+    Failure { error: String },
 }
 
 // Records the embedding worker emits, for ingestion into clickhouse
@@ -28,6 +59,8 @@ pub struct EmbeddingRecord {
     pub embedding: Vec<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<String>, // JSON object, stringified
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
@@ -149,4 +182,37 @@ struct OAIEmbeddingResponse {
 #[derive(Deserialize)]
 struct OAIEmbeddingData {
     embedding: Vec<f64>,
+}
+
+impl From<EmbeddingResponse> for Vec<EmbeddingRecord> {
+    fn from(response: EmbeddingResponse) -> Self {
+        let mut records = Vec::new();
+
+        for result in response.results {
+            if let EmbeddingResult::Success { embedding } = result.outcome {
+                let record = EmbeddingRecord {
+                    team_id: response.request.team_id,
+                    product: response.request.product.clone(),
+                    document_type: response.request.document_type.clone(),
+                    model_name: result.model,
+                    rendering: response.request.rendering.clone(),
+                    document_id: response.request.document_id.clone(),
+                    timestamp: format_ch_datetime(response.request.timestamp),
+                    embedding,
+                    content: Some(response.request.content.clone()),
+                    metadata: if response.request.metadata.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            serde_json::to_string(&response.request.metadata)
+                                .expect("Can serialize metadata"),
+                        )
+                    },
+                };
+                records.push(record);
+            }
+        }
+
+        records
+    }
 }

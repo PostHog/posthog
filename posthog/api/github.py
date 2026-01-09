@@ -5,6 +5,7 @@ from typing import Any
 from django.db.models import Q
 
 import requests
+import posthoganalytics
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -141,6 +142,14 @@ class SecretAlert(APIView):
         try:
             verify_github_signature(raw_body, kid, sig)
         except SignatureVerificationError:
+            posthoganalytics.capture(
+                distinct_id=None,
+                event="github_secret_alert_invalid_signature",
+                properties={
+                    "kid": kid,
+                    "sig": sig,
+                },
+            )
             return Response({"detail": "Invalid signature"}, status=401)
 
         if not isinstance(request.data, list):
@@ -162,6 +171,17 @@ class SecretAlert(APIView):
 
             if item["type"] == "posthog_personal_api_key":
                 key_lookup = find_personal_api_key(item["token"])
+                posthoganalytics.capture(
+                    distinct_id=None,
+                    event="github_secret_alert",
+                    properties={
+                        "type": item["type"],
+                        "source": item["source"],
+                        "url": item["url"],
+                        "found": key_lookup is not None,
+                    },
+                )
+
                 if key_lookup is not None:
                     result["label"] = "true_positive"
                     more_info = f"This key was detected by GitHub at {item['url']}."
@@ -177,8 +197,10 @@ class SecretAlert(APIView):
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
             elif item["type"] == "posthog_feature_flags_secure_api_key":
+                found = False
                 try:
                     _ = Team.objects.get(Q(secret_api_token=item["token"]) | Q(secret_api_token_backup=item["token"]))
+                    found = True
                     # TODO send email to team members
                     result["label"] = "true_positive"
 
@@ -186,6 +208,17 @@ class SecretAlert(APIView):
 
                 except Team.DoesNotExist:
                     pass
+
+                posthoganalytics.capture(
+                    distinct_id=None,
+                    event="github_secret_alert",
+                    properties={
+                        "type": item["type"],
+                        "source": item["source"],
+                        "url": item["url"],
+                        "found": found,
+                    },
+                )
 
             else:
                 raise ValidationError(detail="Unexpected alert type")

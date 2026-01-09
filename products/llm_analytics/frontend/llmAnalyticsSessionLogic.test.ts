@@ -287,7 +287,7 @@ describe('llmAnalyticsSessionLogic', () => {
             await expectLogic(logic).toMatchValues({
                 sessionId: sessionId,
                 // When navigating without explicit date params, falls back to parent dateFilter
-                dateRange: { dateFrom: '-1d', dateTo: null },
+                dateRange: { dateFrom: '-1h', dateTo: null },
             })
         })
     })

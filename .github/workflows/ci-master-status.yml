@@ -4,12 +4,10 @@ on:
     workflow_run:
         workflows:
             - 'Backend CI'
-            - 'Container Images CI'
             - 'Node.js CI'
             - 'Frontend CI'
             - 'Storybook'
             - 'Security'
-            - 'shellcheck'
             - 'Dagster CI'
             - 'E2E CI Playwright'
             - 'Rust CI'
@@ -17,8 +15,9 @@ on:
         types: [completed]
 
 env:
-    # #flakey-tests channel until we're confident, then move to a more visible channel
     SLACK_CHANNEL: 'C09ADEV3AJD'
+    # Keep in sync with workflow_run.workflows trigger above
+    REQUIRED_WORKFLOWS: 'Backend CI,Node.js CI,Frontend CI,Storybook,Security,Dagster CI,E2E CI Playwright,Rust CI'
 
 permissions:
     contents: read
@@ -27,15 +26,12 @@ permissions:
 jobs:
     check-master-status:
         runs-on: ubuntu-latest
-        # Only run for actual master push events, not PR merges
         if: github.event.workflow_run.event == 'push'
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
-            # Restore incident state from cache
             - name: Restore incident state
-              id: cache
-              uses: actions/cache/restore@v4
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .master-ci-incident
                   key: master-ci-incident
@@ -45,23 +41,23 @@ jobs:
               run: |
                   if [ -f .master-ci-incident ]; then
                     echo "exists=true" >> $GITHUB_OUTPUT
-                    echo "channel=$(jq -r '.channel' .master-ci-incident)" >> $GITHUB_OUTPUT
-                    echo "ts=$(jq -r '.ts' .master-ci-incident)" >> $GITHUB_OUTPUT
-                    echo "since=$(jq -r '.since' .master-ci-incident)" >> $GITHUB_OUTPUT
-                    echo "failCount=$(jq -r '.failCount // 1' .master-ci-incident)" >> $GITHUB_OUTPUT
-                    echo "commitCount=$(jq -r '.commitCount // 1' .master-ci-incident)" >> $GITHUB_OUTPUT
-                    echo "commits=$(jq -r '.commits // []' .master-ci-incident)" >> $GITHUB_OUTPUT
-                    echo "Current incident:"
-                    cat .master-ci-incident
+                    echo "channel=$(jq -r '.channel // empty' .master-ci-incident)" >> $GITHUB_OUTPUT
+                    echo "ts=$(jq -r '.ts // empty' .master-ci-incident)" >> $GITHUB_OUTPUT
                   else
                     echo "exists=false" >> $GITHUB_OUTPUT
-                    echo "No active incident"
                   fi
 
-            # Get commit info for better messages
+            - name: Process workflow event
+              id: process
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const script = require('./.github/scripts/master-ci-status.js');
+                      await script({ github, context, core });
+
             - name: Get commit info
               id: commit
-              uses: actions/github-script@v7
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
                       const sha = '${{ github.event.workflow_run.head_sha }}';
@@ -70,19 +66,15 @@ jobs:
                         repo: context.repo.repo,
                         ref: sha
                       });
-                      const shortSha = sha.substring(0, 7);
-                      const message = commit.commit.message.split('\n')[0].substring(0, 50);
-                      const author = commit.author?.login || commit.commit.author.name;
-                      core.setOutput('short_sha', shortSha);
-                      core.setOutput('message', message);
-                      core.setOutput('author', author);
+                      core.setOutput('short_sha', sha.substring(0, 7));
+                      core.setOutput('message', commit.commit.message.split('\n')[0].substring(0, 50));
+                      core.setOutput('author', commit.author?.login || commit.commit.author.name);
                       core.setOutput('url', commit.html_url);
 
-            # ============ ON FAILURE ============
+            # ============ SLACK: CREATE ============
 
-            # New incident - post initial alert
             - name: Post new incident to Slack
-              if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'false'
+              if: steps.process.outputs.action == 'create'
               id: slack_new
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
@@ -91,16 +83,16 @@ jobs:
                   errors: true
                   payload: |
                       channel: "${{ env.SLACK_CHANNEL }}"
-                      text: ":red_circle: Master is red (1 commit, 1 workflow failing)"
+                      text: ":red_circle: Master is red (1 workflow failing)"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":red_circle: *Master is red* (1 commit, 1 workflow failing)"
+                            text: ":red_circle: *Master is red* (1 workflow failing)"
                         - type: "section"
                           fields:
                             - type: "mrkdwn"
-                              text: "*Workflow*\n${{ github.event.workflow_run.name }}"
+                              text: "*Failing*\n${{ github.event.workflow_run.name }}"
                             - type: "mrkdwn"
                               text: "*Author*\n${{ steps.commit.outputs.author }}"
                         - type: "section"
@@ -112,47 +104,23 @@ jobs:
                             - type: "button"
                               text:
                                 type: "plain_text"
-                                text: "View failing run →"
+                                text: "View run"
                               url: "${{ github.event.workflow_run.html_url }}"
 
-            - name: Save new incident state
-              if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'false'
+            - name: Save Slack info to state
+              if: steps.process.outputs.action == 'create'
               run: |
-                  jq -n \
+                  jq \
                     --arg channel "${{ steps.slack_new.outputs.channel_id }}" \
                     --arg ts "${{ steps.slack_new.outputs.ts }}" \
-                    --arg since "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-                    --arg firstFailure "${{ github.event.workflow_run.name }}" \
-                    --arg firstCommit "${{ github.event.workflow_run.head_sha }}" \
-                    --argjson failCount 1 \
-                    --argjson commitCount 1 \
-                    '{channel: $channel, ts: $ts, since: $since, firstFailure: $firstFailure, failCount: $failCount, commitCount: $commitCount, commits: [$firstCommit]}' > .master-ci-incident
-                  cat .master-ci-incident
+                    '. + {channel: $channel, ts: $ts}' \
+                    .master-ci-incident > .master-ci-incident.tmp
+                  mv .master-ci-incident.tmp .master-ci-incident
 
-            # Existing incident - update message count and add thread reply
-            - name: Update incident counts
-              if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'true'
-              id: new_count
-              run: |
-                  # Always increment workflow fail count
-                  fail_count=$(( ${{ steps.incident.outputs.failCount }} + 1 ))
-                  echo "failCount=$fail_count" >> $GITHUB_OUTPUT
+            # ============ SLACK: UPDATE ============
 
-                  # Check if this commit is new
-                  current_sha="${{ github.event.workflow_run.head_sha }}"
-                  if jq -e --arg sha "$current_sha" '.commits | index($sha)' .master-ci-incident > /dev/null 2>&1; then
-                    # Commit already tracked
-                    echo "commitCount=${{ steps.incident.outputs.commitCount }}" >> $GITHUB_OUTPUT
-                    echo "is_new_commit=false" >> $GITHUB_OUTPUT
-                  else
-                    # New commit
-                    commit_count=$(( ${{ steps.incident.outputs.commitCount }} + 1 ))
-                    echo "commitCount=$commit_count" >> $GITHUB_OUTPUT
-                    echo "is_new_commit=true" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Update Slack message with new count
-              if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'true'
+            - name: Update Slack message
+              if: steps.process.outputs.action == 'update'
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.update
@@ -161,32 +129,32 @@ jobs:
                   payload: |
                       channel: "${{ steps.incident.outputs.channel }}"
                       ts: "${{ steps.incident.outputs.ts }}"
-                      text: ":red_circle: Master is red (${{ steps.new_count.outputs.commitCount }} commits, ${{ steps.new_count.outputs.failCount }} workflows failing)"
+                      text: ":red_circle: Master is red (${{ steps.process.outputs.failing_count }} workflow(s) failing)"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":red_circle: *Master is red* (${{ steps.new_count.outputs.commitCount }} commits, ${{ steps.new_count.outputs.failCount }} workflows failing)"
+                            text: ":red_circle: *Master is red* (${{ steps.process.outputs.failing_count }} workflow(s) failing)"
                         - type: "section"
                           fields:
                             - type: "mrkdwn"
-                              text: "*Latest*\n${{ github.event.workflow_run.name }}"
+                              text: "*Failing*\n${{ steps.process.outputs.failing_workflows }}"
                             - type: "mrkdwn"
-                              text: "*Author*\n${{ steps.commit.outputs.author }}"
+                              text: "*Commits*\n${{ steps.process.outputs.commit_count }}"
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: "*Commit*\n<${{ steps.commit.outputs.url }}|${{ steps.commit.outputs.short_sha }}> ${{ steps.commit.outputs.message }}"
+                            text: "*Latest*\n<${{ steps.commit.outputs.url }}|${{ steps.commit.outputs.short_sha }}> ${{ steps.commit.outputs.message }} (${{ steps.commit.outputs.author }})"
                         - type: "actions"
                           elements:
                             - type: "button"
                               text:
                                 type: "plain_text"
-                                text: "View failing run →"
+                                text: "View run"
                               url: "${{ github.event.workflow_run.html_url }}"
 
-            - name: Thread reply with failure details
-              if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'true'
+            - name: Thread reply with failure
+              if: steps.process.outputs.action == 'update'
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.postMessage
@@ -194,84 +162,51 @@ jobs:
                   payload: |
                       channel: "${{ steps.incident.outputs.channel }}"
                       thread_ts: "${{ steps.incident.outputs.ts }}"
-                      text: "Also failing: *${{ github.event.workflow_run.name }}* (${{ steps.commit.outputs.short_sha }})\n<${{ github.event.workflow_run.html_url }}|View run →>"
+                      text: "Also failing: *${{ github.event.workflow_run.name }}* (${{ steps.commit.outputs.short_sha }})\n<${{ github.event.workflow_run.html_url }}|View run>"
 
-            - name: Update incident state with new counts
-              if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'true'
-              run: |
-                  current_sha="${{ github.event.workflow_run.head_sha }}"
-                  jq \
-                    --argjson failCount ${{ steps.new_count.outputs.failCount }} \
-                    --argjson commitCount ${{ steps.new_count.outputs.commitCount }} \
-                    --arg newCommit "$current_sha" \
-                    '.failCount = $failCount | .commitCount = $commitCount | if (.commits | index($newCommit)) then . else .commits += [$newCommit] end' \
-                    .master-ci-incident > .master-ci-incident.tmp
-                  mv .master-ci-incident.tmp .master-ci-incident
-                  cat .master-ci-incident
+            # ============ SLACK: RESOLVE ============
 
-            # ============ ON SUCCESS ============
-
-            - name: Check if all workflows are green
-              if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true'
-              id: check_green
-              uses: actions/github-script@v7
+            - name: Thread reply with recovery
+              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'false'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
-                  script: |
-                      const { data } = await github.rest.checks.listForRef({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        ref: '${{ github.event.workflow_run.head_sha }}'
-                      });
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "${{ steps.incident.outputs.channel }}"
+                      thread_ts: "${{ steps.incident.outputs.ts }}"
+                      text: ":white_check_mark: Resolved: *${{ steps.process.outputs.recovered_workflow }}* (${{ steps.commit.outputs.short_sha }})"
 
-                      const failing = data.check_runs.filter(c =>
-                        c.status === 'completed' &&
-                        c.conclusion !== 'success' &&
-                        c.conclusion !== 'skipped' &&
-                        c.name !== 'check-master-status'
-                      );
-
-                      core.setOutput('all_green', failing.length === 0 ? 'true' : 'false');
-                      core.setOutput('still_failing', failing.map(c => c.name).join(', '));
-                      console.log('Failing checks:', failing.map(c => c.name));
-
-            - name: Calculate incident duration
-              if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'
+            - name: Calculate duration
+              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
               id: duration
               run: |
-                  since="${{ steps.incident.outputs.since }}"
+                  since="${{ steps.process.outputs.since }}"
                   now=$(date +%s)
                   then=$(date -d "$since" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$since" +%s 2>/dev/null || echo "$now")
                   mins=$(( (now - then) / 60 ))
                   echo "mins=$mins" >> $GITHUB_OUTPUT
 
-                  # Pluralization
-                  commit_count="${{ steps.incident.outputs.commitCount }}"
-                  if [ "$commit_count" = "1" ]; then
-                    echo "commit_word=commit" >> $GITHUB_OUTPUT
-                  else
-                    echo "commit_word=commits" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Update Slack message to resolved
-              if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'
+            - name: Update Slack to resolved
+              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
                   errors: true
                   payload: |
-                      channel: "${{ steps.incident.outputs.channel }}"
-                      ts: "${{ steps.incident.outputs.ts }}"
-                      text: ":large_green_circle: Master is green (was red for ~${{ steps.duration.outputs.mins }} min, ${{ steps.incident.outputs.commitCount }} ${{ steps.duration.outputs.commit_word }} affected)"
+                      channel: "${{ steps.process.outputs.channel }}"
+                      ts: "${{ steps.process.outputs.ts }}"
+                      text: "Master recovered :v: (was red for ~${{ steps.duration.outputs.mins }} min)"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":large_green_circle: *Master is green* (was red for ~${{ steps.duration.outputs.mins }} min, ${{ steps.incident.outputs.commitCount }} ${{ steps.duration.outputs.commit_word }} affected)"
+                            text: "*Master recovered* :v: (was red for ~${{ steps.duration.outputs.mins }} min, ${{ steps.process.outputs.commit_count }} commits affected)"
                         - type: "section"
                           fields:
                             - type: "mrkdwn"
-                              text: "*Fixed after*\n${{ github.event.workflow_run.name }} passed"
+                              text: "*Resolved by*\n${{ github.event.workflow_run.name }} passed"
                             - type: "mrkdwn"
                               text: "*Author*\n${{ steps.commit.outputs.author }}"
                         - type: "section"
@@ -280,38 +215,38 @@ jobs:
                             text: "*Commit*\n<${{ steps.commit.outputs.url }}|${{ steps.commit.outputs.short_sha }}> ${{ steps.commit.outputs.message }}"
 
             - name: Thread reply with resolution
-              if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'
+              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
                   payload: |
-                      channel: "${{ steps.incident.outputs.channel }}"
-                      thread_ts: "${{ steps.incident.outputs.ts }}"
+                      channel: "${{ steps.process.outputs.channel }}"
+                      thread_ts: "${{ steps.process.outputs.ts }}"
                       text: ":white_check_mark: Resolved: *${{ github.event.workflow_run.name }}* passed (${{ steps.commit.outputs.short_sha }})"
 
-            - name: Clear incident state
-              if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'
+            - name: Clear state on full resolution
+              if: steps.process.outputs.resolved == 'true'
               run: rm -f .master-ci-incident
 
-            # ============ SAVE CACHE ============
+            # ============ CACHE ============
 
             - name: Delete old cache
-              if: github.event.workflow_run.conclusion == 'failure'
+              if: steps.process.outputs.save_cache == 'true'
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ github.token }}
               run: gh cache delete master-ci-incident || true
 
             - name: Save incident to cache
-              if: github.event.workflow_run.conclusion == 'failure'
-              uses: actions/cache/save@v4
+              if: steps.process.outputs.save_cache == 'true'
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .master-ci-incident
                   key: master-ci-incident
 
-            - name: Delete cache on resolution
-              if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'
+            - name: Delete cache on full resolution
+              if: steps.process.outputs.resolved == 'true'
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ github.token }}

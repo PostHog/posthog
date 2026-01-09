@@ -71,6 +71,7 @@ export enum TileId {
     PAGE_REPORTS_UTM_CAMPAIGN = 'PR_UTM_CAMPAIGN',
     PAGE_REPORTS_UTM_CONTENT = 'PR_UTM_CONTENT',
     PAGE_REPORTS_UTM_TERM = 'PR_UTM_TERM',
+    PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND = 'PR_AVG_TIME_ON_PAGE_TREND',
 
     // Marketing Tiles
     MARKETING = 'MARKETING',
@@ -85,11 +86,16 @@ export enum ProductTab {
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
     MARKETING = 'marketing',
     HEALTH = 'health',
+    LIVE = 'live',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
 
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+
+export const tabSplitIndexMap: Partial<Record<TileId, number>> = {
+    [TileId.SOURCES]: 2, // Show Channel + Referring Domain as buttons, rest in dropdown
+}
 
 export const loadPriorityMap: Record<TileId, number> = {
     [TileId.OVERVIEW]: 1,
@@ -137,6 +143,7 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_UTM_CAMPAIGN]: 19,
     [TileId.PAGE_REPORTS_UTM_CONTENT]: 20,
     [TileId.PAGE_REPORTS_UTM_TERM]: 21,
+    [TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND]: 22,
 
     // Marketing Tiles
     [TileId.MARKETING_OVERVIEW]: 1,
@@ -204,6 +211,7 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.PAGE_REPORTS_UTM_CAMPAIGN]: 'UTM campaign',
     [TileId.PAGE_REPORTS_UTM_CONTENT]: 'UTM content',
     [TileId.PAGE_REPORTS_UTM_TERM]: 'UTM term',
+    [TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND]: 'Avg time on page',
     [TileId.MARKETING]: 'Marketing',
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 'Campaign breakdown',
     [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 'Non-integrated conversions',
@@ -555,9 +563,10 @@ export const parseWebAnalyticsURL = (urlString: string): ParsedURL => {
         const urlWithProtocol = trimmed.match(/^https?:\/\//i) ? trimmed : `https://${trimmed}`
 
         const url = new URL(urlWithProtocol)
+        const port = url.port ? `:${url.port}` : ''
 
         return {
-            host: url.hostname,
+            host: url.hostname + port,
             pathname: url.pathname,
             isValid: true,
         }

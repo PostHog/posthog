@@ -18,6 +18,7 @@ use crate::{
 };
 
 /// Helper struct to hold extracted request metadata
+#[derive(Debug)]
 pub struct RequestMetadata<'a> {
     pub user_agent: &'a str,
     pub content_type: &'a str,

@@ -72,7 +72,7 @@ from posthog.clickhouse.query_log_archive import (
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models import Action, Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -1112,7 +1112,7 @@ class BaseTestMigrations(QueryMatchingTest):
 
     migrate_from: str
     migrate_to: str
-    apps: Optional[any] = None
+    apps: Optional[Any] = None
     assert_snapshots = False
 
     def setUp(self):
@@ -1262,6 +1262,14 @@ def _create_person(*args, **kwargs):
     return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
 
 
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    properties = kwargs.pop("properties", {})
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
+    return action
+
+
 class ClickhouseTestMixin(QueryMatchingTest):
     RUN_MATERIALIZED_COLUMN_TESTS = True
     # overrides the basetest in posthog/test/base.py
@@ -1272,7 +1280,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     @staticmethod
     def generalize_sql(value: str):
-        """Makes sure we can use inline_snapshot() for query SQL snapshots - swaps concrete team_id for placeholder."""
+        """Makes sure we can snapshot our SQL - swaps concrete team_id for placeholder."""
         if "team_id," in value:
             return re.sub(r"team_id, \d+", "team_id, <TEAM_ID>", value)
         return value
