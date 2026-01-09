@@ -1066,7 +1066,6 @@ class TestBatchCommits:
         assert result.total_commits == 0
 
 
->>>>>>> 4afebb5f51 (fix merge conflicts and update tests)
 class TestBackupFunctionality:
     """Test the backup functionality for person property reconciliation."""
 
@@ -2616,7 +2615,7 @@ class TestClickHouseQueryIntegration:
         # Should compare against v2_value (latest version)
         # Event has "event_value", person v2 has "v2_value" - different, so should be in diff
         assert len(results) == 1
-        updates = {u.key: u.value for u in results[0].updates}
+        updates = {key: pv.value for key, pv in results[0].set_updates.items()}
         assert updates["prop"] == "event_value"
 
     # ==================== Same Key Operation Tests ====================
@@ -2919,7 +2918,7 @@ class TestClickHouseQueryIntegration:
         )
 
         assert len(results) == 1
-        updates = {u.key: u.value for u in results[0].updates}
+        updates = {key: pv.value for key, pv in results[0].set_updates.items()}
 
         # valid_prop should be included (changed from "old" to "value")
         assert "valid_prop" in updates
@@ -3047,7 +3046,7 @@ class TestClickHouseQueryIntegration:
         When multiple events have exact same timestamp,
         argMax/argMin should still produce deterministic results.
         """
-        team_id = 99920
+        team_id = 99924
         person_id = UUID("55550000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
@@ -3094,7 +3093,7 @@ class TestClickHouseQueryIntegration:
 
     def test_special_characters_in_property_keys(self, cluster: ClickhouseCluster):
         """Property keys with special characters should work correctly."""
-        team_id = 99921
+        team_id = 99925
         person_id = UUID("66660000-0000-0000-0000-000000000001")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
