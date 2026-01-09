@@ -252,10 +252,11 @@ class ClickHousePrinter(HogQLPrinter):
         For example, instead of:
             ifNull(equals(nullIf(nullIf(events.`mat_$feature_flag`, ''), 'null'), 'some_value'), 0)
         We can emit:
-            equals(events.`mat_$feature_flag`, 'some_value')
+            ifNull(equals(events.`mat_$feature_flag`, 'some_value'), 0)
 
         This is safe because we know 'some_value' is neither empty string nor 'null', so the nullIf
-        checks are redundant for the comparison result.
+        checks are redundant for the comparison result. We keep the outer ifNull to ensure proper
+        boolean semantics when composed with not() or other logical operations.
         """
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             return None

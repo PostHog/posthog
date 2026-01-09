@@ -3221,6 +3221,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
                 query="SELECT distinct_id FROM events WHERE properties.test_prop = 'target_value' ORDER BY distinct_id",
             )
             self.assertEqual(eq_result.results, [("d1",)])
+            assert eq_result.clickhouse is not None
             self._assert_skip_index_used(eq_result.clickhouse, mat_col)
 
             neq_result = execute_hogql_query(
@@ -3228,6 +3229,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
                 query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
             )
             self.assertEqual(neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
+            assert neq_result.clickhouse is not None
             self._assert_skip_index_used(neq_result.clickhouse, mat_col)
 
     @parameterized.expand(
