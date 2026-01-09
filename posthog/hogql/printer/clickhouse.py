@@ -33,6 +33,16 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
+COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
+    "mat_$ai_trace_id",
+    "mat_$ai_session_id",
+    "mat_$ai_is_error",
+    "$ai_trace_id",
+    "$ai_session_id",
+    "$ai_is_error",
+}
+
+
 class ClickHousePrinter(HogQLPrinter):
     def __init__(
         self,
@@ -293,6 +303,10 @@ class ClickHousePrinter(HogQLPrinter):
         if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
+        # These are optimized elsewhere
+        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            return None
+
         # Build the optimized comparison using the raw materialized column
         materialized_column_sql = str(property_source)
         constant_sql = self.visit(constant_expr)
@@ -493,20 +507,7 @@ class ClickHousePrinter(HogQLPrinter):
 
         # :HACK: Prevent ifNull() wrapping for $ai_trace_id, $ai_session_id, and $ai_is_error to allow index usage
         # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
-        if (
-            "mat_$ai_trace_id" in left
-            or "mat_$ai_trace_id" in right
-            or "mat_$ai_session_id" in left
-            or "mat_$ai_session_id" in right
-            or "mat_$ai_is_error" in left
-            or "mat_$ai_is_error" in right
-            or "$ai_trace_id" in left
-            or "$ai_trace_id" in right
-            or "$ai_session_id" in left
-            or "$ai_session_id" in right
-            or "$ai_is_error" in left
-            or "$ai_is_error" in right
-        ):
+        if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
             not_nullable = True
 
         constant_lambda = None
