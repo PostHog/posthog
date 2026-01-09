@@ -1,3 +1,4 @@
+import threading
 from collections.abc import Callable
 from time import perf_counter
 from typing import Optional
@@ -15,6 +16,13 @@ from posthog.tasks.exports.failure_handler import EXCEPTIONS_TO_RETRY, USER_QUER
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
+
+
+class ExportCancelled(Exception):
+    """Raised when an export is cancelled due to timeout."""
+
+    pass
+
 
 EXPORT_SUCCEEDED_COUNTER = Counter(
     "exporter_task_succeeded",
@@ -97,6 +105,7 @@ def export_asset_direct(
     exported_asset: ExportedAsset,
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
+    cancellation_event: Optional[threading.Event] = None,  # For async callers to signal cancellation
 ) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
 
@@ -127,6 +136,15 @@ def export_asset_direct(
         groups=groups(team.organization, team),
     )
 
+    def _check_cancelled() -> None:
+        if cancellation_event and cancellation_event.is_set():
+            logger.info(
+                "export_asset.cancelled",
+                exported_asset_id=exported_asset.id,
+                team_id=team.id,
+            )
+            raise ExportCancelled("Export was cancelled due to timeout")
+
     @retry(
         retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
         stop=stop_after_attempt(4),
@@ -135,6 +153,7 @@ def export_asset_direct(
         reraise=True,
     )
     def _do_export() -> None:
+        _check_cancelled()
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit)
         else:
@@ -142,6 +161,9 @@ def export_asset_direct(
 
     try:
         _do_export()
+
+        # Check if we were cancelled while exporting - if so, don't save success state
+        _check_cancelled()
 
         EXPORT_SUCCEEDED_COUNTER.labels(type=exported_asset.export_format).inc()
         logger.info(

@@ -1,6 +1,7 @@
 import time
 import asyncio
 import datetime
+import threading
 from typing import Union
 
 from django.conf import settings
@@ -195,6 +196,9 @@ async def generate_assets_async(
         if not assets:
             return insights, assets
 
+        # Track cancellation events for each asset so we can signal them on timeout
+        cancellation_events: dict[int, threading.Event] = {}
+
         # Create async tasks for each asset export
         # Retries and failure recording are handled inside export_asset_direct
         async def export_single_asset(asset: ExportedAsset) -> None:
@@ -207,9 +211,12 @@ async def generate_assets_async(
                 team_id=resource.team_id,
             )
 
+            cancellation_event = threading.Event()
+            cancellation_events[asset.id] = cancellation_event
+
             try:
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
-                    asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS
+                    asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS, cancellation_event=cancellation_event
                 )
 
                 logger.info(
@@ -230,6 +237,8 @@ async def generate_assets_async(
                     failure_type=asset.failure_type,
                     error=str(e),
                 )
+            finally:
+                cancellation_events.pop(asset.id, None)
 
         # Reserve buffer time for email/Slack delivery after exports
         buffer_seconds = 120  # 2 minutes
@@ -256,6 +265,10 @@ async def generate_assets_async(
             )
         except TimeoutError:
             get_asset_generation_timeout_metric("temporal").add(1)
+
+            # Signal all running exports to cancel so orphaned threads don't update assets
+            for event in cancellation_events.values():
+                event.set()
 
             # Mark incomplete assets as timed out
             for asset in assets:
