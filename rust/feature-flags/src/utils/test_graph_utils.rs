@@ -603,8 +603,7 @@ mod tests {
             assert_eq!(
                 nodes_with_missing_deps.len(),
                 2,
-                "Expected 2 nodes with missing deps, got: {:?}",
-                nodes_with_missing_deps
+                "Expected 2 nodes with missing deps, got: {nodes_with_missing_deps:?}"
             );
             assert!(nodes_with_missing_deps.contains(&1));
             assert!(nodes_with_missing_deps.contains(&2));
