@@ -462,7 +462,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             },
                             {
                                 "key": "log.file.record_number",
-                                "value": [34542],
+                                "value": ["34542"],
                                 "operator": "is_not",
                                 "type": "log_attribute",
                             },
