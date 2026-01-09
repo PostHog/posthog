@@ -11,6 +11,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
+import { formatRelativeTimeShort } from 'scenes/new-tab/components/Results'
 import { NewTabTreeDataItem, getNewTabProjectTreeLogicProps, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -21,9 +22,12 @@ import { commandLogic } from './commandLogic'
 interface CommandItem {
     id: string
     name: string
+    displayName?: string
     category: string
     href?: string
     icon?: React.ReactNode
+    lastViewedAt?: string | null
+    groupNoun?: string | null
 }
 
 type CategoryFilter =
@@ -48,13 +52,22 @@ const CATEGORY_FILTERS: { value: CategoryFilter; label: string }[] = [
 ]
 
 const mapToCommandItems = (items: NewTabTreeDataItem[]): CommandItem[] => {
-    return items.map((item) => ({
-        id: item.id,
-        name: item.name,
-        category: item.category,
-        href: item.href,
-        icon: item.icon,
-    }))
+    return items.map((item) => {
+        const record = item.record as
+            | { groupNoun?: string; last_viewed_at?: string | null; [key: string]: unknown }
+            | undefined
+
+        return {
+            id: item.id,
+            name: item.name,
+            displayName: typeof item.displayName === 'string' ? item.displayName : undefined,
+            category: item.category,
+            href: item.href,
+            icon: item.icon,
+            lastViewedAt: item.lastViewedAt ?? record?.last_viewed_at ?? null,
+            groupNoun: item.category === 'groups' ? record?.groupNoun || item.name.split(':')[0] : null,
+        }
+    })
 }
 
 export function Command(): JSX.Element {
@@ -328,7 +341,17 @@ export function Command(): JSX.Element {
                                                     className="flex items-center gap-2 px-3 py-2 mx-1 rounded cursor-pointer text-sm text-primary hover:bg-fill-highlight-100 data-[highlighted]:bg-fill-highlight-100 data-[highlighted]:outline-none transition-colors"
                                                 >
                                                     {item.icon && item.icon}
-                                                    <span className="truncate">{item.name}</span>
+                                                    <span className="truncate">{item.displayName || item.name}</span>
+                                                    {item.groupNoun && (
+                                                        <span className="text-xs text-tertiary shrink-0">
+                                                            {item.groupNoun}
+                                                        </span>
+                                                    )}
+                                                    {item.lastViewedAt && (
+                                                        <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0">
+                                                            {formatRelativeTimeShort(item.lastViewedAt)}
+                                                        </span>
+                                                    )}
                                                 </Autocomplete.Item>
                                             )}
                                         </Autocomplete.Collection>
