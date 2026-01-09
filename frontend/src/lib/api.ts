@@ -4465,7 +4465,7 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest()
                 .organizations()
-                .addPathComponent('@current')
+                .current()
                 .addPathComponent('integrations')
                 .get()
         },
