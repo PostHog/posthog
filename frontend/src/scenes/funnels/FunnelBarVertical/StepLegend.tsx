@@ -33,7 +33,7 @@ type StepLegendProps = {
     showTime: boolean
 } & ChartParams
 
-export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
+export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCardView }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { aggregationTargetLabel, funnelsFilter, isStepOptional } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal, isInExperimentContext } = useValues(funnelPersonsModalLogic(insightProps))
@@ -56,6 +56,8 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                     <span className="text-secondary">({formatConvertedPercentage(step)})</span>
                 </>
             )}
+            {/* Spacer used in the card view because the first step has no conversion percentage. */}
+            {isFirstStep && inCardView && <span className="inline-block w-[55px]"></span>}
         </>
     )
     const droppedOffCountPresentationWithPercentage = (
