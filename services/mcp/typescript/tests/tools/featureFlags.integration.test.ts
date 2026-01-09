@@ -284,15 +284,48 @@ describe('Feature Flags', { concurrent: false }, () => {
         })
 
         it('should respect offset parameter', async () => {
+            const createTool = createFeatureFlagTool()
+            
+            // Create test flags to ensure we have controlled data
+            const testFlags = []
+            for (let i = 0; i < 3; i++) {
+                const result = await createTool.handler(context, {
+                    name: `Offset Test Flag ${i}`,
+                    key: generateUniqueKey(`offset-test-${i}`),
+                    description: `Test flag ${i} for offset testing`,
+                    filters: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
+                    active: true,
+                })
+                const flagData = parseToolResponse(result)
+                testFlags.push(flagData)
+                createdResources.featureFlags.push(flagData.id)
+            }
+
+            // Get all flags
             const allResult = await getAllTool.handler(context, { data: { limit: 10 } })
             const allFlags = parseToolResponse(allResult)
+            
+            // Verify we have at least 3 flags
+            expect(allFlags.length).toBeGreaterThanOrEqual(3)
 
-            if (allFlags.length > 1) {
-                const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
-                const offsetFlags = parseToolResponse(offsetResult)
-                // Verify offset is working by checking first result is different from original first result
-                expect(offsetFlags[0].id).not.toBe(allFlags[0].id)
-            }
+            // Get flags with offset=1
+            const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
+            const offsetFlags = parseToolResponse(offsetResult)
+            
+            // Verify offset is working by checking:
+            // 1. We got results
+            expect(offsetFlags.length).toBeGreaterThan(0)
+            // 2. The first result with offset is different from the first result without offset
+            expect(offsetFlags[0].id).not.toBe(allFlags[0].id)
+            // 3. The first result with offset matches the second result without offset
+            expect(offsetFlags[0].id).toBe(allFlags[1].id)
         })
 
         it('should use default limit when not specified', async () => {
