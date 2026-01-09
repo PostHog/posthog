@@ -162,6 +162,16 @@ class HogQLPrinter(Visitor[str]):
 
             next_join = next_join.next_join
 
+        # Add EAV JOINs for event properties with EAV materialization
+        if hasattr(self.context, "eav_joins") and self.context.eav_joins:
+            for alias, join_info in self.context.eav_joins.items():
+                eav_join_sql = self._generate_eav_join_sql(
+                    alias=alias,
+                    property_name=join_info["property_name"],
+                    events_alias=join_info["events_alias"],
+                )
+                joined_tables.append(eav_join_sql)
+
         if node.select:
             columns = self._print_select_columns(node.select)
         else:
@@ -1024,6 +1034,12 @@ class HogQLPrinter(Visitor[str]):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
+        # Check for EAV (Entity-Attribute-Value) materialization
+        eav_alias = getattr(type, "eav_alias", None)
+        eav_column = getattr(type, "eav_column", None)
+        if eav_alias is not None and eav_column is not None:
+            return f"{self._print_identifier(eav_alias)}.{self._print_identifier(eav_column)}"
+
         materialized_property_source = self._get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
             # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
@@ -1287,6 +1303,33 @@ class HogQLPrinter(Visitor[str]):
             return prop_info.get("dmat")
 
         return None
+
+    def _generate_eav_join_sql(self, alias: str, property_name: str, events_alias: str) -> str:
+        """
+        Generate the SQL for an EAV JOIN to the event_properties table.
+
+        Generates:
+        ANY LEFT JOIN event_properties AS {alias}
+            ON {events_alias}.team_id = {alias}.team_id
+            AND toDate({events_alias}.timestamp) = toDate({alias}.timestamp)
+            AND {events_alias}.event = {alias}.event
+            AND cityHash64({events_alias}.distinct_id) = cityHash64({alias}.distinct_id)
+            AND cityHash64({events_alias}.uuid) = cityHash64({alias}.uuid)
+            AND {alias}.key = '{property_name}'
+        """
+        e = self._print_identifier(events_alias)
+        a = self._print_identifier(alias)
+        prop = self._print_escaped_string(property_name)
+
+        return (
+            f"ANY LEFT JOIN event_properties AS {a} ON "
+            f"{e}.team_id = {a}.team_id AND "
+            f"toDate({e}.timestamp) = toDate({a}.timestamp) AND "
+            f"{e}.event = {a}.event AND "
+            f"cityHash64({e}.distinct_id) = cityHash64({a}.distinct_id) AND "
+            f"cityHash64({e}.uuid) = cityHash64({a}.uuid) AND "
+            f"{a}.key = {prop}"
+        )
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:

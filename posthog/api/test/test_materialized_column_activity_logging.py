@@ -61,7 +61,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=5,
             state=MaterializedColumnSlotState.READY,
@@ -94,7 +94,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.BACKFILL,
@@ -140,7 +140,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.BACKFILL,
@@ -187,7 +187,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.ERROR,
@@ -217,7 +217,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         )
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
-            property_definition=prop_def,
+            property_name=prop_def.name,
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.ERROR,

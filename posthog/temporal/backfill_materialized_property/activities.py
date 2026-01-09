@@ -152,7 +152,7 @@ def update_slot_state(inputs: UpdateSlotStateInputs) -> bool:
     Returns True if update succeeded.
     """
     try:
-        slot = MaterializedColumnSlot.objects.select_related("team", "property_definition").get(id=inputs.slot_id)
+        slot = MaterializedColumnSlot.objects.select_related("team").get(id=inputs.slot_id)
         old_state = slot.state
 
         slot.state = inputs.state
@@ -183,7 +183,7 @@ def update_slot_state(inputs: UpdateSlotStateInputs) -> bool:
 
         # Log activity for state transitions to READY or ERROR
         if inputs.state in ["READY", "ERROR"]:
-            property_name = slot.property_definition.name if slot.property_definition else "Unknown"
+            property_name = slot.property_name
 
             activity_name = (
                 "materialized_column_backfill_completed"

@@ -561,6 +561,10 @@ tools:
         bin_script: posthog-hobby
         description: 'TODO: add description for posthog-hobby'
         hidden: true
+    plugin:server:
+        bin_script: plugin-server
+        description: 'TODO: add description for plugin-server'
+        hidden: true
 utilities:
     nuke:
         steps:

@@ -31,6 +31,7 @@ export function CreateSlotModal(): JSX.Element {
         try {
             await api.create(`api/environments/${currentTeam.id}/materialized_column_slots/assign_slot/`, {
                 property_definition_id: selectedPropertyId,
+                materialization_type: 'eav',
             })
             lemonToast.success('Slot assigned successfully')
             setShowCreateModal(false)
