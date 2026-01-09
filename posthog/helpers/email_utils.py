@@ -126,10 +126,6 @@ class ESPSuppressionResult:
     reason: Optional[str] = None
 
 
-def is_email_service_suppression_api_configured() -> bool:
-    return bool(getattr(settings, "CUSTOMER_IO_APP_API_KEY", ""))
-
-
 def _esp_suppression_api_failure_fallback(
     email: str,
     error_type: str,
@@ -201,9 +197,6 @@ def _capture_esp_suppression_analytics(
 
 def check_esp_suppression(email: str) -> ESPSuppressionResult:
     """Check if an email address is on the ESP suppression list."""
-    if not is_email_service_suppression_api_configured():
-        return ESPSuppressionResult(is_suppressed=False, from_cache=False, reason="not_configured")
-
     if not email:
         return ESPSuppressionResult(is_suppressed=False, from_cache=False, reason="empty_email")
 
@@ -285,20 +278,17 @@ class ESPSuppressionAPIError(Exception):
 
 def _fetch_esp_suppression_from_api(email: str) -> ESPSuppressionAPIResponse:
     """Fetches suppression status from Customer.io API."""
-    api_key = getattr(settings, "CUSTOMER_IO_APP_API_KEY", "")
-    api_url = getattr(settings, "CUSTOMER_IO_API_URL", "https://api-eu.customer.io")
-
-    if not api_key:
+    if not settings.CUSTOMER_IO_API_KEY:
         raise ESPSuppressionAPIError("no_api_key")
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {settings.CUSTOMER_IO_API_KEY}",
         "Content-Type": "application/json",
     }
 
     try:
         response = requests.get(
-            f"{api_url}/v1/esp/suppressions",
+            f"{settings.CUSTOMER_IO_API_URL}/v1/esp/suppressions",
             params={"email": email},
             headers=headers,
             timeout=ESP_SUPPRESSION_API_TIMEOUT,

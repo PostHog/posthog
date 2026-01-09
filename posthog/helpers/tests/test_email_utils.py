@@ -88,22 +88,13 @@ class TestEmailValidationHelper(TestCase):
 
 
 class TestESPSuppressionCheck(SimpleTestCase):
-    @override_settings(CUSTOMER_IO_APP_API_KEY="")
-    def test_returns_not_suppressed_when_not_configured(self):
-        result = check_esp_suppression("test@example.com")
-
-        self.assertFalse(result.is_suppressed)
-        self.assertFalse(result.from_cache)
-        self.assertEqual(result.reason, "not_configured")
-
-    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
     def test_returns_not_suppressed_for_empty_email(self):
         result = check_esp_suppression("")
 
         self.assertFalse(result.is_suppressed)
         self.assertEqual(result.reason, "empty_email")
 
-    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
     def test_cache_hit_returns_cached_value_without_api_call(self, mock_cache):
         mock_cache.get.return_value = True
@@ -115,7 +106,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
             self.assertTrue(result.is_suppressed)
             self.assertTrue(result.from_cache)
 
-    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
     @patch("posthog.helpers.email_utils.requests.get")
     def test_cache_miss_triggers_api_call_and_caches_result(self, mock_get, mock_cache):
@@ -133,7 +124,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
         self.assertTrue(result.is_suppressed)
         self.assertFalse(result.from_cache)
 
-    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
     @patch("posthog.helpers.email_utils.requests.get")
     def test_cache_set_with_correct_ttl(self, mock_get, mock_cache):
@@ -156,7 +147,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
             ("404_not_found", None, False, None),
         ]
     )
-    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
     @patch("posthog.helpers.email_utils.requests.get")
     def test_api_failures_use_fallback_to_allow_login(
@@ -178,7 +169,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
         self.assertFalse(result.from_cache)
         self.assertEqual(result.reason, expected_reason)
 
-    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     def test_email_hash_is_case_insensitive_and_anonymized(self):
         key_lower = _get_esp_suppression_cache_key("test@example.com")
         key_upper = _get_esp_suppression_cache_key("TEST@EXAMPLE.COM")
@@ -189,7 +180,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
         self.assertNotEqual(key_lower, key_other)
         self.assertNotIn("@", key_lower)
 
-    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
     @patch("posthog.helpers.email_utils.requests.get")
     def test_api_error_caches_error_state_with_short_ttl(self, mock_get, mock_cache):
@@ -204,7 +195,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
         self.assertEqual(len(error_cache_call), 1)
         self.assertEqual(error_cache_call[0][0][2], ESP_SUPPRESSION_ERROR_CACHE_TTL)
 
-    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
     def test_cached_error_returns_fallback_without_api_call(self, mock_cache):
         # Simulate: normal cache miss, but error cache hit
@@ -237,7 +228,7 @@ class TestESPSuppressionAnalytics(SimpleTestCase):
             ("api_timeout", None, "api_failure_fallback", None, True, None, "timeout"),
         ]
     )
-    @override_settings(CUSTOMER_IO_APP_API_KEY="test-app-api-key")
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.posthoganalytics.capture")
     @patch("posthog.helpers.email_utils.cache")
     @patch("posthog.helpers.email_utils.requests.get")
