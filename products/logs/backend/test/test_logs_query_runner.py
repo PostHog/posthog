@@ -444,6 +444,40 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(queries), 2)
 
     @freeze_time("2025-12-16T10:33:00Z")
+    def test_resource_negative_attribute_filters(self):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 100,
+            "filterGroup": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "k8s.deployment.name",
+                                "value": "argo-rollouts",
+                                "operator": "icontains",
+                                "type": "log_resource_attribute",
+                            },
+                            {
+                                "key": "log.file.record_number",
+                                "value": [34542],
+                                "operator": "is_not",
+                                "type": "log_attribute",
+                            },
+                        ],
+                    }
+                ],
+            },
+        }
+
+        with self.capture_select_queries() as queries:
+            response = self._make_logs_api_request(query_params)
+        self.assertEqual(len(response["results"]), 99)
+        self.assertEqual(len(queries), 2)
+
+    @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_number_filters(self):
         query_params = {
             "dateRange": {"date_from": "-2h", "date_to": "2025-12-16 09:10:36.178572Z"},
