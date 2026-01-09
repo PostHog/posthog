@@ -7,7 +7,7 @@ export default defineConfig({
         globals: true,
         environment: 'node',
         testTimeout: 30000,
-        retry: 1, // Retry failed tests once to handle flaky integration tests
+        retry: process.env.CI ? 1 : 0, // Retry failed tests once in CI to handle flaky integration tests
         setupFiles: ['tests/setup.ts'],
         include: ['tests/**/*.integration.test.ts'],
         exclude: ['node_modules/**', 'dist/**'],
