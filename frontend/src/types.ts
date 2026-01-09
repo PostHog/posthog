@@ -3314,13 +3314,15 @@ export type ProductTourProgressionTriggerType = 'button' | 'click'
 
 export type ProductTourStepType = 'element' | 'modal' | 'survey'
 
-export type ProductTourButtonAction = 'dismiss' | 'link'
+export type ProductTourButtonAction = 'dismiss' | 'link' | 'next_step' | 'previous_step' | 'trigger_tour'
 
 export interface ProductTourStepButton {
     text: string
     action: ProductTourButtonAction
     /** URL to open when action is 'link' */
     link?: string
+    /** Tour ID to trigger when action is 'trigger_tour' */
+    tourId?: string
 }
 
 export interface ProductTourStepButtons {
