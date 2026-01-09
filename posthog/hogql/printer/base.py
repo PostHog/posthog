@@ -1035,10 +1035,13 @@ class HogQLPrinter(Visitor[str]):
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
         # Check for EAV (Entity-Attribute-Value) materialization
-        eav_alias = getattr(type, "eav_alias", None)
-        eav_column = getattr(type, "eav_column", None)
-        if eav_alias is not None and eav_column is not None:
-            return f"{self._print_identifier(eav_alias)}.{self._print_identifier(eav_column)}"
+        # EAV info is stored in context.eav_joins by add_eav_joins()
+        if hasattr(self.context, "eav_joins") and self.context.eav_joins and len(type.chain) >= 1:
+            property_name = str(type.chain[0])
+            eav_alias = f"eav_{property_name}"
+            if eav_alias in self.context.eav_joins:
+                eav_column = self.context.eav_joins[eav_alias]["value_column"]
+                return f"{self._print_identifier(eav_alias)}.{self._print_identifier(eav_column)}"
 
         materialized_property_source = self._get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
