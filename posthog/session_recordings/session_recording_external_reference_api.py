@@ -83,7 +83,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         return self._get_external_context(reference).get("id", "")
 
     def get_metadata(self, reference: SessionRecordingExternalReference) -> dict[str, str]:
-        """Get provider-specific metadata (e.g., repository for GitHub, project for Linear)"""
+        """Get provider-specific metadata (e.g. repository for GitHub)"""
         external_context = self._get_external_context(reference)
 
         if reference.integration.kind == Integration.IntegrationKind.GITHUB:
