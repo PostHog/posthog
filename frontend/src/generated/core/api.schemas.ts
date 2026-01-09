@@ -2883,27 +2883,16 @@ export const PropertyType549EnumApi = {
 } as const
 
 /**
- * * `1` - event
- * `2` - person
- * `3` - group
- * `4` - session
+ * Serializer mixin that resolves appropriate response for tags depending on license.
  */
-export type PropertyDefinitionTypeEnumApi =
-    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyDefinitionTypeEnumApi = {
-    NUMBER_1: 1,
-    NUMBER_2: 2,
-    NUMBER_3: 3,
-    NUMBER_4: 4,
-} as const
-
 export interface PropertyDefinitionApi {
     readonly id: string
-    readonly name: string
-    readonly property_type: PropertyType549EnumApi | NullEnumApi
-    readonly type: PropertyDefinitionTypeEnumApi
+    /** @maxLength 400 */
+    name: string
+    is_numerical?: boolean
+    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi
+    tags?: unknown[]
+    readonly is_seen_on_filtered_events: string
 }
 
 export interface PaginatedPropertyDefinitionListApi {
