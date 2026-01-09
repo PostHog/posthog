@@ -469,7 +469,23 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 DatabricksIntegration(integration)
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
+        if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
 
+            if not posthoganalytics.feature_enabled(
+                "azure-blob-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Azure Blob Storage batch exports are not enabled for this team.")
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
             config = destination_attrs["config"]
             view = self.context.get("view")
