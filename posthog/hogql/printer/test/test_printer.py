@@ -3129,6 +3129,33 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
                 {"hogql_val_0": "some_value"},
             )
 
+    def _assert_skip_index_used(self, clickhouse_sql: str, mat_col) -> None:
+        """Assert that the materialized column's skip index is used in the query."""
+        from ee.clickhouse.materialized_columns.columns import get_minmax_index_name
+
+        index_name = get_minmax_index_name(mat_col.name)
+
+        [[raw_explain_result]] = sync_execute(f"EXPLAIN indexes = 1, json = 1 {clickhouse_sql}")
+
+        def find_node(node, condition):
+            if condition(node):
+                return node
+            for child in node.get("Plans", []):
+                if result := find_node(child, condition):
+                    return result
+            return None
+
+        read_from_merge_tree = find_node(
+            json.loads(raw_explain_result)[0]["Plan"],
+            condition=lambda node: node["Node Type"] == "ReadFromMergeTree",
+        )
+        indexes = (
+            {idx["Name"] for idx in read_from_merge_tree.get("Indexes", []) if idx["Type"] == "Skip"}
+            if read_from_merge_tree
+            else set()
+        )
+        self.assertIn(index_name, indexes, f"Expected skip index {index_name} to be used")
+
     def test_materialized_column_not_optimized_for_empty_string(self) -> None:
         with materialized("events", "test_prop") as mat_col:
             self._test_materialized_column_comparison(
@@ -3158,7 +3185,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
             )
 
     def test_materialized_column_optimization_returns_correct_results(self) -> None:
-        with materialized("events", "test_prop"):
+        with materialized("events", "test_prop", create_minmax_index=True) as mat_col:
             _create_event(
                 team=self.team,
                 distinct_id="d1",
@@ -3201,12 +3228,14 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
                 query="SELECT distinct_id FROM events WHERE properties.test_prop = 'target_value' ORDER BY distinct_id",
             )
             self.assertEqual(eq_result.results, [("d1",)])
+            self._assert_skip_index_used(eq_result.clickhouse, mat_col)
 
             neq_result = execute_hogql_query(
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
             )
             self.assertEqual(neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
+            self._assert_skip_index_used(neq_result.clickhouse, mat_col)
 
     @parameterized.expand(
         [
