@@ -44,7 +44,7 @@ export interface LogRowProps {
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     onTogglePin: (log: ParsedLogMessage) => void
     onToggleExpand: () => void
-    onSetCursor?: () => void
+    onClick?: () => void
     rowWidth?: number
     attributeColumns?: string[]
     attributeColumnWidths?: Record<string, number>
@@ -70,7 +70,7 @@ export function LogRow({
     tzLabelFormat,
     onTogglePin,
     onToggleExpand,
-    onSetCursor,
+    onClick,
     rowWidth,
     attributeColumns = [],
     attributeColumnWidths = {},
@@ -91,11 +91,21 @@ export function LogRow({
     const severityColor = SEVERITY_BAR_COLORS[log.severity_text] ?? 'bg-muted-3000'
 
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
+        // Only handle shift+click here to prevent text selection during range select
         if (e.shiftKey && onShiftClick) {
             e.preventDefault()
             onShiftClick(logIndex)
-        } else {
-            onSetCursor?.()
+        }
+    }
+
+    const handleClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+        // Don't trigger if user selected text
+        const selection = window.getSelection()
+        if (selection && selection.toString().length > 0) {
+            return
+        }
+        if (!e.shiftKey) {
+            onClick?.()
         }
     }
 
@@ -113,6 +123,7 @@ export function LogRow({
                     pinned && showPinnedWithOpacity && 'bg-warning-highlight opacity-50'
                 )}
                 onMouseDown={handleMouseDown}
+                onClick={handleClick}
             >
                 <div className="flex items-center self-stretch">
                     <Tooltip title={log.severity_text.toUpperCase()}>
@@ -144,6 +155,7 @@ export function LogRow({
                                 e.stopPropagation()
                                 onToggleExpand()
                             }}
+                            onClick={(e) => e.stopPropagation()}
                         />
                     </div>
                 </div>
