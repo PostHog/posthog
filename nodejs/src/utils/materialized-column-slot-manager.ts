@@ -52,16 +52,8 @@ export class MaterializedColumnSlotManager {
     }
 
     private async fetchSlots(teamIds: string[]): Promise<Record<string, MaterializedColumnSlot[] | null>> {
-        const numericTeamIds = teamIds.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id) && id > 0)
-
-        if (numericTeamIds.length === 0) {
-            // Return nulls for all requested IDs
-            const result: Record<string, MaterializedColumnSlot[] | null> = {}
-            for (const id of teamIds) {
-                result[id] = null
-            }
-            return result
-        }
+        // teamIds are stringified numbers from our own code, so Number() is safe
+        const numericTeamIds = teamIds.map(Number)
 
         const queryResult = await this.postgres.query<{
             team_id: number
