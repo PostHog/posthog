@@ -302,20 +302,50 @@ class TestSpecificDomainEnrichment(BaseTest):
     @pytest.mark.asyncio
     @freeze_time("2025-07-29T12:00:00Z")
     async def test_specific_domain_enrichment_success(self):
-        """Test enriching a specific domain returns Harmonic data."""
+        """Test enriching a specific domain returns Harmonic data and updates Salesforce."""
         harmonic_response = load_harmonic_fixture()
+
+        # Mock Salesforce accounts
+        mock_accounts = [
+            {"Id": "001EXAMPLE1", "Name": "Test Company 1", "Domain__c": "example.com"},
+            {"Id": "001EXAMPLE2", "Name": "Test Company 2", "Domain__c": "example.com"},
+        ]
 
         with mock_harmonic_client() as mock_client:
             mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
 
-            result = await enrich_accounts_chunked_async(specific_domain="example.com")
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ):
+                with patch(
+                    "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
+                ) as mock_bulk_update:
+                    result = await enrich_accounts_chunked_async(specific_domain="example.com")
 
-            assert result["records_processed"] == 1
-            assert result["records_enriched"] == 1
-            assert result["enriched_data"] is not None
-            assert result["enriched_data"]["company_info"]["name"] == "Example Corp"
-            assert result["raw_harmonic_response"] == harmonic_response
-            mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+                    # Check summary
+                    assert result["summary"]["harmonic_data_found"] is True
+                    assert result["summary"]["salesforce_update_succeeded"] is True
+                    assert result["summary"]["salesforce_accounts_count"] == 2
+                    assert result["summary"]["accounts_updated"] == 2
+
+                    # Check counts
+                    assert result["records_processed"] == 2
+                    assert result["records_enriched"] == 1
+                    assert result["records_updated"] == 2
+
+                    # Check data
+                    assert result["enriched_data"] is not None
+                    assert result["enriched_data"]["company_info"]["name"] == "Example Corp"
+                    assert result["raw_harmonic_response"] == harmonic_response
+
+                    # Verify Harmonic called once
+                    mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+
+                    # Verify Salesforce bulk update called with 2 accounts
+                    mock_bulk_update.assert_called_once()
+                    update_records = mock_bulk_update.call_args[0][1]
+                    assert len(update_records) == 2
 
     @pytest.mark.asyncio
     @freeze_time("2025-07-29T12:00:00Z")
@@ -323,14 +353,23 @@ class TestSpecificDomainEnrichment(BaseTest):
         """Test enriching a specific domain from a full URL."""
         harmonic_response = load_harmonic_fixture()
 
+        mock_accounts = [
+            {"Id": "001EXAMPLE1", "Name": "Test Company 1", "Domain__c": "example.com"},
+        ]
+
         with mock_harmonic_client() as mock_client:
             mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
 
-            result = await enrich_accounts_chunked_async(specific_domain="https://www.example.com/path")
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ):
+                with patch("ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"):
+                    result = await enrich_accounts_chunked_async(specific_domain="https://www.example.com/path")
 
-            assert result["records_enriched"] == 1
-            assert result["enriched_data"] is not None
-            mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+                    assert result["records_enriched"] == 1
+                    assert result["enriched_data"] is not None
+                    mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
 
     @pytest.mark.asyncio
     async def test_specific_domain_enrichment_excluded_domain(self):
@@ -339,33 +378,122 @@ class TestSpecificDomainEnrichment(BaseTest):
 
         assert result["records_processed"] == 1
         assert result["records_enriched"] == 0
-        assert result["enriched_data"] is None
+        assert result["summary"]["harmonic_data_found"] is False
+        assert result["summary"]["salesforce_update_succeeded"] is False
         assert "excluded" in result["error"]
 
     @pytest.mark.asyncio
     @freeze_time("2025-07-29T12:00:00Z")
     async def test_specific_domain_enrichment_no_harmonic_data(self):
         """Test handling when Harmonic returns no data for domain."""
+        mock_accounts = [
+            {"Id": "001EXAMPLE1", "Name": "Test Company 1", "Domain__c": "unknown-domain.xyz"},
+        ]
+
         with mock_harmonic_client() as mock_client:
             mock_client.enrich_companies_batch = AsyncMock(return_value=[None])
 
-            result = await enrich_accounts_chunked_async(specific_domain="unknown-domain.xyz")
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ):
+                result = await enrich_accounts_chunked_async(specific_domain="unknown-domain.xyz")
 
-            assert result["records_processed"] == 1
-            assert result["records_enriched"] == 0
-            assert result["enriched_data"] is None
-            assert "No Harmonic data found" in result["error"]
+                assert result["records_processed"] == 1
+                assert result["records_enriched"] == 0
+                assert result["summary"]["harmonic_data_found"] is False
+                assert result["summary"]["salesforce_update_succeeded"] is False
+                assert "No Harmonic data found" in result["error"]
 
     @pytest.mark.asyncio
     @freeze_time("2025-07-29T12:00:00Z")
-    async def test_specific_domain_does_not_call_salesforce(self):
-        """Test that specific_domain skips Salesforce entirely."""
+    async def test_specific_domain_no_salesforce_accounts(self):
+        """Test handling when no Salesforce accounts match the domain."""
+        with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain", return_value=[]):
+            result = await enrich_accounts_chunked_async(specific_domain="nonexistent-domain.com")
+
+            assert result["records_processed"] == 1
+            assert result["records_enriched"] == 0
+            assert result["summary"]["harmonic_data_found"] is False
+            assert result["summary"]["salesforce_update_succeeded"] is False
+            assert result["summary"]["salesforce_accounts_count"] == 0
+            assert "No Salesforce accounts found" in result["error"]
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_calls_salesforce_and_updates(self):
+        """Test that specific_domain queries Salesforce and updates matching accounts."""
         harmonic_response = load_harmonic_fixture()
+        mock_accounts = [
+            {"Id": "001EXAMPLE1", "Name": "Test Company 1", "Domain__c": "example.com"},
+        ]
 
         with mock_harmonic_client() as mock_client:
             mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
 
-            with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_sf_client:
-                await enrich_accounts_chunked_async(specific_domain="example.com")
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ) as mock_get_accounts:
+                with patch(
+                    "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
+                ) as mock_bulk_update:
+                    result = await enrich_accounts_chunked_async(specific_domain="example.com")
 
-                mock_sf_client.assert_not_called()
+                    # Verify Salesforce was queried
+                    mock_get_accounts.assert_called_once_with("example.com")
+
+                    # Verify Salesforce was updated
+                    mock_bulk_update.assert_called_once()
+
+                    # Verify result
+                    assert result["summary"]["salesforce_update_succeeded"] is True
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_multiple_accounts_all_updated(self):
+        """Test that when multiple Salesforce accounts match a domain, all are updated."""
+        harmonic_response = load_harmonic_fixture()
+
+        # Multiple accounts with same domain (duplicate scenario)
+        mock_accounts = [
+            {"Id": "001ACCOUNT1", "Name": "Company A", "Domain__c": "example.com"},
+            {"Id": "001ACCOUNT2", "Name": "Company B", "Domain__c": "example.com"},
+            {"Id": "001ACCOUNT3", "Name": "Company C", "Domain__c": "example.com"},
+        ]
+
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ):
+                with patch(
+                    "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
+                ) as mock_bulk_update:
+                    result = await enrich_accounts_chunked_async(specific_domain="example.com")
+
+                    # Check summary shows all accounts
+                    assert result["summary"]["harmonic_data_found"] is True
+                    assert result["summary"]["salesforce_update_succeeded"] is True
+                    assert result["summary"]["salesforce_accounts_count"] == 3
+                    assert result["summary"]["accounts_updated"] == 3
+                    assert len(result["summary"]["salesforce_accounts"]) == 3
+
+                    # Check counts reflect all accounts processed
+                    assert result["records_processed"] == 3
+                    assert result["records_enriched"] == 1  # Harmonic called once
+                    assert result["records_updated"] == 3  # All 3 accounts updated
+
+                    # Verify Harmonic called only once (efficient)
+                    mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+
+                    # Verify all 3 accounts passed to bulk update
+                    mock_bulk_update.assert_called_once()
+                    update_records = mock_bulk_update.call_args[0][1]
+                    assert len(update_records) == 3
+
+                    # Verify each account ID is in the update batch
+                    updated_ids = {record["Id"] for record in update_records}
+                    assert updated_ids == {"001ACCOUNT1", "001ACCOUNT2", "001ACCOUNT3"}
