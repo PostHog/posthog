@@ -1252,7 +1252,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'session_replay',
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
         sceneKey: 'Replay',
-        sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback'],
+        sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback', 'ReplayKiosk'],
     },
     {
         path: 'Surveys',
