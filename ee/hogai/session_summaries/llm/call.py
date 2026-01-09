@@ -146,6 +146,7 @@ async def call_llm(
             user=user_param,
             posthog_trace_id=trace_id,
             posthog_distinct_id=user_distinct_id,
+            posthog_properties={"ai_product": "signals"},
         )
     elif model in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
         result = await client.responses.create(  # type: ignore[call-overload]
@@ -155,6 +156,7 @@ async def call_llm(
             user=user_param,
             posthog_trace_id=trace_id,
             posthog_distinct_id=user_distinct_id,
+            posthog_properties={"ai_product": "signals"},
         )
     else:
         msg = (
