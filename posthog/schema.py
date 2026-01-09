@@ -1987,6 +1987,7 @@ class IntegrationKind(StrEnum):
     DATABRICKS = "databricks"
     TIKTOK_ADS = "tiktok-ads"
     BING_ADS = "bing-ads"
+    VERCEL = "vercel"
 
 
 class IntervalType(StrEnum):
