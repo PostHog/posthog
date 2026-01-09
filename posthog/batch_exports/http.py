@@ -383,6 +383,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "hogql_query",
             "schema",
             "filters",
+            "timezone",
+            "interval_offset",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
@@ -395,7 +397,66 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if model is not None and model != "events":
                 raise serializers.ValidationError("HTTP batch exports only support the events model")
 
+        # If interval is being changed to a non-daily/weekly value, ensure interval_offset is reset to 0
+        interval = attrs.get("interval")
+        if interval is not None and interval not in ("day", "week"):
+            # If interval_offset is not in attrs, it means it's not being updated, so we need to check the instance
+            if "interval_offset" not in attrs and self.instance:
+                existing_offset = self.instance.interval_offset
+                if existing_offset != 0:
+                    attrs["interval_offset"] = 0
+            # If interval_offset is in attrs, validate_interval_offset will handle setting it to 0
+
         return attrs
+
+    def validate_interval_offset(self, interval_offset: int) -> int:
+        """Validate interval_offset based on the interval.
+
+        Rules:
+        1. Minimum interval offset is 0
+        2. We only support hourly offsets at the moment
+        3. If daily, the max interval offset is 23 hours
+        4. If weekly, the max interval offset is 6 days + 23 hours = 167 hours
+        5. If not daily or weekly, the interval offset should be ignored (ensure it is set to 0)
+        """
+        # Get interval from incoming data or existing instance
+        interval = self.initial_data.get("interval")
+        if interval is None and self.instance:
+            interval = self.instance.interval
+
+        # 1. minimum interval offset is 0
+        if interval_offset < 0:
+            raise serializers.ValidationError("interval_offset must be 0 or greater")
+
+        # 2. we only support hourly offsets at the moment
+        if interval_offset % 3600 != 0:
+            raise serializers.ValidationError(
+                "interval_offset must be a multiple of 3600 seconds (hourly offsets only)"
+            )
+
+        # 3. if daily, the max interval offset is 23 hours
+        if interval == "day":
+            max_daily_offset = 23 * 3600
+            if interval_offset > max_daily_offset:
+                raise serializers.ValidationError(
+                    f"interval_offset for daily interval must be at most {max_daily_offset} seconds (23 hours)"
+                )
+
+        # 4. if weekly, the max interval offset is 6 days + 23 hours = 167 hours
+        elif interval == "week":
+            max_weekly_offset = (6 * 24 + 23) * 3600
+            if interval_offset > max_weekly_offset:
+                raise serializers.ValidationError(
+                    f"interval_offset for weekly interval must be at most {max_weekly_offset} "
+                    f"seconds (6 days + 23 hours)"
+                )
+
+        # 5. if not daily or weekly, the interval offset should be ignored (set it to 0)
+        elif interval not in ("day", "week"):
+            if interval_offset > 0:
+                raise serializers.ValidationError("interval_offset must be 0 for non-daily/weekly intervals")
+
+        return interval_offset
 
     def validate_filters(self, filters):
         if filters is None:
