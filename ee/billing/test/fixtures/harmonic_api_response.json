@@ -2834,6 +2834,11 @@
                 "dateAdded": "2024-01-15T00:00:00Z"
             },
             {
+                "type": "MARKET_VERTICAL",
+                "displayValue": "Business Intelligence",
+                "dateAdded": "2024-01-20T00:00:00Z"
+            },
+            {
                 "type": "CATEGORY",
                 "displayValue": "B2B",
                 "dateAdded": "2024-01-15T00:00:00Z"
