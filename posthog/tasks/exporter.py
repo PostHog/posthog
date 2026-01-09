@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from time import perf_counter
 from typing import Optional
 
@@ -33,16 +34,18 @@ EXPORT_TIMER = Histogram(
 )
 
 
-def _log_export_retry(retry_state: RetryCallState) -> None:
-    exported_asset = retry_state.args[0] if retry_state.args else None
-    logger.info(
-        "export_asset.retrying",
-        asset_id=exported_asset.id if exported_asset else None,
-        insight_id=exported_asset.insight_id if exported_asset else None,
-        team=exported_asset.team_id if exported_asset else None,
-        attempt=retry_state.attempt_number,
-        error=str(retry_state.outcome.exception()) if retry_state.outcome else None,
-    )
+def _make_retry_logger(exported_asset: ExportedAsset) -> Callable[[RetryCallState], None]:
+    def _log_retry(retry_state: RetryCallState) -> None:
+        logger.info(
+            "export_asset.retrying",
+            exported_asset_id=exported_asset.id,
+            insight_id=exported_asset.insight_id,
+            team_id=exported_asset.team_id,
+            attempt=retry_state.attempt_number,
+            error=str(retry_state.outcome.exception()) if retry_state.outcome else None,
+        )
+
+    return _log_retry
 
 
 def _record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
@@ -128,7 +131,7 @@ def export_asset_direct(
         retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
         stop=stop_after_attempt(4),
         wait=wait_exponential(multiplier=2, max=10),
-        before_sleep=_log_export_retry,
+        before_sleep=_make_retry_logger(exported_asset),
         reraise=True,
     )
     def _do_export() -> None:

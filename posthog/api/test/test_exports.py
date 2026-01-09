@@ -950,21 +950,19 @@ class TestExportAssetCounters(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (error, is_final_attempt, failure_type, expected_success, expected_failure, expects_exception)
-            (None, None, FAILURE_TYPE_USER, 1.0, 0.0, False),
-            (QueryError("Invalid query"), None, FAILURE_TYPE_USER, 0.0, 1.0, False),
-            # Non-final attempts (still being retried) should not increment either success / failure counters
-            (CHQueryErrorTooManySimultaneousQueries("err"), False, FAILURE_TYPE_SYSTEM, 0.0, 0.0, True),
-            (CHQueryErrorTooManySimultaneousQueries("err"), True, FAILURE_TYPE_SYSTEM, 0.0, 1.0, True),
+            # (error, failure_type, expected_success, expected_failure, expects_exception)
+            # Success case
+            (None, FAILURE_TYPE_USER, 1.0, 0.0, False),
+            # User error: recorded but not raised
+            (QueryError("Invalid query"), FAILURE_TYPE_USER, 0.0, 1.0, False),
+            # System error: retried by tenacity, then recorded and raised
+            (CHQueryErrorTooManySimultaneousQueries("err"), FAILURE_TYPE_SYSTEM, 0.0, 1.0, True),
         ],
-        name_func=lambda func,
-        num,
-        params: f"{func.__name__}_{['success', 'non_retryable', 'retryable_non_final', 'retryable_final'][int(num)]}",
+        name_func=lambda func, num, params: f"{func.__name__}_{['success', 'user_error', 'system_error'][int(num)]}",
     )
     def test_export_counter_behavior(
         self,
         error: Exception | None,
-        is_final_attempt: bool | None,
         failure_type: str,
         expected_success: float,
         expected_failure: float,
@@ -972,18 +970,12 @@ class TestExportAssetCounters(APIBaseTest):
     ) -> None:
         from contextlib import nullcontext
 
-        final_attempt_patch = (
-            patch("posthog.tasks.exporter._is_final_export_attempt", return_value=is_final_attempt)
-            if is_final_attempt is not None
-            else nullcontext()
-        )
         exception_context = pytest.raises(type(error)) if expects_exception and error else nullcontext()
 
         with (
             patch("posthog.tasks.exports.image_exporter.export_image", side_effect=error),
             patch.object(exporter, "EXPORT_SUCCEEDED_COUNTER", self.success_counter),
             patch.object(exporter, "EXPORT_FAILED_COUNTER", self.failed_counter),
-            final_attempt_patch,
             exception_context,
         ):
             exporter.export_asset(self.asset.id)
