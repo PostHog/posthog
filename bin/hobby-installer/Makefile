@@ -1,7 +1,7 @@
 .PHONY: build build-linux build-darwin clean test run deps demo
 
 # Binary name
-BINARY_NAME=posthog-hobby
+BINARY_NAME=hobby-installer
 OUTPUT_DIR=..
 
 # Go parameters

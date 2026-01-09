@@ -75,7 +75,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
             isOpen={isOpen}
             onClose={closeLogDetails}
             simple
-            overlayClassName="backdrop-blur-none flex items-stretch justify-end pr-16 py-4 pointer-events-none h-screen"
+            overlayClassName="backdrop-blur-none bg-transparent flex items-stretch justify-end pr-16 py-4 pointer-events-none h-screen"
             className="m-0! max-w-3xl w-[50vw] pointer-events-auto min-h-full"
         >
             <div className="flex flex-col h-full">
