@@ -72,7 +72,7 @@ async def azure_container(container_name: str, blob_prefix: str):
 
 
 @pytest_asyncio.fixture
-async def azure_integration(ateam) -> Integration:
+async def azure_integration(ateam):
     """Azure Blob integration with real Azure credentials."""
     connection_string = os.environ["AZURE_STORAGE_CONNECTION_STRING"]
     integration = await sync_to_async(Integration.objects.create)(

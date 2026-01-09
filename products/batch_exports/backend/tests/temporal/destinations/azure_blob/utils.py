@@ -120,7 +120,7 @@ async def read_manifest(container: ContainerClient, prefix: str) -> dict | None:
 
 def extract_model_configuration(
     batch_export_model: BatchExportModel | BatchExportSchema | None,
-) -> tuple[str, list[dict] | None, list[dict] | None, dict | None]:
+):
     """Extract (model_name, fields, filters, extra_query_parameters) from model config."""
     if batch_export_model is None:
         return "events", None, None, None

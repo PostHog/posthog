@@ -135,7 +135,7 @@ def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
         data_interval_end=inputs.data_interval_end,
         batch_export_model=inputs.batch_export_model,
         file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
-        compression_extension=COMPRESSION_EXTENSIONS.get(inputs.compression),
+        compression_extension=COMPRESSION_EXTENSIONS[inputs.compression] if inputs.compression is not None else None,
         file_number=file_number,
         include_file_number=bool(inputs.max_file_size_mb),
     )
@@ -698,7 +698,7 @@ class ConcurrentS3Consumer(Consumer):
             data_interval_end=self.data_interval_end,
             batch_export_model=self.batch_export_model,
             file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
-            compression_extension=COMPRESSION_EXTENSIONS.get(self.compression),
+            compression_extension=COMPRESSION_EXTENSIONS[self.compression] if self.compression is not None else None,
             file_number=self.current_file_index,
             include_file_number=bool(self.max_file_size_mb),
         )

@@ -89,6 +89,7 @@ async def test_workflow_sets_failed_retryable_on_transient_error(
 
     run = runs[0]
     assert run.status == "FailedRetryable"
+    assert run.latest_error is not None
     assert "RetryableTestException: Transient network error" in run.latest_error
 
 
@@ -149,6 +150,7 @@ async def test_workflow_sets_failed_on_container_not_found(
 
     run = runs[0]
     assert run.status == "Failed"
+    assert run.latest_error is not None
     assert "ResourceNotFoundError" in run.latest_error
 
 
@@ -209,6 +211,7 @@ async def test_workflow_sets_failed_on_invalid_credentials(
 
     run = runs[0]
     assert run.status == "Failed"
+    assert run.latest_error is not None
     assert "ClientAuthenticationError" in run.latest_error
 
 

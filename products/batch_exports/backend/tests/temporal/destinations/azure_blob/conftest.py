@@ -72,7 +72,7 @@ async def azurite_container(container_name: str):
 
 
 @pytest_asyncio.fixture
-async def azure_integration(ateam) -> Integration:
+async def azure_integration(ateam):
     """Azure Blob integration with Azurite credentials."""
     integration = await sync_to_async(Integration.objects.create)(
         team=ateam,

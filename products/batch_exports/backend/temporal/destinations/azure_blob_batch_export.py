@@ -73,8 +73,11 @@ class UnsupportedCompressionError(Exception):
 
 
 class AzureBlobIntegrationNotFoundError(Exception):
-    def __init__(self, integration_id: int, team_id: int):
-        super().__init__(f"Azure Blob integration with id '{integration_id}' not found for team '{team_id}'")
+    def __init__(self, integration_id: int | None, team_id: int):
+        if integration_id is None:
+            super().__init__(f"Azure Blob integration ID not provided for team '{team_id}'")
+        else:
+            super().__init__(f"Azure Blob integration with ID '{integration_id}' not found for team '{team_id}'")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -185,7 +188,7 @@ class AzureBlobConsumer(Consumer):
             data_interval_end=self.data_interval_end,
             batch_export_model=self.batch_export_model,
             file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
-            compression_extension=COMPRESSION_EXTENSIONS.get(self.compression),
+            compression_extension=COMPRESSION_EXTENSIONS[self.compression] if self.compression is not None else None,
             file_number=self.current_file_index,
             include_file_number=bool(self.max_file_size_mb),
         )
@@ -245,7 +248,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
         data_interval_end=inputs.data_interval_end,
         batch_export_model=inputs.batch_export_model,
         file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
-        compression_extension=COMPRESSION_EXTENSIONS.get(inputs.compression),
+        compression_extension=COMPRESSION_EXTENSIONS[inputs.compression] if inputs.compression is not None else None,
         include_file_number=bool(inputs.max_file_size_mb),
     )
 
@@ -347,6 +350,9 @@ class AzureBlobBatchExportWorkflow(PostHogWorkflow):
             )
         except OverBillingLimitError:
             return
+
+        if inputs.integration_id is None:
+            raise AzureBlobIntegrationNotFoundError(inputs.integration_id, inputs.team_id)
 
         insert_inputs = AzureBlobInsertInputs(
             container_name=inputs.container_name,
