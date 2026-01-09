@@ -1,13 +1,12 @@
+import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 
 import { Chart } from 'lib/Chart'
-import { getSeriesColor } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { urls } from 'scenes/urls'
 
-import { NOISE_CLUSTER_ID } from './constants'
-import { Cluster, TraceSummary } from './types'
+import { clusterDetailLogic } from './clusterDetailLogic'
 
 interface ScatterPoint {
     x: number
@@ -16,65 +15,8 @@ interface ScatterPoint {
     timestamp?: string
 }
 
-interface ScatterDataset {
-    label: string
-    data: ScatterPoint[]
-    backgroundColor: string
-    borderColor: string
-    borderWidth: number
-    pointRadius: number
-    pointHoverRadius: number
-    pointStyle?: 'circle' | 'crossRot'
-}
-
-interface ClusterDetailScatterPlotProps {
-    cluster: Cluster
-    traceSummaries: Record<string, TraceSummary>
-}
-
-const OUTLIER_COLOR = '#888888'
-
-export function ClusterDetailScatterPlot({ cluster, traceSummaries }: ClusterDetailScatterPlotProps): JSX.Element {
-    const isOutlier = cluster.cluster_id === NOISE_CLUSTER_ID
-    const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
-
-    const datasets = useMemo(() => {
-        const tracePoints = Object.entries(cluster.traces).map(([traceId, traceInfo]) => ({
-            x: traceInfo.x,
-            y: traceInfo.y,
-            traceId,
-            timestamp: traceInfo.timestamp,
-        }))
-
-        const result: ScatterDataset[] = [
-            {
-                label: cluster.title,
-                data: tracePoints,
-                backgroundColor: `${color}80`,
-                borderColor: color,
-                borderWidth: 1,
-                pointRadius: 5,
-                pointHoverRadius: 7,
-                pointStyle: isOutlier ? 'crossRot' : 'circle',
-            },
-        ]
-
-        // Add centroid marker for non-outlier clusters
-        if (!isOutlier) {
-            result.push({
-                label: 'Centroid',
-                data: [{ x: cluster.centroid_x, y: cluster.centroid_y }],
-                backgroundColor: `${color}40`,
-                borderColor: color,
-                borderWidth: 2,
-                pointRadius: 10,
-                pointHoverRadius: 12,
-                pointStyle: 'circle',
-            })
-        }
-
-        return result
-    }, [cluster, color, isOutlier])
+export function ClusterDetailScatterPlot(): JSX.Element {
+    const { cluster, traceSummaries, scatterPlotDatasets } = useValues(clusterDetailLogic)
 
     const handleClick = (
         _event: MouseEvent,
@@ -104,13 +46,13 @@ export function ClusterDetailScatterPlot({ cluster, traceSummaries }: ClusterDet
 
     const { canvasRef, chartRef } = useChart<'scatter'>({
         getConfig: () => {
-            if (datasets.length === 0) {
+            if (!cluster || scatterPlotDatasets.length === 0) {
                 return null
             }
 
             return {
                 type: 'scatter',
-                data: { datasets },
+                data: { datasets: scatterPlotDatasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
@@ -199,7 +141,7 @@ export function ClusterDetailScatterPlot({ cluster, traceSummaries }: ClusterDet
                 },
             }
         },
-        deps: [datasets, traceSummaries],
+        deps: [scatterPlotDatasets, traceSummaries, cluster],
     })
 
     // Reset zoom on double-click

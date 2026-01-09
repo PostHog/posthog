@@ -35,7 +35,6 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
         totalPages,
         currentPage,
         paginatedTracesWithSummaries,
-        traceSummaries,
         traceSummariesLoading,
         windowStart,
         windowEnd,
@@ -106,7 +105,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                 <p className="text-muted text-xs mb-3">
                     Each point represents a trace. Click to view details. Drag to zoom, double-click to reset.
                 </p>
-                <ClusterDetailScatterPlot cluster={cluster} traceSummaries={traceSummaries} />
+                <ClusterDetailScatterPlot />
             </div>
 
             {/* Pagination controls at top */}

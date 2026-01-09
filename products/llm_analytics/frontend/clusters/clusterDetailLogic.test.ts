@@ -174,6 +174,49 @@ describe('clusterDetailLogic', () => {
             })
         })
 
+        describe('scatterPlotDatasets', () => {
+            it('returns empty array when no cluster', () => {
+                expect(logic.values.scatterPlotDatasets).toEqual([])
+            })
+
+            it('returns datasets with trace points and centroid for regular cluster', async () => {
+                logic.actions.loadClusterDataSuccess({
+                    cluster: mockCluster,
+                    runTimestamp: '2025-01-05T00:00:00Z',
+                    windowStart: '2025-01-01T00:00:00Z',
+                    windowEnd: '2025-01-05T00:00:00Z',
+                })
+
+                const datasets = logic.values.scatterPlotDatasets
+                expect(datasets).toHaveLength(2) // trace points + centroid
+
+                // First dataset is trace points
+                expect(datasets[0].label).toBe('Test Cluster')
+                expect(datasets[0].data).toHaveLength(3)
+                expect(datasets[0].pointStyle).toBe('circle')
+
+                // Second dataset is centroid
+                expect(datasets[1].label).toBe('Centroid')
+                expect(datasets[1].data).toHaveLength(1)
+                expect(datasets[1].data[0].x).toBe(mockCluster.centroid_x)
+                expect(datasets[1].data[0].y).toBe(mockCluster.centroid_y)
+            })
+
+            it('returns datasets without centroid for outlier cluster', async () => {
+                logic.actions.loadClusterDataSuccess({
+                    cluster: mockOutlierCluster,
+                    runTimestamp: '2025-01-05T00:00:00Z',
+                    windowStart: '2025-01-01T00:00:00Z',
+                    windowEnd: '2025-01-05T00:00:00Z',
+                })
+
+                const datasets = logic.values.scatterPlotDatasets
+                expect(datasets).toHaveLength(1) // only trace points, no centroid
+
+                expect(datasets[0].pointStyle).toBe('crossRot')
+            })
+        })
+
         describe('sortedTraceIds', () => {
             it('returns empty array when no cluster', () => {
                 expect(logic.values.sortedTraceIds).toEqual([])

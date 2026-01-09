@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
@@ -24,6 +25,19 @@ export interface TraceWithSummary {
     traceInfo: ClusterTraceInfo
     summary?: TraceSummary
 }
+
+export interface ScatterDataset {
+    label: string
+    data: Array<{ x: number; y: number; traceId?: string; timestamp?: string }>
+    backgroundColor: string
+    borderColor: string
+    borderWidth: number
+    pointRadius: number
+    pointHoverRadius: number
+    pointStyle?: 'circle' | 'crossRot'
+}
+
+const OUTLIER_COLOR = '#888888'
 
 export const clusterDetailLogic = kea<clusterDetailLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clusterDetailLogic']),
@@ -145,6 +159,53 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         isOutlierCluster: [
             (s) => [s.cluster],
             (cluster: Cluster | null): boolean => cluster?.cluster_id === NOISE_CLUSTER_ID,
+        ],
+
+        scatterPlotDatasets: [
+            (s) => [s.cluster, s.isOutlierCluster],
+            (cluster: Cluster | null, isOutlier: boolean): ScatterDataset[] => {
+                if (!cluster) {
+                    return []
+                }
+
+                const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
+
+                const tracePoints = Object.entries(cluster.traces).map(([traceId, traceInfo]) => ({
+                    x: traceInfo.x,
+                    y: traceInfo.y,
+                    traceId,
+                    timestamp: traceInfo.timestamp,
+                }))
+
+                const result: ScatterDataset[] = [
+                    {
+                        label: cluster.title,
+                        data: tracePoints,
+                        backgroundColor: `${color}80`,
+                        borderColor: color,
+                        borderWidth: 1,
+                        pointRadius: 5,
+                        pointHoverRadius: 7,
+                        pointStyle: isOutlier ? 'crossRot' : 'circle',
+                    },
+                ]
+
+                // Add centroid marker for non-outlier clusters
+                if (!isOutlier) {
+                    result.push({
+                        label: 'Centroid',
+                        data: [{ x: cluster.centroid_x, y: cluster.centroid_y }],
+                        backgroundColor: `${color}40`,
+                        borderColor: color,
+                        borderWidth: 2,
+                        pointRadius: 10,
+                        pointHoverRadius: 12,
+                        pointStyle: 'circle',
+                    })
+                }
+
+                return result
+            },
         ],
 
         sortedTraceIds: [
