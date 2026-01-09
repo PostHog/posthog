@@ -635,14 +635,14 @@ def get_team_ids_to_reconcile(
     """
 
     context.log.info(
-        f"Querying for team_ids with property events between {config.bug_window_start} and {bug_window_end}"
+        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}"
     )
 
     results = sync_execute(
         query,
         {
             "bug_window_start": config.bug_window_start,
-            "bug_window_end": bug_window_end,
+            "bug_window_end": config.bug_window_end,
         },
     )
 
