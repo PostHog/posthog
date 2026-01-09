@@ -116,6 +116,7 @@ async def stream_llm(
         stream=True,
         posthog_trace_id=trace_id,
         posthog_distinct_id=user_distinct_id,
+        posthog_properties={"ai_product": "signals"},
     )
     return stream
 
