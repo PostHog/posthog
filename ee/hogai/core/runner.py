@@ -46,6 +46,7 @@ from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 from ee.hogai.utils.helpers import extract_stream_update, find_last_message_of_type
 from ee.hogai.utils.state import validate_state_update
 from ee.hogai.utils.types.base import (
+    ApprovalPayload,
     AssistantDispatcherEvent,
     AssistantOutput,
     AssistantResultUnion,
@@ -355,26 +356,34 @@ class BaseAgentRunner(ABC):
                         interrupt_message: Any
                         if isinstance(interrupt.value, str):
                             interrupt_message = AssistantMessage(content=interrupt.value, id=str(uuid4()))
+                            interrupt_messages.append(interrupt_message)
+                            yield AssistantEventType.MESSAGE, interrupt_message
                         elif isinstance(interrupt.value, dict):
                             # Check if this is an ApprovalRequest from interrupt() in a tool
                             if interrupt.value.get("status") == PENDING_APPROVAL_STATUS:
                                 has_approval_interrupt = True
-                                # Create an AssistantToolCallMessage for the approval card
-                                tool_name = interrupt.value.get("tool_name", "unknown")
-                                interrupt_message = AssistantToolCallMessage(
-                                    content="",
-                                    ui_payload={tool_name: interrupt.value},
-                                    id=str(uuid4()),
-                                    tool_call_id=interrupt.value.get("proposal_id", str(uuid4())),
+                                # Stream approval event directly
+                                message_id = str(uuid4())
+                                approval_payload = ApprovalPayload(
+                                    proposal_id=interrupt.value["proposal_id"],
+                                    decision_status="pending",
+                                    tool_name=interrupt.value["tool_name"],
+                                    preview=interrupt.value["preview"],
+                                    payload=interrupt.value["payload"],
+                                    original_tool_call_id=interrupt.value.get("original_tool_call_id"),
+                                    message_id=message_id,
                                 )
-                                # Store approval card data for persistence
-                                await self._store_approval_card_data(interrupt_message.model_dump())
+                                yield AssistantEventType.APPROVAL, approval_payload
+                                # Store approval card metadata for persistence (page reload)
+                                await self._store_approval_card_data(approval_payload)
                             else:
                                 interrupt_message = interrupt.value
+                                interrupt_messages.append(interrupt_message)
+                                yield AssistantEventType.MESSAGE, interrupt_message
                         else:
                             interrupt_message = interrupt.value
-                        interrupt_messages.append(interrupt_message)
-                        yield AssistantEventType.MESSAGE, interrupt_message
+                            interrupt_messages.append(interrupt_message)
+                            yield AssistantEventType.MESSAGE, interrupt_message
 
                 # TRICKY: For approval interrupts, we intentionally do NOT call aupdate_state().
                 if has_approval_interrupt:
@@ -448,10 +457,20 @@ class BaseAgentRunner(ABC):
                         return Command(resume=self._resume_payload, update={"messages": [self._latest_message]})
                     return Command(resume=self._resume_payload)
                 elif saved_state.graph_status == "interrupted":
-                    # NodeInterrupt without approval flow
+                    # NodeInterrupt without approval flow - add the new message and resume
+                    if self._latest_message:
+                        await self._graph.aupdate_state(
+                            config,
+                            self.get_resumed_state(),
+                        )
                     return None
+                elif self._latest_message:
+                    # Pending nodes but user sent a new message without resume_payload.
+                    # This could be cancelled execution or user abandoning an approval interrupt.
+                    # Start fresh with the new message.
+                    pass  # Fall through to return initial state
                 else:
-                    # Pending nodes but no resume_payload and not marked as interrupted.
+                    # Pending nodes but no resume_payload, not interrupted, and no new message.
                     # This means an approval interrupt is waiting for user input.
                     # Return None to resume from checkpoint
                     return None
@@ -546,9 +565,9 @@ class BaseAgentRunner(ABC):
             },
         )
 
-    async def _store_approval_card_data(self, message_data: dict) -> None:
+    async def _store_approval_card_data(self, approval: ApprovalPayload) -> None:
         """
-        Store approval card metadata in conversation.approval_decisions=
+        Store approval card metadata in conversation.approval_decisions.
 
         TRICKY: when we call aupdate_state(), LangGraph creates a NEW checkpoint. This new checkpoint
         does NOT preserve the pending nodes from snapshot.next, which breaks the resume flow:
@@ -556,44 +575,25 @@ class BaseAgentRunner(ABC):
         - If empty (because aupdate_state cleared it), we start a new graph execution
         - This causes the tool to call interrupt() again with a new proposal_id
         Solution: Store approval card metadata in a side-channel (conversation.approval_decisions)
-        and have the ConversationSerializer reconstruct the messages when loading the conversation.
-        """
-        ui_payload = message_data.get("ui_payload", {})
-        tool_call_id = message_data.get("tool_call_id")
-        message_id = message_data.get("id")
+        and have the ConversationSerializer reconstruct the data when loading the conversation.
 
-        if not ui_payload:
+        NOTE: We intentionally do NOT store 'payload' here. The payload is stored in the LangGraph
+        checkpoint's interrupt value (single source of truth). The serializer fetches it from there.
+        """
+        # Only store if not already in approval_decisions (don't overwrite resolved status)
+        if approval.proposal_id in self._conversation.approval_decisions:
             return
 
-        for tool_name, tool_payload in ui_payload.items():
-            if not isinstance(tool_payload, dict):
-                continue
-            proposal_id = tool_payload.get("proposal_id")
-            preview = tool_payload.get("preview")
-            # Store the original payload for reconstruction (required by frontend)
-            original_payload = tool_payload.get("payload", {})
-            # Store original_tool_call_id for proper card positioning on reload
-            original_tool_call_id = tool_payload.get("original_tool_call_id")
-
-            if not proposal_id or not preview:
-                continue
-
-            # Only store if not already in approval_decisions (don't overwrite resolved status)
-            if proposal_id in self._conversation.approval_decisions:
-                continue
-
-            # Store with "pending" decision_status - updated to approved/rejected when user responds
-
-            self._conversation.approval_decisions[proposal_id] = {
-                "decision_status": "pending",
-                "tool_name": tool_name,
-                "preview": preview,
-                "payload": original_payload,  # For reconstruction
-                "tool_call_id": tool_call_id,
-                "message_id": message_id,
-                "original_tool_call_id": original_tool_call_id,  # For matching to specific AssistantMessage
-            }
-            await self._conversation.asave(update_fields=["approval_decisions"])
+        # Store with "pending" decision_status - updated to approved/rejected when user responds
+        # Payload is NOT stored here - it lives in the checkpoint interrupt (single source of truth)
+        self._conversation.approval_decisions[approval.proposal_id] = {
+            "decision_status": "pending",
+            "tool_name": approval.tool_name,
+            "preview": approval.preview,
+            "message_id": approval.message_id,
+            "original_tool_call_id": approval.original_tool_call_id,
+        }
+        await self._conversation.asave(update_fields=["approval_decisions"])
 
     async def _update_approval_decision_status(self, resume_payload: dict[str, Any]) -> None:
         """

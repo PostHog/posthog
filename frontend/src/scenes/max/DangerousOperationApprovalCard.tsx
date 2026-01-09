@@ -1,39 +1,46 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ApprovalCardUIStatus, DangerousOperationResponse } from '~/queries/schema/schema-assistant-messages'
 
-import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 
 interface DangerousOperationApprovalCardProps {
     operation: DangerousOperationResponse
-    conversationId: string
     onResolved?: (approved: boolean) => void
 }
 
 export function DangerousOperationApprovalCard({
     operation,
-    conversationId,
     onResolved,
 }: DangerousOperationApprovalCardProps): JSX.Element {
-    const [localStatus, setLocalStatus] = useState<ApprovalCardUIStatus>('pending')
+    // Local state tracks user-initiated loading states (approving, rejecting)
+    const [localStatus, setLocalStatus] = useState<'pending' | 'approving' | 'rejecting'>('pending')
 
-    const { tabId } = useValues(maxLogic)
-    const { effectiveApprovalStatuses } = useValues(maxThreadLogic({ conversationId, tabId }))
-    const { continueAfterApproval, continueAfterRejection } = useActions(maxThreadLogic({ conversationId, tabId }))
+    // Use maxThreadLogic without explicit key to connect to the already-mounted instance
+    // This ensures we receive the same state updates as the parent Thread component
+    const { effectiveApprovalStatuses } = useValues(maxThreadLogic)
+    const { continueAfterApproval, continueAfterRejection } = useActions(maxThreadLogic)
 
     const resolvedStatus = effectiveApprovalStatuses[operation.proposalId]
-    useEffect(() => {
-        if (resolvedStatus) {
-            // Clears loading states
-            setLocalStatus(resolvedStatus)
+
+    const displayStatus: ApprovalCardUIStatus = (() => {
+        if (localStatus === 'approving' || localStatus === 'rejecting') {
+            // Check if the operation completed while we were loading
+            if (resolvedStatus === 'approved' || resolvedStatus === 'rejected' || resolvedStatus === 'auto_rejected') {
+                return resolvedStatus
+            }
+            return localStatus
         }
-    }, [resolvedStatus])
+        if (resolvedStatus && resolvedStatus !== 'pending') {
+            return resolvedStatus
+        }
+        return 'pending'
+    })()
 
     const handleApprove = (): void => {
         setLocalStatus('approving')
@@ -64,7 +71,7 @@ export function DangerousOperationApprovalCard({
             </div>
 
             <div className="px-4 py-3 bg-bg-light border-t flex items-center justify-between">
-                {localStatus === 'pending' && (
+                {displayStatus === 'pending' && (
                     <>
                         <span className="text-xs text-muted">Review the changes above before approving</span>
                         <div className="flex gap-2">
@@ -84,7 +91,7 @@ export function DangerousOperationApprovalCard({
                     </>
                 )}
 
-                {localStatus === 'approving' && (
+                {displayStatus === 'approving' && (
                     <div className="flex items-center gap-2 text-muted ml-auto">
                         <LemonButton size="small" type="primary" loading>
                             Applying...
@@ -92,14 +99,14 @@ export function DangerousOperationApprovalCard({
                     </div>
                 )}
 
-                {localStatus === 'approved' && (
+                {displayStatus === 'approved' && (
                     <div className="flex items-center gap-2 text-success ml-auto">
                         <IconCheck className="size-4" />
                         <span className="text-sm font-medium">Changes applied</span>
                     </div>
                 )}
 
-                {localStatus === 'rejecting' && (
+                {displayStatus === 'rejecting' && (
                     <div className="flex items-center gap-2 text-muted ml-auto">
                         <LemonButton size="small" type="secondary" loading>
                             Rejecting...
@@ -107,14 +114,14 @@ export function DangerousOperationApprovalCard({
                     </div>
                 )}
 
-                {localStatus === 'rejected' && (
+                {displayStatus === 'rejected' && (
                     <div className="flex items-center gap-2 text-muted ml-auto">
                         <IconX className="size-4" />
                         <span className="text-sm">Rejected</span>
                     </div>
                 )}
 
-                {localStatus === 'auto_rejected' && (
+                {displayStatus === 'auto_rejected' && (
                     <div className="flex items-center gap-2 text-muted ml-auto">
                         <IconX className="size-4" />
                         <span className="text-sm">Rejected (with feedback)</span>

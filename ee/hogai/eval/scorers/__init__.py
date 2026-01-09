@@ -23,7 +23,6 @@ __all__ = [
     "InsightEvaluationAccuracy",
     "DashboardCreationAccuracy",
     "SemanticSimilarity",
-    "DangerousOperationAccuracy",
 ]
 
 
@@ -515,15 +514,3 @@ class ExactMatch(ScorerWithPartial):
         if output == expected:
             return Score(name=self._name(), score=1.0, metadata={"output": output, "expected": expected})
         return Score(name=self._name(), score=0.0, metadata={"output": output, "expected": expected})
-
-
-class DangerousOperationAccuracy(ScorerWithPartial):
-    """Scorer for dangerous operation detection accuracy."""
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs):
-        if expected is None or output is None:
-            return Score(name=self._name(), score=0.0)
-
-        if expected.get("is_dangerous") == output.get("is_dangerous"):
-            return Score(name=self._name(), score=1.0)
-        return Score(name=self._name(), score=0.0)

@@ -47,7 +47,7 @@ export function UIPayloadAnswer({
             return null
         }
         const normalizedOperation = normalizeDangerousOperationResponse(toolPayload)
-        return <DangerousOperationApprovalCard operation={normalizedOperation} conversationId={conversationId} />
+        return <DangerousOperationApprovalCard operation={normalizedOperation} />
     }
 
     // It's not expected to hit the null branch below, because such a case SHOULD have already been filtered out

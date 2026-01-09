@@ -5,8 +5,6 @@ from asgiref.sync import async_to_sync
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
-from posthog.schema import AssistantToolCallMessage
-
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 
@@ -51,16 +49,16 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
 class ConversationSerializer(ConversationMinimalSerializer):
     class Meta:
         model = Conversation
-        fields = [*_conversation_fields, "messages", "has_unsupported_content", "agent_mode", "approval_decisions"]
+        fields = [*_conversation_fields, "messages", "has_unsupported_content", "agent_mode", "pending_approvals"]
         read_only_fields = fields
 
     messages = serializers.SerializerMethodField()
     has_unsupported_content = serializers.SerializerMethodField()
     agent_mode = serializers.SerializerMethodField()
-    approval_decisions = serializers.JSONField(read_only=True)
+    pending_approvals = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
-        state, _ = self._get_cached_state(conversation)
+        state, _, _ = self._get_cached_state(conversation)
         if state is None:
             return []
 
@@ -68,118 +66,60 @@ class ConversationSerializer(ConversationMinimalSerializer):
         user = self.context["user"]
         artifact_manager = ArtifactManager(team, user)
         enriched_messages = async_to_sync(artifact_manager.aenrich_messages)(list(state.messages))
-        messages = [message.model_dump() for message in enriched_messages if should_output_assistant_message(message)]
-
-        # Reconstruct approval card messages from approval_decisions
-        messages = self._inject_approval_cards(messages, conversation.approval_decisions)
-
-        return messages
+        return [message.model_dump() for message in enriched_messages if should_output_assistant_message(message)]
 
     def get_has_unsupported_content(self, conversation: Conversation) -> bool:
-        _, has_unsupported_content = self._get_cached_state(conversation)
+        _, has_unsupported_content, _ = self._get_cached_state(conversation)
         return has_unsupported_content
 
     def get_agent_mode(self, conversation: Conversation) -> str | None:
-        state, _ = self._get_cached_state(conversation)
+        state, _, _ = self._get_cached_state(conversation)
         if state:
             return state.agent_mode_or_default
         return None
 
-    def _inject_approval_cards(
-        self, messages: list[dict[str, Any]], approval_decisions: dict[str, Any]
-    ) -> list[dict[str, Any]]:
+    def get_pending_approvals(self, conversation: Conversation) -> list[dict[str, Any]]:
         """
-        Reconstruct and inject approval card messages from approval_decisions.
+        Return pending approval cards as structured data.
 
-        Since these cannot be stored in LangGraph state (it would break the interrupt
-        checkpoint), we store their metadata in conversation.approval_decisions and reconstruct
-        them here when loading the conversation.
+        Combines metadata from conversation.approval_decisions with payload from checkpoint
+        interrupts (single source of truth for payload data).
         """
-        if not approval_decisions:
-            return messages
+        _, _, interrupt_payloads = self._get_cached_state(conversation)
 
-        # Build a map of tool_name -> approval card data for cards we need to inject
-        cards_to_inject: list[dict[str, Any]] = []
-        for proposal_id, decision_data in approval_decisions.items():
+        result: list[dict[str, Any]] = []
+        for proposal_id, decision_data in conversation.approval_decisions.items():
             if not isinstance(decision_data, dict):
                 continue
 
             tool_name = decision_data.get("tool_name")
             preview = decision_data.get("preview")
-            message_id = decision_data.get("message_id")
-            payload = decision_data.get("payload", {})
-            original_tool_call_id = decision_data.get("original_tool_call_id")
-
-            if not tool_name or not preview:
+            decision_status = decision_data.get("decision_status")
+            if not tool_name or not preview or not decision_status:
                 continue
 
-            # Create the approval card message with format expected by FE
-            card_message = AssistantToolCallMessage(
-                content="",
-                ui_payload={
-                    tool_name: {
-                        "status": PENDING_APPROVAL_STATUS,
-                        "tool_name": tool_name,
-                        "preview": preview,
-                        "proposal_id": proposal_id,
-                        "payload": payload,
-                    }
-                },
-                id=message_id,
-                tool_call_id=proposal_id,
-            )
-            cards_to_inject.append(
+            # Get payload from checkpoint interrupts (single source of truth)
+            payload = interrupt_payloads.get(proposal_id, {}).get("payload", {})
+
+            result.append(
                 {
-                    "card": card_message.model_dump(),
+                    "proposal_id": proposal_id,
+                    "decision_status": decision_status,
                     "tool_name": tool_name,
-                    "message_id": message_id,
-                    "original_tool_call_id": original_tool_call_id,
+                    "preview": preview,
+                    "payload": payload,
+                    "original_tool_call_id": decision_data.get("original_tool_call_id"),
+                    "message_id": decision_data.get("message_id"),
                 }
             )
 
-        if not cards_to_inject:
-            return messages
-
-        result: list[dict[str, Any]] = []
-        injected_ids: set[str] = set()
-
-        for msg in messages:
-            result.append(msg)
-
-            # Check if this is an AssistantMessage with tool_calls
-            if msg.get("type") == "ai" and msg.get("tool_calls"):
-                tool_calls = msg.get("tool_calls", [])
-                tool_call_ids_in_msg = {tc.get("id") for tc in tool_calls if tc.get("id")}
-                # tool_names_in_msg = {tc.get("name") for tc in tool_calls if tc.get("name")}
-
-                # Inject any approval cards that match tool_calls in this message
-                for card_info in cards_to_inject:
-                    card_id = card_info["message_id"]
-                    if card_id and card_id in injected_ids:
-                        continue
-
-                    original_tool_call_id = card_info.get("original_tool_call_id")
-                    if original_tool_call_id and original_tool_call_id in tool_call_ids_in_msg:
-                        result.append(card_info["card"])
-                        if card_id:
-                            injected_ids.add(card_id)
-                    # elif not original_tool_call_id and card_info["tool_name"] in tool_names_in_msg:
-                    #     # Legacy fallback: match by tool_name only if no original_tool_call_id
-                    #     result.append(card_info["card"])
-                    #     if card_id:
-                    #         injected_ids.add(card_id)
-
-        # If any cards weren't injected (e.g., no matching tool call found), append at end
-        for card_info in cards_to_inject:
-            card_id = card_info["message_id"]
-            if card_id and card_id not in injected_ids:
-                result.append(card_info["card"])
-
         return result
 
-    def _get_cached_state(self, conversation: Conversation) -> tuple[AssistantMaxGraphState | None, bool]:
+    def _get_cached_state(
+        self, conversation: Conversation
+    ) -> tuple[AssistantMaxGraphState | None, bool, dict[str, dict[str, Any]]]:
         if not hasattr(self, "_state_cache"):
-            self._state_cache: dict[str, tuple[AssistantMaxGraphState | None, bool]] = {}
+            self._state_cache: dict[str, tuple[AssistantMaxGraphState | None, bool, dict[str, dict[str, Any]]]] = {}
 
         cache_key = str(conversation.id)
         if cache_key not in self._state_cache:
@@ -187,8 +127,15 @@ class ConversationSerializer(ConversationMinimalSerializer):
 
         return self._state_cache[cache_key]
 
-    async def _aget_state(self, conversation: Conversation) -> tuple[AssistantMaxGraphState | None, bool]:
-        """Async implementation of state fetching with validation error detection."""
+    async def _aget_state(
+        self, conversation: Conversation
+    ) -> tuple[AssistantMaxGraphState | None, bool, dict[str, dict[str, Any]]]:
+        """Async implementation of state fetching with validation error detection.
+
+        Returns:
+            Tuple of (state, has_unsupported_content, interrupt_payloads).
+            interrupt_payloads is a dict mapping proposal_id to the interrupt value (including payload).
+        """
         try:
             team = self.context["team"]
             user = self.context["user"]
@@ -198,7 +145,18 @@ class ConversationSerializer(ConversationMinimalSerializer):
                 {"configurable": {"thread_id": str(conversation.id), "checkpoint_ns": ""}}
             )
             state = state_class.model_validate(snapshot.values)
-            return state, False
+
+            # Extract interrupt payloads from pending tasks
+            # This is the single source of truth for payload data
+            interrupt_payloads: dict[str, dict[str, Any]] = {}
+            for task in snapshot.tasks:
+                for interrupt in task.interrupts:
+                    if isinstance(interrupt.value, dict) and interrupt.value.get("status") == PENDING_APPROVAL_STATUS:
+                        proposal_id = interrupt.value.get("proposal_id")
+                        if proposal_id:
+                            interrupt_payloads[proposal_id] = interrupt.value
+
+            return state, False, interrupt_payloads
         except pydantic.ValidationError as e:
             capture_exception(
                 e,
@@ -208,7 +166,7 @@ class ConversationSerializer(ConversationMinimalSerializer):
                     "conversation_id": str(conversation.id),
                 },
             )
-            return None, True
+            return None, True, {}
         except Exception as e:
             # Broad exception handler to gracefully degrade UI instead of 500s
             # Captures all errors (context access, graph compilation, validation, etc.) to PostHog
@@ -220,4 +178,4 @@ class ConversationSerializer(ConversationMinimalSerializer):
                     "conversation_id": str(conversation.id),
                 },
             )
-            return None, False
+            return None, False, {}

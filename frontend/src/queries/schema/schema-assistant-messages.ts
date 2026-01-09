@@ -320,6 +320,7 @@ export enum AssistantEventType {
     Conversation = 'conversation',
     Notebook = 'notebook',
     Update = 'update',
+    Approval = 'approval',
 }
 
 export interface AssistantUpdateEvent {

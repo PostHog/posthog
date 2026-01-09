@@ -6057,17 +6057,17 @@ export interface DeepResearchNotebook extends _NotebookBase {
 
 export type NotebookInfo = DeepResearchNotebook
 
-export interface ConversationApprovalDecision {
-    decision_status: 'pending' | 'approved' | 'rejected' | 'auto_rejected'
+export type ApprovalDecisionStatus = 'pending' | 'approved' | 'rejected' | 'auto_rejected'
+
+export interface PendingApproval {
+    proposal_id: string
+    decision_status: ApprovalDecisionStatus
     tool_name: string
     preview: string
     payload: Record<string, unknown>
-    tool_call_id?: string
-    message_id?: string
     original_tool_call_id?: string
+    message_id?: string
 }
-
-export type ConversationApprovalDecisions = Record<string, ConversationApprovalDecision>
 
 export interface Conversation {
     id: string
@@ -6082,7 +6082,7 @@ export interface Conversation {
     slack_thread_key?: string | null
     slack_workspace_domain?: string | null
     is_internal?: boolean
-    approval_decisions?: ConversationApprovalDecisions
+    pending_approvals?: PendingApproval[]
 }
 
 export interface ConversationDetail extends Conversation {

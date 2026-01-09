@@ -3,12 +3,24 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from braintrust import EvalCase
+from autoevals.partial import ScorerWithPartial
+from braintrust import EvalCase, Score
 
 from ee.hogai.eval.base import MaxPublicEval
-from ee.hogai.eval.scorers import DangerousOperationAccuracy
 from ee.hogai.tools.upsert_dashboard import UpsertDashboardTool
 from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardAction
+
+
+class DangerousOperationAccuracy(ScorerWithPartial):
+    """Scorer for dangerous operation detection accuracy."""
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs):
+        if expected is None or output is None:
+            return Score(name=self._name(), score=0.0)
+
+        if expected.get("is_dangerous") == output.get("is_dangerous"):
+            return Score(name=self._name(), score=1.0)
+        return Score(name=self._name(), score=0.0)
 
 
 @pytest.mark.django_db
