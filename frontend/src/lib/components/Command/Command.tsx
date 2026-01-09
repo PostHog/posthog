@@ -9,11 +9,14 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { formatRelativeTimeShort } from 'scenes/new-tab/components/Results'
 import { NewTabTreeDataItem, getNewTabProjectTreeLogicProps, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 
+import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
@@ -28,6 +31,65 @@ interface CommandItem {
     icon?: React.ReactNode
     lastViewedAt?: string | null
     groupNoun?: string | null
+    itemType?: string | null
+    record?: Record<string, unknown>
+}
+
+const getItemTypeDisplayName = (type: string | null | undefined): string | null => {
+    if (!type) {
+        return null
+    }
+    const typeDisplayNames: Record<string, string> = {
+        // Dashboards & Insights
+        dashboard: 'Dashboard',
+        'insight/funnels': 'Funnel',
+        'insight/trends': 'Trend',
+        'insight/retention': 'Retention',
+        'insight/paths': 'Paths',
+        'insight/lifecycle': 'Lifecycle',
+        'insight/stickiness': 'Stickiness',
+        'insight/hog': 'SQL insight',
+
+        // Analytics products
+        product_analytics: 'Product analytics',
+        web_analytics: 'Web analytics',
+        llm_analytics: 'LLM analytics',
+        revenue_analytics: 'Revenue analytics',
+        marketing_analytics: 'Marketing analytics',
+        session_replay: 'Session replay',
+        error_tracking: 'Error tracking',
+        feature_flag: 'Feature flag',
+        experiment: 'Experiment',
+        early_access_feature: 'Early access feature',
+        survey: 'Survey',
+        product_tour: 'Product tour',
+        user_interview: 'User interview',
+
+        // Data
+        notebook: 'Notebook',
+        cohort: 'Cohort',
+        action: 'Action',
+        annotation: 'Annotation',
+        event_definition: 'Event',
+        property_definition: 'Property',
+        data_warehouse: 'Data warehouse',
+        data_pipeline: 'Data pipeline',
+
+        // People
+        persons: 'Person',
+        user: 'User',
+        group: 'Group',
+
+        // Other
+        heatmap: 'Heatmap',
+        link: 'Link',
+        workflows: 'Workflow',
+        sql_editor: 'SQL query',
+        logs: 'Logs',
+        alert: 'Alert',
+        folder: 'Folder',
+    }
+    return typeDisplayNames[type] || null
 }
 
 type CategoryFilter =
@@ -54,8 +116,10 @@ const CATEGORY_FILTERS: { value: CategoryFilter; label: string }[] = [
 const mapToCommandItems = (items: NewTabTreeDataItem[]): CommandItem[] => {
     return items.map((item) => {
         const record = item.record as
-            | { groupNoun?: string; last_viewed_at?: string | null; [key: string]: unknown }
+            | { groupNoun?: string; last_viewed_at?: string | null; type?: string; [key: string]: unknown }
             | undefined
+
+        const itemType = record?.type ?? null
 
         return {
             id: item.id,
@@ -66,8 +130,22 @@ const mapToCommandItems = (items: NewTabTreeDataItem[]): CommandItem[] => {
             icon: item.icon,
             lastViewedAt: item.lastViewedAt ?? record?.last_viewed_at ?? null,
             groupNoun: item.category === 'groups' ? record?.groupNoun || item.name.split(':')[0] : null,
+            itemType,
+            record: record as Record<string, unknown> | undefined,
         }
     })
+}
+
+const commandItemToTreeDataItem = (item: CommandItem): TreeDataItem => {
+    return {
+        id: item.id,
+        name: item.name,
+        record: {
+            ...item.record,
+            href: item.href,
+            path: item.name,
+        },
+    }
 }
 
 export function Command(): JSX.Element {
@@ -318,51 +396,77 @@ export function Command(): JSX.Element {
                             </Autocomplete.Empty>
 
                             <Autocomplete.List className="pt-3 pb-1">
-                                {groupedItems.map((group) => (
-                                    <Autocomplete.Group key={group.category} items={group.items} className="mb-4">
-                                        {selectedCategory === 'all' && (
-                                            <Autocomplete.GroupLabel
-                                                render={
-                                                    <Label
-                                                        className="px-3 sticky top-0 bg-surface-secondary"
-                                                        intent="menu"
-                                                    >
-                                                        {getCategoryDisplayName(group.category)}
-                                                    </Label>
-                                                }
-                                            />
-                                        )}
-                                        <Autocomplete.Collection>
-                                            {(item: CommandItem) => (
-                                                <Autocomplete.Item
-                                                    key={item.id}
-                                                    value={item}
-                                                    onClick={() => handleItemClick(item)}
-                                                    className="flex items-center gap-2 px-3 py-2 mx-1 rounded cursor-pointer text-sm text-primary hover:bg-fill-highlight-100 data-[highlighted]:bg-fill-highlight-100 data-[highlighted]:outline-none transition-colors"
-                                                >
-                                                    {item.icon && item.icon}
-                                                    <span className="truncate">{item.displayName || item.name}</span>
-                                                    {item.groupNoun && (
-                                                        <span className="text-xs text-tertiary shrink-0">
-                                                            {item.groupNoun}
-                                                        </span>
-                                                    )}
-                                                    {item.lastViewedAt && (
-                                                        <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0">
-                                                            {formatRelativeTimeShort(item.lastViewedAt)}
-                                                        </span>
-                                                    )}
-                                                </Autocomplete.Item>
+                                {groupedItems.map((group) => {
+                                    const itemType = group.items[0].itemType
+
+                                    return (
+                                        <Autocomplete.Group key={group.category} items={group.items} className="mb-4">
+                                            {selectedCategory === 'all' && (
+                                                <Autocomplete.GroupLabel
+                                                    render={
+                                                        <Label
+                                                            className="px-3 sticky top-0 bg-surface-secondary"
+                                                            intent="menu"
+                                                        >
+                                                            {getCategoryDisplayName(group.category)}
+                                                        </Label>
+                                                    }
+                                                />
                                             )}
-                                        </Autocomplete.Collection>
-                                    </Autocomplete.Group>
-                                ))}
+                                            <Autocomplete.Collection>
+                                                {(item: CommandItem) => {
+                                                    const typeLabel = getItemTypeDisplayName(item.itemType)
+
+                                                    return (
+                                                        <ContextMenu key={item.id}>
+                                                            <ContextMenuTrigger asChild>
+                                                                <Autocomplete.Item
+                                                                    value={item}
+                                                                    onClick={() => handleItemClick(item)}
+                                                                    className="flex items-center gap-2 px-3 py-2 mx-1 rounded cursor-pointer text-sm text-primary hover:bg-fill-highlight-100 data-[highlighted]:bg-fill-highlight-100 data-[highlighted]:outline-none transition-colors"
+                                                                >
+                                                                    {item.icon && item.icon}
+                                                                    <span className="truncate">
+                                                                        {item.displayName || item.name}
+                                                                    </span>
+                                                                    {(group.category === 'recents' ||
+                                                                        group.category === 'groups') &&
+                                                                        typeLabel && (
+                                                                            <span className="text-xs text-tertiary shrink-0">
+                                                                                {typeLabel}
+                                                                            </span>
+                                                                        )}
+                                                                    {item.lastViewedAt && (
+                                                                        <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0">
+                                                                            {formatRelativeTimeShort(item.lastViewedAt)}
+                                                                        </span>
+                                                                    )}
+                                                                </Autocomplete.Item>
+                                                            </ContextMenuTrigger>
+                                                            <ContextMenuContent loop className="max-w-[250px]">
+                                                                <ContextMenuGroup>
+                                                                    <MenuItems
+                                                                        item={commandItemToTreeDataItem(item)}
+                                                                        type="context"
+                                                                        root="project://"
+                                                                        onlyTree={false}
+                                                                        showSelectMenuOption={false}
+                                                                    />
+                                                                </ContextMenuGroup>
+                                                            </ContextMenuContent>
+                                                        </ContextMenu>
+                                                    )
+                                                }}
+                                            </Autocomplete.Collection>
+                                        </Autocomplete.Group>
+                                    )
+                                })}
                             </Autocomplete.List>
                         </ScrollableShadows>
 
                         <div className="border-t px-2 py-1 text-xxs text-tertiary font-medium select-none">
                             {filteredItems.length > 1 && <span>↑↓ to navigate • </span>}
-                            <span>⏎ to activate • → to select • Esc to close</span>
+                            <span>⏎ to activate • Esc to close</span>
                         </div>
                     </Autocomplete.Root>
                 </Dialog.Popup>
