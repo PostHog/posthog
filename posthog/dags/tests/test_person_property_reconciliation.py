@@ -4993,7 +4993,7 @@ class TestReconcileWithConcurrentChanges:
 
 @pytest.mark.django_db
 class TestQueryTeamIdsFromClickHouse:
-    """Integration tests for query_team_ids_from_clickhouse with min/max team_id filters."""
+    """Integration tests for query_team_ids_from_clickhouse with team_id filters."""
 
     def test_returns_teams_with_property_events(self, cluster: ClickhouseCluster):
         """Basic test that teams with $set/$set_once/$unset events are returned."""
@@ -5253,3 +5253,58 @@ class TestQueryTeamIdsFromClickHouse:
 
         assert 92001 in result
         assert 92002 in result
+
+    def test_exclude_team_ids_filters_out_specified_teams(self, cluster: ClickhouseCluster):
+        """Test that exclude_team_ids filters out specified teams from results."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                93001,
+                "d1",
+                UUID("11111111-1111-1111-1111-930000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                93002,
+                "d2",
+                UUID("11111111-1111-1111-1111-930000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                93003,
+                "d3",
+                UUID("11111111-1111-1111-1111-930000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                93004,
+                "d4",
+                UUID("11111111-1111-1111-1111-930000000004"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"d": 4}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=93001,
+            max_team_id=93004,
+            exclude_team_ids=[93002, 93004],
+        )
+
+        assert result == [93001, 93003]

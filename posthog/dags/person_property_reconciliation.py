@@ -38,6 +38,7 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     bug_window_end: str | None = None  # Optional: required if team_ids not supplied
     min_team_id: int | None = None  # Optional: only process teams with id >= this value
     max_team_id: int | None = None  # Optional: only process teams with id <= this value
+    exclude_team_ids: list[int] | None = None  # Optional: exclude specific team_ids
     dry_run: bool = False  # Log changes without applying
     backup_enabled: bool = True  # Store before/after state in backup table
     batch_size: int = 100  # Commit Postgres transaction every N persons (0 = single commit at end)
@@ -941,6 +942,7 @@ def query_team_ids_from_clickhouse(
     bug_window_end: str,
     min_team_id: int | None = None,
     max_team_id: int | None = None,
+    exclude_team_ids: list[int] | None = None,
 ) -> list[int]:
     """
     Query ClickHouse for distinct team_ids with property-setting events in the bug window.
@@ -950,6 +952,7 @@ def query_team_ids_from_clickhouse(
         bug_window_end: End of bug window (CH format: "YYYY-MM-DD HH:MM:SS")
         min_team_id: Optional minimum team_id (inclusive)
         max_team_id: Optional maximum team_id (inclusive)
+        exclude_team_ids: Optional list of team_ids to exclude
 
     Returns:
         List of team_ids sorted ascending
@@ -967,6 +970,10 @@ def query_team_ids_from_clickhouse(
     if max_team_id is not None:
         team_id_filters.append("team_id <= %(max_team_id)s")
         params["max_team_id"] = max_team_id
+
+    if exclude_team_ids:
+        team_id_filters.append("team_id NOT IN %(exclude_team_ids)s")
+        params["exclude_team_ids"] = exclude_team_ids
 
     team_id_filter_clause = (" AND " + " AND ".join(team_id_filters)) if team_id_filters else ""
 
@@ -1008,12 +1015,15 @@ def get_team_ids_to_reconcile(
             },
         )
 
-    range_info = ""
+    filter_info_parts = []
     if config.min_team_id is not None or config.max_team_id is not None:
-        range_info = f" (team_id range: {config.min_team_id or 'any'} to {config.max_team_id or 'any'})"
+        filter_info_parts.append(f"range: {config.min_team_id or 'any'} to {config.max_team_id or 'any'}")
+    if config.exclude_team_ids:
+        filter_info_parts.append(f"excluding: {config.exclude_team_ids}")
+    filter_info = f" ({', '.join(filter_info_parts)})" if filter_info_parts else ""
 
     context.log.info(
-        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}{range_info}"
+        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}{filter_info}"
     )
 
     team_ids = query_team_ids_from_clickhouse(
@@ -1021,6 +1031,7 @@ def get_team_ids_to_reconcile(
         bug_window_end=config.bug_window_end,
         min_team_id=config.min_team_id,
         max_team_id=config.max_team_id,
+        exclude_team_ids=config.exclude_team_ids,
     )
 
     if not team_ids:
