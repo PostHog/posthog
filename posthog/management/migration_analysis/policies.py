@@ -33,12 +33,14 @@ class MigrationPolicy(ABC):
         pass
 
     @abstractmethod
-    def check_migration(self, migration) -> list[str]:
+    def check_migration(self, migration) -> tuple[list[str], list[str]]:
         """
         Check if entire migration violates this policy.
 
         Returns:
-            List of violation messages (empty if compliant)
+            Tuple of (info_messages, violations):
+            - info_messages: Informational warnings (don't block)
+            - violations: Blocking violations (boost to BLOCKED)
         """
         pass
 
@@ -72,15 +74,15 @@ class UUIDPrimaryKeyPolicy(MigrationPolicy):
 
         return []
 
-    def check_migration(self, migration) -> list[str]:
+    def check_migration(self, migration) -> tuple[list[str], list[str]]:
         """Only enforce on PostHog-owned apps."""
         if not is_posthog_app(migration.app_label):
-            return []
+            return [], []
 
         violations = []
         for op in migration.operations:
             violations.extend(self.check_operation(op))
-        return violations
+        return [], violations  # UUID violations are blocking
 
 
 class AtomicFalsePolicy(MigrationPolicy):
@@ -103,30 +105,28 @@ class AtomicFalsePolicy(MigrationPolicy):
     def check_operation(self, op) -> list[str]:
         return []  # Checked at migration level
 
-    def check_migration(self, migration) -> list[str]:
+    def check_migration(self, migration) -> tuple[list[str], list[str]]:
         if not is_posthog_app(migration.app_label):
-            return []
+            return [], []
 
         is_atomic = getattr(migration, "atomic", True)
         has_concurrent = self._has_concurrent_operations(migration)
         has_non_concurrent = self._has_non_concurrent_operations(migration)
 
+        info = []
         violations = []
 
-        # atomic=False without concurrent ops = warn (not block)
-        # Some legitimate uses: long-running data migrations that need partial commits
-        # But we want to discourage lazy use that breaks retry mechanism
+        # atomic=False without concurrent ops = info (not blocking)
+        # Legitimate for idempotent backfills where partial progress is desired
         if not is_atomic and not has_concurrent:
-            violations.append(
-                "⚠️ WARNING: atomic=False without CONCURRENTLY operations. "
-                "This loses transaction rollback safety. If migration fails midway, "
-                "partial changes are committed and retry will fail on non-idempotent ops. "
-                "Only use atomic=False if: (1) using CONCURRENTLY, or (2) intentional for "
-                "long-running ops with idempotent SQL (IF NOT EXISTS, WHERE NOT EXISTS). "
-                "Consider async migrations for large data backfills instead."
+            info.append(
+                "ℹ️ atomic=False without CONCURRENTLY. "
+                "OK if migration is idempotent (WHERE field IS NULL, IF NOT EXISTS). "
+                "On failure, retry continues from where it left off. "
+                "Consider async migrations for very large tables."
             )
 
-        # concurrent ops without atomic=False = block (will fail at runtime anyway)
+        # concurrent ops without atomic=False = violation (will fail at runtime)
         if has_concurrent and is_atomic:
             violations.append(
                 "❌ BLOCKED: CONCURRENTLY operations require atomic=False. "
@@ -134,16 +134,14 @@ class AtomicFalsePolicy(MigrationPolicy):
                 "Add 'atomic = False' to the Migration class."
             )
 
-        # Mixed: has both concurrent and non-concurrent ops = recommend splitting
+        # Mixed: has both concurrent and non-concurrent ops = info (recommend split)
         if not is_atomic and has_concurrent and has_non_concurrent:
-            violations.append(
-                "⚠️ RECOMMEND SPLIT: Migration mixes CONCURRENTLY operations with regular DDL. "
-                "Split into separate migrations: (1) regular operations with atomic=True (default), "
-                "(2) CONCURRENTLY operations with atomic=False. "
-                "This ensures regular DDL has rollback safety while CONCURRENTLY can run outside a transaction."
+            info.append(
+                "ℹ️ RECOMMEND SPLIT: Migration mixes CONCURRENTLY with regular DDL. "
+                "Consider splitting for rollback safety on regular operations."
             )
 
-        return violations
+        return info, violations
 
     def _has_non_concurrent_operations(self, migration) -> bool:
         """Check if migration has operations that are NOT concurrent index operations."""
