@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconTrending } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { percentage } from 'lib/utils'
+import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { groupLogic } from 'scenes/groups/groupLogic'
@@ -112,10 +112,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
 }
 
 function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
-    const mrr: number | null = groupData.group_properties.mrr || null
-    const forecastedMrr: number | null = groupData.group_properties.forecasted_mrr || null
-    const lifetimeValue: number | null = groupData.group_properties.customer_lifetime_value || null
     const { baseCurrency } = useValues(teamLogic)
+    const lifetimeValue: number | null = groupData.group_properties.customer_lifetime_value || null
 
     return (
         <div className="flex flex-col">
@@ -123,7 +121,7 @@ function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
                 <span className="text-secondary">First seen:</span>{' '}
                 {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
             </div>
-            <MRR mrr={mrr} forecastedMrr={forecastedMrr} />
+            <MRR groupData={groupData} />
             {lifetimeValue && (
                 <div>
                     <Tooltip title="Total worth of revenue from this customer over the whole relationship">
@@ -132,17 +130,15 @@ function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
                     {formatCurrency(lifetimeValue, baseCurrency)}
                 </div>
             )}
+            <PaidProducts groupData={groupData} />
         </div>
     )
 }
 
-interface MRRProps {
-    mrr: number | null
-    forecastedMrr: number | null
-}
-
-function MRR({ mrr, forecastedMrr }: MRRProps): JSX.Element | null {
+function MRR({ groupData }: { groupData: Group }): JSX.Element | null {
     const { baseCurrency } = useValues(teamLogic)
+    const mrr: number | null = groupData.group_properties.mrr || null
+    const forecastedMrr: number | null = groupData.group_properties.forecasted_mrr || null
 
     if (!mrr) {
         return null
@@ -183,6 +179,26 @@ function MRR({ mrr, forecastedMrr }: MRRProps): JSX.Element | null {
             )}
         </div>
     )
+}
+
+function PaidProducts({ groupData }: { groupData: Group }): JSX.Element | null {
+    const mrrPerProduct: Record<string, number> = groupData.group_properties.mrr_per_product || {}
+
+    const paidProductBadges = Object.entries(mrrPerProduct)
+        .filter(([_, mrr]) => mrr > 0)
+        .map(([product]) => (
+            <LemonTag
+                className="mr-1 mb-1"
+                key={product}
+                children={capitalizeFirstLetter(product.replaceAll('_', ' '))}
+            />
+        ))
+
+    if (paidProductBadges.length === 0) {
+        return null
+    }
+
+    return <div>Paid products: {paidProductBadges}</div>
 }
 
 type NotebookNodeGroupAttributes = {
