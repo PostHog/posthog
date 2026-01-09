@@ -153,16 +153,19 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                     teamId: team.id,
                     properties: (filters.properties as PersonPropertyFilter[]) || [],
                 },
-                onPerson: ({ personId, distinctId }) => {
-                    const invocation = this.createHogFlowInvocation({
-                        hogFlow,
-                        team,
-                        personId,
-                        distinctId,
-                        defaultVariables,
-                    })
+                onPersonBatch: (persons: { personId: string; distinctId: string }[]) => {
+                    const batchInvocations = persons.map(({ personId, distinctId }) =>
+                        this.createHogFlowInvocation({
+                            hogFlow,
+                            team,
+                            personId,
+                            distinctId,
+                            defaultVariables,
+                        })
+                    )
 
-                    invocations.push(invocation)
+                    invocations.push(...batchInvocations)
+                    return Promise.resolve()
                 },
             })
         })
