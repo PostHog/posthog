@@ -46,6 +46,9 @@ def get_field_name_from_expr(expr: ast.Expr, outer_table_alias: str) -> Optional
     return None
 
 
+COMPARISON_FUNCTIONS = {"equals", "notEquals", "less", "greater", "lessOrEquals", "greaterOrEquals", "like", "notLike"}
+
+
 def is_pushdown_candidate(
     expr: ast.Expr,
     inner_field_names: set[str],
@@ -54,6 +57,15 @@ def is_pushdown_candidate(
     if isinstance(expr, ast.CompareOperation):
         left_field = get_field_name_from_expr(expr.left, outer_table_alias)
         right_field = get_field_name_from_expr(expr.right, outer_table_alias)
+
+        if left_field and left_field in inner_field_names:
+            return True
+        if right_field and right_field in inner_field_names:
+            return True
+
+    if isinstance(expr, ast.Call) and expr.name in COMPARISON_FUNCTIONS and len(expr.args) == 2:
+        left_field = get_field_name_from_expr(expr.args[0], outer_table_alias)
+        right_field = get_field_name_from_expr(expr.args[1], outer_table_alias)
 
         if left_field and left_field in inner_field_names:
             return True

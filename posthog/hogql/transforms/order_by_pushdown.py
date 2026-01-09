@@ -46,9 +46,6 @@ def push_down_order_by(
     if not outer_query or not outer_query.order_by or not outer_query.limit:
         return
 
-    if not any(should_push_down(order_expr, outer_query) for order_expr in outer_query.order_by):
-        return
-
     rewriter = FieldReferenceRewriter(outer_table_alias, inner_table_name)
     pushed_order_by = [
         ast.OrderExpr(
@@ -56,7 +53,11 @@ def push_down_order_by(
             order=o.order,
         )
         for o in outer_query.order_by
+        if should_push_down(o, outer_query)
     ]
+
+    if not pushed_order_by:
+        return
 
     if inner_query.order_by:
         inner_query.order_by = pushed_order_by + list(inner_query.order_by)

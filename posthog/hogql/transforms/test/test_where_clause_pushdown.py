@@ -266,3 +266,35 @@ class TestWhereClausePushdown(BaseTest):
             "SELECT * FROM (SELECT team_id, event FROM events) AS inner WHERE inner.team_id = 1"
         )
         assert {"before": before, "after": after} == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_snapshot_equals_function_call(self):
+        """equals() function call pushed down correctly"""
+        before, after = self._apply_pushdown(
+            "SELECT * FROM (SELECT team_id, event FROM events) AS inner WHERE equals(team_id, 1)"
+        )
+        assert {"before": before, "after": after} == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_snapshot_not_equals_function_call(self):
+        """notEquals() function call pushed down correctly"""
+        before, after = self._apply_pushdown(
+            "SELECT * FROM (SELECT team_id, event FROM events) AS inner WHERE notEquals(event, '$pageview')"
+        )
+        assert {"before": before, "after": after} == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_snapshot_less_function_call(self):
+        """less() function call pushed down correctly"""
+        before, after = self._apply_pushdown(
+            "SELECT * FROM (SELECT team_id, event FROM events) AS inner WHERE less(team_id, 100)"
+        )
+        assert {"before": before, "after": after} == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_snapshot_mixed_comparison_styles(self):
+        """Mix of comparison operator and function call"""
+        before, after = self._apply_pushdown(
+            "SELECT * FROM (SELECT team_id, event FROM events) AS inner WHERE team_id = 1 AND equals(event, '$pageview')"
+        )
+        assert {"before": before, "after": after} == self.snapshot

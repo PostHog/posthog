@@ -80,7 +80,7 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
         assert inner_query.order_by is None, "ORDER BY should not be pushed for non-distance functions"
         assert inner_query.limit is None
 
-    def test_multiple_order_by_columns_pushed_down(self):
+    def test_only_matching_order_by_pushed_down(self):
         query = """
             SELECT *
             FROM document_embeddings
@@ -90,8 +90,8 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
         """
         inner_query = self._get_inner_query(query)
 
-        assert inner_query.order_by is not None, "ORDER BY should be pushed down for multiple columns"
-        assert len(inner_query.order_by) == 2
+        assert inner_query.order_by is not None
+        assert len(inner_query.order_by) == 1, "Only vector distance ORDER BY should be pushed down"
         assert inner_query.limit is not None
 
     def test_offset_not_pushed_down(self):

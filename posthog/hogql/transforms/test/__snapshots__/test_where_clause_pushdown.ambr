@@ -1,8 +1,32 @@
 # serializer version: 1
+# name: TestWhereClausePushdown.test_snapshot_equals_function_call
+  dict({
+    'after': 'SELECT * FROM (SELECT team_id, event FROM events WHERE equals(events.team_id, 1)) AS inner WHERE equals(team_id, 1)',
+    'before': 'SELECT * FROM (SELECT team_id, event FROM events) AS inner WHERE equals(team_id, 1)',
+  })
+# ---
+# name: TestWhereClausePushdown.test_snapshot_less_function_call
+  dict({
+    'after': 'SELECT * FROM (SELECT team_id, event FROM events WHERE less(events.team_id, 100)) AS inner WHERE less(team_id, 100)',
+    'before': 'SELECT * FROM (SELECT team_id, event FROM events) AS inner WHERE less(team_id, 100)',
+  })
+# ---
+# name: TestWhereClausePushdown.test_snapshot_mixed_comparison_styles
+  dict({
+    'after': "SELECT * FROM (SELECT team_id, event FROM events WHERE and(equals(events.team_id, 1), equals(events.event, '$pageview'))) AS inner WHERE and(equals(team_id, 1), equals(event, '$pageview'))",
+    'before': "SELECT * FROM (SELECT team_id, event FROM events) AS inner WHERE and(equals(team_id, 1), equals(event, '$pageview'))",
+  })
+# ---
 # name: TestWhereClausePushdown.test_snapshot_multiple_conditions
   dict({
     'after': "SELECT * FROM (SELECT team_id, event FROM events WHERE and(equals(events.team_id, 1), equals(events.event, '$pageview'))) AS inner WHERE and(equals(team_id, 1), equals(event, '$pageview'))",
     'before': "SELECT * FROM (SELECT team_id, event FROM events) AS inner WHERE and(equals(team_id, 1), equals(event, '$pageview'))",
+  })
+# ---
+# name: TestWhereClausePushdown.test_snapshot_not_equals_function_call
+  dict({
+    'after': "SELECT * FROM (SELECT team_id, event FROM events WHERE notEquals(events.event, '$pageview')) AS inner WHERE notEquals(event, '$pageview')",
+    'before': "SELECT * FROM (SELECT team_id, event FROM events) AS inner WHERE notEquals(event, '$pageview')",
   })
 # ---
 # name: TestWhereClausePushdown.test_snapshot_partial_pushdown
