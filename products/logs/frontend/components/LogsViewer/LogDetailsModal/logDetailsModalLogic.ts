@@ -1,4 +1,5 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
@@ -17,14 +18,17 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
         setActiveTab: (tab: LogDetailsTab) => ({ tab }),
     }),
 
-    listeners(({ values }) => ({
-        openLogDetails: () => {
-            if (!values.isOpen) {
-                posthog.capture('logs details opened')
-            }
-        },
+    listeners(() => ({
         setActiveTab: ({ tab }) => {
             posthog.capture('logs details tab changed', { tab })
+        },
+    })),
+
+    subscriptions(() => ({
+        isOpen: (isOpen: boolean, previousIsOpen: boolean) => {
+            if (isOpen && !previousIsOpen) {
+                posthog.capture('logs details opened')
+            }
         },
     })),
 

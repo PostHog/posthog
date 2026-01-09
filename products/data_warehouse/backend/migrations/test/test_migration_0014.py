@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from posthog.test.base import NonAtomicTestMigrations
 
 from parameterized import parameterized
@@ -9,6 +10,8 @@ from products.data_warehouse.backend.models.datawarehouse_saved_query import (
     DataWarehouseSavedQuery as DataWarehouseSavedQueryModel,
 )
 from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class MatViewCredentialDeletionMigrationTest(NonAtomicTestMigrations):

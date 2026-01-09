@@ -43,14 +43,10 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
-export type UserBasicApiHedgehogConfigAnyOf = { [key: string]: unknown }
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = UserBasicApiHedgehogConfigAnyOf | null | null
-
-export type UserBasicApiRoleAtOrganization = RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -70,7 +66,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: UserBasicApiRoleAtOrganization
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
 }
 
 /**
@@ -124,23 +120,6 @@ export type FeatureFlagApiFilters = { [key: string]: unknown }
 export type FeatureFlagApiSurveys = { [key: string]: unknown }
 
 export type FeatureFlagApiFeatures = { [key: string]: unknown }
-
-/**
- * Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All
- */
-export type FeatureFlagApiEvaluationRuntime = EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
-
-/**
- * Identifier used for bucketing users into rollout and variants
-
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID
- */
-export type FeatureFlagApiBucketingIdentifier = BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
 
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
@@ -202,12 +181,12 @@ export interface FeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: FeatureFlagApiEvaluationRuntime
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: FeatureFlagApiBucketingIdentifier
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -231,23 +210,6 @@ export type PatchedFeatureFlagApiFilters = { [key: string]: unknown }
 export type PatchedFeatureFlagApiSurveys = { [key: string]: unknown }
 
 export type PatchedFeatureFlagApiFeatures = { [key: string]: unknown }
-
-/**
- * Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All
- */
-export type PatchedFeatureFlagApiEvaluationRuntime = EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
-
-/**
- * Identifier used for bucketing users into rollout and variants
-
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID
- */
-export type PatchedFeatureFlagApiBucketingIdentifier = BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
 
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
@@ -309,12 +271,12 @@ export interface PatchedFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: PatchedFeatureFlagApiEvaluationRuntime
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: PatchedFeatureFlagApiBucketingIdentifier
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -384,23 +346,6 @@ export type LocalEvaluationResponseApiCohorts = { [key: string]: unknown }
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
-/**
- * Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All
- */
-export type MinimalFeatureFlagApiEvaluationRuntime = EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
-
-/**
- * Identifier used for bucketing users into rollout and variants
-
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID
- */
-export type MinimalFeatureFlagApiBucketingIdentifier = BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
-
 export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
@@ -425,12 +370,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: MinimalFeatureFlagApiEvaluationRuntime
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: MinimalFeatureFlagApiBucketingIdentifier
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
     readonly evaluation_tags: readonly string[]
 }
 
