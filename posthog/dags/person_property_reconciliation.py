@@ -678,7 +678,7 @@ def backup_person_with_computed_state(
             new_version,
         ),
     )
-    return True
+    return cursor.rowcount > 0
 
 
 def update_person_with_version_check(
@@ -750,10 +750,9 @@ def update_person_with_version_check(
         # Backup before and after state for audit/rollback
         backup_created = False
         if backup_enabled:
-            backup_person_with_computed_state(
+            backup_created = backup_person_with_computed_state(
                 cursor, job_id, team_id, person, person_property_diffs, update, target_version + 1
             )
-            backup_created = True
 
         if dry_run:
             return True, None, backup_created, SkipReason.SUCCESS

@@ -1353,6 +1353,64 @@ class TestBackupFunctionality:
         assert success is True
         assert backup_created is True
 
+    def test_backup_created_false_when_conflict(self):
+        """
+        Regression test: backup_created should be False when ON CONFLICT DO NOTHING
+        means no row was actually inserted (duplicate backup for same person/job).
+        """
+        person_data = {
+            "id": 123,
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+            "version": 1,
+            "is_identified": False,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = person_data
+
+        # Track which query is being executed to return different rowcounts
+        call_count = [0]
+        original_execute = cursor.execute
+
+        def execute_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            query = args[0] if args else ""
+            if "INSERT INTO posthog_person_reconciliation_backup" in query:
+                # Simulate ON CONFLICT DO NOTHING - no row inserted
+                cursor.rowcount = 0
+            else:
+                # Person SELECT/UPDATE succeeds
+                cursor.rowcount = 1
+            return original_execute(*args, **kwargs)
+
+        cursor.execute = MagicMock(side_effect=execute_side_effect)
+
+        person_diffs = PersonPropertyDiffs(
+            person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
+            set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
+            set_once_updates={},
+            unset_updates={},
+        )
+
+        success, _result_data, backup_created, _skip_reason = update_person_with_version_check(
+            cursor=cursor,
+            job_id="test-job-id",
+            team_id=1,
+            person_uuid="018d1234-5678-0000-0000-000000000001",
+            person_property_diffs=person_diffs,
+            dry_run=False,
+            backup_enabled=True,
+        )
+
+        assert success is True
+        # Key assertion: backup_created should be False because rowcount was 0
+        assert backup_created is False
+
 
 class TestFilterEventPersonProperties:
     """Test the filter_event_person_properties function for conflict resolution."""
