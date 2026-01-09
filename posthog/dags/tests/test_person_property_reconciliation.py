@@ -5308,3 +5308,15 @@ class TestQueryTeamIdsFromClickHouse:
         )
 
         assert result == [93001, 93003]
+
+    def test_invalid_range_raises_error(self):
+        """Test that min_team_id > max_team_id raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            query_team_ids_from_clickhouse(
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-02 00:00:00",
+                min_team_id=100,
+                max_team_id=50,
+            )
+
+        assert "min_team_id (100) cannot be greater than max_team_id (50)" in str(exc_info.value)

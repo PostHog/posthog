@@ -956,7 +956,15 @@ def query_team_ids_from_clickhouse(
 
     Returns:
         List of team_ids sorted ascending
+
+    Raises:
+        ValueError: If min_team_id > max_team_id
     """
+    if min_team_id is not None and max_team_id is not None and min_team_id > max_team_id:
+        raise ValueError(
+            f"Invalid team_id range: min_team_id ({min_team_id}) cannot be greater than max_team_id ({max_team_id})"
+        )
+
     team_id_filters = []
     params: dict[str, Any] = {
         "bug_window_start": bug_window_start,
@@ -973,7 +981,7 @@ def query_team_ids_from_clickhouse(
 
     if exclude_team_ids:
         team_id_filters.append("team_id NOT IN %(exclude_team_ids)s")
-        params["exclude_team_ids"] = exclude_team_ids
+        params["exclude_team_ids"] = tuple(exclude_team_ids)
 
     team_id_filter_clause = (" AND " + " AND ".join(team_id_filters)) if team_id_filters else ""
 
