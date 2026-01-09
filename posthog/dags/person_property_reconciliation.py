@@ -36,6 +36,8 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     bug_window_start: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS" (assumed UTC)
     team_ids: list[int] | None = None  # Optional: filter to specific teams
     bug_window_end: str | None = None  # Optional: required if team_ids not supplied
+    min_team_id: int | None = None  # Optional: only process teams with id >= this value
+    max_team_id: int | None = None  # Optional: only process teams with id <= this value
     dry_run: bool = False  # Log changes without applying
     backup_enabled: bool = True  # Store before/after state in backup table
     batch_size: int = 100  # Commit Postgres transaction every N persons (0 = single commit at end)
@@ -934,6 +936,57 @@ def process_persons_in_batches(
     )
 
 
+def query_team_ids_from_clickhouse(
+    bug_window_start: str,
+    bug_window_end: str,
+    min_team_id: int | None = None,
+    max_team_id: int | None = None,
+) -> list[int]:
+    """
+    Query ClickHouse for distinct team_ids with property-setting events in the bug window.
+
+    Args:
+        bug_window_start: Start of bug window (CH format: "YYYY-MM-DD HH:MM:SS")
+        bug_window_end: End of bug window (CH format: "YYYY-MM-DD HH:MM:SS")
+        min_team_id: Optional minimum team_id (inclusive)
+        max_team_id: Optional maximum team_id (inclusive)
+
+    Returns:
+        List of team_ids sorted ascending
+    """
+    team_id_filters = []
+    params: dict[str, Any] = {
+        "bug_window_start": bug_window_start,
+        "bug_window_end": bug_window_end,
+    }
+
+    if min_team_id is not None:
+        team_id_filters.append("team_id >= %(min_team_id)s")
+        params["min_team_id"] = min_team_id
+
+    if max_team_id is not None:
+        team_id_filters.append("team_id <= %(max_team_id)s")
+        params["max_team_id"] = max_team_id
+
+    team_id_filter_clause = (" AND " + " AND ".join(team_id_filters)) if team_id_filters else ""
+
+    query = f"""
+        SELECT DISTINCT team_id
+        FROM events
+        WHERE timestamp >= %(bug_window_start)s
+          AND timestamp < %(bug_window_end)s
+          AND (
+            JSONHas(properties, '$set') = 1
+            OR JSONHas(properties, '$set_once') = 1
+            OR JSONHas(properties, '$unset') = 1
+          ){team_id_filter_clause}
+        ORDER BY team_id
+    """
+
+    results = sync_execute(query, params)
+    return [int(row[0]) for row in results]
+
+
 @dagster.op
 def get_team_ids_to_reconcile(
     context: dagster.OpExecutionContext,
@@ -955,32 +1008,20 @@ def get_team_ids_to_reconcile(
             },
         )
 
-    query = """
-        SELECT DISTINCT team_id
-        FROM events
-        WHERE timestamp >= %(bug_window_start)s
-          AND timestamp < %(bug_window_end)s
-          AND (
-            JSONHas(properties, '$set') = 1
-            OR JSONHas(properties, '$set_once') = 1
-            OR JSONHas(properties, '$unset') = 1
-          )
-        ORDER BY team_id
-    """
+    range_info = ""
+    if config.min_team_id is not None or config.max_team_id is not None:
+        range_info = f" (team_id range: {config.min_team_id or 'any'} to {config.max_team_id or 'any'})"
 
     context.log.info(
-        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}"
+        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}{range_info}"
     )
 
-    results = sync_execute(
-        query,
-        {
-            "bug_window_start": config.bug_window_start,
-            "bug_window_end": config.bug_window_end,
-        },
+    team_ids = query_team_ids_from_clickhouse(
+        bug_window_start=config.bug_window_start,
+        bug_window_end=config.bug_window_end,
+        min_team_id=config.min_team_id,
+        max_team_id=config.max_team_id,
     )
-
-    team_ids = [int(row[0]) for row in results]
 
     if not team_ids:
         context.log.info("No team IDs found with property events in bug window")

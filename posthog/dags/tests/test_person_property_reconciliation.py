@@ -19,6 +19,7 @@ from posthog.dags.person_property_reconciliation import (
     fetch_person_properties_from_clickhouse,
     filter_event_person_properties,
     get_person_property_updates_from_clickhouse,
+    query_team_ids_from_clickhouse,
     reconcile_person_properties,
     reconcile_with_concurrent_changes,
     update_person_with_version_check,
@@ -4988,3 +4989,267 @@ class TestReconcileWithConcurrentChanges:
         assert "c" not in result["properties"]  # Unset applied (no conflict)
         assert result["properties"]["d"] == "pg_d"  # Postgres addition preserved
         assert result["properties"]["e"] == "event_e"  # set_once applied (new key)
+
+
+@pytest.mark.django_db
+class TestQueryTeamIdsFromClickHouse:
+    """Integration tests for query_team_ids_from_clickhouse with min/max team_id filters."""
+
+    def test_returns_teams_with_property_events(self, cluster: ClickhouseCluster):
+        """Basic test that teams with $set/$set_once/$unset events are returned."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        # Use unique team_ids unlikely to conflict with other tests (88001-88005)
+        events = [
+            (
+                88001,
+                "d1",
+                UUID("11111111-1111-1111-1111-880000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                88002,
+                "d2",
+                UUID("11111111-1111-1111-1111-880000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set_once": {"b": 2}}),
+            ),
+            (
+                88003,
+                "d3",
+                UUID("11111111-1111-1111-1111-880000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$unset": ["c"]}),
+            ),
+            (
+                88004,
+                "d4",
+                UUID("11111111-1111-1111-1111-880000000004"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"d": 4}}),
+            ),
+            (
+                88005,
+                "d5",
+                UUID("11111111-1111-1111-1111-880000000005"),
+                now - timedelta(days=5),
+                json.dumps({"other": "no_props"}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=88001,
+            max_team_id=88005,
+        )
+
+        # 88005 has no $set/$set_once/$unset so should not be included
+        assert result == [88001, 88002, 88003, 88004]
+
+    def test_min_team_id_filter(self, cluster: ClickhouseCluster):
+        """Test that min_team_id filters out teams below the threshold."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                89001,
+                "d1",
+                UUID("11111111-1111-1111-1111-890000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                89002,
+                "d2",
+                UUID("11111111-1111-1111-1111-890000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                89003,
+                "d3",
+                UUID("11111111-1111-1111-1111-890000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=89002,
+            max_team_id=89003,
+        )
+
+        assert result == [89002, 89003]
+
+    def test_max_team_id_filter(self, cluster: ClickhouseCluster):
+        """Test that max_team_id filters out teams above the threshold."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                90001,
+                "d1",
+                UUID("11111111-1111-1111-1111-900000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                90002,
+                "d2",
+                UUID("11111111-1111-1111-1111-900000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                90003,
+                "d3",
+                UUID("11111111-1111-1111-1111-900000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=90001,
+            max_team_id=90002,
+        )
+
+        assert result == [90001, 90002]
+
+    def test_both_min_and_max_team_id_filters(self, cluster: ClickhouseCluster):
+        """Test that both min and max filters work together."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                91001,
+                "d1",
+                UUID("11111111-1111-1111-1111-910000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                91002,
+                "d2",
+                UUID("11111111-1111-1111-1111-910000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                91003,
+                "d3",
+                UUID("11111111-1111-1111-1111-910000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                91004,
+                "d4",
+                UUID("11111111-1111-1111-1111-910000000004"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"d": 4}}),
+            ),
+            (
+                91005,
+                "d5",
+                UUID("11111111-1111-1111-1111-910000000005"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"e": 5}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=91002,
+            max_team_id=91004,
+        )
+
+        assert result == [91002, 91003, 91004]
+
+    def test_no_filters_returns_all_teams(self, cluster: ClickhouseCluster):
+        """Test that omitting filters returns all teams with property events."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                92001,
+                "d1",
+                UUID("11111111-1111-1111-1111-920000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                92002,
+                "d2",
+                UUID("11111111-1111-1111-1111-920000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=92001,
+            max_team_id=92002,
+        )
+
+        assert 92001 in result
+        assert 92002 in result
