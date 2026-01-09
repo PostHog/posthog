@@ -1703,7 +1703,7 @@
         WHERE and(equals(person.team_id, 99999), in(id,
                                                       (SELECT where_optimization.id AS id
                                                        FROM person AS where_optimization
-                                                       WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(nullIf(nullIf(where_optimization.`pmat_$sample_field`, ''), 'null'), 'test@posthog.com'), 0)))))
+                                                       WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(where_optimization.`pmat_$sample_field`, 'test@posthog.com'), 0)))))
         GROUP BY person.id
         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.`properties___$sample_field`, 'test@posthog.com'), 0)
