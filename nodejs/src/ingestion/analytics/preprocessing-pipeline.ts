@@ -6,11 +6,13 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { createApplyCookielessProcessingStep, createRateLimitToOverflowStep } from '../event-preprocessing'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
+import { createPrefetchSlotsStep } from '../event-processing/prefetch-slots-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { MemoryRateLimiter } from '../utils/overflow-detector'
@@ -32,6 +34,7 @@ export interface PreprocessingPipelineConfig {
     personsStore: PersonsStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
     overflowRateLimiter: MemoryRateLimiter
     overflowEnabled: boolean
     overflowTopic: string
@@ -57,6 +60,7 @@ export function createPreprocessingPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
+        materializedColumnSlotManager,
         overflowRateLimiter,
         overflowEnabled,
         overflowTopic,
@@ -136,6 +140,8 @@ export function createPreprocessingPipeline<
                             )
                             // Prefetch hog functions for all teams in the batch
                             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, hub.CDP_HOG_WATCHER_SAMPLE_RATE))
+                            // Prefetch materialized column slots for all teams in the batch
+                            .pipeBatch(createPrefetchSlotsStep(materializedColumnSlotManager))
                     )
                     .handleIngestionWarnings(kafkaProducer)
             )

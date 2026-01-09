@@ -71,6 +71,8 @@ export type IngestionConsumerHub = HogTransformerHub &
         | 'personRepository'
         // GroupTypeManager
         | 'groupTypeManager'
+        // MaterializedColumnSlotManager
+        | 'materializedColumnSlotManager'
     >
 
 type EventWithHeaders = IncomingEventWithTeam & { headers: EventHeaders }
@@ -244,6 +246,7 @@ export class IngestionConsumer {
                 personsStore: this.personsStore,
                 hogTransformer: this.hogTransformer,
                 eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+                materializedColumnSlotManager: this.hub.materializedColumnSlotManager,
                 overflowRateLimiter: this.overflowRateLimiter,
                 overflowEnabled: this.overflowEnabled(),
                 overflowTopic: this.overflowTopic || '',
@@ -279,6 +282,7 @@ export class IngestionConsumer {
                 groupId: this.groupId,
                 dlqTopic: this.dlqTopic,
                 promiseScheduler: this.promiseScheduler,
+                materializedColumnSlotManager: this.hub.materializedColumnSlotManager,
             }
         ).build()
 
@@ -298,6 +302,7 @@ export class IngestionConsumer {
             teamManager: this.hub.teamManager,
             groupTypeManager: this.hub.groupTypeManager,
             groupId: this.groupId,
+            materializedColumnSlotManager: this.hub.materializedColumnSlotManager,
         }
         this.joinedPipeline = createJoinedIngestionPipeline(
             newBatchPipelineBuilder<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>(),

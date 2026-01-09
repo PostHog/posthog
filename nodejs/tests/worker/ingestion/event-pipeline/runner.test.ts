@@ -80,7 +80,7 @@ class TestEventPipelineRunner extends EventPipelineRunner {
     }
 }
 
-const team = {
+const team: Team = {
     id: 2,
     person_processing_opt_out: false,
     api_token: 'token1',
@@ -99,7 +99,7 @@ const team = {
     timezone: 'UTC',
     available_features: [],
     drop_events_older_than_seconds: null,
-} as Team
+}
 
 const pipelineEvent: PipelineEvent = {
     distinct_id: 'my_id',
