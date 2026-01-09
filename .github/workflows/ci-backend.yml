@@ -408,6 +408,21 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
 
+            - name: Dump migrated schema
+              if: github.event_name == 'push'
+              run: |
+                  # Dump schema + django_migrations data so Django knows which migrations are applied
+                  (pg_dump --schema-only --clean -h localhost -U posthog posthog && \
+                   pg_dump --data-only --table=django_migrations -h localhost -U posthog posthog) | gzip > schema.sql.gz
+
+            - name: Upload migrated schema artifact
+              if: github.event_name == 'push'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: migrated-schema
+                  path: schema.sql.gz
+                  retention-days: 90
+
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
