@@ -246,6 +246,7 @@ export class IngestionConsumer {
                 personsStore: this.personsStore,
                 hogTransformer: this.hogTransformer,
                 eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+                materializedColumnSlotManager: this.hub.materializedColumnSlotManager,
                 overflowRateLimiter: this.overflowRateLimiter,
                 overflowEnabled: this.overflowEnabled(),
                 overflowTopic: this.overflowTopic || '',

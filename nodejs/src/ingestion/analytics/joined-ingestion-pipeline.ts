@@ -108,6 +108,7 @@ export function createJoinedIngestionPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
+        materializedColumnSlotManager,
         overflowRateLimiter,
         overflowEnabled,
         overflowTopic,

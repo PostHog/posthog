@@ -70,7 +70,7 @@ export class MaterializedColumnSlotManager {
                 slot_index,
                 property_type,
                 state,
-                COALESCE(materialization_type, 'dmat') as materialization_type
+                materialization_type
             FROM posthog_materializedcolumnslot
             WHERE team_id = ANY($1)
                 AND state IN ('READY', 'BACKFILL')
