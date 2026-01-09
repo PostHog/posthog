@@ -15,6 +15,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.person_property_reconciliation import (
     PersonPropertyDiffs,
     PropertyValue,
+    SkipReason,
     filter_event_person_properties,
     get_person_property_updates_from_clickhouse,
     reconcile_person_properties,
@@ -632,7 +633,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created = update_person_with_version_check(
+        success, result_data, _backup_created, _skip_reason = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -694,7 +695,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created = update_person_with_version_check(
+        success, result_data, _backup_created, _skip_reason = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -729,7 +730,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created = update_person_with_version_check(
+        success, result_data, _backup_created, skip_reason = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -739,6 +740,7 @@ class TestUpdatePersonWithVersionCheck:
 
         assert success is False
         assert result_data is None
+        assert skip_reason == SkipReason.NOT_FOUND
 
     def test_version_mismatch_retry(self):
         """Test retry on version mismatch (concurrent modification)."""
@@ -786,7 +788,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created = update_person_with_version_check(
+        success, result_data, _backup_created, _skip_reason = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -823,7 +825,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created = update_person_with_version_check(
+        success, result_data, _backup_created, skip_reason = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -834,6 +836,7 @@ class TestUpdatePersonWithVersionCheck:
 
         assert success is False
         assert result_data is None
+        assert skip_reason == SkipReason.VERSION_CONFLICT
 
 
 class TestBatchCommits:
@@ -1223,7 +1226,7 @@ class TestBackupFunctionality:
             unset_updates={},
         )
 
-        success, result_data, backup_created = update_person_with_version_check(
+        success, result_data, backup_created, _skip_reason = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -1273,7 +1276,7 @@ class TestBackupFunctionality:
             unset_updates={},
         )
 
-        success, _result_data, backup_created = update_person_with_version_check(
+        success, _result_data, backup_created, _skip_reason = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,

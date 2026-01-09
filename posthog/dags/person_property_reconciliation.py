@@ -59,6 +59,15 @@ class PersonPropertyDiffs:
     unset_updates: dict[str, PropertyValue]  # key -> PropertyValue (value is always None)
 
 
+class SkipReason:
+    """Reasons why a person update was skipped."""
+
+    SUCCESS = "success"  # Not skipped - successfully updated
+    NO_CHANGES = "no_changes"  # No changes needed after reconciliation
+    NOT_FOUND = "not_found"  # Person not found in Postgres
+    VERSION_CONFLICT = "version_conflict"  # Version mismatch after max retries
+
+
 def ensure_utc_datetime(ts: datetime) -> datetime:
     """Ensure timestamp is a UTC-aware datetime."""
     from datetime import UTC
@@ -536,7 +545,7 @@ def update_person_with_version_check(
     dry_run: bool = False,
     backup_enabled: bool = True,
     max_retries: int = 3,
-) -> tuple[bool, dict | None, bool]:
+) -> tuple[bool, dict | None, bool, str]:
     """
     Update a person's properties with optimistic locking.
 
@@ -555,15 +564,16 @@ def update_person_with_version_check(
         max_retries: Maximum retry attempts on version mismatch
 
     Returns:
-        Tuple of (success: bool, updated_person_data: dict | None, backup_created: bool)
+        Tuple of (success: bool, updated_person_data: dict | None, backup_created: bool, skip_reason: str)
         updated_person_data contains the final state for Kafka publishing
         backup_created indicates if a backup row was inserted
+        skip_reason indicates why the person was skipped (see SkipReason class)
     """
     for _attempt in range(max_retries):
         # Fetch current person state
         person = fetch_person_from_postgres(cursor, team_id, person_uuid)
         if not person:
-            return False, None, False
+            return False, None, False, SkipReason.NOT_FOUND
 
         current_version = person.get("version") or 0
 
@@ -571,7 +581,7 @@ def update_person_with_version_check(
         update = reconcile_person_properties(person, person_property_diffs)
         if not update:
             # No changes needed
-            return True, None, False
+            return True, None, False, SkipReason.NO_CHANGES
 
         # Backup before and after state for audit/rollback
         backup_created = False
@@ -582,7 +592,7 @@ def update_person_with_version_check(
             backup_created = True
 
         if dry_run:
-            return True, None, backup_created
+            return True, None, backup_created, SkipReason.SUCCESS
 
         # Write with version check
         cursor.execute(
@@ -620,13 +630,14 @@ def update_person_with_version_check(
                     "version": current_version + 1,
                 },
                 backup_created,
+                SkipReason.SUCCESS,
             )
 
         # Version mismatch - retry with fresh data
         # (loop will re-fetch person)
 
     # Exhausted retries
-    return False, None, False
+    return False, None, False, SkipReason.VERSION_CONFLICT
 
 
 @dataclass
@@ -650,6 +661,7 @@ def process_persons_in_batches(
     commit_fn: Any,  # Callable to commit transaction
     on_person_updated: Any = None,  # Optional callback for Kafka publishing etc
     on_batch_committed: Any = None,  # Optional callback after each batch commit
+    logger: Any = None,  # Optional logger for logging skipped persons
 ) -> BatchProcessingResult:
     """
     Process person property updates in batches with configurable commit frequency.
@@ -667,6 +679,7 @@ def process_persons_in_batches(
         commit_fn: Function to call for committing the transaction
         on_person_updated: Optional callback(person_data) when a person is updated
         on_batch_committed: Optional callback(batch_num, batch_persons) after each commit
+        logger: Optional logger for logging skipped persons (e.g., context.log from Dagster)
 
     Returns:
         BatchProcessingResult with counts
@@ -713,7 +726,7 @@ def process_persons_in_batches(
         batch_num += 1
 
     for i, person_diffs in enumerate(person_property_diffs):
-        success, person_data, backup_created = update_person_with_version_check(
+        success, person_data, backup_created, skip_reason = update_person_with_version_check(
             cursor=cursor,
             job_id=job_id,
             team_id=team_id,
@@ -728,12 +741,15 @@ def process_persons_in_batches(
 
         if not success:
             total_skipped += 1
+            if logger:
+                logger.warning(f"Skipped person uuid={person_diffs.person_id} team_id={team_id} reason={skip_reason}")
         elif person_data:
             batch_persons_to_publish.append(person_data)
             total_updated += 1
             if on_person_updated:
                 on_person_updated(person_data)
         else:
+            # No changes needed (success=True but person_data=None)
             total_skipped += 1
 
         total_processed += 1
@@ -928,6 +944,7 @@ def reconcile_team_chunk(
                 backup_enabled=config.backup_enabled,
                 commit_fn=persons_database.commit,
                 on_batch_committed=on_batch_committed,
+                logger=context.log,
             )
 
             total_persons_processed = result.total_processed
