@@ -5,6 +5,23 @@ from posthog.hogql import ast
 from posthog.hogql.visitor import CloningVisitor
 
 
+def unwrap_alias(node: ast.Expr) -> ast.Expr:
+    if isinstance(node, ast.Alias):
+        return unwrap_alias(node.expr)
+    return node
+
+
+def resolve_alias(expr: ast.Expr, query: ast.SelectQuery) -> Optional[ast.Expr]:
+    expr = unwrap_alias(expr)
+    if not isinstance(expr, ast.Field) or len(expr.chain) != 1 or not query.select:
+        return None
+    alias_name = expr.chain[0]
+    for select_expr in query.select:
+        if isinstance(select_expr, ast.Alias) and select_expr.alias == alias_name:
+            return select_expr.expr
+    return None
+
+
 class FieldReferenceRewriter(CloningVisitor):
     def __init__(self, outer_table_alias: str, inner_table_name: str):
         super().__init__(clear_locations=True)
@@ -13,27 +30,10 @@ class FieldReferenceRewriter(CloningVisitor):
 
     def visit_field(self, node: ast.Field):
         if len(node.chain) >= 2 and node.chain[0] == self.outer_table_alias:
-            return ast.Field(chain=[self.inner_table_name, *node.chain[1:]])
+            return ast.Field(chain=[self.inner_table_name, *node.chain[1:]], from_asterisk=node.from_asterisk)
         elif len(node.chain) == 1:
-            return ast.Field(chain=[self.inner_table_name, node.chain[0]])
-        return ast.Field(chain=list(node.chain))
-
-
-def unwrap_alias(node: ast.Expr) -> ast.Expr:
-    if isinstance(node, ast.Alias):
-        return unwrap_alias(node.expr)
-    return node
-
-
-def resolve_order_by_alias(order_expr: ast.OrderExpr, outer_query: ast.SelectQuery) -> Optional[ast.Expr]:
-    expr = unwrap_alias(order_expr.expr)
-    if not isinstance(expr, ast.Field) or len(expr.chain) != 1 or not outer_query.select:
-        return None
-    alias_name = expr.chain[0]
-    for select_expr in outer_query.select:
-        if isinstance(select_expr, ast.Alias) and select_expr.alias == alias_name:
-            return select_expr.expr
-    return None
+            return ast.Field(chain=[self.inner_table_name, node.chain[0]], from_asterisk=node.from_asterisk)
+        return ast.Field(chain=list(node.chain), from_asterisk=node.from_asterisk)
 
 
 def push_down_order_by(
@@ -49,7 +49,7 @@ def push_down_order_by(
     rewriter = FieldReferenceRewriter(outer_table_alias, inner_table_name)
     pushed_order_by = [
         ast.OrderExpr(
-            expr=rewriter.visit(resolve_order_by_alias(o, outer_query) or o.expr),
+            expr=rewriter.visit(resolve_alias(o.expr, outer_query) or o.expr),
             order=o.order,
         )
         for o in outer_query.order_by

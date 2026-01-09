@@ -107,25 +107,3 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
         assert inner_query.order_by is not None
         assert inner_query.limit is not None
         assert inner_query.offset is None, "OFFSET should not be pushed down to inner query"
-
-    def test_where_clause_pushed_down(self):
-        query = """
-            SELECT *
-            FROM document_embeddings
-            WHERE model_name = 'text-embedding-3-large-3072' AND team_id = 1
-        """
-        inner_query = self._get_inner_query(query)
-
-        assert inner_query.where is not None, "WHERE clause should be pushed down to inner query"
-
-    def test_multiple_where_conditions_pushed_down(self):
-        query = """
-            SELECT *
-            FROM document_embeddings
-            WHERE model_name = 'text-embedding-3-large-3072' AND team_id = 1 AND product = 'error_tracking'
-        """
-        inner_query = self._get_inner_query(query)
-
-        assert inner_query.where is not None, "WHERE clauses should be pushed down"
-        assert isinstance(inner_query.where, ast.And)
-        assert len(inner_query.where.exprs) == 2  # team_id and product (model_name is used for table selection)

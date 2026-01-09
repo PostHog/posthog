@@ -13,8 +13,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
-from posthog.hogql.transforms.order_by_pushdown import push_down_order_by, unwrap_alias
-from posthog.hogql.transforms.where_clause_pushdown import push_down_where_clauses
+from posthog.hogql.transforms.order_by_pushdown import push_down_order_by, resolve_alias, unwrap_alias
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 
@@ -57,7 +56,7 @@ def is_vector_distance_call(expr: ast.Expr) -> bool:
         return False
     for arg in expr.args:
         unwrapped = unwrap_alias(arg)
-        if isinstance(unwrapped, ast.Field) and unwrapped.chain[-1] == "embedding":
+        if isinstance(unwrapped, ast.Field) and unwrapped.chain and unwrapped.chain[-1] == "embedding":
             return True
     return False
 
@@ -65,15 +64,8 @@ def is_vector_distance_call(expr: ast.Expr) -> bool:
 def is_vector_distance_order_by(order_expr: ast.OrderExpr, node: ast.SelectQuery) -> bool:
     if is_vector_distance_call(order_expr.expr):
         return True
-    expr = unwrap_alias(order_expr.expr)
-    if not isinstance(expr, ast.Field) or len(expr.chain) != 1 or not node.select:
-        return False
-    alias_name = expr.chain[0]
-    for select_expr in node.select:
-        if isinstance(select_expr, ast.Alias) and select_expr.alias == alias_name:
-            if is_vector_distance_call(select_expr.expr):
-                return True
-    return False
+    resolved = resolve_alias(order_expr.expr, node)
+    return resolved is not None and is_vector_distance_call(resolved)
 
 
 def extract_model_name_from_where(node: Optional[ast.Expr]) -> Optional[str]:
@@ -162,13 +154,6 @@ class DocumentEmbeddingsTable(LazyTable):
                 outer_table_alias="document_embeddings",
                 inner_table_name=table_name,
                 should_push_down=is_vector_distance_order_by,
-            )
-
-            push_down_where_clauses(
-                outer_query=node,
-                inner_query=inner_query,
-                outer_table_alias="document_embeddings",
-                inner_table_name=table_name,
             )
 
             return inner_query
