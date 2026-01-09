@@ -266,7 +266,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
     selectors(() => ({
         count: [(selectors) => [selectors.experiments], (experiments) => experiments.count],
         paramsFromFilters: [
-            (s) => [s.filters, s.tab],
+            (s) => [s.filters],
             (filters: ExperimentsFilters) => ({
                 ...filters,
                 limit: EXPERIMENTS_PER_PAGE,

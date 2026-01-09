@@ -346,7 +346,7 @@ const ExperimentsTable = ({
                                                         title: 'Archive this experiment?',
                                                         content: (
                                                             <div className="text-sm text-secondary">
-                                                                This action will hide the experiment from the list per
+                                                                This action will hide the experiment from the list by
                                                                 default. It can be restored at any time.
                                                             </div>
                                                         ),
