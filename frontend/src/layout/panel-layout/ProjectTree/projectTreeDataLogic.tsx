@@ -484,7 +484,18 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         folders: [
             {} as Record<string, FileSystemEntry[]>,
             {
-                loadFolderSuccess: (state, { folder, entries }) => ({ ...state, [folder]: entries }),
+                loadFolderSuccess: (state, { folder, entries }) => {
+                    // Deduplicate entries by ID to prevent duplicate items from appearing
+                    const seenIds = new Set<string>()
+                    const uniqueEntries = entries.filter((entry) => {
+                        if (!entry.id || seenIds.has(entry.id)) {
+                            return false
+                        }
+                        seenIds.add(entry.id)
+                        return true
+                    })
+                    return { ...state, [folder]: uniqueEntries }
+                },
                 addLoadedResults: (state, { results }) => appendResultsToFolders(results, state),
                 createSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
