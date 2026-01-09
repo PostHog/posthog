@@ -4851,8 +4851,8 @@ class TestReconcileWithConcurrentChanges:
 
     def test_set_once_applies_for_new_key(self):
         """set_once applies when key doesn't exist in Postgres."""
-        ch_properties = {}
-        postgres_person = {
+        ch_properties: dict[str, Any] = {}
+        postgres_person: dict[str, Any] = {
             "properties": {},
             "properties_last_updated_at": {},
             "properties_last_operation": {},
@@ -4872,8 +4872,8 @@ class TestReconcileWithConcurrentChanges:
 
     def test_set_once_skipped_when_key_exists_in_postgres(self):
         """set_once is skipped when key already exists in Postgres (even if added concurrently)."""
-        ch_properties = {}  # Key didn't exist at CH version
-        postgres_person = {
+        ch_properties: dict[str, Any] = {}  # Key didn't exist at CH version
+        postgres_person: dict[str, Any] = {
             "properties": {"referrer": "facebook.com"},  # But now exists in Postgres
             "properties_last_updated_at": {"referrer": "2024-01-12T00:00:00"},
             "properties_last_operation": {"referrer": "set"},
