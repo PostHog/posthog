@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
-from posthog.models.integration import Integration, LinearIntegration
+from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_external_reference import SessionRecordingExternalReference
 
@@ -41,6 +41,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     external_url = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
     issue_id = serializers.SerializerMethodField()
+    metadata = serializers.SerializerMethodField()
 
     class Meta:
         model = SessionRecordingExternalReference
@@ -53,8 +54,9 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             "external_url",
             "title",
             "issue_id",
+            "metadata",
         ]
-        read_only_fields = ["external_url", "title", "issue_id"]
+        read_only_fields = ["external_url", "title", "issue_id", "metadata"]
 
     def get_external_url(self, reference: SessionRecordingExternalReference) -> str:
         external_context = self._get_external_context(reference)
@@ -62,6 +64,8 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         if reference.integration.kind == Integration.IntegrationKind.LINEAR:
             url_key = LinearIntegration(reference.integration).url_key()
             return f"https://linear.app/{url_key}/issue/{external_context['id']}"
+        elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
+            return external_context.get("url", "")
         else:
             return ""
 
@@ -74,6 +78,15 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     def get_issue_id(self, reference: SessionRecordingExternalReference) -> str:
         """Get the external issue ID (e.g., POST-123) from the issue tracker"""
         return self._get_external_context(reference).get("id", "")
+
+    def get_metadata(self, reference: SessionRecordingExternalReference) -> dict[str, str]:
+        """Get provider-specific metadata (e.g., repository for GitHub, project for Linear)"""
+        external_context = self._get_external_context(reference)
+
+        if reference.integration.kind == Integration.IntegrationKind.GITHUB:
+            return {"repository": external_context.get("repository", "")}
+
+        return {}
 
     def validate(self, data):
         """Ensure both session recording and integration belong to the same team"""
@@ -125,6 +138,16 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
                 team.pk, session_recording.session_id, config
             )
             external_context["title"] = title
+        elif integration.kind == Integration.IntegrationKind.GITHUB:
+            title = config.get("title", "")
+            config["body"] = f"{config.get('body', '')}\n\n**PostHog recording:** {recording_url}"
+            response = GitHubIntegration(integration).create_issue(config)
+            external_context = {
+                "id": f"#{response.get('number', '')}",
+                "url": response.get("html_url", ""),
+                "title": title,
+                "repository": response.get("repository", ""),
+            }
         else:
             raise ValidationError(f"Integration kind '{integration.kind}' not supported")
 
@@ -150,7 +173,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
 class SessionRecordingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     ViewSet for managing external references to session recordings.
-    Supports creating issues in Linear from session replays.
+    Supports creating issues in Linear and GitHub from session replays.
     """
 
     scope_object = "INTERNAL"
