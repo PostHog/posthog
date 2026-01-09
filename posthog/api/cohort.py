@@ -79,9 +79,13 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
+# Maximum person count for a cohort to be eligible for real-time evaluation
+# Cohorts with more than 20M persons cannot be real-time due to system limitations
+REALTIME_COHORT_MAX_PERSON_COUNT = 20_000_000
+
 
 def validate_filters_and_compute_realtime_support(
-    filters_dict: dict, team: Team, current_cohort_type: str | None = None
+    filters_dict: dict, team: Team, current_cohort_type: str | None = None, cohort_count: int | None = None
 ) -> tuple[dict, str | None, list | None]:
     try:
         if not filters_dict:
@@ -96,6 +100,11 @@ def validate_filters_and_compute_realtime_support(
         cohort_type = (
             CohortType.REALTIME if _calculate_realtime_support(cast(Group, validated_filters.properties)) else None
         )
+
+        # Check if cohort exceeds the maximum person count for real-time evaluation
+        if cohort_type == CohortType.REALTIME and cohort_count is not None:
+            if cohort_count > REALTIME_COHORT_MAX_PERSON_COUNT:
+                cohort_type = None
 
         return clean_filters, cohort_type, None
 
@@ -802,7 +811,7 @@ class CohortSerializer(serializers.ModelSerializer):
             filters = validated_data["filters"]
             if filters:
                 clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
-                    filters, cohort.team, current_cohort_type=cohort.cohort_type
+                    filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
                 )
                 cohort.filters = clean_filters
                 # Always compute cohort_type from filters; ignore any client-provided value
