@@ -10,7 +10,7 @@ from django.test.client import Client as HttpClient
 
 from asgiref.sync import async_to_sync
 from rest_framework import status
-from temporalio.client import ScheduleActionStartWorkflow
+from temporalio.client import ScheduleActionStartWorkflow, ScheduleDescription, ScheduleRange
 
 from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.batch_exports.fixtures import create_organization
@@ -26,8 +26,24 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"])
-def test_create_batch_export_with_interval_schedule(client: HttpClient, interval, temporal, organization, team, user):
+def _assert_is_daily_schedule(schedule: ScheduleDescription, expected_hour: int):
+    """Assert the schedule is a daily schedule."""
+    calendars = schedule.schedule.spec.calendars
+    assert len(calendars) == 1
+    assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
+    assert schedule.schedule.spec.jitter == dt.timedelta(hours=1)
+
+
+def _assert_is_weekly_schedule(schedule: ScheduleDescription, expected_day: int, expected_hour: int):
+    """Assert the schedule is a weekly schedule."""
+    calendars = schedule.schedule.spec.calendars
+    assert len(calendars) == 1
+    assert calendars[0].day_of_week == (ScheduleRange(start=expected_day, end=expected_day),)
+    assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
+    assert schedule.schedule.spec.jitter == dt.timedelta(hours=1)
+
+
+def test_create_batch_export_with_interval_schedule(client: HttpClient, temporal, organization, team, user):
     """Test creating a BatchExport.
 
     When creating a BatchExport, we should create a corresponding Schedule in
@@ -35,6 +51,8 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
     test we assert this Schedule is created in Temporal and populated with the
     expected inputs.
     """
+
+    interval = "hour"
 
     destination_data = {
         "type": "S3",
@@ -113,12 +131,8 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
     assert args["batch_export_id"] == data["id"]
     assert args["interval"] == interval
 
-    if interval == "hour":
-        assert batch_export.jitter == dt.timedelta(minutes=15)
-    elif interval == "day":
-        assert batch_export.jitter == dt.timedelta(hours=1)
-    elif interval == "every 5 minutes":
-        assert batch_export.jitter == dt.timedelta(minutes=1)
+    # expected jitter is 15 minutes for hourly exports
+    assert batch_export.jitter == dt.timedelta(minutes=15)
 
     # S3 specific inputs
     assert args["bucket_name"] == "my-production-s3-bucket"
@@ -130,15 +144,34 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
 
 
 @pytest.mark.parametrize(
-    "timezone",
-    ["US/Pacific"],
+    "timezone", ["US/Pacific", "UTC", "Europe/Berlin", "Asia/Tokyo", "Pacific/Marquesas", "Asia/Kathmandu", "invalid"]
 )
-def test_create_batch_export_with_different_team_timezones(client: HttpClient, timezone: str, temporal, organization):
-    """Test creating a BatchExport.
+@pytest.mark.parametrize(
+    "interval_offset",
+    [
+        0,
+        3600,  # 1 hour
+        108_000,  # 30 hours, which for weekly export means it should run at 6am on Monday (local time)
+    ],
+)
+@pytest.mark.parametrize(
+    "interval",
+    ["day", "week", "hour", "every 5 minutes"],
+)
+def test_create_batch_export_with_different_intervals_timezones_and_interval_offsets(
+    client: HttpClient, timezone: str, interval_offset: int, interval: str, temporal, organization
+):
+    """Test creating a BatchExport with different intervals, timezones and interval offsets.
 
-    When creating a BatchExport, we should create a corresponding Schedule in
-    Temporal as described by the associated BatchExportSchedule model. In this
-    test we assert this Schedule is created in Temporal with the Team's timezone.
+    A user should be able to create a BatchExport in the timezone of their choice, and set an interval offset to run it
+    at a different time.  For example they could create a daily export at 1am US/Pacific time by setting timezone and
+    the interval offset to 3600.
+
+    For intervals other than daily or weekly, the timezone and interval offset have no effect.
+
+    When creating a BatchExport, we should create a corresponding Schedule in Temporal as described by the associated
+    BatchExport model. In this test we assert this Schedule is created in Temporal with the expected timezone and
+    interval offset. We check the upcoming runs to confirm these look correct based on this information.
     """
 
     destination_data = {
@@ -155,46 +188,121 @@ def test_create_batch_export_with_different_team_timezones(client: HttpClient, t
     batch_export_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
-        "interval": "day",
+        "interval": interval,
+        "timezone": timezone,
+        "interval_offset": interval_offset,
     }
 
-    team = create_team(organization, timezone=timezone)
+    # create a team with a timezone different to the one we are testing to ensure this has no effect on the batch export
+    team = create_team(organization, timezone="Asia/Seoul")
     user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
+    # ensure high-frequency-batch-exports feature flag is enabled
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        return_value=True,
+    ):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    # if invalid interval offset we should raise a validation error
+    expect_error = False
+    if interval != "day" and interval != "week" and interval_offset > 0:
+        expect_error = True
+    elif interval == "day" and interval_offset > 24 * 60 * 60:
+        expect_error = True
+    elif timezone == "invalid":
+        expect_error = True
+
+    if expect_error:
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        return
 
     assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     data = response.json()
+
     schedule = describe_schedule(temporal, data["id"])
-    intervals = schedule.schedule.spec.intervals
 
-    assert len(intervals) == 1
-    assert schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
+    batch_export = BatchExport.objects.get(id=data["id"])
+    assert schedule.schedule.spec.jitter == batch_export.jitter
     assert schedule.schedule.spec.time_zone_name == timezone
+    assert batch_export.timezone == timezone
 
-    # Assert next run time is at midnight in the given timezone (within jitter tolerance)
-    jitter = dt.timedelta(hours=1)  # For "day" interval
+    if interval == "hour":
+        intervals = schedule.schedule.spec.intervals
+        assert len(intervals) == 1
+        assert intervals[0].every == dt.timedelta(hours=1)
+        assert batch_export.jitter == dt.timedelta(minutes=15)
+    elif interval == "every 5 minutes":
+        intervals = schedule.schedule.spec.intervals
+        assert len(intervals) == 1
+        assert intervals[0].every == dt.timedelta(minutes=5)
+        assert batch_export.jitter == dt.timedelta(minutes=1)
+    elif interval == "day":
+        expected_hour = interval_offset // 3600
+        _assert_is_daily_schedule(schedule, expected_hour)
+    elif interval == "week":
+        offset_in_hours = interval_offset // 3600
+        expected_day = offset_in_hours // 24
+        expected_hour = offset_in_hours % 24
+        _assert_is_weekly_schedule(schedule, expected_day, expected_hour)
 
+    # Assert next run time is what we expect based on the interval and interval offset
     next_runs = schedule.info.next_action_times
-    assert len(next_runs) > 0
+    assert len(next_runs) > 1
     next_run = next_runs[0]
+    next_run_2 = next_runs[1]
 
     # Convert to the schedule's timezone
     tz = ZoneInfo(timezone)
     next_run_local = next_run.astimezone(tz)
+    jitter = batch_export.jitter
 
-    # Check that it's at midnight (00:00:00) within jitter tolerance
-    midnight = next_run_local.replace(hour=0, minute=0, second=0, microsecond=0)
-    time_diff = abs((next_run_local - midnight).total_seconds())
-    assert (
-        time_diff <= jitter.total_seconds()
-    ), f"Next run {next_run_local} is not at midnight within jitter tolerance of {jitter}"
+    # Assert time between runs is roughly the interval time delta
+    min_expected_time_diff = batch_export.interval_time_delta.total_seconds() - jitter.total_seconds()
+    max_expected_time_diff = batch_export.interval_time_delta.total_seconds() + jitter.total_seconds()
+    assert abs((next_run_2 - next_run).total_seconds()) >= min_expected_time_diff
+    assert abs((next_run_2 - next_run).total_seconds()) <= max_expected_time_diff
+
+    if interval == "day":
+        # For daily exports, check that it runs at the expected hour (based on interval_offset)
+        expected_hour = interval_offset // 3600
+        expected_time = next_run_local.replace(hour=expected_hour, minute=0, second=0, microsecond=0)
+        time_diff = abs((next_run_local - expected_time).total_seconds())
+        assert time_diff <= jitter.total_seconds(), (
+            f"Next run {next_run_local} is at {next_run_local.hour}:{next_run_local.minute}, "
+            f"expected {expected_hour}:00 within jitter tolerance of {jitter}"
+        )
+    elif interval == "week":
+        # For weekly exports, check that it runs on the expected day and hour (based on interval_offset)
+        offset_in_hours = interval_offset // 3600
+        expected_day = offset_in_hours // 24
+        expected_hour = offset_in_hours % 24
+        expected_time = next_run_local.replace(hour=expected_hour, minute=0, second=0, microsecond=0)
+        time_diff = abs((next_run_local - expected_time).total_seconds())
+        # Check day of week (Temporal treats Sunday as 0)
+        actual_day = next_run_local.weekday()  # Monday=0, Sunday=6
+        # Convert to Temporal's day format (Sunday=0)
+        actual_day_temporal = (actual_day + 1) % 7
+        # Additional sense check here just to ensure this makes sense
+        if interval_offset == 0 or interval_offset == 3600:
+            assert actual_day_temporal == 0  # Sunday
+        elif interval_offset == 108_000:
+            assert actual_day_temporal == 1  # Monday
+        assert (
+            actual_day_temporal == expected_day
+        ), f"Next run {next_run_local} is on day {actual_day_temporal}, expected {expected_day}"
+        assert time_diff <= jitter.total_seconds(), (
+            f"Next run {next_run_local} is at {next_run_local.hour}:{next_run_local.minute}, "
+            f"expected {expected_hour}:00 within jitter tolerance of {jitter}"
+        )
+    # For hour and "every 5 minutes" intervals, timezone and interval_offset have no effect
+    # so we don't need to check for a specific time
 
 
 def test_cannot_create_a_batch_export_for_another_organization(client: HttpClient, temporal, organization, user):
@@ -1418,12 +1526,7 @@ def test_creating_workflows_batch_export(
     assert data["destination"] == destination_data
 
     schedule = describe_schedule(temporal, data["id"])
-    intervals = schedule.schedule.spec.intervals
-
-    assert len(intervals) == 1
-    assert schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
-    assert isinstance(schedule.schedule.action, ScheduleActionStartWorkflow)
-    assert schedule.schedule.action.workflow == "workflows-export"
+    _assert_is_daily_schedule(schedule, 0)
 
 
 def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(
