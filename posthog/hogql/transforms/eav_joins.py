@@ -132,8 +132,6 @@ def add_eav_joins(node: ast.SelectQuery, context: HogQLContext) -> ast.SelectQue
     if not events_alias:
         return node
 
-    # Create aliases for each EAV property
-    # The printer will handle backtick escaping for special characters
     eav_aliases: dict[str, str] = {}
     for property_name in finder.eav_properties.keys():
         eav_aliases[property_name] = f"eav_{property_name}"
