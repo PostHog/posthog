@@ -322,8 +322,8 @@ export const workflowLogic = kea<workflowLogicType>([
                         }
 
                         if (
-                            isFunctionAction(action) ||
-                            (isTriggerFunction(action) && !hogFunctionTemplatesByIdLoading)
+                            (isFunctionAction(action) || isTriggerFunction(action)) &&
+                            !hogFunctionTemplatesByIdLoading
                         ) {
                             const template = hogFunctionTemplatesById[action.config.template_id]
                             if (!template) {
