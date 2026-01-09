@@ -13,7 +13,7 @@ import {
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems, LemonMenuOverlay } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
@@ -28,7 +28,17 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlay, IconPlus, IconX } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconCollapse,
+    IconCopy,
+    IconEllipsis,
+    IconExpand,
+    IconPencil,
+    IconPlay,
+    IconPlus,
+    IconX,
+} from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -86,7 +96,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         toggleEditingTitle,
         copyToClipboard,
         convertToBacklink,
-        runPythonNode,
+        runPythonNodeWithMode,
     } = useActions(nodeLogic)
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
@@ -143,7 +153,26 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isResizeable = resizeable && (!expandable || expanded)
     const isDraggable = !!(isEditable && getPos)
     const isPythonNode = nodeType === NotebookNodeType.Python
-    const pythonCode = isPythonNode ? ((attributes as { code?: string }).code ?? '') : ''
+    const pythonRunDisabledReason = !notebook ? 'Notebook not loaded' : undefined
+
+    const pythonRunMenuItems: LemonMenuItems = [
+        {
+            label: 'Run (auto)',
+            onClick: () => void runPythonNodeWithMode({ mode: 'auto' }),
+        },
+        {
+            label: 'Run cell + upstream',
+            onClick: () => void runPythonNodeWithMode({ mode: 'cell_upstream' }),
+        },
+        {
+            label: 'Run cell',
+            onClick: () => void runPythonNodeWithMode({ mode: 'cell' }),
+        },
+        {
+            label: 'Run cell + downstream',
+            onClick: () => void runPythonNodeWithMode({ mode: 'cell_downstream' }),
+        },
+    ]
 
     const menuItems: LemonMenuItems = [
         {
@@ -222,11 +251,22 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
                                                 {isPythonNode ? (
                                                     <LemonButton
-                                                        onClick={() => void runPythonNode({ code: pythonCode })}
+                                                        onClick={() => void runPythonNodeWithMode({ mode: 'auto' })}
                                                         size="small"
                                                         icon={<IconPlay />}
                                                         loading={pythonRunLoading}
-                                                        disabled={!notebook}
+                                                        disabledReason={pythonRunDisabledReason}
+                                                        sideAction={{
+                                                            icon: <IconChevronDown />,
+                                                            dropdown: {
+                                                                placement: 'bottom-end',
+                                                                overlay: (
+                                                                    <LemonMenuOverlay items={pythonRunMenuItems} />
+                                                                ),
+                                                            },
+                                                            'aria-label': 'Open run options',
+                                                            disabledReason: pythonRunDisabledReason,
+                                                        }}
                                                     />
                                                 ) : null}
 

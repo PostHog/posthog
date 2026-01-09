@@ -33,6 +33,45 @@ import { VariableUsage } from './notebookNodeContent'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { PythonKernelExecuteResponse, buildPythonExecutionError, buildPythonExecutionResult } from './pythonExecution'
 
+type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
+
+type RunPythonCellParams = {
+    notebookId: string
+    code: string
+    exportedGlobals: { name: string; type: string }[]
+    updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
+    setPythonRunLoading: (loading: boolean) => void
+}
+
+const runPythonCell = async ({
+    notebookId,
+    code,
+    exportedGlobals,
+    updateAttributes,
+    setPythonRunLoading,
+}: RunPythonCellParams): Promise<boolean> => {
+    setPythonRunLoading(true)
+    try {
+        const execution = (await api.notebooks.kernelExecute(notebookId, {
+            code,
+            return_variables: exportedGlobals.length > 0,
+        })) as PythonKernelExecuteResponse
+
+        updateAttributes({
+            pythonExecution: buildPythonExecutionResult(execution, exportedGlobals),
+        })
+        return true
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to run Python cell.'
+        updateAttributes({
+            pythonExecution: buildPythonExecutionError(message, exportedGlobals),
+        })
+        return false
+    } finally {
+        setPythonRunLoading(false)
+    }
+}
+
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
@@ -72,6 +111,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         convertToBacklink: (href: string) => ({ href }),
         navigateToNode: (nodeId: string) => ({ nodeId }),
         runPythonNode: (payload: { code: string }) => payload,
+        runPythonNodeWithMode: (payload: { mode: PythonRunMode }) => payload,
         setPythonRunLoading: (loading: boolean) => ({ loading }),
     }),
 
@@ -402,24 +442,53 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             if (!notebook) {
                 return
             }
+            await runPythonCell({
+                notebookId: notebook.short_id,
+                code,
+                exportedGlobals: values.exportedGlobals,
+                updateAttributes: actions.updateAttributes,
+                setPythonRunLoading: actions.setPythonRunLoading,
+            })
+        },
 
-            actions.setPythonRunLoading(true)
-            try {
-                const execution = (await api.notebooks.kernelExecute(notebook.short_id, {
-                    code,
-                    return_variables: values.exportedGlobals.length > 0,
-                })) as PythonKernelExecuteResponse
+        runPythonNodeWithMode: async ({ mode }) => {
+            if (props.nodeType !== NotebookNodeType.Python) {
+                return
+            }
+            const notebook = values.notebook
+            if (!notebook) {
+                return
+            }
 
-                actions.updateAttributes({
-                    pythonExecution: buildPythonExecutionResult(execution, values.exportedGlobals),
+            const currentIndex = values.pythonNodeSummaries.findIndex((node) => node.nodeId === values.nodeId)
+            if (currentIndex === -1 || mode === 'auto' || mode === 'cell') {
+                await actions.runPythonNode({ code: (values.nodeAttributes as { code?: string }).code ?? '' })
+                return
+            }
+
+            const nodesToRun =
+                mode === 'cell_upstream'
+                    ? values.pythonNodeSummaries.slice(0, currentIndex + 1)
+                    : values.pythonNodeSummaries.slice(currentIndex)
+
+            for (const node of nodesToRun) {
+                const nodeLogic = values.notebookLogic.values.findNodeLogicById(node.nodeId)
+                if (!nodeLogic) {
+                    continue
+                }
+
+                const nodeCode = (nodeLogic.values.nodeAttributes as { code?: string }).code ?? node.code ?? ''
+                const executed = await runPythonCell({
+                    notebookId: notebook.short_id,
+                    code: nodeCode,
+                    exportedGlobals: nodeLogic.values.exportedGlobals,
+                    updateAttributes: nodeLogic.actions.updateAttributes,
+                    setPythonRunLoading: nodeLogic.actions.setPythonRunLoading,
                 })
-            } catch (error) {
-                const message = error instanceof Error ? error.message : 'Failed to run Python cell.'
-                actions.updateAttributes({
-                    pythonExecution: buildPythonExecutionError(message, values.exportedGlobals),
-                })
-            } finally {
-                actions.setPythonRunLoading(false)
+
+                if (!executed) {
+                    break
+                }
             }
         },
     })),
