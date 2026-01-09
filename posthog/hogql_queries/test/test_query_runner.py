@@ -544,9 +544,65 @@ class TestApplySeriesCustomNames(BaseTest):
 
         self.assertEqual(patched_response.results, expected_results)
 
-    def test_does_not_patch_funnels_query(self):
-        """FunnelsQuery stores custom_name at top level of step, not nested under action.
-        Patching should be skipped for non-TrendsQuery types."""
+    @parameterized.expand(
+        [
+            (
+                "patches_funnel_steps_without_breakdown",
+                [
+                    {"order": 0, "custom_name": "Old Step 1", "count": 100},
+                    {"order": 1, "custom_name": "Old Step 2", "count": 50},
+                ],
+                [
+                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
+                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
+                ],
+                True,
+            ),
+            (
+                "patches_funnel_steps_with_breakdown",
+                [
+                    [
+                        {"order": 0, "custom_name": None, "count": 100, "breakdown": "Chrome"},
+                        {"order": 1, "custom_name": None, "count": 50, "breakdown": "Chrome"},
+                    ],
+                    [
+                        {"order": 0, "custom_name": None, "count": 80, "breakdown": "Firefox"},
+                        {"order": 1, "custom_name": None, "count": 40, "breakdown": "Firefox"},
+                    ],
+                ],
+                [
+                    [
+                        {"order": 0, "custom_name": "Step 1 Renamed", "count": 100, "breakdown": "Chrome"},
+                        {"order": 1, "custom_name": "Step 2 Renamed", "count": 50, "breakdown": "Chrome"},
+                    ],
+                    [
+                        {"order": 0, "custom_name": "Step 1 Renamed", "count": 80, "breakdown": "Firefox"},
+                        {"order": 1, "custom_name": "Step 2 Renamed", "count": 40, "breakdown": "Firefox"},
+                    ],
+                ],
+                True,
+            ),
+            (
+                "not_modified_when_names_match",
+                [
+                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
+                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
+                ],
+                [
+                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
+                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
+                ],
+                False,
+            ),
+        ]
+    )
+    def test_apply_funnels_custom_names(
+        self,
+        _name: str,
+        cached_results: list,
+        expected_results: list,
+        expect_modified: bool,
+    ):
         from datetime import UTC
 
         from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
@@ -562,13 +618,8 @@ class TestApplySeriesCustomNames(BaseTest):
 
         runner = FunnelsQueryRunner(query=query, team=self.team)
 
-        original_results = [
-            {"name": "step1", "custom_name": "Original Step 1", "order": 0, "count": 100},
-            {"name": "step2", "custom_name": "Original Step 2", "order": 1, "count": 50},
-        ]
-
         cached_response = CachedFunnelsQueryResponse(
-            results=[original_results],
+            results=cached_results,
             is_cached=True,
             last_refresh=datetime.now(UTC),
             next_allowed_client_refresh=datetime.now(UTC),
@@ -578,8 +629,8 @@ class TestApplySeriesCustomNames(BaseTest):
 
         patched_response, was_modified = runner.apply_series_custom_names(cached_response)
 
-        self.assertEqual(patched_response.results, [original_results])
-        self.assertFalse(was_modified)
+        self.assertEqual(patched_response.results, expected_results)
+        self.assertEqual(was_modified, expect_modified)
 
     @parameterized.expand(
         [

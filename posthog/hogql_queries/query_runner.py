@@ -1390,16 +1390,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cached responses may have stale custom_name values. This method patches
         the response with the current query's custom_name values.
 
-        Note: Only applies to TrendsQuery. Other query types (e.g. FunnelsQuery) store
-        custom_name in different result locations and require separate handling.
-
         Returns:
             Tuple of (patched_response, was_modified) - was_modified is True if any
             custom_name values were actually changed.
         """
-        if not isinstance(self.query, TrendsQuery):
-            return cached_response, False
+        if isinstance(self.query, TrendsQuery):
+            return self._apply_trends_custom_names(cached_response)
+        elif isinstance(self.query, FunnelsQuery):
+            return self._apply_funnels_custom_names(cached_response)
+        return cached_response, False
 
+    def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
+        """Apply custom_name values to TrendsQuery results (nested under action)."""
         series = getattr(self.query, "series", None)
         if not series:
             return cached_response, False
@@ -1426,6 +1428,55 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if action.get("custom_name") != new_name:
                     action["custom_name"] = new_name
                     was_modified = True
+
+        return cached_response, was_modified
+
+    def _apply_funnels_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
+        """
+        Apply custom_name values to FunnelsQuery results (top-level of step dict).
+
+        Funnel results have two structures:
+        - Without breakdown: flat list of steps [step1, step2, ...]
+        - With breakdown: list of lists [[step1, step2], [step1, step2], ...]
+        """
+        series = getattr(self.query, "series", None)
+        if not series:
+            return cached_response, False
+
+        results = getattr(cached_response, "results", None)
+        if not results or not isinstance(results, list):
+            return cached_response, False
+
+        custom_names_by_order: dict[int, str | None] = {}
+        for i, s in enumerate(series):
+            custom_name = getattr(s, "custom_name", None)
+            custom_names_by_order[i] = custom_name
+
+        was_modified = False
+
+        if results and len(results) > 0 and isinstance(results[0], list):
+            # Breakdown case: iterate through each breakdown group
+            for breakdown_group in results:
+                for step in breakdown_group:
+                    if not isinstance(step, dict):
+                        continue
+                    order = step.get("order")
+                    if order is not None and order in custom_names_by_order:
+                        new_name = custom_names_by_order[order]
+                        if step.get("custom_name") != new_name:
+                            step["custom_name"] = new_name
+                            was_modified = True
+        else:
+            # Non-breakdown case: flat list of steps
+            for step in results:
+                if not isinstance(step, dict):
+                    continue
+                order = step.get("order")
+                if order is not None and order in custom_names_by_order:
+                    new_name = custom_names_by_order[order]
+                    if step.get("custom_name") != new_name:
+                        step["custom_name"] = new_name
+                        was_modified = True
 
         return cached_response, was_modified
 
