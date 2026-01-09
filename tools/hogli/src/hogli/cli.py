@@ -11,9 +11,7 @@ from collections import defaultdict
 
 import click
 from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand
-from hogli.manifest import REPO_ROOT, load_manifest
-
-BIN_DIR = REPO_ROOT / "bin"
+from hogli.manifest import REPO_ROOT, get_manifest, load_manifest
 
 
 class CategorizedGroup(click.Group):
@@ -195,15 +193,14 @@ def _register_script_commands() -> None:
     """Dynamically register commands from scripts_manifest.yaml.
 
     Supports three types of entries:
-    1. bin_script: Delegate to a shell script
+    1. bin_script: Delegate to a shell script (in config.scripts_dir, default: bin/)
     2. steps: Compose multiple hogli commands in sequence
     3. cmd: Execute a direct shell command
     """
-    manifest = load_manifest()
-    if not manifest:
-        return
+    manifest = get_manifest()
+    scripts_dir = manifest.scripts_dir
 
-    for _category, scripts in manifest.items():
+    for _category, scripts in manifest.data.items():
         if not isinstance(scripts, dict):
             continue
 
@@ -233,7 +230,7 @@ def _register_script_commands() -> None:
 
             # Handle bin_script delegation
             if bin_script:
-                script_path = BIN_DIR / bin_script
+                script_path = scripts_dir / bin_script
                 if not script_path.exists():
                     continue
 

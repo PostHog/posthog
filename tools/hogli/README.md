@@ -53,13 +53,15 @@ build:
 
 ### Script delegation (`bin_script`)
 
-Delegate to a script in `bin/`:
+Delegate to a script in your scripts directory (default: `bin/`):
 
 ```yaml
 deploy:
     bin_script: deploy.sh
     description: Deploy to production
 ```
+
+Scripts are resolved relative to `config.scripts_dir` (see Configuration below).
 
 ### Composite commands (`steps`)
 
@@ -93,7 +95,8 @@ def my_thing():
 
 ```yaml
 config:
-    commands_dir: path/to/custom/commands  # Optional, defaults to hogli/
+    commands_dir: path/to/custom/commands  # Custom Python commands, defaults to hogli/
+    scripts_dir: scripts                    # For bin_script commands, defaults to bin/
 
 metadata:
     categories:
@@ -102,6 +105,16 @@ metadata:
         - key: test
           title: Testing
 ```
+
+## Script Discovery
+
+hogli can auto-discover executable scripts in your `scripts_dir` that aren't yet in the manifest:
+
+```bash
+hogli meta:check  # Shows scripts missing from manifest
+```
+
+This helps keep your manifest in sync with available scripts.
 
 ## License
 

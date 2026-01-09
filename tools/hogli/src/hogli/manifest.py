@@ -103,6 +103,21 @@ class Manifest:
             return default_path
         return None
 
+    @property
+    def scripts_dir(self) -> Path:
+        """Get scripts directory path for bin_script commands.
+
+        Resolution order:
+        1. config.scripts_dir in hogli.yaml (relative to repo root)
+        2. Default: bin/ in repo root
+
+        Always returns a path (may not exist).
+        """
+        configured = self.config.get("scripts_dir")
+        if configured:
+            return REPO_ROOT / configured
+        return REPO_ROOT / "bin"
+
     def get_category_for_command(self, command_name: str) -> str:
         """Get category for a command based on which section it's placed in.
 
