@@ -299,8 +299,7 @@ class ClickHousePrinter(HogQLPrinter):
         # Wrap in ifNull to ensure proper boolean semantics when composed with not() or other logic.
         # - equals(NULL, 'value') → NULL, but should be 0 (false) so not() works correctly
         # - notEquals(NULL, 'value') → NULL, but should be 1 (true) since NULL != 'value'
-        # The ifNull wrapper doesn't prevent skip index usage since the bloom filter check
-        # happens on the direct column reference inside equals/notEquals.
+        # The ifNull wrapper doesn't prevent skip index usage, and there are tests for this :)
         if node.op == ast.CompareOperationOp.Eq:
             return f"ifNull(equals({materialized_column_sql}, {constant_sql}), 0)"
         else:  # NotEq

@@ -3100,9 +3100,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
             self.assertLessEqual(expected_context_values.items(), context.values.items())
 
     def test_materialized_column_optimized_equality_comparison(self) -> None:
-        # Both equals and notEquals need ifNull wrappers to ensure proper boolean semantics
-        # when composed with not() or other boolean logic. The ifNull doesn't prevent skip
-        # index usage since the bloom filter check happens on the direct column reference.
         with materialized("events", "test_prop") as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop = 'some_value'",
@@ -3114,10 +3111,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
                 f"ifNull(equals(events.{mat_col.name}, %(hogql_val_0)s), 0)",
                 {"hogql_val_0": "some_value"},
             )
-
-    def test_materialized_column_optimized_not_equality_comparison(self) -> None:
-        # notEquals uses ifNull(..., 1) because NULL != 'value' should be true in PostHog semantics
-        with materialized("events", "test_prop") as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop != 'some_value'",
                 f"ifNull(notEquals(events.{mat_col.name}, %(hogql_val_0)s), 1)",
