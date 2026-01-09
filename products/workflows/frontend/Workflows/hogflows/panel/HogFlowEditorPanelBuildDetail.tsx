@@ -36,9 +36,15 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const [outputResultPath, setOutputResultPath] = useState(selectedNode?.data.output_variable?.result_path || '')
     useEffect(() => {
         if (selectedNode?.data.output_variable?.result_path !== undefined) {
-            setOutputResultPath(selectedNode.data.output_variable.result_path || '')
+            setWorkflowAction(selectedNode.data.id, {
+                ...selectedNode.data,
+                output_variable: {
+                    ...selectedNode.data.output_variable,
+                    result_path: outputResultPath || null,
+                },
+            } as HogFlowAction)
         }
-    }, [selectedNode?.data.output_variable?.result_path])
+    }, [outputResultPath])
 
     const Step = useHogFlowStep(selectedNode?.data)
 
