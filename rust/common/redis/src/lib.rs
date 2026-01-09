@@ -258,6 +258,18 @@ pub trait Client {
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
     async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError>;
+    async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError>;
+    async fn batch_sadd_expire(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+    async fn batch_set_nx_ex(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<Vec<bool>, CustomRedisError>;
+    async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
 }
 
 // Module declarations

@@ -184,6 +184,7 @@ AUTHENTICATION_BACKENDS: list[str] = [
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
+    "posthog.auth.WebauthnBackend",
 ]
 
 AUTH_USER_MODEL = "posthog.User"
