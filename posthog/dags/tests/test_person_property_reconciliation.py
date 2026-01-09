@@ -3986,7 +3986,7 @@ class TestKafkaClickHouseRoundTrip:
         """
         from django.test import override_settings
 
-        from posthog.dags.person_property_reconciliation import person_property_reconciliation
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_job
         from posthog.kafka_client.client import _KafkaProducer
         from posthog.models import Person
 
@@ -4046,9 +4046,11 @@ class TestKafkaClickHouseRoundTrip:
         cluster.any_host(insert_person_ch).result()
 
         # Get a Postgres connection for the job
-        from posthog.dags.common.resources import get_persons_db_connection
+        from django.db import connections
 
-        persons_conn = get_persons_db_connection()
+        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+
+        persons_conn = connections[PERSONS_DB_FOR_WRITE]
 
         # Create real Kafka producer
         with override_settings(TEST=False):
@@ -4056,10 +4058,10 @@ class TestKafkaClickHouseRoundTrip:
 
             try:
                 # Run the actual Dagster job
-                result = person_property_reconciliation.execute_in_process(
+                result = person_property_reconciliation_job.execute_in_process(
                     run_config={
                         "ops": {
-                            "get_teams_to_reconcile": {
+                            "get_team_ids_to_reconcile": {
                                 "config": {
                                     "team_ids": [team.id],
                                     "bug_window_start": bug_window_start,
@@ -4072,7 +4074,6 @@ class TestKafkaClickHouseRoundTrip:
                             "reconcile_team_chunk": {
                                 "config": {
                                     "bug_window_start": bug_window_start,
-                                    "bug_window_end": bug_window_end,
                                     "dry_run": False,
                                     "backup_enabled": False,
                                     "batch_size": 100,
@@ -4155,8 +4156,7 @@ class TestKafkaClickHouseRoundTrip:
         """
         from django.test import override_settings
 
-        from posthog.dags.common.resources import get_persons_db_connection
-        from posthog.dags.person_property_reconciliation import person_property_reconciliation
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_job
         from posthog.kafka_client.client import _KafkaProducer
         from posthog.models import Organization, Person, Team
 
@@ -4320,16 +4320,20 @@ class TestKafkaClickHouseRoundTrip:
         cluster.any_host(insert_persons_ch_team2).result()
 
         # Run the Dagster job
-        persons_conn = get_persons_db_connection()
+        from django.db import connections
+
+        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+
+        persons_conn = connections[PERSONS_DB_FOR_WRITE]
 
         with override_settings(TEST=False):
             kafka_producer = _KafkaProducer(test=False)
 
             try:
-                result = person_property_reconciliation.execute_in_process(
+                result = person_property_reconciliation_job.execute_in_process(
                     run_config={
                         "ops": {
-                            "get_teams_to_reconcile": {
+                            "get_team_ids_to_reconcile": {
                                 "config": {
                                     "team_ids": [team1.id, team2.id],
                                     "bug_window_start": bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
