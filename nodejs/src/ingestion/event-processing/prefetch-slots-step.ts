@@ -10,16 +10,18 @@ export interface PrefetchSlotsStepInput {
 export function createPrefetchSlotsStep<TInput extends PrefetchSlotsStepInput>(
     materializedColumnSlotManager: MaterializedColumnSlotManager
 ): BatchProcessingStep<TInput, TInput> {
-    return async function prefetchSlotsStep(events: TInput[]): Promise<PipelineResult<TInput>[]> {
+    return function prefetchSlotsStep(events: TInput[]): Promise<PipelineResult<TInput>[]> {
         const teamIds = new Set<number>()
         for (const event of events) {
             teamIds.add(event.team.id)
         }
 
         if (teamIds.size > 0) {
-            await materializedColumnSlotManager.getSlotsForTeams(Array.from(teamIds))
+            // Fire prefetch without awaiting. getSlots will wait on the pending
+            // promise if it needs data that's still being fetched.
+            void materializedColumnSlotManager.getSlotsForTeams(Array.from(teamIds))
         }
 
-        return events.map((event) => ok(event))
+        return Promise.resolve(events.map((event) => ok(event)))
     }
 }
