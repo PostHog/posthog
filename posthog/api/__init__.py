@@ -1,16 +1,7 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import (
-    data_color_theme,
-    feed,
-    hog_flow,
-    hog_flow_template,
-    llm_gateway,
-    metalytics,
-    my_notifications,
-    project,
-)
+from posthog.api import data_color_theme, feed, hog_flow, hog_flow_template, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.onboarding import OnboardingViewSet
@@ -138,7 +129,6 @@ from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
-from .marketing_analytics_goal_mapping import MarketingAnalyticsGoalMappingViewSet
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
 from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
@@ -265,9 +255,6 @@ project_features_router = projects_router.register(
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
-
-# Workflows endpoints
-projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -1152,12 +1139,5 @@ environments_router.register(
     r"core_events",
     CoreEventViewSet,
     "environment_core_events",
-    ["team_id"],
-)
-
-environments_router.register(
-    r"marketing_analytics/goal_mappings",
-    MarketingAnalyticsGoalMappingViewSet,
-    "environment_marketing_analytics_goal_mappings",
     ["team_id"],
 )
