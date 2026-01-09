@@ -3206,8 +3206,14 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
                 f"isNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'))",
             )
 
-    def test_materialized_column_optimization_returns_correct_results(self) -> None:
-        with materialized("events", "test_prop", create_minmax_index=True, is_nullable=True) as mat_col:
+    @parameterized.expand(
+        [
+            ("nullable", True),
+            ("not nullable", False),
+        ]
+    )
+    def test_materialized_column_optimization_returns_correct_results(self, _, is_nullable) -> None:
+        with materialized("events", "test_prop", create_minmax_index=True, is_nullable=is_nullable) as mat_col:
             _create_event(
                 team=self.team,
                 distinct_id="d1",
