@@ -145,6 +145,7 @@ class ConversationStreamSerializer:
             return None
 
         return {
+            # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (internal Redis stream, data is self-generated)
             self.serialization_key: pickle.dumps(
                 StreamEvent(
                     event=event,
@@ -182,6 +183,7 @@ class ConversationStreamSerializer:
         )
 
     def deserialize(self, data: dict[bytes, bytes]) -> StreamEvent:
+        # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (internal Redis stream, data is self-generated)
         return pickle.loads(data[bytes(self.serialization_key, "utf-8")])
 
 

@@ -92,6 +92,8 @@ pub struct FlagsCanonicalLogLine {
     pub flags_experience_continuity: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
+    /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
+    pub flags_cache_source: Option<&'static str>,
 
     // Deep evaluation metrics (populated via task_local from flag_matching.rs)
     /// Total number of database property fetch operations (aggregate counter).
@@ -110,8 +112,16 @@ pub struct FlagsCanonicalLogLine {
     pub group_properties_not_cached: bool,
     pub cohorts_evaluated: usize,
     pub flags_errored: usize,
+    /// Number of errors encountered during dependency graph construction.
+    /// These errors (like missing dependencies or cycles) set errors_while_computing_flags=true
+    /// in the response but don't increment flags_errored.
+    pub dependency_graph_errors: usize,
     pub hash_key_override_attempted: bool,
     pub hash_key_override_succeeded: bool,
+    /// True when experience continuity lookup was skipped due to optimization.
+    /// This is set when flags have experience continuity enabled but don't need
+    /// a hash key lookup (100% rollout with no multivariate variants).
+    pub hash_key_override_skipped: bool,
 
     // Rate limiting
     pub rate_limited: bool,
@@ -138,6 +148,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_experience_continuity: 0,
             flags_disabled: false,
             quota_limited: false,
+            flags_cache_source: None,
             db_property_fetches: 0,
             person_queries: 0,
             group_queries: 0,
@@ -148,8 +159,10 @@ impl Default for FlagsCanonicalLogLine {
             group_properties_not_cached: false,
             cohorts_evaluated: 0,
             flags_errored: 0,
+            dependency_graph_errors: 0,
             hash_key_override_attempted: false,
             hash_key_override_succeeded: false,
+            hash_key_override_skipped: false,
             rate_limited: false,
             http_status: 200,
             error_code: None,
@@ -172,23 +185,24 @@ impl FlagsCanonicalLogLine {
 
         // Truncate user_agent to prevent log bloat from very long headers (some bots send KB+).
         // Note: distinct_id is already truncated at request parsing time (see MAX_DISTINCT_ID_LEN).
-        let user_agent = self.user_agent.as_ref().map(|ua| truncate_chars(ua, 512));
+        let user_agent = self.user_agent.as_deref().map(|ua| truncate_chars(ua, 512));
 
         tracing::info!(
             request_id = %self.request_id,
-            team_id = ?self.team_id,
-            distinct_id = ?self.distinct_id,
+            team_id = self.team_id,
+            distinct_id = self.distinct_id.as_deref(),
             ip = %self.ip,
-            user_agent = ?user_agent,
-            lib = ?self.lib,
-            lib_version = ?self.lib_version,
-            api_version = ?self.api_version,
+            user_agent = user_agent,
+            lib = self.lib,
+            lib_version = self.lib_version.as_deref(),
+            api_version = self.api_version.as_deref(),
             duration_ms = duration_ms,
             http_status = self.http_status,
             flags_evaluated = self.flags_evaluated,
             flags_experience_continuity = self.flags_experience_continuity,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
+            flags_cache_source = self.flags_cache_source,
             db_property_fetches = self.db_property_fetches,
             person_queries = self.person_queries,
             group_queries = self.group_queries,
@@ -199,10 +213,12 @@ impl FlagsCanonicalLogLine {
             group_properties_not_cached = self.group_properties_not_cached,
             cohorts_evaluated = self.cohorts_evaluated,
             flags_errored = self.flags_errored,
+            dependency_graph_errors = self.dependency_graph_errors,
             hash_key_override_attempted = self.hash_key_override_attempted,
             hash_key_override_succeeded = self.hash_key_override_succeeded,
+            hash_key_override_skipped = self.hash_key_override_skipped,
             rate_limited = self.rate_limited,
-            error_code = ?self.error_code,
+            error_code = self.error_code,
             "canonical_log_line"
         );
     }
@@ -243,6 +259,7 @@ mod tests {
         assert_eq!(log.flags_experience_continuity, 0);
         assert!(!log.flags_disabled);
         assert!(!log.quota_limited);
+        assert!(log.flags_cache_source.is_none());
         assert_eq!(log.db_property_fetches, 0);
         assert_eq!(log.person_queries, 0);
         assert_eq!(log.group_queries, 0);
@@ -253,8 +270,10 @@ mod tests {
         assert!(!log.group_properties_not_cached);
         assert_eq!(log.cohorts_evaluated, 0);
         assert_eq!(log.flags_errored, 0);
+        assert_eq!(log.dependency_graph_errors, 0);
         assert!(!log.hash_key_override_attempted);
         assert!(!log.hash_key_override_succeeded);
+        assert!(!log.hash_key_override_skipped);
         assert!(!log.rate_limited);
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
@@ -279,6 +298,7 @@ mod tests {
         log.flags_experience_continuity = 2;
         log.flags_disabled = false;
         log.quota_limited = true;
+        log.flags_cache_source = Some("Redis");
         log.db_property_fetches = 3;
         log.property_cache_hits = 5;
         log.property_cache_misses = 2;
@@ -343,6 +363,22 @@ mod tests {
         assert_eq!(final_log.cohorts_evaluated, 5);
         assert!(final_log.hash_key_override_attempted);
         assert!(final_log.hash_key_override_succeeded);
+    }
+
+    #[tokio::test]
+    async fn test_dependency_graph_errors_is_tracked() {
+        let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+
+        let graph_errors_count = 2;
+        let (_, final_log) = run_with_canonical_log(log, async {
+            with_canonical_log(|l| l.dependency_graph_errors = graph_errors_count);
+        })
+        .await;
+
+        assert_eq!(
+            final_log.dependency_graph_errors, graph_errors_count,
+            "dependency_graph_errors should track the count of graph construction errors"
+        );
     }
 
     #[test]
