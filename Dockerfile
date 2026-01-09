@@ -188,7 +188,6 @@ ENV PATH=/python-runtime/bin:$PATH \
 COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
-COPY common/migration_utils common/migration_utils/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
@@ -377,7 +376,6 @@ COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
-COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 
 # Setup ENV.
