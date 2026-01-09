@@ -1,16 +1,21 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { Dialog } from '@base-ui/react/dialog'
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
+import { IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { NewTabTreeDataItem, getNewTabProjectTreeLogicProps, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { commandLogic } from './commandLogic'
 
 interface CommandItem {
@@ -20,6 +25,27 @@ interface CommandItem {
     href?: string
     icon?: React.ReactNode
 }
+
+type CategoryFilter =
+    | 'all'
+    | 'create-new'
+    | 'apps'
+    | 'data-management'
+    | 'recents'
+    | 'persons'
+    | 'groups'
+    | 'eventDefinitions'
+    | 'propertyDefinitions'
+    | 'askAI'
+
+const CATEGORY_FILTERS: { value: CategoryFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'recents', label: 'Recents' },
+    { value: 'create-new', label: 'Create' },
+    { value: 'apps', label: 'Apps' },
+    { value: 'persons', label: 'Persons' },
+    { value: 'askAI', label: 'AI' },
+]
 
 const mapToCommandItems = (items: NewTabTreeDataItem[]): CommandItem[] => {
     return items.map((item) => ({
@@ -44,6 +70,7 @@ export function Command(): JSX.Element {
 
     const [searchValue, setSearchValue] = useState('')
     const [filteredItems, setFilteredItems] = useState<CommandItem[]>([])
+    const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all')
     const inputRef = useRef<HTMLInputElement>(null)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
 
@@ -73,16 +100,22 @@ export function Command(): JSX.Element {
         }
     }, [searchValue, setSearch, isCommandOpen])
 
-    // Update filtered items when allItems or search changes
+    // Update filtered items when allItems, search, or category changes
     useEffect(() => {
-        if (!searchValue.trim()) {
-            setFilteredItems(allItems)
-            return
+        let filtered = allItems
+
+        // Filter by category if not 'all'
+        if (selectedCategory !== 'all') {
+            filtered = filtered.filter((item) => item.category === selectedCategory)
         }
 
-        const filtered = allItems.filter((item) => contains(item.name, searchValue))
+        // Filter by search term
+        if (searchValue.trim()) {
+            filtered = filtered.filter((item) => contains(item.name, searchValue))
+        }
+
         setFilteredItems(filtered)
-    }, [allItems, searchValue, contains])
+    }, [allItems, searchValue, selectedCategory, contains])
 
     // Focus input when dialog opens
     useEffect(() => {
@@ -93,11 +126,12 @@ export function Command(): JSX.Element {
         }
     }, [isCommandOpen])
 
-    // Reset search when dialog closes
+    // Reset search and category when dialog closes
     useEffect(() => {
         if (!isCommandOpen) {
             setSearchValue('')
             setSearch('')
+            setSelectedCategory('all')
         }
     }, [isCommandOpen, setSearch])
 
@@ -114,6 +148,21 @@ export function Command(): JSX.Element {
     const handleInputChange = useCallback((value: string) => {
         setSearchValue(value)
     }, [])
+
+    const handleCategorySelect = useCallback((category: CategoryFilter) => {
+        setSelectedCategory(category)
+        inputRef.current?.focus()
+    }, [])
+
+    const handleCategoryKeyDown = useCallback(
+        (e: ReactKeyboardEvent<HTMLButtonElement>, category: CategoryFilter) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                handleCategorySelect(category)
+            }
+        },
+        [handleCategorySelect]
+    )
 
     // Group items by category for rendering
     const groupedItems = useMemo(() => {
@@ -154,28 +203,32 @@ export function Command(): JSX.Element {
 
     // Build status message
     const statusMessage = useMemo(() => {
+        const categoryLabel =
+            selectedCategory !== 'all' ? CATEGORY_FILTERS.find((f) => f.value === selectedCategory)?.label : null
+
         if (isSearching) {
             return (
                 <span className="flex items-center gap-2">
                     <Spinner className="size-3" />
-                    <span>Searching...</span>
+                    <span>Searching{categoryLabel ? ` in ${categoryLabel}` : ''}...</span>
                 </span>
             )
         }
-        if (searchValue && filteredItems.length === 0) {
-            return 'No results found'
+        if ((searchValue || selectedCategory !== 'all') && filteredItems.length === 0) {
+            return `No results found${categoryLabel ? ` in ${categoryLabel}` : ''}`
         }
         if (filteredItems.length > 0) {
-            return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'} found`
+            const suffix = categoryLabel ? ` in ${categoryLabel}` : ''
+            return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}${suffix}`
         }
         return 'Type to search...'
-    }, [isSearching, searchValue, filteredItems.length])
+    }, [isSearching, searchValue, filteredItems.length, selectedCategory])
 
     return (
         <Dialog.Root open={isCommandOpen} onOpenChange={(open) => !open && closeCommand()}>
             <Dialog.Portal>
                 <Dialog.Backdrop className="fixed inset-0 min-h-screen min-w-screen bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70" />
-                <Dialog.Popup className="fixed top-1/4 left-1/2 w-[640px] max-w-[calc(100vw-3rem)] max-h-[60vh] -translate-x-1/2 rounded-lg bg-bg-light shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col overflow-hidden">
+                <Dialog.Popup className="fixed top-1/4 left-1/2 w-[640px] max-w-[calc(100vw-3rem)] max-h-[60vh] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col overflow-hidden">
                     <Autocomplete.Root
                         items={filteredItems}
                         filter={null}
@@ -186,18 +239,56 @@ export function Command(): JSX.Element {
                         openOnInputClick={false}
                         defaultOpen
                     >
-                        <div className="p-3 border-b border-primary">
-                            <Autocomplete.Input
-                                ref={inputRef}
-                                value={searchValue}
-                                onChange={(e) => handleInputChange(e.target.value)}
-                                placeholder="Search or ask an AI question..."
-                                className="w-full px-3 py-2 text-sm bg-bg-3000 border border-primary rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent placeholder:text-muted"
-                                aria-label="Command palette search"
-                            />
+                        <div className="p-2 border-b border-primary space-y-2 bg-surface-primary">
+                            <div className="input-like relative">
+                                <Autocomplete.Input
+                                    ref={inputRef}
+                                    value={searchValue}
+                                    onChange={(e) => handleInputChange(e.target.value)}
+                                    placeholder="Search or ask an AI question..."
+                                    className="w-full px-3 py-2 text-sm bg-fill-input border border-primary rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent placeholder:text-muted"
+                                    aria-label="Command palette search"
+                                />
+                                <Autocomplete.Clear
+                                    className="absolute right-1 top-1/2 -translate-y-1/2"
+                                    render={
+                                        <ButtonPrimitive
+                                            iconOnly
+                                            size="sm"
+                                            onClick={() => setSearchValue('')}
+                                            aria-label="Clear search"
+                                        >
+                                            <IconX className="size-4 text-tertiary" />
+                                        </ButtonPrimitive>
+                                    }
+                                />
+                            </div>
+                            <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter by category">
+                                {CATEGORY_FILTERS.map((filter) => (
+                                    <ButtonPrimitive
+                                        key={filter.value}
+                                        type="button"
+                                        role="tab"
+                                        size="sm"
+                                        aria-selected={selectedCategory === filter.value}
+                                        tabIndex={0}
+                                        aria-label={`Filter by ${filter.label}`}
+                                        onClick={() => handleCategorySelect(filter.value)}
+                                        onKeyDown={(e) => handleCategoryKeyDown(e, filter.value)}
+                                        className={clsx(
+                                            'px-2',
+                                            selectedCategory === filter.value
+                                                ? 'bg-fill-highlight-100 text-primary'
+                                                : 'text-muted hover:text-primary hover:bg-fill-highlight-50'
+                                        )}
+                                    >
+                                        {filter.label}
+                                    </ButtonPrimitive>
+                                ))}
+                            </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto">
+                        <ScrollableShadows direction="vertical" styledScrollbars className="flex-1 overflow-y-auto">
                             <Autocomplete.Status className="px-3 py-2 text-xs text-muted border-b border-primary">
                                 {statusMessage}
                             </Autocomplete.Status>
@@ -216,13 +307,18 @@ export function Command(): JSX.Element {
                             <Autocomplete.List className="pt-3 pb-1">
                                 {groupedItems.map((group) => (
                                     <Autocomplete.Group key={group.category} items={group.items} className="mb-4">
-                                        <Autocomplete.GroupLabel
-                                            render={
-                                                <Label className="px-3" intent="menu">
-                                                    {getCategoryDisplayName(group.category)}
-                                                </Label>
-                                            }
-                                        />
+                                        {selectedCategory === 'all' && (
+                                            <Autocomplete.GroupLabel
+                                                render={
+                                                    <Label
+                                                        className="px-3 sticky top-0 bg-surface-secondary"
+                                                        intent="menu"
+                                                    >
+                                                        {getCategoryDisplayName(group.category)}
+                                                    </Label>
+                                                }
+                                            />
+                                        )}
                                         <Autocomplete.Collection>
                                             {(item: CommandItem) => (
                                                 <Autocomplete.Item
@@ -231,11 +327,7 @@ export function Command(): JSX.Element {
                                                     onClick={() => handleItemClick(item)}
                                                     className="flex items-center gap-2 px-3 py-2 mx-1 rounded cursor-pointer text-sm text-primary hover:bg-fill-highlight-100 data-[highlighted]:bg-fill-highlight-100 data-[highlighted]:outline-none transition-colors"
                                                 >
-                                                    {item.icon && (
-                                                        <span className="flex-shrink-0 size-4 text-muted">
-                                                            {item.icon}
-                                                        </span>
-                                                    )}
+                                                    {item.icon && item.icon}
                                                     <span className="truncate">{item.name}</span>
                                                 </Autocomplete.Item>
                                             )}
@@ -243,21 +335,11 @@ export function Command(): JSX.Element {
                                     </Autocomplete.Group>
                                 ))}
                             </Autocomplete.List>
-                        </div>
+                        </ScrollableShadows>
 
-                        <div className="px-3 py-2 border-t border-primary text-xs text-muted flex items-center gap-4">
-                            <span className="flex items-center gap-1">
-                                <kbd className="px-1.5 py-0.5 bg-bg-3000 rounded text-[10px] font-mono">↑↓</kbd>
-                                <span>Navigate</span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                                <kbd className="px-1.5 py-0.5 bg-bg-3000 rounded text-[10px] font-mono">↵</kbd>
-                                <span>Select</span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                                <kbd className="px-1.5 py-0.5 bg-bg-3000 rounded text-[10px] font-mono">Esc</kbd>
-                                <span>Close</span>
-                            </span>
+                        <div className="border-t px-2 py-1 text-xxs text-tertiary font-medium select-none">
+                            {filteredItems.length > 1 && <span>↑↓ to navigate • </span>}
+                            <span>⏎ to activate • → to select • Esc to close</span>
                         </div>
                     </Autocomplete.Root>
                 </Dialog.Popup>
