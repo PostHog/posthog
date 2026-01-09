@@ -4,22 +4,13 @@ import pytest
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing
-from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.transforms.order_by_pushdown import push_down_order_by
 
 
 class TestOrderByPushdown(BaseTest):
     snapshot: Any
     maxDiff = None
-
-    def _prepare_and_print(self, query: str) -> str:
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        parsed = parse_select(query)
-        prepared = prepare_ast_for_printing(parsed, context, dialect="clickhouse")
-        return pretty_print_in_tests(prepared.to_hogql(), self.team.pk)
 
     def _apply_pushdown(self, query: str) -> tuple[str, str]:
         parsed = parse_select(query)
