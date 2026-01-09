@@ -25,6 +25,7 @@ from parameterized import parameterized
 from posthog.schema import (
     HogQLQueryModifiers,
     MaterializationMode,
+    MaterializedColumnsOptimizationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyGroupsMode,
@@ -3087,11 +3088,13 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
         input_expression: str,
         expected_query: str,
         expected_context_values: Mapping[str, Any] | None = None,
+        optimization_mode: MaterializedColumnsOptimizationMode | None = None,
     ) -> None:
         context = HogQLContext(
             team_id=self.team.pk,
             modifiers=HogQLQueryModifiers(
                 materializationMode=MaterializationMode.AUTO,
+                materializedColumnsOptimizationMode=optimization_mode,
             ),
         )
         printed_expr = self._expr(input_expression, context)
@@ -3406,6 +3409,87 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, BaseTest):
             assert sql_lower.count("json") == 1
             assert sql_lower.count("has") == 1
             assert sql_lower.count("contains") == 0
+
+    def test_materialized_column_ilike_optimized_when_modifier_enabled(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop ilike '%@posthog.com%'",
+                f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@posthog.com%"},
+                optimization_mode=MaterializedColumnsOptimizationMode.OPTIMIZED,
+            )
+
+    def test_materialized_column_not_ilike_optimized_when_modifier_enabled(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop not ilike '%@posthog.com%'",
+                f"notILike(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@posthog.com%"},
+                optimization_mode=MaterializedColumnsOptimizationMode.OPTIMIZED,
+            )
+
+    def test_materialized_column_ilike_not_optimized_when_modifier_disabled(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop ilike '%@posthog.com%'",
+                f"ifNull(ilike(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
+                {"hogql_val_0": "%@posthog.com%"},
+                optimization_mode=MaterializedColumnsOptimizationMode.DISABLED,
+            )
+
+    def test_materialized_column_ilike_not_optimized_for_unsafe_pattern(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            # Pattern that matches "null" should not be optimized
+            self._test_materialized_column_comparison(
+                "properties.test_prop ilike '%null%'",
+                f"ifNull(ilike(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
+                {"hogql_val_0": "%null%"},
+                optimization_mode=MaterializedColumnsOptimizationMode.OPTIMIZED,
+            )
+
+    def test_materialized_column_like_optimized_when_modifier_enabled(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop like '%@posthog.com%'",
+                f"like(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@posthog.com%"},
+                optimization_mode=MaterializedColumnsOptimizationMode.OPTIMIZED,
+            )
+
+    def test_materialized_column_not_like_optimized_when_modifier_enabled(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop not like '%@posthog.com%'",
+                f"notLike(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@posthog.com%"},
+                optimization_mode=MaterializedColumnsOptimizationMode.OPTIMIZED,
+            )
+
+    def test_materialized_column_like_not_optimized_when_modifier_disabled(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop like '%@posthog.com%'",
+                f"ifNull(like(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
+                {"hogql_val_0": "%@posthog.com%"},
+                optimization_mode=MaterializedColumnsOptimizationMode.DISABLED,
+            )
+
+    def test_materialized_column_like_case_sensitive_optimization(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            # LIKE is case-sensitive, so %NULL% should be safe (doesn't match lowercase "null")
+            self._test_materialized_column_comparison(
+                "properties.test_prop like '%NULL%'",
+                f"like(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%NULL%"},
+                optimization_mode=MaterializedColumnsOptimizationMode.OPTIMIZED,
+            )
+            # But %null% should not be optimized
+            self._test_materialized_column_comparison(
+                "properties.test_prop like '%null%'",
+                f"ifNull(like(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
+                {"hogql_val_0": "%null%"},
+                optimization_mode=MaterializedColumnsOptimizationMode.OPTIMIZED,
+            )
 
 
 class TestPrinted(APIBaseTest):
