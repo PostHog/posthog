@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
@@ -15,6 +15,56 @@ import { humanFriendlyDuration } from 'lib/utils'
 
 import { EXPERIMENT_REFRESH_INTERVAL_SECONDS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
+
+/**
+ * Hook to check if experiment data is stale and trigger refresh if needed.
+ * Checks on mount and when page becomes visible after being hidden.
+ *
+ * This is a workaround to avoid kea race conditions when loading experiment data.
+ * If we save the last refresh time at the experiment level this should go away.
+ */
+function useStaleDataCheck({
+    lastRefresh,
+    enabled,
+    intervalSeconds,
+    onRefresh,
+}: {
+    lastRefresh: string
+    enabled: boolean
+    intervalSeconds: number
+    onRefresh: () => void
+}): void {
+    const hasCheckedOnMountRef = useRef(false)
+    const pageWasHiddenRef = useRef(false)
+
+    usePageVisibilityCb((isVisible) => {
+        if (!isVisible) {
+            pageWasHiddenRef.current = true
+        }
+    })
+
+    useEffect(() => {
+        // Only check on mount or after page was hidden and became visible again
+        if (hasCheckedOnMountRef.current && !pageWasHiddenRef.current) {
+            return
+        }
+
+        // Skip if disabled or no timestamp (but don't mark as checked yet)
+        if (!enabled || !lastRefresh) {
+            return
+        }
+
+        // Check if data is stale
+        const secondsSinceRefresh = dayjs().diff(dayjs(lastRefresh), 'seconds')
+        if (secondsSinceRefresh > intervalSeconds) {
+            onRefresh()
+        }
+
+        // Only mark as checked after we've actually performed a check
+        hasCheckedOnMountRef.current = true
+        pageWasHiddenRef.current = false
+    }, [lastRefresh, enabled, intervalSeconds, onRefresh])
+}
 
 export const ExperimentLastRefreshText = ({ lastRefresh }: { lastRefresh: string }): JSX.Element => {
     const colorClass = lastRefresh
@@ -44,6 +94,14 @@ export const ExperimentReloadAction = ({
 }): JSX.Element => {
     const { autoRefresh } = useValues(experimentLogic)
     const { setAutoRefresh, setPageVisibility, stopAutoRefreshInterval } = useActions(experimentLogic)
+
+    // Check if data is stale on mount or when page becomes visible
+    useStaleDataCheck({
+        lastRefresh,
+        enabled: autoRefresh.enabled,
+        intervalSeconds: autoRefresh.interval,
+        onRefresh: onClick,
+    })
 
     usePageVisibilityCb((pageIsVisible) => {
         setPageVisibility(pageIsVisible)
