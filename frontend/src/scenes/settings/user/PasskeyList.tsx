@@ -66,16 +66,6 @@ export function PasskeyList(): JSX.Element {
         )
     }
 
-    if (passkeys.length === 0) {
-        return (
-            <div className="text-center py-8 text-muted">
-                <IconLock className="text-4xl mb-2" />
-                <p>No passkeys registered yet.</p>
-                <p className="text-sm">Add a passkey for faster, more secure sign-in.</p>
-            </div>
-        )
-    }
-
     return (
         <LemonTable
             dataSource={passkeys}
