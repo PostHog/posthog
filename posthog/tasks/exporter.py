@@ -1,12 +1,11 @@
 from time import perf_counter
 from typing import Optional
 
-from django.db import transaction
-
 import structlog
 import posthoganalytics
-from celery import Task, current_task, shared_task
+from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from posthog.event_usage import groups
 from posthog.models import ExportedAsset
@@ -34,7 +33,19 @@ EXPORT_TIMER = Histogram(
 )
 
 
-def record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
+def _log_export_retry(retry_state: RetryCallState) -> None:
+    exported_asset = retry_state.args[0] if retry_state.args else None
+    logger.info(
+        "export_asset.retrying",
+        asset_id=exported_asset.id if exported_asset else None,
+        insight_id=exported_asset.insight_id if exported_asset else None,
+        team=exported_asset.team_id if exported_asset else None,
+        attempt=retry_state.attempt_number,
+        error=str(retry_state.outcome.exception()) if retry_state.outcome else None,
+    )
+
+
+def _record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
     failure_type = classify_failure_type(e)
     exported_asset.exception = str(e)
     exported_asset.exception_type = type(e).__name__
@@ -43,14 +54,8 @@ def record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
     EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_format, failure_type=failure_type).inc()
 
 
-def _is_final_export_attempt(exception: Exception, current_retries: int, max_retries: int) -> bool:
-    is_retriable = isinstance(exception, EXCEPTIONS_TO_RETRY)
-    return not is_retriable or current_retries >= max_retries
-
-
 # export_asset is used in chords/groups and so must not ignore its results
 @shared_task(
-    bind=True,
     acks_late=True,
     ignore_result=False,
     # we let the hogql query run for HOGQL_INCREASED_MAX_EXECUTION_TIME, give this some breathing room
@@ -59,13 +64,8 @@ def _is_final_export_attempt(exception: Exception, current_retries: int, max_ret
     soft_time_limit=HOGQL_INCREASED_MAX_EXECUTION_TIME + 60,
     time_limit=HOGQL_INCREASED_MAX_EXECUTION_TIME + 120,
     queue=CeleryQueue.EXPORTS.value,
-    autoretry_for=EXCEPTIONS_TO_RETRY,
-    retry_backoff=2,
-    retry_backoff_max=3,
-    max_retries=3,
 )
 def export_asset(
-    self: Task,
     exported_asset_id: int,
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
@@ -77,16 +77,17 @@ def export_asset(
         "created_by", "team", "team__organization"
     ).get(pk=exported_asset_id)
 
+    # Retries are handled by tenacity inside export_asset_direct, not by Celery.
+    # This ensures consistent retry behavior whether the export is triggered
+    # synchronously (API) or asynchronously (Celery).
     try:
-        with transaction.atomic():
-            export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
-    except Exception as e:
-        if _is_final_export_attempt(e, self.request.retries, self.max_retries):
-            record_export_failure(exported_asset, e)
-
-        # Only re-raise the exception if we retry on it, otherwise we will "swallow" it to align with previous behavior.
-        if isinstance(e, EXCEPTIONS_TO_RETRY):
-            raise
+        export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
+    except EXCEPTIONS_TO_RETRY:
+        # System errors (capacity issues, etc.) are re-raised after retries exhausted.
+        raise
+    except Exception:
+        # User errors (bad queries) are recorded but not re-raised to keep existing behavior.
+        pass
 
 
 def export_asset_direct(
@@ -123,13 +124,23 @@ def export_asset_direct(
         groups=groups(team.organization, team),
     )
 
-    try:
+    @retry(
+        retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=2, max=10),
+        before_sleep=_log_export_retry,
+        reraise=True,
+    )
+    def _do_export() -> None:
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit)
         else:
             image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels)
-        EXPORT_SUCCEEDED_COUNTER.labels(type=exported_asset.export_format).inc()
 
+    try:
+        _do_export()
+
+        EXPORT_SUCCEEDED_COUNTER.labels(type=exported_asset.export_format).inc()
         logger.info(
             "export_asset.succeeded",
             exported_asset_id=exported_asset.id,
@@ -149,7 +160,6 @@ def export_asset_direct(
         exported_asset.failure_type = None
         exported_asset.save(update_fields=["exception", "exception_type", "failure_type"])
     except Exception as e:
-        is_retriable = isinstance(e, EXCEPTIONS_TO_RETRY)
         is_user_error = isinstance(e, USER_QUERY_ERRORS)
 
         if is_user_error:
@@ -161,10 +171,9 @@ def export_asset_direct(
             )
         else:
             logger.exception(
-                "export_asset.error",
+                "export_asset.failed",
                 exported_asset_id=exported_asset.id,
                 error=str(e),
-                might_retry=is_retriable,
                 team_id=team.id,
             )
 
@@ -174,11 +183,11 @@ def export_asset_direct(
             properties={
                 **analytics_props,
                 "error": str(e),
-                "might_retry": is_retriable,
                 "is_user_error": is_user_error,
                 "duration_ms": round((perf_counter() - start_time) * 1000, 2),
             },
             groups=groups(team.organization, team),
         )
 
+        _record_export_failure(exported_asset, e)
         raise
