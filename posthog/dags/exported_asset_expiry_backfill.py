@@ -1,5 +1,3 @@
-"""Dagster job for backfilling expires_after for ExportedAssets that have NULL values."""
-
 import gc
 import time
 
@@ -10,8 +8,6 @@ from posthog.models.exported_asset import ExportedAsset
 
 
 class ExportedAssetExpiryBackfillConfig(dagster.Config):
-    """Configuration for the exported asset expiry backfill job."""
-
     batch_size: int = 1000
     sleep_interval: float = 0.5
 
@@ -20,7 +16,6 @@ class ExportedAssetExpiryBackfillConfig(dagster.Config):
 def get_null_expiry_count(
     context: dagster.OpExecutionContext,
 ) -> int:
-    """Get the count of ExportedAssets with NULL expires_after."""
     total = ExportedAsset.objects_including_ttl_deleted.filter(expires_after__isnull=True).count()
 
     context.log.info(f"Found {total} ExportedAssets with NULL expires_after")
@@ -39,7 +34,6 @@ def backfill_expiry_batch(
     config: ExportedAssetExpiryBackfillConfig,
     total: int,
 ) -> dict:
-    """Backfill expires_after for ExportedAssets in batches."""
     if total == 0:
         context.log.info("Nothing to backfill!")
         return {"updated": 0, "elapsed": 0.0}
@@ -93,6 +87,5 @@ def backfill_expiry_batch(
 
 @dagster.job(tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value})
 def exported_asset_expiry_backfill_job():
-    """Backfill expires_after for ExportedAssets that have NULL values."""
     total = get_null_expiry_count()
     backfill_expiry_batch(total)

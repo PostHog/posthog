@@ -79,6 +79,25 @@ def test_backfill_uses_created_at_not_now(team):
 
 @pytest.mark.django_db
 @freeze_time("2024-06-15T10:30:00Z")
+def test_reports_correct_count(team):
+    for _ in range(3):
+        create_asset_without_expiry(team)
+    # Create an asset with existing expiry - should not be counted
+    ExportedAsset.objects.create(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+        expires_after=datetime(2027, 1, 1, 0, 0, 0, tzinfo=UTC),
+    )
+
+    result = exported_asset_expiry_backfill_job.execute_in_process()
+
+    assert result.success
+    count_output = result.output_for_node("get_null_expiry_count")
+    assert count_output == 3
+
+
+@pytest.mark.django_db
+@freeze_time("2024-06-15T10:30:00Z")
 def test_bulk_update_across_multiple_batches(team):
     assets = [create_asset_without_expiry(team) for _ in range(5)]
 
