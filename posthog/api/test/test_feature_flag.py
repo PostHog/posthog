@@ -8567,6 +8567,61 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["users_affected"], 5)  # 1.0.0, 1.2.0, 1.2.3, 1.2.5, 1.3.0
         self.assertEqual(response_json["total_users"], 8)
 
+    def test_user_blast_radius_with_semver_caret_0x_versions(self):
+        """Test semver caret operator handles 0.x.y versions per spec"""
+        # Test data with 0.x.y versions to verify caret operator behavior
+        versions = ["0.0.1", "0.0.3", "0.0.5", "0.1.0", "0.2.3", "0.2.5", "0.3.0", "1.0.0"]
+        for version in versions:
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person_{version}"],
+                properties={"app_version": version},
+            )
+
+        # Test ^0.2.3 means >=0.2.3 <0.3.0 (not <1.0.0)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "0.2.3",
+                            "operator": "semver_caret",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 2)  # 0.2.3, 0.2.5 (NOT 0.3.0 or 1.0.0)
+        self.assertEqual(response_json["total_users"], 8)
+
+        # Test ^0.0.3 means >=0.0.3 <0.0.4 (not <1.0.0 or <0.1.0)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "app_version",
+                            "type": "person",
+                            "value": "0.0.3",
+                            "operator": "semver_caret",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 1)  # Only 0.0.3 (NOT 0.0.5, 0.1.0, etc.)
+        self.assertEqual(response_json["total_users"], 8)
+
     def test_user_blast_radius_with_semver_operators_on_groups(self):
         """Test semver operators work with group properties"""
         GroupTypeMapping.objects.create(

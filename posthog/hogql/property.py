@@ -330,17 +330,34 @@ def _expr_to_compare_op(
             ]
         )
     elif operator == PropertyOperator.SEMVER_CARET:
-        # ^1.2.3 means >=1.2.3 <2.0.0 (allows minor and patch changes)
+        # Caret operator follows semver spec:
+        # ^1.2.3 means >=1.2.3 <2.0.0
+        # ^0.2.3 means >=0.2.3 <0.3.0
+        # ^0.0.3 means >=0.0.3 <0.0.4
+        # The leftmost non-zero component determines the upper bound
         if not isinstance(value, str):
             raise QueryError("Caret operator requires a semver string value")
         try:
             parts = value.split(".")
             if len(parts) < 1:
                 raise ValueError("Invalid semver format")
-            major = parts[0]
-            next_major = str(int(major) + 1)
+
+            major = int(parts[0])
+            minor = int(parts[1]) if len(parts) > 1 else 0
+            patch = int(parts[2]) if len(parts) > 2 else 0
+
             lower_bound = value
-            upper_bound = f"{next_major}.0.0"
+
+            # Determine upper bound based on leftmost non-zero component
+            if major > 0:
+                # ^1.2.3 -> <2.0.0
+                upper_bound = f"{major + 1}.0.0"
+            elif minor > 0:
+                # ^0.2.3 -> <0.3.0
+                upper_bound = f"0.{minor + 1}.0"
+            else:
+                # ^0.0.3 -> <0.0.4
+                upper_bound = f"0.0.{patch + 1}"
         except (ValueError, IndexError):
             raise QueryError("Caret operator requires a valid semver string (e.g., '1.2.3')")
 
