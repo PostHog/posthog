@@ -91,4 +91,6 @@ def classify_failure_type(exception: Exception | str) -> str:
 
 
 def is_user_query_error_type(exception_type: str | None) -> bool:
+    if exception_type is None:
+        return False
     return classify_failure_type(exception_type) == FAILURE_TYPE_USER
