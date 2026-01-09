@@ -3,12 +3,6 @@
 
 import os
 import sys
-from pathlib import Path
-
-# Add common/ to path so migration_utils module is importable (used by custom migrate command)
-_common_path = str(Path(__file__).parent / "common")
-if _common_path not in sys.path:
-    sys.path.insert(0, _common_path)
 
 
 def main():
