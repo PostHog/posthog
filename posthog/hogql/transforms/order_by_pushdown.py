@@ -11,14 +11,23 @@ def unwrap_alias(node: ast.Expr) -> ast.Expr:
     return node
 
 
-def resolve_alias(expr: ast.Expr, query: ast.SelectQuery) -> Optional[ast.Expr]:
+def resolve_alias(expr: ast.Expr, query: ast.SelectQuery, max_depth: int = 10) -> Optional[ast.Expr]:
+    if max_depth <= 0:
+        raise RecursionError("resolve_alias exceeded maximum recursion depth")
+
     expr = unwrap_alias(expr)
-    if not isinstance(expr, ast.Field) or len(expr.chain) != 1 or not query.select:
+    if not isinstance(expr, ast.Field) or not expr.chain:
         return None
-    alias_name = expr.chain[0]
-    for select_expr in query.select:
-        if isinstance(select_expr, ast.Alias) and select_expr.alias == alias_name:
-            return select_expr.expr
+    alias_name = expr.chain[-1]
+
+    if query.select:
+        for select_expr in query.select:
+            if isinstance(select_expr, ast.Alias) and select_expr.alias == alias_name:
+                return select_expr.expr
+
+    if query.select_from and isinstance(query.select_from.table, ast.SelectQuery):
+        return resolve_alias(expr, query.select_from.table, max_depth - 1)
+
     return None
 
 
