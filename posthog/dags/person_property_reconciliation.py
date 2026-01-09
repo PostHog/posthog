@@ -67,6 +67,7 @@ def ensure_utc_datetime(ts: datetime) -> datetime:
         return ts.replace(tzinfo=UTC)
     return ts
 
+
 def get_person_property_updates_from_clickhouse(
     team_id: int,
     bug_window_start: str,
@@ -116,8 +117,8 @@ def get_person_property_updates_from_clickhouse(
             merged.set_once_timestamps,
             merged.unset_keys,
             merged.unset_timestamps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValues(p.person_properties, 'String')) AS keys2,
-            arrayMap(x -> x.2, JSONExtractKeysAndValues(p.person_properties, 'String')) AS vals2
+            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(p.person_properties)) AS keys2,
+            arrayMap(x -> toString(x.2), JSONExtractKeysAndValuesRaw(p.person_properties)) AS vals2
         FROM (
             -- Extract separate arrays from grouped tuples, split by prop_type
             -- We group into tuples first to ensure array alignment
@@ -419,6 +420,7 @@ def fetch_person_from_postgres(cursor, team_id: int, person_uuid: str) -> dict |
     """
 
     columns = [
+        "id",
         "uuid",
         "properties",
         "properties_last_updated_at",
