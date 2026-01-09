@@ -18,14 +18,17 @@ module = Extension(
         "HogQLParserVisitor.cpp",
         "error.cpp",
         "string.cpp",
-        "parser.cpp",
+        "json_builder.cpp",
+        "parser_python.cpp",
     ],
-    include_dirs=[
-        f"{homebrew_location}/include/",
-        f"{homebrew_location}/include/antlr4-runtime/",
-    ]
-    if is_macos
-    else ["/usr/include/", "/usr/include/antlr4-runtime/"],
+    include_dirs=(
+        [
+            f"{homebrew_location}/include/",
+            f"{homebrew_location}/include/antlr4-runtime/",
+        ]
+        if is_macos
+        else ["/usr/include/", "/usr/include/antlr4-runtime/"]
+    ),
     library_dirs=[f"{homebrew_location}/lib/"] if is_macos else ["/usr/lib/", "/usr/lib64/"],
     libraries=["antlr4-runtime"],
     extra_compile_args=["-std=c++20"],
