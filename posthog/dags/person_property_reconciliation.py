@@ -139,12 +139,21 @@ def get_person_property_updates_from_clickhouse(
         List of PersonPropertyDiffs, each containing 3 maps (set, set_once, unset) keyed by property key
     """
     query = """
-    -- CTE 1: Extract and filter properties from events, grouped by (person_id, distinct_id)
-    -- Uses e.person_id directly first (no overrides join yet for efficiency)
-    WITH event_properties_all AS (
+    -- CTE 1: Get all overrides for the team (no filtering)
+    WITH overrides AS (
+        SELECT
+            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+    ),
+    -- CTE 2: Extract properties from events, grouped by RESOLVED person_id (after overrides)
+    -- This ensures argMax/argMin aggregates across ALL distinct_ids for the same person
+    event_properties_raw AS (
         SELECT
             person_id,
-            distinct_id,
             arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_keys,
             arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_values,
             arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_timestamps,
@@ -156,12 +165,11 @@ def get_person_property_updates_from_clickhouse(
         FROM (
             SELECT
                 person_id,
-                distinct_id,
                 groupArray(tuple(key, value, kv_timestamp, prop_type)) AS grouped_props
             FROM (
                 SELECT
-                    e.person_id AS person_id,
-                    e.distinct_id AS distinct_id,
+                    -- Apply overrides to get resolved person_id
+                    if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id,
                     kv_tuple.2 AS key,
                     kv_tuple.1 AS prop_type,
                     -- $set: newest event wins, $set_once: first event wins, $unset: newest event wins
@@ -171,6 +179,7 @@ def get_person_property_updates_from_clickhouse(
                     ) AS value,
                     if(kv_tuple.1 = 'set_once', min(e.timestamp), max(e.timestamp)) AS kv_timestamp
                 FROM events e
+                LEFT JOIN overrides o ON e.distinct_id = o.distinct_id
                 ARRAY JOIN
                     arrayConcat(
                         arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
@@ -193,59 +202,19 @@ def get_person_property_updates_from_clickhouse(
                   AND e.timestamp > %(bug_window_start)s
                   AND e.timestamp < now()
                   AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
-                GROUP BY e.person_id, e.distinct_id, kv_tuple.2, kv_tuple.1
+                -- Group by resolved person_id (not distinct_id) so argMax works across all distinct_ids
+                GROUP BY if(notEmpty(o.distinct_id), o.person_id, e.person_id), kv_tuple.2, kv_tuple.1
             )
-            GROUP BY person_id, distinct_id
+            GROUP BY person_id
         )
     ),
-    -- CTE 2: Filter to only persons with non-empty property sets
-    event_properties_raw AS (
+    -- CTE 3: Filter to only persons with non-empty property sets
+    event_properties_flat AS (
         SELECT *
-        FROM event_properties_all
+        FROM event_properties_raw
         WHERE length(set_keys) > 0 OR length(set_once_keys) > 0 OR length(unset_keys) > 0
     ),
-    -- CTE 3: Get overrides only for distinct_ids that have properties
-    overrides AS (
-        SELECT
-            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
-          AND person_distinct_id_overrides.distinct_id IN (SELECT distinct_id FROM event_properties_raw)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
-    ),
-    -- CTE 3: Apply overrides to get final person_id and re-aggregate
-    event_properties AS (
-        SELECT
-            if(notEmpty(o.distinct_id), o.person_id, ep.person_id) AS person_id,
-            arrayConcat(groupArray(ep.set_keys)) AS set_keys_nested,
-            arrayConcat(groupArray(ep.set_values)) AS set_values_nested,
-            arrayConcat(groupArray(ep.set_timestamps)) AS set_timestamps_nested,
-            arrayConcat(groupArray(ep.set_once_keys)) AS set_once_keys_nested,
-            arrayConcat(groupArray(ep.set_once_values)) AS set_once_values_nested,
-            arrayConcat(groupArray(ep.set_once_timestamps)) AS set_once_timestamps_nested,
-            arrayConcat(groupArray(ep.unset_keys)) AS unset_keys_nested,
-            arrayConcat(groupArray(ep.unset_timestamps)) AS unset_timestamps_nested
-        FROM event_properties_raw ep
-        LEFT OUTER JOIN overrides o ON ep.distinct_id = o.distinct_id
-        GROUP BY if(notEmpty(o.distinct_id), o.person_id, ep.person_id)
-    ),
-    -- CTE 4: Flatten nested arrays from re-aggregation
-    event_properties_flat AS (
-        SELECT
-            person_id,
-            arrayFlatten(set_keys_nested) AS set_keys,
-            arrayFlatten(set_values_nested) AS set_values,
-            arrayFlatten(set_timestamps_nested) AS set_timestamps,
-            arrayFlatten(set_once_keys_nested) AS set_once_keys,
-            arrayFlatten(set_once_values_nested) AS set_once_values,
-            arrayFlatten(set_once_timestamps_nested) AS set_once_timestamps,
-            arrayFlatten(unset_keys_nested) AS unset_keys,
-            arrayFlatten(unset_timestamps_nested) AS unset_timestamps
-        FROM event_properties
-    ),
-    -- CTE 5: Get person properties only for affected persons
+    -- CTE 4: Get person properties only for affected persons
     person_props AS (
         SELECT
             id,
