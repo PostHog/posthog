@@ -77,8 +77,9 @@ class TestAttributeFilters(APIBaseTest):
         # Verify that log attribute filters are included in the query
         self.assertIn("service.name", query_str)
         self.assertIn("http.method", query_str)
-        # Log attributes use resource_fingerprint filtering for optimization
-        self.assertIn("(in(resource_fingerprint", query_str)
+        # Log attributes DO NOT use resource_fingerprint filtering for optimization
+        # this optimization was premature and needs more thought, and probably has very little benefit anyway
+        self.assertNotIn("(in(resource_fingerprint", query_str)
 
     def test_resource_attribute_filters(self):
         """Test that resource attribute filters are properly handled"""

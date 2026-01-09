@@ -91,13 +91,10 @@ def _generate_resource_attribute_filters(
 
     IN_ = "NOT IN" if is_negative_filter else "IN"
 
-    # this query has two steps - the inner step filters for resource_fingerprints that match ANY attribute filter
-    # e.g. if you filter on k8s.container.name='contour' and k8s.container.restart_count='0'
-    #      the inner query will have two rows, one for each filter
-    #      each row will have a bitmap of resource_fingerprints that match the attribute filter
-    #      this would probably have 3 results for the container name (we run 3 contour containers) and maybe 5000 for restart_count=0
-    #      (99% of our running containers have restart count 0)
-    # The outer step then ANDs together all the inner bitmaps, which results in a list of resources which match all the filters
+    # this query fetches all resource fingerprints that match at least one resource attribute filter
+    # then does a secondary filter for those that match every filter
+    # this sounds over complicated but it's because each row in the table is a single attribute - so we need to first group
+    # them to collapse the rows into a single row per resource fingerprint, _then_ check every filter is met
     return parse_expr(
         f"""
         (resource_fingerprint) {IN_}
