@@ -31,6 +31,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
 
         setFeatureFlagKeyDirty: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
+        setFeatureFlagKeyForAutocomplete: (key: string | null) => ({ key }),
     },
     reducers: ({ props }) => ({
         featureFlagKeyError: [
@@ -66,6 +67,13 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 : null) as FeatureFlagType | null,
             {
                 setLinkedFeatureFlag: (_, { flag }) => flag,
+            },
+        ],
+        featureFlagKeyForAutocomplete: [
+            // Initialize from experiment.feature_flag_key when available
+            (props.experiment.feature_flag_key || null) as string | null,
+            {
+                setFeatureFlagKeyForAutocomplete: (_, { key }) => key,
             },
         ],
     }),

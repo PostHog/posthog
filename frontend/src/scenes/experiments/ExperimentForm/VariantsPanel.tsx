@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
 import { match } from 'ts-pattern'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { SelectableCard } from '~/scenes/experiments/components/SelectableCard'
@@ -38,55 +41,125 @@ export function VariantsPanel({
     disabled = false,
     showNewExperimentFormLayout = false,
 }: VariantsPanelProps): JSX.Element {
-    const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic({ experiment, disabled }))
-    const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic({ experiment, disabled }))
+    const { mode, linkedFeatureFlag, featureFlagKeyForAutocomplete } = useValues(
+        variantsPanelLogic({ experiment, disabled })
+    )
+    const { setMode, setLinkedFeatureFlag, setFeatureFlagKeyForAutocomplete } = useActions(
+        variantsPanelLogic({ experiment, disabled })
+    )
 
     const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal } = useActions(
         selectExistingFeatureFlagModalLogic
     )
     const { reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
+    const { featureFlags, featureFlagsLoading } = useValues(selectExistingFeatureFlagModalLogic)
+    const { loadFeatureFlagsForAutocomplete } = useActions(selectExistingFeatureFlagModalLogic)
+
+    // Load feature flags on mount for the autocomplete
+    useEffect(() => {
+        if (showNewExperimentFormLayout) {
+            loadFeatureFlagsForAutocomplete()
+        }
+    }, [showNewExperimentFormLayout, loadFeatureFlagsForAutocomplete])
+
+    const featureFlagOptions = useMemo(() => {
+        return (featureFlags.results || []).map((flag) => ({
+            key: flag.key,
+            label: flag.key,
+            value: flag,
+        }))
+    }, [featureFlags.results])
+
+    // Find the current value for the autocomplete, either an existing flag or a new entry.
+    // Returns:
+    // An array to comply with LemonInputSelect, even though we're in single-select mode.
+    // In case of an existing flag, the full FeatureFlagType object is returned, otherwise a string (feature flag key).
+    const currentAutocompleteValue = useMemo(() => {
+        if (!featureFlagKeyForAutocomplete) {
+            return []
+        }
+        const matchingFlag = featureFlags.results?.find((flag) => flag.key === featureFlagKeyForAutocomplete)
+        if (matchingFlag) {
+            return [matchingFlag]
+        }
+        return [featureFlagKeyForAutocomplete]
+    }, [featureFlagKeyForAutocomplete, featureFlags.results])
+
+    const handleFeatureFlagSelection = (selectedKeys: (FeatureFlagType | string)[]): void => {
+        if (selectedKeys.length === 0) {
+            setMode('create')
+            setLinkedFeatureFlag(null)
+            setFeatureFlagKeyForAutocomplete(null)
+            return
+        }
+
+        const selected = selectedKeys[0]
+
+        if (typeof selected === 'string') {
+            // User typed a custom value - create mode
+            setMode('create')
+            setLinkedFeatureFlag(null)
+            setFeatureFlagKeyForAutocomplete(selected)
+            updateFeatureFlag({
+                feature_flag_key: selected,
+            })
+        } else {
+            // User selected an existing flag - link mode
+            setMode('link')
+            setLinkedFeatureFlag(selected)
+            setFeatureFlagKeyForAutocomplete(selected.key)
+            updateFeatureFlag({
+                feature_flag_key: selected.key,
+                parameters: {
+                    feature_flag_variants: selected.filters?.multivariate?.variants || [],
+                },
+            })
+            reportExperimentFeatureFlagSelected(selected.key)
+        }
+    }
 
     if (showNewExperimentFormLayout) {
         return (
             <>
-                <div className="flex gap-4 mb-4">
-                    <SelectableCard
-                        title="Create new feature flag"
-                        description="Generate a new feature flag with custom variants for this experiment."
-                        selected={mode === 'create'}
-                        onClick={() => {
-                            setMode('create')
-                        }}
-                        disabled={disabled}
-                        disabledReason="You cannot change the mode when editing an experiment."
-                    />
-                    <SelectableCard
-                        title="Link existing feature flag"
-                        description="Use an existing multivariate feature flag and inherit its variants."
-                        selected={mode === 'link'}
-                        onClick={() => setMode('link')}
-                        disabled={disabled}
-                        disabledReason="You cannot change the mode when editing an experiment."
-                    />
-                </div>
+                <LemonField.Pure label="Feature flag key" className="mb-4">
+                    <>
+                        <div className="text-sm text-secondary mb-2">
+                            Each experiment is backed by a feature flag. The feature flag key will be used to control
+                            the experiment in your code. Type to create a new feature flag or select an existing one.
+                            Note that only multivariate feature flags are listed.
+                        </div>
+                        <LemonInputSelect<FeatureFlagType | string>
+                            mode="single"
+                            placeholder="Type to create a new feature flag or select an existing one"
+                            options={featureFlagOptions}
+                            value={currentAutocompleteValue}
+                            onChange={handleFeatureFlagSelection}
+                            allowCustomValues
+                            loading={featureFlagsLoading}
+                            disabled={disabled}
+                            fullWidth
+                        />
+                    </>
+                </LemonField.Pure>
 
-                {match(mode)
-                    .with('create', () => (
-                        <VariantsPanelCreateFeatureFlag
-                            experiment={experiment}
-                            onChange={updateFeatureFlag}
-                            disabled={disabled}
-                            showNewExperimentFormLayout={showNewExperimentFormLayout}
-                        />
-                    ))
-                    .with('link', () => (
-                        <VariantsPanelLinkFeatureFlag
-                            linkedFeatureFlag={linkedFeatureFlag}
-                            setShowFeatureFlagSelector={openSelectExistingFeatureFlagModal}
-                            disabled={disabled}
-                        />
-                    ))
-                    .exhaustive()}
+                {featureFlagKeyForAutocomplete &&
+                    match(mode)
+                        .with('create', () => (
+                            <VariantsPanelCreateFeatureFlag
+                                experiment={experiment}
+                                onChange={updateFeatureFlag}
+                                disabled={disabled}
+                                showNewExperimentFormLayout={showNewExperimentFormLayout}
+                            />
+                        ))
+                        .with('link', () => (
+                            <VariantsPanelLinkFeatureFlag
+                                linkedFeatureFlag={linkedFeatureFlag}
+                                setShowFeatureFlagSelector={openSelectExistingFeatureFlagModal}
+                                disabled={disabled}
+                            />
+                        ))
+                        .exhaustive()}
 
                 {/* Feature Flag Selection Modal */}
                 <SelectExistingFeatureFlagModal
@@ -94,6 +167,8 @@ export function VariantsPanel({
                     onSelect={(flag: FeatureFlagType) => {
                         reportExperimentFeatureFlagSelected(flag.key)
                         setLinkedFeatureFlag(flag)
+                        // VariantsPanelLinkFeatureFlag shows a "change" button which we want to keep in sync with the autocomplete
+                        setFeatureFlagKeyForAutocomplete(flag.key)
                         // Update experiment with linked flag's key and variants
                         updateFeatureFlag({
                             feature_flag_key: flag.key,
