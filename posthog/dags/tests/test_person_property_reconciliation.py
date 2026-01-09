@@ -5213,8 +5213,8 @@ class TestQueryTeamIdsFromClickHouse:
 
         assert result == [91002, 91003, 91004]
 
-    def test_no_filters_returns_all_teams(self, cluster: ClickhouseCluster):
-        """Test that omitting filters returns all teams with property events."""
+    def test_team_range_returns_all_matching_teams(self, cluster: ClickhouseCluster):
+        """Test that team range filter returns all teams with property events within range."""
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=10)
         bug_window_end = now + timedelta(days=1)
