@@ -1,5 +1,5 @@
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -275,6 +275,7 @@ class TestGenerateAssetsAsyncCounters:
         expected_failure_delta: float,
         is_timeout: bool,
     ) -> None:
+        side_effect: Callable[..., None] | Exception | None
         if is_timeout:
 
             def slow_export(*args: Any, **kwargs: Any) -> None:
