@@ -1,0 +1,17 @@
+#
+# docker-compose file for batch exports testing dependencies.
+# For more info, see:
+# https://posthog.com/handbook/engineering/developing-locally
+#
+# Usage:
+#   docker compose -f producs/batch_exports/backend/tests/docker-compose.yml up
+#
+
+services:
+    objectstorage-azure:
+        image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+        container_name: posthog_azurite
+        restart: on-failure
+        command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data
+        ports:
+            - '10000:10000'

@@ -97,12 +97,12 @@ async fn process_request_inner(
     };
 
     let result = async {
-        // Use the pre-initialized HyperCacheReader from state
+        // Use the pre-initialized HyperCacheReaders from state (for team and flags)
         // This avoids per-request AWS SDK initialization overhead
         let flag_service = FlagService::new(
             context.state.redis_client.clone(),
             context.state.database_pools.non_persons_reader.clone(),
-            context.state.config.team_cache_ttl_seconds,
+            context.state.team_hypercache_reader.clone(),
             context.state.flags_hypercache_reader.clone(),
         );
 
