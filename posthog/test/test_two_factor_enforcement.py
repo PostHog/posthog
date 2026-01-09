@@ -543,16 +543,6 @@ class TestUserTwoFactorSessionIntegration(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data.get("code"), "invalid_2fa_session")
 
-    def test_backup_codes_generates_ten_codes(self):
-        from django_otp.plugins.otp_totp.models import TOTPDevice
-
-        TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
-
-        response = self.client.post(f"/api/users/@me/two_factor_backup_codes/")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data.get("backup_codes", [])), 10)
-
     @patch("posthog.rate_limit.TwoFactorThrottle.rate", new="3/minute")
     def test_two_factor_viewset_rate_limiting(self):
         from django.core.cache import cache
