@@ -844,8 +844,6 @@ export type ReplayTab = {
 
 export enum ExperimentsTabs {
     All = 'all',
-    Yours = 'yours',
-    Archived = 'archived',
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
     History = 'history',
