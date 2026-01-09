@@ -213,6 +213,7 @@ class UsageReportCounters:
     # Logs
     logs_bytes_in_period: int
     logs_records_in_period: int
+    logs_gb_in_period: float
 
 
 # Instance metadata to be included in overall report
@@ -2051,6 +2052,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
+        # decimal GB (not GiB) to match pricing; billing uses logs_bytes_in_period for precision
+        logs_gb_in_period=round(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) / 1_000_000_000, 3),
     )
 
 

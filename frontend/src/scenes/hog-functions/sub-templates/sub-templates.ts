@@ -468,7 +468,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
 \`\`\`
 {event.properties.name}: {substring(event.properties.description, 1, 1000)}
 \`\`\`
-**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(((event.properties.current_bucket_value - event.properties.computed_baseline) / event.properties.computed_baseline) * 100), '% over baseline') : 'no baseline yet'})
+**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'})
 **Project:** [{project.name}]({project.url})
 **Alert:** [{source.name}]({source.url})
 
@@ -497,7 +497,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             elements: [
                                 {
                                     type: 'plain_text',
-                                    text: "Exceptions in last 5 minutes: {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(((event.properties.current_bucket_value - event.properties.computed_baseline) / event.properties.computed_baseline) * 100), '% over baseline') : 'no baseline yet'})",
+                                    text: "Exceptions in last 5 minutes: {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'})",
                                 },
                                 { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
                                 { type: 'mrkdwn', text: 'Alert: <{source.url}|{source.name}>' },

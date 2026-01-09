@@ -3388,6 +3388,109 @@ class TestClickHouseQueryIntegration:
         assert updates["key_with_underscores"] == "value4"
         assert updates["キー"] == "unicode value"
 
+    def test_filtered_properties_are_excluded(self, cluster: ClickhouseCluster):
+        """Properties in FILTERED_PERSON_UPDATE_PROPERTIES should be excluded from results.
+
+        These are high-frequency properties like $current_url that change often
+        but aren't valuable enough to trigger person updates.
+        """
+        team_id = 99926
+        person_id = UUID("77770000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with both filtered and non-filtered properties
+        events = [
+            (
+                team_id,
+                "distinct_1",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            # Filtered properties - should NOT appear in results
+                            "$current_url": "https://example.com/page",
+                            "$pathname": "/page",
+                            "$browser": "Chrome",
+                            "$os": "Mac OS X",
+                            # Non-filtered properties - SHOULD appear in results
+                            "email": "test@example.com",
+                            "name": "Test User",
+                        },
+                        "$set_once": {
+                            # Filtered
+                            "$referring_domain": "google.com",
+                            # Non-filtered
+                            "initial_campaign": "summer_sale",
+                        },
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different values so diffs are detected
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps(
+                    {
+                        "$current_url": "https://example.com/old",
+                        "email": "old@example.com",
+                        "name": "Old Name",
+                    }
+                ),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        person_diffs = results[0]
+
+        # Non-filtered properties should be present
+        set_keys = set(person_diffs.set_updates.keys())
+        set_once_keys = set(person_diffs.set_once_updates.keys())
+
+        assert "email" in set_keys, "Non-filtered property 'email' should be in results"
+        assert "name" in set_keys, "Non-filtered property 'name' should be in results"
+        assert "initial_campaign" in set_once_keys, "Non-filtered property 'initial_campaign' should be in results"
+
+        # Filtered properties should NOT be present
+        assert "$current_url" not in set_keys, "Filtered property '$current_url' should NOT be in results"
+        assert "$pathname" not in set_keys, "Filtered property '$pathname' should NOT be in results"
+        assert "$browser" not in set_keys, "Filtered property '$browser' should NOT be in results"
+        assert "$os" not in set_keys, "Filtered property '$os' should NOT be in results"
+        assert (
+            "$referring_domain" not in set_once_keys
+        ), "Filtered property '$referring_domain' should NOT be in results"
+
 
 @pytest.mark.django_db(transaction=True)
 class TestBatchCommitsEndToEnd:
