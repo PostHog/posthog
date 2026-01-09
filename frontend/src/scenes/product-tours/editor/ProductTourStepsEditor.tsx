@@ -39,13 +39,13 @@ export interface ProductTourStepsEditorProps {
     onChange: (steps: ProductTourStep[]) => void
 }
 
-const STEP_TYPE_ICONS: Record<ProductTourStepType, JSX.Element> = {
+const STEP_TYPE_ICONS: Partial<Record<ProductTourStepType, JSX.Element>> = {
     element: <IconCursorClick />,
     modal: <IconMessage />,
     survey: <IconQuestion />,
 }
 
-const STEP_TYPE_LABELS: Record<ProductTourStepType, string> = {
+const STEP_TYPE_LABELS: Partial<Record<ProductTourStepType, string>> = {
     element: 'Element',
     modal: 'Modal',
     survey: 'Survey',

@@ -106,7 +106,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 isLoading={productTourLoading}
                 actions={
                     <>
-                        <EditInToolbarButton tourId={id} />
+                        {!isAnnouncement(productTour) && <EditInToolbarButton tourId={id} />}
                         <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
                             Edit
                         </LemonButton>

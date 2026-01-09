@@ -107,6 +107,43 @@ function createDefaultAnnouncementContent(): ProductTourContent {
     }
 }
 
+function createDefaultBannerContent(): ProductTourContent {
+    return {
+        type: 'announcement',
+        steps: [
+            {
+                id: uuid(),
+                type: 'banner',
+                content: {
+                    type: 'doc',
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'Your banner message here. Keep it short and actionable.',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                bannerConfig: {
+                    behavior: 'sticky',
+                    action: {
+                        type: 'none',
+                    },
+                },
+            },
+        ],
+        appearance: {
+            showOverlay: false,
+            dismissOnClickOutside: false,
+            whiteLabel: true, // banners simply have no branding
+        },
+    }
+}
+
 export enum ProductToursTabs {
     Active = 'active',
     Archived = 'archived',
@@ -129,6 +166,14 @@ export function isAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
     return tour.content?.type === 'announcement'
 }
 
+export function isBannerAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
+    return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'banner'
+}
+
+export function isModalAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
+    return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'modal'
+}
+
 export interface ProductToursFilters {
     archived: boolean
 }
@@ -141,6 +186,7 @@ export const productToursLogic = kea<productToursLogicType>([
         setFilters: (filters: Partial<ProductToursFilters>) => ({ filters }),
         setTab: (tab: ProductToursTabs) => ({ tab }),
         createAnnouncement: (name: string) => ({ name }),
+        createBanner: (name: string) => ({ name }),
     }),
     loaders(({ values }) => ({
         productTours: {
@@ -199,6 +245,18 @@ export const productToursLogic = kea<productToursLogicType>([
                 router.actions.push(urls.productTour(announcement.id))
             } catch {
                 lemonToast.error('Failed to create announcement')
+            }
+        },
+        createBanner: async ({ name }) => {
+            try {
+                const banner = await api.productTours.create({
+                    name,
+                    content: createDefaultBannerContent(),
+                })
+                actions.loadProductTours()
+                router.actions.push(urls.productTour(banner.id))
+            } catch {
+                lemonToast.error('Failed to create banner')
             }
         },
     })),
