@@ -158,6 +158,8 @@ def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | No
         },
         "funding": company_data.get("funding", {}) if isinstance(company_data.get("funding"), dict) else {},
         "metrics": {},
+        "tags": company_data.get("tags", []) if isinstance(company_data.get("tags"), list) else [],
+        "tagsV2": company_data.get("tagsV2", []) if isinstance(company_data.get("tagsV2"), list) else [],
     }
 
     traction_metrics = (
@@ -187,6 +189,7 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
     funding = harmonic_data.get("funding", {})
     company_info = harmonic_data.get("company_info", {})
     metrics = harmonic_data.get("metrics", {})
+    tags = harmonic_data.get("tags", [])
 
     current_metrics = {metric_name: metric_data.get("current_value") for metric_name, metric_data in metrics.items()}
 
@@ -196,11 +199,25 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
         period_data = historical.get(period, {})
         return period_data.get("value")
 
+    # Extract primary tag from tags array (prefer isPrimaryTag=true, fallback to first tag)
+    primary_tag = None
+    if tags:
+        # First try to find a tag marked as primary
+        for tag in tags:
+            if isinstance(tag, dict) and tag.get("isPrimaryTag"):
+                primary_tag = tag.get("displayValue")
+                break
+
+        # If no primary tag found, use the first valid tag
+        if not primary_tag and len(tags) > 0 and isinstance(tags[0], dict):
+            primary_tag = tags[0].get("displayValue")
+
     update_data = {
         "Id": account_id,
         # Company Info
         "harmonic_company_name__c": company_info.get("name"),
         "harmonic_company_type__c": company_info.get("type"),
+        "harmonic_industry__c": primary_tag,
         "harmonic_last_update__c": timezone.now().strftime("%Y-%m-%d"),
         "Founded_year__c": (
             int(company_info.get("founding_date", "").split("-")[0])
