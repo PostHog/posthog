@@ -3025,6 +3025,236 @@ class TestClickHouseQueryIntegration:
         assert "email" in results[0].set_updates
         assert results[0].set_updates["email"].value == "new@example.com"
 
+    def test_timestamp_window_filtering_all_permutations(self, cluster: ClickhouseCluster):
+        """Comprehensive test of all permutations of person _timestamp and event timestamp.
+
+        Tests the matrix of:
+        - Person _timestamp: BEFORE / DURING / AFTER bug window
+        - Event timestamp: BEFORE / DURING / AFTER bug window
+
+        Expected behavior:
+        - Person _timestamp does NOT affect filtering (we removed that filter)
+        - Events BEFORE bug_window_start are filtered out
+        - Events DURING or AFTER bug_window_start are included (query uses now() as upper bound)
+
+        So expected results:
+        | Person _timestamp | Event timestamp | Included? |
+        |-------------------|-----------------|-----------|
+        | BEFORE            | BEFORE          | NO        |
+        | BEFORE            | DURING          | YES       |
+        | BEFORE            | AFTER           | YES       |
+        | DURING            | BEFORE          | NO        |
+        | DURING            | DURING          | YES       |
+        | DURING            | AFTER           | YES       |
+        | AFTER             | BEFORE          | NO        |
+        | AFTER             | DURING          | YES       |
+        | AFTER             | AFTER           | YES       |
+        """
+        # Use two teams to ensure isolation
+        team_id_1 = 99950
+        team_id_2 = 99951
+
+        now = datetime.now().replace(microsecond=0)
+
+        # Define time periods
+        # Bug window is conceptually from bug_window_start to bug_window_end (for team discovery)
+        # But the CH query reads from bug_window_start to now()
+        bug_window_start = now - timedelta(days=10)
+        _bug_window_end = now - timedelta(days=5)  # Used conceptually, not in query
+
+        # Timestamps for each period
+        ts_before = now - timedelta(days=15)  # Before bug_window_start
+        ts_during = now - timedelta(days=7)  # Between bug_window_start and bug_window_end
+        ts_after = now - timedelta(days=2)  # After bug_window_end but before now()
+
+        # Create 9 persons for team 1 - all permutations
+        # Format: (person_id_suffix, person_ts, event_ts, should_be_included)
+        test_cases_team1 = [
+            # Person _timestamp BEFORE bug_window_start
+            ("001", ts_before, ts_before, False, "person_before_event_before"),
+            ("002", ts_before, ts_during, True, "person_before_event_during"),
+            ("003", ts_before, ts_after, True, "person_before_event_after"),
+            # Person _timestamp DURING bug_window
+            ("004", ts_during, ts_before, False, "person_during_event_before"),
+            ("005", ts_during, ts_during, True, "person_during_event_during"),
+            ("006", ts_during, ts_after, True, "person_during_event_after"),
+            # Person _timestamp AFTER bug_window_end
+            ("007", ts_after, ts_before, False, "person_after_event_before"),
+            ("008", ts_after, ts_during, True, "person_after_event_during"),
+            ("009", ts_after, ts_after, True, "person_after_event_after"),
+        ]
+
+        # Create 3 persons for team 2 - subset to verify team isolation
+        test_cases_team2 = [
+            ("101", ts_before, ts_during, True, "team2_person_before_event_during"),
+            ("102", ts_during, ts_after, True, "team2_person_during_event_after"),
+            ("103", ts_after, ts_before, False, "team2_person_after_event_before"),
+        ]
+
+        # Helper to create UUID from suffix
+        def make_uuid(suffix: str) -> UUID:
+            return UUID(f"99990000-0000-0000-0000-000000000{suffix}")
+
+        # Insert events for team 1
+        events_team1 = []
+        for suffix, _person_ts, event_ts, _expected, prop_name in test_cases_team1:
+            person_id = make_uuid(suffix)
+            events_team1.append(
+                (
+                    team_id_1,
+                    f"distinct_{suffix}",
+                    person_id,
+                    event_ts,
+                    json.dumps({"$set": {prop_name: "new_value"}}),
+                )
+            )
+
+        def insert_events_team1(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events_team1,
+            )
+
+        cluster.any_host(insert_events_team1).result()
+
+        # Insert events for team 2
+        events_team2 = []
+        for suffix, _person_ts, event_ts, _expected, prop_name in test_cases_team2:
+            person_id = make_uuid(suffix)
+            events_team2.append(
+                (
+                    team_id_2,
+                    f"distinct_{suffix}",
+                    person_id,
+                    event_ts,
+                    json.dumps({"$set": {prop_name: "new_value"}}),
+                )
+            )
+
+        def insert_events_team2(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events_team2,
+            )
+
+        cluster.any_host(insert_events_team2).result()
+
+        # Insert persons for team 1 (with different property values so we get a diff)
+        persons_team1 = []
+        for suffix, person_ts, _event_ts, _expected, prop_name in test_cases_team1:
+            person_id = make_uuid(suffix)
+            persons_team1.append(
+                (
+                    team_id_1,
+                    person_id,
+                    json.dumps({prop_name: "old_value"}),
+                    1,  # version
+                    person_ts,  # _timestamp
+                )
+            )
+
+        def insert_persons_team1(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                persons_team1,
+            )
+
+        cluster.any_host(insert_persons_team1).result()
+
+        # Insert persons for team 2
+        persons_team2 = []
+        for suffix, person_ts, _event_ts, _expected, prop_name in test_cases_team2:
+            person_id = make_uuid(suffix)
+            persons_team2.append(
+                (
+                    team_id_2,
+                    person_id,
+                    json.dumps({prop_name: "old_value"}),
+                    1,
+                    person_ts,
+                )
+            )
+
+        def insert_persons_team2(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                persons_team2,
+            )
+
+        cluster.any_host(insert_persons_team2).result()
+
+        # Query for team 1
+        results_team1 = get_person_property_updates_from_clickhouse(
+            team_id=team_id_1,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Query for team 2
+        results_team2 = get_person_property_updates_from_clickhouse(
+            team_id=team_id_2,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Verify team 1 results
+        result_person_ids_team1 = {str(r.person_id) for r in results_team1}
+        expected_person_ids_team1 = {
+            str(make_uuid(suffix))
+            for suffix, _person_ts, _event_ts, expected, _prop_name in test_cases_team1
+            if expected
+        }
+
+        assert result_person_ids_team1 == expected_person_ids_team1, (
+            f"Team 1 mismatch.\n"
+            f"Expected: {expected_person_ids_team1}\n"
+            f"Got: {result_person_ids_team1}\n"
+            f"Missing: {expected_person_ids_team1 - result_person_ids_team1}\n"
+            f"Extra: {result_person_ids_team1 - expected_person_ids_team1}"
+        )
+
+        # Verify team 2 results
+        result_person_ids_team2 = {str(r.person_id) for r in results_team2}
+        expected_person_ids_team2 = {
+            str(make_uuid(suffix))
+            for suffix, _person_ts, _event_ts, expected, _prop_name in test_cases_team2
+            if expected
+        }
+
+        assert result_person_ids_team2 == expected_person_ids_team2, (
+            f"Team 2 mismatch.\n" f"Expected: {expected_person_ids_team2}\n" f"Got: {result_person_ids_team2}"
+        )
+
+        # Verify the property values are correct for included persons
+        for result in results_team1:
+            # Each person should have exactly one set_update with value "new_value"
+            assert len(result.set_updates) == 1, f"Person {result.person_id} should have 1 update"
+            prop_value = next(iter(result.set_updates.values()))
+            assert prop_value.value == "new_value", f"Person {result.person_id} should have new_value"
+
+        # Verify specific cases to make the test more explicit
+        # Person 002: _timestamp BEFORE, event DURING → should be included
+        assert (
+            str(make_uuid("002")) in result_person_ids_team1
+        ), "Person with _timestamp BEFORE but event DURING should be included"
+
+        # Person 003: _timestamp BEFORE, event AFTER → should be included
+        assert (
+            str(make_uuid("003")) in result_person_ids_team1
+        ), "Person with _timestamp BEFORE but event AFTER should be included"
+
+        # Person 007: _timestamp AFTER, event BEFORE → should NOT be included
+        assert (
+            str(make_uuid("007")) not in result_person_ids_team1
+        ), "Person with event BEFORE bug_window_start should NOT be included"
+
+        # Person 001: _timestamp BEFORE, event BEFORE → should NOT be included
+        assert (
+            str(make_uuid("001")) not in result_person_ids_team1
+        ), "Person with event BEFORE bug_window_start should NOT be included"
+
     # ==================== Edge Case Tests ====================
 
     def test_same_timestamp_deterministic(self, cluster: ClickhouseCluster):
@@ -3893,3 +4123,289 @@ class TestKafkaClickHouseRoundTrip:
             ch_properties["email"] == "new@example.com"
         ), f"ClickHouse email not updated. Expected 'new@example.com', got '{ch_properties.get('email')}'"
         assert ch_properties["unchanged"] == "value", "ClickHouse unchanged property was modified"
+
+    @pytest.mark.skipif(
+        os.environ.get("KAFKA_ROUNDTRIP_TESTS") != "1",
+        reason="Requires real Kafka infrastructure. Set KAFKA_ROUNDTRIP_TESTS=1 to run.",
+    )
+    def test_full_job_timestamp_window_filtering_all_permutations(self, cluster: ClickhouseCluster):
+        """End-to-end test of the full Dagster job with all timestamp permutations.
+
+        Tests the complete pipeline:
+        1. Creates persons in Postgres with different _timestamp values
+        2. Inserts events in ClickHouse with different timestamps
+        3. Runs the full Dagster reconciliation job
+        4. Verifies only the correct persons were updated in Postgres
+
+        Test matrix (person _timestamp × event timestamp):
+        | Person _timestamp | Event timestamp | Should be reconciled? |
+        |-------------------|-----------------|----------------------|
+        | BEFORE            | BEFORE          | NO                   |
+        | BEFORE            | DURING          | YES                  |
+        | BEFORE            | AFTER           | YES                  |
+        | DURING            | BEFORE          | NO                   |
+        | DURING            | DURING          | YES                  |
+        | DURING            | AFTER           | YES                  |
+        | AFTER             | BEFORE          | NO                   |
+        | AFTER             | DURING          | YES                  |
+        | AFTER             | AFTER           | YES                  |
+
+        Key insight: Only EVENT timestamp matters, not person _timestamp.
+        Events BEFORE bug_window_start are filtered; events DURING or AFTER are included.
+        """
+        from django.test import override_settings
+
+        from posthog.dags.common.resources import get_persons_db_connection
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation
+        from posthog.kafka_client.client import _KafkaProducer
+        from posthog.models import Organization, Person, Team
+
+        # Create two organizations and teams for isolation
+        org1 = Organization.objects.create(name="Test Org 1 for timestamp permutations")
+        org2 = Organization.objects.create(name="Test Org 2 for timestamp permutations")
+        team1 = Team.objects.create(organization=org1, name="Team 1")
+        team2 = Team.objects.create(organization=org2, name="Team 2")
+
+        now = datetime.now().replace(microsecond=0)
+
+        # Define time periods
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now - timedelta(days=5)
+
+        # Timestamps for each period
+        ts_before = now - timedelta(days=15)  # Before bug_window_start
+        ts_during = now - timedelta(days=7)  # Between bug_window_start and bug_window_end
+        ts_after = now - timedelta(days=2)  # After bug_window_end but before now()
+
+        # Test cases for team 1: all 9 permutations
+        # Format: (suffix, person_ts, event_ts, should_be_reconciled, prop_name)
+        test_cases_team1 = [
+            # Person _timestamp BEFORE bug_window_start
+            ("t1_001", ts_before, ts_before, False, "prop_before_before"),
+            ("t1_002", ts_before, ts_during, True, "prop_before_during"),
+            ("t1_003", ts_before, ts_after, True, "prop_before_after"),
+            # Person _timestamp DURING bug_window
+            ("t1_004", ts_during, ts_before, False, "prop_during_before"),
+            ("t1_005", ts_during, ts_during, True, "prop_during_during"),
+            ("t1_006", ts_during, ts_after, True, "prop_during_after"),
+            # Person _timestamp AFTER bug_window_end
+            ("t1_007", ts_after, ts_before, False, "prop_after_before"),
+            ("t1_008", ts_after, ts_during, True, "prop_after_during"),
+            ("t1_009", ts_after, ts_after, True, "prop_after_after"),
+        ]
+
+        # Test cases for team 2: subset to verify team isolation
+        test_cases_team2 = [
+            ("t2_001", ts_before, ts_during, True, "team2_prop_1"),
+            ("t2_002", ts_during, ts_after, True, "team2_prop_2"),
+            ("t2_003", ts_after, ts_before, False, "team2_prop_3"),
+        ]
+
+        # Create persons in Postgres for team 1
+        persons_team1 = {}
+        for suffix, _person_ts, _event_ts, _expected, prop_name in test_cases_team1:
+            person = Person.objects.create(
+                team_id=team1.id,
+                properties={prop_name: "old_value"},
+                properties_last_updated_at={prop_name: "2020-01-01T00:00:00+00:00"},
+                properties_last_operation={prop_name: "set"},
+                version=1,
+            )
+            persons_team1[suffix] = person
+
+        # Create persons in Postgres for team 2
+        persons_team2 = {}
+        for suffix, _person_ts, _event_ts, _expected, prop_name in test_cases_team2:
+            person = Person.objects.create(
+                team_id=team2.id,
+                properties={prop_name: "old_value"},
+                properties_last_updated_at={prop_name: "2020-01-01T00:00:00+00:00"},
+                properties_last_operation={prop_name: "set"},
+                version=1,
+            )
+            persons_team2[suffix] = person
+
+        # Insert events in ClickHouse for team 1
+        events_team1 = []
+        for suffix, _person_ts, event_ts, _expected, prop_name in test_cases_team1:
+            person = persons_team1[suffix]
+            events_team1.append(
+                (
+                    team1.id,
+                    f"distinct_{suffix}",
+                    person.uuid,
+                    event_ts,
+                    json.dumps({"$set": {prop_name: "new_value"}}),
+                )
+            )
+
+        def insert_events_team1(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events_team1,
+            )
+
+        cluster.any_host(insert_events_team1).result()
+
+        # Insert events in ClickHouse for team 2
+        events_team2 = []
+        for suffix, _person_ts, event_ts, _expected, prop_name in test_cases_team2:
+            person = persons_team2[suffix]
+            events_team2.append(
+                (
+                    team2.id,
+                    f"distinct_{suffix}",
+                    person.uuid,
+                    event_ts,
+                    json.dumps({"$set": {prop_name: "new_value"}}),
+                )
+            )
+
+        def insert_events_team2(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events_team2,
+            )
+
+        cluster.any_host(insert_events_team2).result()
+
+        # Insert persons in ClickHouse for team 1 (required for the query join)
+        persons_ch_team1 = []
+        for suffix, person_ts, _event_ts, _expected, prop_name in test_cases_team1:
+            person = persons_team1[suffix]
+            persons_ch_team1.append(
+                (
+                    team1.id,
+                    person.uuid,
+                    json.dumps({prop_name: "old_value"}),
+                    1,
+                    0,  # is_deleted
+                    person_ts,  # _timestamp
+                )
+            )
+
+        def insert_persons_ch_team1(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, is_deleted, _timestamp)
+                VALUES""",
+                persons_ch_team1,
+            )
+
+        cluster.any_host(insert_persons_ch_team1).result()
+
+        # Insert persons in ClickHouse for team 2
+        persons_ch_team2 = []
+        for suffix, person_ts, _event_ts, _expected, prop_name in test_cases_team2:
+            person = persons_team2[suffix]
+            persons_ch_team2.append(
+                (
+                    team2.id,
+                    person.uuid,
+                    json.dumps({prop_name: "old_value"}),
+                    1,
+                    0,
+                    person_ts,
+                )
+            )
+
+        def insert_persons_ch_team2(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, is_deleted, _timestamp)
+                VALUES""",
+                persons_ch_team2,
+            )
+
+        cluster.any_host(insert_persons_ch_team2).result()
+
+        # Run the Dagster job
+        persons_conn = get_persons_db_connection()
+
+        with override_settings(TEST=False):
+            kafka_producer = _KafkaProducer(test=False)
+
+            try:
+                result = person_property_reconciliation.execute_in_process(
+                    run_config={
+                        "ops": {
+                            "get_teams_to_reconcile": {
+                                "config": {
+                                    "team_ids": [team1.id, team2.id],
+                                    "bug_window_start": bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+                                    "bug_window_end": bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+                                    "dry_run": False,
+                                    "backup_enabled": False,
+                                    "batch_size": 100,
+                                }
+                            },
+                            "reconcile_team_chunk": {
+                                "config": {
+                                    "bug_window_start": bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+                                    "dry_run": False,
+                                    "backup_enabled": False,
+                                    "batch_size": 100,
+                                }
+                            },
+                        }
+                    },
+                    resources={
+                        "cluster": cluster,
+                        "persons_database": persons_conn,
+                        "kafka_producer": kafka_producer,
+                    },
+                )
+
+                assert result.success, f"Dagster job failed: {result}"
+                kafka_producer.flush(timeout=10)
+
+            finally:
+                kafka_producer.close()
+
+        # Verify team 1 results in Postgres
+        for suffix, _person_ts, _event_ts, should_be_reconciled, prop_name in test_cases_team1:
+            person = persons_team1[suffix]
+            person.refresh_from_db()
+
+            if should_be_reconciled:
+                assert person.properties[prop_name] == "new_value", (
+                    f"Person {suffix} should have been reconciled. "
+                    f"Expected 'new_value', got '{person.properties.get(prop_name)}'"
+                )
+                assert person.version == 2, f"Person {suffix} version should be 2, got {person.version}"
+            else:
+                assert person.properties[prop_name] == "old_value", (
+                    f"Person {suffix} should NOT have been reconciled. "
+                    f"Expected 'old_value', got '{person.properties.get(prop_name)}'"
+                )
+                assert person.version == 1, f"Person {suffix} version should still be 1, got {person.version}"
+
+        # Verify team 2 results in Postgres
+        for suffix, _person_ts, _event_ts, should_be_reconciled, prop_name in test_cases_team2:
+            person = persons_team2[suffix]
+            person.refresh_from_db()
+
+            if should_be_reconciled:
+                assert person.properties[prop_name] == "new_value", (
+                    f"Person {suffix} should have been reconciled. "
+                    f"Expected 'new_value', got '{person.properties.get(prop_name)}'"
+                )
+                assert person.version == 2, f"Person {suffix} version should be 2, got {person.version}"
+            else:
+                assert person.properties[prop_name] == "old_value", (
+                    f"Person {suffix} should NOT have been reconciled. "
+                    f"Expected 'old_value', got '{person.properties.get(prop_name)}'"
+                )
+                assert person.version == 1, f"Person {suffix} version should still be 1, got {person.version}"
+
+        # Count reconciled vs not reconciled for summary
+        reconciled_team1 = sum(1 for _, _, _, expected, _ in test_cases_team1 if expected)
+        not_reconciled_team1 = len(test_cases_team1) - reconciled_team1
+        reconciled_team2 = sum(1 for _, _, _, expected, _ in test_cases_team2 if expected)
+        not_reconciled_team2 = len(test_cases_team2) - reconciled_team2
+
+        # Verify we tested the expected number of cases
+        assert reconciled_team1 == 6, f"Expected 6 reconciled in team 1, got {reconciled_team1}"
+        assert not_reconciled_team1 == 3, f"Expected 3 not reconciled in team 1, got {not_reconciled_team1}"
+        assert reconciled_team2 == 2, f"Expected 2 reconciled in team 2, got {reconciled_team2}"
+        assert not_reconciled_team2 == 1, f"Expected 1 not reconciled in team 2, got {not_reconciled_team2}"
