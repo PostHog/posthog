@@ -165,11 +165,9 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
         handle = SourceHandle(type="events", team=self.team, event=event_config)
         query = build(handle)
 
-        self.assertEqual(
-            query.test_comments,
-            "no_property",
-            "Empty string subscriptionProperty should be treated as no property configured",
-        )
+        assert (
+            query.test_comments == "no_property"
+        ), "Empty string subscriptionProperty should be treated as no property configured"
 
         query_sql = query.query.to_hogql()
-        self.assertNotIn("properties.``", query_sql, "Should not generate invalid HogQL with empty property name")
+        assert "properties.``" not in query_sql, "Should not generate invalid HogQL with empty property name"
