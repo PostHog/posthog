@@ -23,13 +23,8 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            - name: Set up Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version: '3.12'
-
-            - name: Install pytest for test collection
-              run: pip install pytest pytest-split
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
 
             - name: Find CI run to use
               id: find-run
@@ -82,9 +77,9 @@ jobs:
                   # Optimize each segment separately with its own shard count, then merge
                   # --filter-existing removes stale tests that no longer exist in codebase
                   # Core: 40 shards, Temporal: 10 shards
-                  python3 .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
                       --num-shards 40 --ceiling 60 --segment Core --filter-existing
-                  python3 .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
                       --num-shards 10 --ceiling 60 --segment Temporal --filter-existing
 
                   # Merge into single file (Core first, then Temporal overwrites any overlaps)

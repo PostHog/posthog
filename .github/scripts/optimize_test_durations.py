@@ -1,20 +1,21 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "pytest>=7.0.0",
+#     "pytest-split>=0.8.0",
+# ]
+# ///
 """
-Optimize test durations for balanced pytest-split sharding.
+Prepare test durations for pytest-split sharding.
 
-The duration_based_chunks algorithm fills shards sequentially until hitting
-a target duration. This can cause empty shards when:
-- Some shards overshoot the target (eating into budget for later shards)
-- Last shards don't have enough tests left
+Merges timing artifacts from CI shards and applies a ceiling cap to inflated
+first-test durations (caused by Django DB setup warm-up).
 
-This script uses iterative feedback optimization:
-1. Start with real durations from CI artifacts
-2. Simulate which shard each test lands in
-3. For slow shards (real time > target): inflate durations → fills faster → pushes tests out
-4. For fast shards (real time < target): deflate durations → more tests fit
-5. Repeat until convergence
-
-Result: synthetic durations that produce balanced real execution times.
+Note: pytest-split's duration_based_chunks algorithm has inherent limitations -
+fast tests clustered alphabetically at the end can cause the last shard to be
+much faster than others. This script doesn't try to "game" the algorithm;
+it just provides clean timing data.
 """
 
 import json
@@ -26,8 +27,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_NUM_SHARDS = 40
 DEFAULT_CEILING = 60.0
-DEFAULT_LEARNING_RATE = 0.3
-DEFAULT_ITERATIONS = 50
 
 
 def load_timing_artifacts(artifacts_dir: Path, segment: str | None = None) -> dict[str, float]:
@@ -90,32 +89,19 @@ def calculate_stats(shards: list[list[str]], real_durations: dict[str, float]) -
     return real_times, std
 
 
-def optimize(
-    real_durations: dict[str, float],
-    num_shards: int = DEFAULT_NUM_SHARDS,
-    ceiling: float = DEFAULT_CEILING,
-    learning_rate: float = DEFAULT_LEARNING_RATE,
-    iterations: int = DEFAULT_ITERATIONS,
-) -> dict[str, float]:
-    """Simple ceiling-cap optimization.
+def apply_ceiling_cap(durations: dict[str, float], ceiling: float = DEFAULT_CEILING) -> dict[str, float]:
+    """Apply ceiling cap to inflated durations.
 
-    Just cap inflated first-test durations and use real durations otherwise.
-    This is simple and predictable.
+    First test in each shard has Django DB setup baked into its timing (~60-240s).
+    Cap these to avoid skewing the timing file.
     """
-    sorted_tests = sorted(real_durations.keys())
-
-    # Cap inflated durations (first-test-in-shard warm-up artifacts)
-    # and ensure minimum duration for tests with 0 or very small times
-    capped = {}
-    for test in sorted_tests:
-        real = real_durations[test]
-        if real > ceiling:
-            # Likely first-test warm-up, cap it
-            capped[test] = ceiling
+    result = {}
+    for test, duration in durations.items():
+        if duration > ceiling:
+            result[test] = ceiling
         else:
-            capped[test] = max(0.01, real)
-
-    return capped
+            result[test] = max(0.01, duration)
+    return result
 
 
 def collect_existing_tests(segment: str | None = None) -> set[str]:
@@ -165,29 +151,20 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
 def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    parser = argparse.ArgumentParser(description="Optimize test durations for balanced pytest-split sharding")
+    parser = argparse.ArgumentParser(description="Prepare test durations for pytest-split sharding")
     parser.add_argument("artifacts_dir", type=Path, help="Directory containing timing artifacts")
-    parser.add_argument("output_file", type=Path, help="Output file for optimized durations")
+    parser.add_argument("output_file", type=Path, help="Output file for processed durations")
     parser.add_argument(
-        "--num-shards", type=int, default=DEFAULT_NUM_SHARDS, help=f"Number of shards (default: {DEFAULT_NUM_SHARDS})"
+        "--num-shards",
+        type=int,
+        default=DEFAULT_NUM_SHARDS,
+        help=f"Number of shards for stats (default: {DEFAULT_NUM_SHARDS})",
     )
     parser.add_argument(
         "--ceiling",
         type=float,
         default=DEFAULT_CEILING,
         help=f"Duration ceiling for inflated tests (default: {DEFAULT_CEILING}s)",
-    )
-    parser.add_argument(
-        "--learning-rate",
-        type=float,
-        default=DEFAULT_LEARNING_RATE,
-        help=f"Learning rate for optimization (default: {DEFAULT_LEARNING_RATE})",
-    )
-    parser.add_argument(
-        "--iterations",
-        type=int,
-        default=DEFAULT_ITERATIONS,
-        help=f"Number of optimization iterations (default: {DEFAULT_ITERATIONS})",
     )
     parser.add_argument(
         "--segment",
@@ -222,38 +199,27 @@ def main():
         )
     logger.info("  Total tests: %d", len(real_durations))
 
-    target = sum(real_durations.values()) / args.num_shards
-    logger.info("  Target real time per shard: %.0fs", target)
+    total_duration = sum(real_durations.values())
+    logger.info("  Total duration: %.0fs", total_duration)
+    logger.info("  Target per shard: %.0fs", total_duration / args.num_shards)
 
-    logger.info(
-        "Optimizing durations (shards=%d, ceiling=%.0fs, lr=%.2f, iterations=%d)...",
-        args.num_shards,
-        args.ceiling,
-        args.learning_rate,
-        args.iterations,
-    )
-    optimized = optimize(
-        real_durations,
-        num_shards=args.num_shards,
-        ceiling=args.ceiling,
-        learning_rate=args.learning_rate,
-        iterations=args.iterations,
-    )
+    logger.info("Applying ceiling cap (%.0fs)...", args.ceiling)
+    processed = apply_ceiling_cap(real_durations, ceiling=args.ceiling)
 
-    # Analyze result
-    shards, _ = simulate_distribution(optimized, args.num_shards)
+    # Show stats for reference
+    shards, _ = simulate_distribution(processed, args.num_shards)
     real_times, std = calculate_stats(shards, real_durations)
     empty = sum(1 for s in shards if not s)
 
-    logger.info("Results:")
-    logger.info("  Real time range: %.0fs - %.0fs", min(real_times), max(real_times))
+    logger.info("Simulated distribution:")
+    logger.info("  Time range: %.0fs - %.0fs", min(real_times), max(real_times))
     logger.info("  Std dev: %.0fs", std)
     logger.info("  Empty shards: %d", empty)
 
     # Save
     with open(args.output_file, "w") as f:
-        json.dump(optimized, f, separators=(",", ":"), sort_keys=True)
-    logger.info("Saved to %s", args.output_file)
+        json.dump(processed, f, separators=(",", ":"), sort_keys=True)
+    logger.info("Saved %d tests to %s", len(processed), args.output_file)
 
 
 if __name__ == "__main__":
