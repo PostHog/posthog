@@ -382,7 +382,7 @@ export function SurveysTable(): JSX.Element {
                                                     </LemonButton>
                                                 </AccessControlAction>
                                             )}
-                                            {survey.end_date && !survey.archived && (
+                                            {!survey.archived && (
                                                 <AccessControlAction
                                                     resourceType={AccessControlResourceType.Survey}
                                                     minAccessLevel={AccessControlLevel.Editor}
@@ -391,24 +391,50 @@ export function SurveysTable(): JSX.Element {
                                                     <LemonButton
                                                         fullWidth
                                                         onClick={() => {
+                                                            const isRunning = isSurveyRunning(survey)
                                                             LemonDialog.open({
                                                                 title: 'Archive this survey?',
-                                                                content: (
+                                                                content: isRunning ? (
                                                                     <div className="text-sm text-secondary">
-                                                                        This action will remove the survey from your
-                                                                        active surveys list. It can be restored at any
-                                                                        time.
+                                                                        <p>
+                                                                            This survey is currently running. Archiving
+                                                                            will:
+                                                                        </p>
+                                                                        <ul className="list-disc ml-4 mt-2">
+                                                                            <li>Stop the survey immediately</li>
+                                                                            <li>
+                                                                                Remove it from your active surveys list
+                                                                            </li>
+                                                                        </ul>
+                                                                        <p className="mt-2">
+                                                                            You can restore this survey at any time from
+                                                                            the Archived tab.
+                                                                        </p>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="text-sm text-secondary">
+                                                                        This will remove the survey from your active
+                                                                        surveys list. You can restore it at any time
+                                                                        from the Archived tab.
                                                                     </div>
                                                                 ),
                                                                 primaryButton: {
-                                                                    children: 'Archive',
+                                                                    children: isRunning
+                                                                        ? 'Stop and archive'
+                                                                        : 'Archive',
                                                                     type: 'primary',
                                                                     onClick: () => {
+                                                                        const updatePayload: Partial<Survey> = {
+                                                                            archived: true,
+                                                                        }
+                                                                        // If the survey is running, stop it first
+                                                                        if (isRunning) {
+                                                                            updatePayload.end_date =
+                                                                                dayjs().toISOString()
+                                                                        }
                                                                         updateSurvey({
                                                                             id: survey.id,
-                                                                            updatePayload: {
-                                                                                archived: true,
-                                                                            },
+                                                                            updatePayload,
                                                                             intentContext:
                                                                                 ProductIntentContext.SURVEY_ARCHIVED,
                                                                         })
@@ -427,40 +453,54 @@ export function SurveysTable(): JSX.Element {
                                                     </LemonButton>
                                                 </AccessControlAction>
                                             )}
-                                            <AccessControlAction
-                                                resourceType={AccessControlResourceType.Survey}
-                                                minAccessLevel={AccessControlLevel.Editor}
-                                                userAccessLevel={survey.user_access_level}
-                                            >
-                                                <LemonButton
-                                                    status="danger"
-                                                    onClick={() => {
-                                                        LemonDialog.open({
-                                                            title: 'Delete this survey?',
-                                                            content: (
-                                                                <div className="text-sm text-secondary">
-                                                                    This action cannot be undone. All survey data will
-                                                                    be permanently removed.
-                                                                </div>
-                                                            ),
-                                                            primaryButton: {
-                                                                children: 'Delete',
-                                                                type: 'primary',
-                                                                onClick: () => deleteSurvey(survey.id),
-                                                                size: 'small',
-                                                            },
-                                                            secondaryButton: {
-                                                                children: 'Cancel',
-                                                                type: 'tertiary',
-                                                                size: 'small',
-                                                            },
-                                                        })
-                                                    }}
-                                                    fullWidth
+                                            {survey.archived && (
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.Survey}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                    userAccessLevel={survey.user_access_level}
                                                 >
-                                                    Delete
-                                                </LemonButton>
-                                            </AccessControlAction>
+                                                    <LemonButton
+                                                        status="danger"
+                                                        onClick={() => {
+                                                            LemonDialog.open({
+                                                                title: 'Permanently delete this survey?',
+                                                                content: (
+                                                                    <div className="text-sm text-secondary">
+                                                                        <p>
+                                                                            <strong>
+                                                                                This action cannot be undone.
+                                                                            </strong>
+                                                                        </p>
+                                                                        <p className="mt-2">
+                                                                            The survey configuration will be permanently
+                                                                            deleted.
+                                                                        </p>
+                                                                        <p className="mt-2 text-muted">
+                                                                            Note: Survey response events in your data
+                                                                            will not be affected.
+                                                                        </p>
+                                                                    </div>
+                                                                ),
+                                                                primaryButton: {
+                                                                    children: 'Delete permanently',
+                                                                    type: 'primary',
+                                                                    status: 'danger',
+                                                                    onClick: () => deleteSurvey(survey.id),
+                                                                    size: 'small',
+                                                                },
+                                                                secondaryButton: {
+                                                                    children: 'Cancel',
+                                                                    type: 'tertiary',
+                                                                    size: 'small',
+                                                                },
+                                                            })
+                                                        }}
+                                                        fullWidth
+                                                    >
+                                                        Delete permanently
+                                                    </LemonButton>
+                                                </AccessControlAction>
+                                            )}
                                         </>
                                     }
                                 />

@@ -108,44 +108,55 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             />
                         </ScenePanelActionsSection>
                         <ScenePanelDivider />
-                        <ScenePanelActionsSection>
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Survey}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={survey.user_access_level}
-                            >
-                                <ButtonPrimitive
-                                    menuItem
-                                    variant="danger"
-                                    data-attr={`${RESOURCE_TYPE}-delete`}
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete this survey?',
-                                            content: (
-                                                <div className="text-sm text-secondary">
-                                                    This action cannot be undone. All survey data will be permanently
-                                                    removed.
-                                                </div>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                onClick: () => deleteSurvey(id),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
+                        {survey.archived && (
+                            <ScenePanelActionsSection>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Survey}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={survey.user_access_level}
                                 >
-                                    <IconTrash />
-                                    Delete survey
-                                </ButtonPrimitive>
-                            </AccessControlAction>
-                        </ScenePanelActionsSection>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        variant="danger"
+                                        data-attr={`${RESOURCE_TYPE}-delete`}
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Permanently delete this survey?',
+                                                content: (
+                                                    <div className="text-sm text-secondary">
+                                                        <p>
+                                                            <strong>This action cannot be undone.</strong>
+                                                        </p>
+                                                        <p className="mt-2">
+                                                            The survey configuration will be permanently deleted.
+                                                        </p>
+                                                        <p className="mt-2 text-muted">
+                                                            Note: Survey response events in your data will not be
+                                                            affected.
+                                                        </p>
+                                                    </div>
+                                                ),
+                                                primaryButton: {
+                                                    children: 'Delete permanently',
+                                                    type: 'primary',
+                                                    status: 'danger',
+                                                    onClick: () => deleteSurvey(id),
+                                                    size: 'small',
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'tertiary',
+                                                    size: 'small',
+                                                },
+                                            })
+                                        }}
+                                    >
+                                        <IconTrash />
+                                        Delete permanently
+                                    </ButtonPrimitive>
+                                </AccessControlAction>
+                            </ScenePanelActionsSection>
+                        )}
                     </ScenePanel>
 
                     <SurveysDisabledBanner />
