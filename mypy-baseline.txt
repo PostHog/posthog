@@ -809,6 +809,7 @@ posthog/test/test_middleware.py:0: error: Item "None" of "HttpResponse | None" h
 posthog/test/test_migration_0273.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/test/test_migration_0273.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/test/test_survey_question_ids.py:0: error: Item "None" of "Any | None" has no attribute "__iter__" (not iterable)  [union-attr]
+posthog/test/test_two_factor_enforcement.py:0: error: "_MonkeyPatchedWSGIResponse" has no attribute "data"  [attr-defined]
 posthog/test/test_utils.py:0: error: Argument 5 to "post" of "_RequestFactory" has incompatible type "**dict[str, str]"; expected "Mapping[Any, Any] | None"  [arg-type]
 posthog/test/test_utils.py:0: error: Argument 5 to "post" of "_RequestFactory" has incompatible type "**dict[str, str]"; expected "Mapping[str, Any] | None"  [arg-type]
 posthog/udf_versioner.py:0: error: Argument 2 to "insert" of "Element" has incompatible type "Element[_ElementCallable]"; expected "Element[str]"  [arg-type]
