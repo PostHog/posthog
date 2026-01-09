@@ -20,6 +20,7 @@ DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-clustering"
+COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"
 
 # Activity timeouts (per activity type)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
