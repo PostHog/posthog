@@ -45,9 +45,9 @@ def backfill_expiry_batch(
 
     while True:
         batch = list(
-            ExportedAsset.objects_including_ttl_deleted.filter(expires_after__isnull=True)
-            .only("id", "created_at", "export_format")
-            .order_by("id")[:batch_size]
+            ExportedAsset.objects_including_ttl_deleted.filter(expires_after__isnull=True).only(
+                "id", "created_at", "export_format"
+            )[:batch_size]
         )
 
         if not batch:
