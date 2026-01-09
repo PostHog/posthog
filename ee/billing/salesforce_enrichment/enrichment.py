@@ -330,14 +330,20 @@ def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
         capture_exception(e)
         return []
 
-    # Normalize domain
-    normalized_domain = domain.lower().strip().removeprefix("www.")
+    # Normalize domain using the same helper function for consistency
+    normalized_domain = _extract_domain(domain)
+    if not normalized_domain:
+        logger.info("Invalid domain provided", domain=domain)
+        return []
+
+    # Escape single quotes to prevent SOQL injection (SOQL uses '' to escape ')
+    escaped_domain = normalized_domain.replace("'", "''")
 
     # Query for all accounts matching the domain
     query = f"""
         SELECT Id, Name, Domain__c, CreatedDate
         FROM Account
-        WHERE Domain__c LIKE '%{normalized_domain}%'
+        WHERE Domain__c LIKE '%{escaped_domain}%'
         ORDER BY CreatedDate DESC
     """
 

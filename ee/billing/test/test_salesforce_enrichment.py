@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 from ee.billing.salesforce_enrichment.enrichment import (
     enrich_accounts_chunked_async,
+    get_salesforce_accounts_by_domain,
     is_excluded_domain,
     prepare_salesforce_update_data,
     transform_harmonic_data,
@@ -296,6 +297,55 @@ class TestHarmonicDataTransformation(BaseTest):
         assert "headcount" in result["metrics"]
         assert result["metrics"]["headcount"]["current_value"] == 5015
         assert result["metrics"]["headcount"]["historical"] == {}
+
+
+class TestSalesforceAccountQuery(BaseTest):
+    def test_get_salesforce_accounts_by_domain_escapes_quotes(self):
+        """Test that single quotes in domain are properly escaped to prevent SOQL injection."""
+        malicious_domain = "test'OR'1'='1"
+
+        mock_sf_client = patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client")
+        with mock_sf_client as mock_get_sf:
+            mock_sf = mock_get_sf.return_value
+            mock_sf.query_all.return_value = {"records": []}
+
+            get_salesforce_accounts_by_domain(malicious_domain)
+
+            # Verify query_all was called
+            assert mock_sf.query_all.called
+
+            # Get the actual query that was executed
+            actual_query = mock_sf.query_all.call_args[0][0]
+
+            # The single quotes should be escaped as '' not \'
+            # Note: domain is lowercased during normalization
+            assert "test''or''1''=''1" in actual_query
+            # Should NOT contain unescaped single quotes that would break query
+            assert "test'or'1'='1" not in actual_query
+
+    def test_get_salesforce_accounts_by_domain_normalizes_domain(self):
+        """Test that domain is properly normalized before querying."""
+        mock_sf_client = patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client")
+        with mock_sf_client as mock_get_sf:
+            mock_sf = mock_get_sf.return_value
+            mock_sf.query_all.return_value = {"records": []}
+
+            # Test with URL instead of plain domain
+            get_salesforce_accounts_by_domain("https://www.example.com/path")
+
+            # Should query with normalized domain
+            actual_query = mock_sf.query_all.call_args[0][0]
+            assert "example.com" in actual_query
+            assert "www." not in actual_query
+            assert "https://" not in actual_query
+
+    def test_get_salesforce_accounts_by_domain_returns_empty_for_invalid(self):
+        """Test that invalid domains return empty list."""
+        result = get_salesforce_accounts_by_domain("")
+        assert result == []
+
+        result = get_salesforce_accounts_by_domain("   ")
+        assert result == []
 
 
 class TestSpecificDomainEnrichment(BaseTest):
