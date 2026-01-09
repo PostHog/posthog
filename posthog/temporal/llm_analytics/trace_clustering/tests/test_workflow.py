@@ -4,11 +4,7 @@ import pytest
 
 import numpy as np
 
-from posthog.temporal.llm_analytics.trace_clustering.clustering import (
-    calculate_trace_distances,
-    perform_kmeans_with_optimal_k,
-    select_representatives_from_distances,
-)
+from posthog.temporal.llm_analytics.trace_clustering.clustering import perform_kmeans_with_optimal_k
 from posthog.temporal.llm_analytics.trace_clustering.models import (
     ClusteringActivityInputs,
     ClusteringComputeResult,
@@ -17,6 +13,7 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
     EmitEventsActivityInputs,
     GenerateLabelsActivityInputs,
     GenerateLabelsActivityOutputs,
+    TraceLabelingMetadata,
 )
 
 
@@ -88,31 +85,6 @@ class TestClusteringUtils:
         assert len(result.labels) == len(sample_embeddings)
         assert all(isinstance(label, int) for label in result.labels)
         assert all(isinstance(centroid, list) for centroid in result.centroids)
-
-    def test_select_representatives_from_distances(self, sample_embeddings):
-        """Test representative selection using pre-computed distances."""
-        embeddings_array = np.array([e["embedding"] for e in sample_embeddings])
-        trace_ids = [e["trace_id"] for e in sample_embeddings]
-
-        # Run clustering
-        result = perform_kmeans_with_optimal_k(embeddings_array, min_k=2, max_k=5)
-
-        # Compute distances once
-        distances_matrix = calculate_trace_distances(embeddings_array, np.array(result.centroids))
-
-        # Select representatives using pre-computed distances
-        representatives = select_representatives_from_distances(
-            np.array(result.labels), distances_matrix, trace_ids, n_closest=5
-        )
-
-        assert len(representatives) == len(result.centroids)
-        for cluster_id, rep_ids in representatives.items():
-            assert len(rep_ids) <= 5
-            assert all(isinstance(tid, str) for tid in rep_ids)
-            # Verify these are from the correct cluster
-            cluster_mask = np.array(result.labels) == cluster_id
-            cluster_trace_ids = [trace_ids[i] for i in range(len(trace_ids)) if cluster_mask[i]]
-            assert all(tid in cluster_trace_ids for tid in rep_ids)
 
     def test_perform_kmeans_clamps_max_k_to_sample_count(self):
         """Test that max_k is clamped when it exceeds n_samples."""
@@ -192,7 +164,9 @@ class TestActivityInputOutputModels:
             labels=[0, 0, 1],
             centroids=[[1.0, 2.0], [3.0, 4.0]],
             distances=[[0.1, 0.9], [0.2, 0.8], [0.8, 0.1]],
-            representative_trace_ids={0: ["trace_1"], 1: ["trace_3"]},
+            coords_2d=[[-1.0, 0.5], [-0.5, 0.8], [1.5, -0.3]],
+            centroid_coords_2d=[[-0.7, 0.6], [1.2, -0.2]],
+            probabilities=[1.0, 1.0, 1.0],
         )
 
         assert result.clustering_run_id == "1_20250108_000000"
@@ -200,22 +174,31 @@ class TestActivityInputOutputModels:
         assert len(result.labels) == 3
         assert len(result.centroids) == 2
         assert len(result.distances) == 3
-        assert 0 in result.representative_trace_ids
-        assert 1 in result.representative_trace_ids
+        assert len(result.coords_2d) == 3
+        assert len(result.centroid_coords_2d) == 2
 
     def test_generate_labels_activity_inputs(self):
         """Test GenerateLabelsActivityInputs structure."""
         inputs = GenerateLabelsActivityInputs(
             team_id=1,
+            trace_ids=["trace_1", "trace_2", "trace_3", "trace_4"],
             labels=[0, 0, 1, 1],
-            representative_trace_ids={0: ["trace_1"], 1: ["trace_3"]},
+            trace_metadata=[
+                TraceLabelingMetadata(x=-1.0, y=0.5, distance_to_centroid=0.1, rank=1),
+                TraceLabelingMetadata(x=-0.8, y=0.6, distance_to_centroid=0.2, rank=2),
+                TraceLabelingMetadata(x=1.2, y=-0.3, distance_to_centroid=0.15, rank=1),
+                TraceLabelingMetadata(x=1.5, y=-0.5, distance_to_centroid=0.25, rank=2),
+            ],
+            centroid_coords_2d=[[-0.9, 0.55], [1.35, -0.4]],
             window_start="2025-01-01T00:00:00Z",
             window_end="2025-01-08T00:00:00Z",
         )
 
         assert inputs.team_id == 1
+        assert len(inputs.trace_ids) == 4
         assert len(inputs.labels) == 4
-        assert inputs.representative_trace_ids[0] == ["trace_1"]
+        assert len(inputs.trace_metadata) == 4
+        assert inputs.trace_metadata[0].rank == 1
         assert inputs.window_start == "2025-01-01T00:00:00Z"
         assert inputs.window_end == "2025-01-08T00:00:00Z"
 
@@ -247,6 +230,8 @@ class TestActivityInputOutputModels:
                 0: ClusterLabel(title="A", description="Desc A"),
                 1: ClusterLabel(title="B", description="Desc B"),
             },
+            coords_2d=[[-1.0, 0.5], [1.5, -0.3]],
+            centroid_coords_2d=[[-0.7, 0.6], [1.2, -0.2]],
         )
 
         assert inputs.team_id == 1
@@ -256,3 +241,5 @@ class TestActivityInputOutputModels:
         assert len(inputs.centroids) == 2
         assert len(inputs.distances) == 2
         assert len(inputs.cluster_labels) == 2
+        assert len(inputs.coords_2d) == 2
+        assert len(inputs.centroid_coords_2d) == 2

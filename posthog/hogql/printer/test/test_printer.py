@@ -22,6 +22,7 @@ from parameterized import parameterized
 from posthog.schema import (
     HogQLQueryModifiers,
     MaterializationMode,
+    MaterializedColumnsOptimizationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyGroupsMode,
@@ -3081,17 +3082,26 @@ class TestMaterializedColumnOptimization(BaseTest):
     def _test_materialized_column_comparison(
         self,
         input_expression: str,
-        expected_query: str,
+        expected_optimized_query: str | None,
         expected_context_values: Mapping[str, Any] | None = None,
     ) -> None:
-        context = HogQLContext(
-            team_id=self.team.pk,
-            modifiers=HogQLQueryModifiers(
-                materializationMode=MaterializationMode.AUTO,
-            ),
-        )
+        def build_context(optimization_mode: MaterializedColumnsOptimizationMode | None) -> HogQLContext:
+            return HogQLContext(
+                team_id=self.team.pk,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    materializedColumnsOptimizationMode=optimization_mode,
+                ),
+            )
+
+        context = build_context(MaterializedColumnsOptimizationMode.OPTIMIZED)
         printed_expr = self._expr(input_expression, context)
-        self.assertEqual(printed_expr, expected_query)
+        if expected_optimized_query is not None:
+            self.assertEqual(printed_expr, expected_optimized_query)
+        else:
+            disabled_context = build_context(MaterializedColumnsOptimizationMode.DISABLED)
+            disabled_expr = self._expr(input_expression, disabled_context)
+            self.assertEqual(printed_expr % context.values, disabled_expr % disabled_context.values)
 
         if expected_context_values is not None:
             self.assertLessEqual(expected_context_values.items(), context.values.items())
@@ -3123,34 +3133,48 @@ class TestMaterializedColumnOptimization(BaseTest):
             )
 
     def test_materialized_column_not_optimized_for_empty_string(self) -> None:
-        with materialized("events", "test_prop") as mat_col:
+        with materialized("events", "test_prop"):
             self._test_materialized_column_comparison(
                 "properties.test_prop = ''",
-                f"ifNull(equals(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
+                None,
             )
 
     def test_materialized_column_not_optimized_for_null_string(self) -> None:
-        with materialized("events", "test_prop") as mat_col:
+        with materialized("events", "test_prop"):
             self._test_materialized_column_comparison(
                 "properties.test_prop = 'null'",
-                f"ifNull(equals(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
+                None,
             )
 
     def test_materialized_column_not_optimized_for_non_string_constant(self) -> None:
-        with materialized("events", "test_prop") as mat_col:
+        with materialized("events", "test_prop"):
             self._test_materialized_column_comparison(
                 "properties.test_prop = 123",
-                f"ifNull(equals(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), 123), 0)",
+                None,
             )
 
     def test_materialized_column_not_optimized_for_null_comparison(self) -> None:
-        with materialized("events", "test_prop") as mat_col:
+        with materialized("events", "test_prop"):
             self._test_materialized_column_comparison(
                 "properties.test_prop = null",
-                f"isNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'))",
+                None,
             )
 
-    def test_materialized_column_optimization_returns_correct_results(self) -> None:
+    def test_materialized_column_not_optimized_when_disabled(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            context = HogQLContext(
+                team_id=self.team.pk,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.DISABLED,
+                ),
+            )
+            printed_expr = self._expr("properties.test_prop = 'some_value'", context)
+            self.assertEqual(
+                printed_expr, f"ifNull(equals(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)"
+            )
+
+    def test_materialized_column_results_match_with_and_without_optimization(self) -> None:
         with materialized("events", "test_prop"):
             _create_event(
                 team=self.team,
@@ -3189,17 +3213,39 @@ class TestMaterializedColumnOptimization(BaseTest):
                 properties={"test_prop": None},
             )
 
-            eq_result = execute_hogql_query(
+            optimized_result = execute_hogql_query(
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE properties.test_prop = 'target_value' ORDER BY distinct_id",
+                modifiers=HogQLQueryModifiers(
+                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.OPTIMIZED
+                ),
             )
-            self.assertEqual(eq_result.results, [("d1",)])
+            unoptimized_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop = 'target_value' ORDER BY distinct_id",
+                modifiers=HogQLQueryModifiers(
+                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.DISABLED
+                ),
+            )
+            self.assertEqual(optimized_result.results, [("d1",)])
+            self.assertEqual(unoptimized_result.results, [("d1",)])
 
-            neq_result = execute_hogql_query(
+            optimized_neq_result = execute_hogql_query(
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
+                modifiers=HogQLQueryModifiers(
+                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.OPTIMIZED
+                ),
             )
-            self.assertEqual(neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
+            unoptimized_neq_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
+                modifiers=HogQLQueryModifiers(
+                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.DISABLED
+                ),
+            )
+            self.assertEqual(optimized_neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
+            self.assertEqual(unoptimized_neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
 
     @parameterized.expand(
         [
