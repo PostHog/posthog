@@ -154,7 +154,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                         ;(e.target as HTMLTextAreaElement).blur()
                                     }
                                 }}
-                                className="text-[0.3rem] text-muted !bg-transparent !border-0 !shadow-none !p-0 px-1 !m-0 !min-h-0 !max-h-[0.9rem] !leading-[0.45rem] !resize-none !overflow-hidden !rounded-sm"
+                                className="text-[0.3rem] text-muted !bg-transparent !border-0 !shadow-none !p-0 !px-1 !m-0 !min-h-0 !max-h-[0.9rem] !leading-[0.45rem] !resize-none !overflow-hidden !rounded-sm"
                             />
                         </div>
                     ) : (
