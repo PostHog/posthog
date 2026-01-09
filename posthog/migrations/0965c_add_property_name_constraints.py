@@ -1,14 +1,10 @@
-from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
     """
-    Step 3: Make property_name NOT NULL and add constraints/indexes.
-    Uses AddIndexConcurrently which requires atomic=False.
+    Step 3: Make property_name NOT NULL and add constraints.
     """
-
-    atomic = False
 
     dependencies = [
         ("posthog", "0965b_populate_property_name"),
@@ -27,14 +23,6 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(
                 fields=("team", "property_name"),
                 name="unique_team_property_name",
-            ),
-        ),
-        # Add new index on property_name (concurrent to avoid locks)
-        AddIndexConcurrently(
-            model_name="materializedcolumnslot",
-            index=models.Index(
-                fields=["team", "property_name"],
-                name="posthog_mat_team_pn_idx",
             ),
         ),
         # Add conditional constraint for DMAT slots

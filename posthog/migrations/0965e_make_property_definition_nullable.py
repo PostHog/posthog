@@ -4,12 +4,12 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     """
-    Step 4: Remove old constraints and make property_definition nullable.
+    Step 5: Remove old constraints and make property_definition nullable.
     The column will be removed in a future migration after this deploys.
     """
 
     dependencies = [
-        ("posthog", "0965c_add_property_name_constraints"),
+        ("posthog", "0965d_add_property_name_index"),
     ]
 
     operations = [
