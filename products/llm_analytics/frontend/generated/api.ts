@@ -228,15 +228,6 @@ export const getEnvironmentsDatasetsListUrl = (projectId: string, params?: Envir
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
-        const explodeParameters = ['id__in', 'order_by']
-
-        if (Array.isArray(value) && explodeParameters.includes(key)) {
-            value.forEach((v) => {
-                normalizedParams.append(key, v === null ? 'null' : v.toString())
-            })
-            return
-        }
-
         if (value !== undefined) {
             normalizedParams.append(key, value === null ? 'null' : value.toString())
         }
@@ -586,15 +577,6 @@ export const getDatasetsListUrl = (projectId: string, params?: DatasetsListParam
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
-        const explodeParameters = ['id__in', 'order_by']
-
-        if (Array.isArray(value) && explodeParameters.includes(key)) {
-            value.forEach((v) => {
-                normalizedParams.append(key, v === null ? 'null' : v.toString())
-            })
-            return
-        }
-
         if (value !== undefined) {
             normalizedParams.append(key, value === null ? 'null' : value.toString())
         }

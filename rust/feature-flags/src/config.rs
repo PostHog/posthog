@@ -486,8 +486,7 @@ pub struct Config {
     // When enabled, skip hash key override lookups for flags that don't need them:
     // - Flags at 100% rollout with no multivariate variants OR where a single variant is at 100%
     // These flags return the same value regardless of user bucketing, so the lookup is wasted work.
-    // Disabled by default for safe rollout - enable after validation.
-    #[envconfig(from = "OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS", default = "false")]
+    #[envconfig(from = "OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS", default = "true")]
     pub optimize_experience_continuity_lookups: FlexBool,
 
     // Redis compression configuration
@@ -621,7 +620,7 @@ impl Config {
             rate_limiter_cleanup_interval_secs: 60,
             redis_compression_enabled: FlexBool(true),
             redis_client_retry_count: 3,
-            optimize_experience_continuity_lookups: FlexBool(false),
+            optimize_experience_continuity_lookups: FlexBool(true),
         }
     }
 

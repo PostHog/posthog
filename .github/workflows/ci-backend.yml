@@ -59,6 +59,7 @@ jobs:
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
+            openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -122,6 +123,14 @@ jobs:
                         - 'products/tasks/backend/temporal/**/*'
                       llm_gateway:
                         - 'services/llm-gateway/**/*'
+                      openapi_types:
+                        # Generated OpenAPI types - validate they match schema
+                        - 'frontend/src/generated/**/*'
+                        - 'products/*/frontend/generated/**/*'
+                        # Generation tooling - changes here could affect output
+                        - 'frontend/bin/generate-openapi-types.mjs'
+                        - 'frontend/src/lib/api-orval-mutator.ts'
+                        - 'frontend/src/lib/api-stub-for-orval.ts'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -151,10 +160,10 @@ jobs:
 
     check-migrations:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
         timeout-minutes: 20
 
-        name: Validate Django and CH migrations
+        name: Validate migrations and OpenAPI types
         runs-on: depot-ubuntu-latest
 
         steps:

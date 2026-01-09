@@ -1,4 +1,3 @@
-import json
 import time
 import asyncio
 import datetime as dt
@@ -123,9 +122,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             return current_members_sql, hogql_context.values
 
         for idx, cohort in enumerate(cohorts, 1):
-            if idx % 100 == 0 or idx == len(cohorts):
-                heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)}",)
-                logger.info(f"Processed {idx}/{len(cohorts)} cohorts so far")
+            heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)} (cohort_id={cohort.id})",)
+            logger.info(f"Processing cohort {idx}/{len(cohorts)}", cohort_id=cohort.id)
+
             try:
                 current_members_sql, query_params = await build_query(cohort)
                 query_params = {
@@ -161,6 +160,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     FORMAT JSONEachRow
                 """
 
+                heartbeater.details = (f"Executing query for cohort {idx}/{len(cohorts)} (cohort_id={cohort.id})",)
+
                 with tags_context(
                     team_id=cohort.team_id,
                     feature=Feature.BEHAVIORAL_COHORTS,
@@ -172,60 +173,47 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     logger.info(f"Executing query for cohort {cohort.id}", cohort_id=cohort.id)
 
                     async with get_client(team_id=cohort.team_id) as client:
-                        response = await client.read_query(
+                        async for row in client.stream_query_as_jsonl(
                             final_query,
                             query_parameters=query_params,
-                        )
-                        results = []
-                        for line in response.decode("utf-8").splitlines():
-                            if line.strip():
-                                try:
-                                    row = json.loads(line)
-                                    results.append((row["person_id"], row["status"]))
-                                except (json.JSONDecodeError, KeyError) as e:
-                                    logger.warning(
-                                        f"Failed to parse cohort query result line: {e}",
-                                        cohort_id=cohort.id,
-                                        line=line,
-                                        error=str(e),
-                                    )
-                                    # Skip malformed lines but continue processing
-                                    continue
-
-                    # Process results
-                    for row in results:
-                        person_id, status = row
-                        status_counts[status] += 1
-                        payload = {
-                            "team_id": cohort.team_id,
-                            "cohort_id": cohort.id,
-                            "person_id": str(person_id),
-                            # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
-                            "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
-                            "status": status,
-                        }
-                        # Produce to Kafka without blocking - collect send results for later flushing
-                        try:
-                            send_result = kafka_producer.produce(
-                                topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
-                                key=payload["person_id"],
-                                data=payload,
-                            )
-                            pending_kafka_messages.append(send_result)
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.id}: {e}",
-                                cohort_id=cohort.id,
-                                person_id=payload["person_id"],
-                                error=str(e),
-                            )
-                            # Continue processing even if Kafka produce fails
+                        ):
+                            person_id = row["person_id"]
+                            status = row["status"]
+                            status_counts[status] += 1
+                            payload = {
+                                "team_id": cohort.team_id,
+                                "cohort_id": cohort.id,
+                                "person_id": str(person_id),
+                                # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
+                                "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                                "status": status,
+                            }
+                            # Produce to Kafka without blocking - collect send results for later flushing
+                            try:
+                                send_result = kafka_producer.produce(
+                                    topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                                    key=payload["person_id"],
+                                    data=payload,
+                                )
+                                pending_kafka_messages.append(send_result)
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.id}: {e}",
+                                    cohort_id=cohort.id,
+                                    person_id=payload["person_id"],
+                                    error=str(e),
+                                )
+                                # Continue processing even if Kafka produce fails
 
                     # Flush all pending Kafka messages after processing
                     logger.info(
                         f"Query completed for cohort {cohort.id}. Total messages to flush: {len(pending_kafka_messages)}",
                         cohort_id=cohort.id,
                         message_count=len(pending_kafka_messages),
+                    )
+
+                    heartbeater.details = (
+                        f"Flushing {len(pending_kafka_messages)} messages for cohort {idx}/{len(cohorts)} (cohort_id={cohort.id})",
                     )
                     await asyncio.to_thread(kafka_producer.flush)
 

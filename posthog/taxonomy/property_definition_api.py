@@ -147,6 +147,10 @@ class QueryContext:
 
     params: dict = dataclasses.field(default_factory=dict)
 
+    def __post_init__(self):
+        # Add limit and offset to params for parameterized query execution
+        self.params = {**self.params, "limit": self.limit, "offset": self.offset}
+
     def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> Self:
         if properties_to_filter:
             return dataclasses.replace(
@@ -324,7 +328,7 @@ class QueryContext:
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
             ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
-            LIMIT {self.limit} OFFSET {self.offset}
+            LIMIT %(limit)s OFFSET %(offset)s
             """
 
         return query
@@ -649,6 +653,7 @@ class PropertyDefinitionViewSet(
 
         self.paginator.set_count(full_count)
 
+        # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
         return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:

@@ -3403,6 +3403,41 @@ export const deleteSecretTokenBackupPartialUpdate = async (
 /**
  * Projects for the current organization.
  */
+export type generateConversationsPublicTokenCreateResponse200 = {
+    data: ProjectBackwardCompatApi
+    status: 200
+}
+
+export type generateConversationsPublicTokenCreateResponseSuccess =
+    generateConversationsPublicTokenCreateResponse200 & {
+        headers: Headers
+    }
+export type generateConversationsPublicTokenCreateResponse = generateConversationsPublicTokenCreateResponseSuccess
+
+export const getGenerateConversationsPublicTokenCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/generate_conversations_public_token/`
+}
+
+export const generateConversationsPublicTokenCreate = async (
+    organizationId: string,
+    id: number,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<generateConversationsPublicTokenCreateResponse> => {
+    return apiMutator<generateConversationsPublicTokenCreateResponse>(
+        getGenerateConversationsPublicTokenCreateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(projectBackwardCompatApi),
+        }
+    )
+}
+
+/**
+ * Projects for the current organization.
+ */
 export type isGeneratingDemoDataRetrieveResponse200 = {
     data: ProjectBackwardCompatApi
     status: 200
@@ -4103,39 +4138,6 @@ export const cohortsCalculationHistoryRetrieve = async (
 ): Promise<cohortsCalculationHistoryRetrieveResponse> => {
     return apiMutator<cohortsCalculationHistoryRetrieveResponse>(
         getCohortsCalculationHistoryRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Create a static copy of a cohort
- * @summary Duplicate as static cohort
- */
-export type cohortsDuplicateAsStaticCohortRetrieveResponse200 = {
-    data: void
-    status: 200
-}
-
-export type cohortsDuplicateAsStaticCohortRetrieveResponseSuccess =
-    cohortsDuplicateAsStaticCohortRetrieveResponse200 & {
-        headers: Headers
-    }
-export type cohortsDuplicateAsStaticCohortRetrieveResponse = cohortsDuplicateAsStaticCohortRetrieveResponseSuccess
-
-export const getCohortsDuplicateAsStaticCohortRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/cohorts/${id}/duplicate_as_static_cohort/`
-}
-
-export const cohortsDuplicateAsStaticCohortRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<cohortsDuplicateAsStaticCohortRetrieveResponse> => {
-    return apiMutator<cohortsDuplicateAsStaticCohortRetrieveResponse>(
-        getCohortsDuplicateAsStaticCohortRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
