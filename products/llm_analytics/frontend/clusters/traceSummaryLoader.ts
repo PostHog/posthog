@@ -46,11 +46,11 @@ export async function loadTraceSummaries(
                 argMax(JSONExtractString(properties, '$ai_summary_flow_diagram'), timestamp) as flow_diagram,
                 argMax(JSONExtractString(properties, '$ai_summary_bullets'), timestamp) as bullets,
                 argMax(JSONExtractString(properties, '$ai_summary_interesting_notes'), timestamp) as interesting_notes,
-                max(timestamp) as timestamp
+                max(timestamp) as latest_timestamp
             FROM events
             WHERE event = '$ai_trace_summary'
-                AND timestamp >= ${windowStart}
-                AND timestamp <= ${windowEnd}
+                AND timestamp >= parseDateTimeBestEffort(${windowStart})
+                AND timestamp <= parseDateTimeBestEffort(${windowEnd})
                 AND JSONExtractString(properties, '$ai_trace_id') IN ${hogql.raw(traceIdsTuple)}
             GROUP BY trace_id
             LIMIT 10000
