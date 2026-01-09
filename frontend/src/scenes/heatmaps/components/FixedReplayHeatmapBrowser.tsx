@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import React from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 
 export function FixedReplayHeatmapBrowser({
@@ -14,17 +12,7 @@ export function FixedReplayHeatmapBrowser({
     const logic = heatmapsBrowserLogic()
 
     const { replayIframeData, hasValidReplayIframeData, widthOverride } = useValues(logic)
-    const { onIframeLoad, setIframeWidth } = useActions(logic)
-
-    const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
-
-    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
-    useEffect(() => {
-        if (widthOverride === null) {
-            setIframeWidth(iframeWidth ?? null)
-        }
-        setWindowWidthOverride(widthOverride)
-    }, [iframeWidth, setIframeWidth, widthOverride, setWindowWidthOverride])
+    const { onIframeLoad } = useActions(logic)
 
     return hasValidReplayIframeData ? (
         <div className="flex flex-row gap-x-2 w-full">
@@ -33,7 +21,7 @@ export function FixedReplayHeatmapBrowser({
                     <div
                         className="relative h-full overflow-scroll"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: widthOverride ?? '100%' }}
+                        style={{ width: widthOverride }}
                     >
                         <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
                         <iframe
