@@ -23,6 +23,14 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+
+            - name: Install pytest for test collection
+              run: pip install pytest pytest-split
+
             - name: Find CI run to use
               id: find-run
               env:
@@ -72,11 +80,12 @@ jobs:
             - name: Optimize timing data for balanced shards
               run: |
                   # Optimize each segment separately with its own shard count, then merge
+                  # --filter-existing removes stale tests that no longer exist in codebase
                   # Core: 40 shards, Temporal: 10 shards
                   python3 .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
-                      --num-shards 40 --ceiling 60 --learning-rate 0.3 --iterations 200 --segment Core
+                      --num-shards 40 --ceiling 60 --segment Core --filter-existing
                   python3 .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
-                      --num-shards 10 --ceiling 60 --learning-rate 0.3 --iterations 200 --segment Temporal
+                      --num-shards 10 --ceiling 60 --segment Temporal --filter-existing
 
                   # Merge into single file (Core first, then Temporal overwrites any overlaps)
                   python3 -c "
