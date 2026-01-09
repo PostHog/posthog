@@ -125,8 +125,10 @@ export function VariantsPanel({
                     <>
                         <div className="text-sm text-secondary mb-2">
                             Each experiment is backed by a feature flag. The feature flag key will be used to control
-                            the experiment in your code. Type to create a new feature flag or select an existing one.
-                            Note that only multivariate feature flags are listed.
+                            the experiment in your code.
+                            <br />
+                            Type to create a new feature flag or select an existing one. Note that only multivariate
+                            feature flags are listed.
                         </div>
                         <LemonInputSelect<FeatureFlagType | string>
                             mode="single"
