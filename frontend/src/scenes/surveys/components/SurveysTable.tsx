@@ -362,7 +362,7 @@ export function SurveysTable(): JSX.Element {
                                                 </AccessControlAction>
                                             )}
                                             <LemonDivider />
-                                            {survey.end_date && survey.archived && (
+                                            {survey.archived && (
                                                 <AccessControlAction
                                                     resourceType={AccessControlResourceType.Survey}
                                                     minAccessLevel={AccessControlLevel.Editor}
