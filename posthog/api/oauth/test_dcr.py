@@ -209,3 +209,128 @@ class TestDynamicClientRegistration(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_client_metadata")
+
+    def test_client_secret_not_returned(self):
+        """DCR should never return client_secret since we only support public clients."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "redirect_uris": ["https://example.com/callback"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        data = response.json()
+        # Response must not contain client_secret (public clients don't use secrets)
+        self.assertNotIn("client_secret", data)
+        self.assertNotIn("client_secret_expires_at", data)
+
+        # Verify the client type is public
+        app = OAuthApplication.objects.get(client_id=data["client_id"])
+        self.assertEqual(app.client_type, "public")
+
+    def test_only_public_client_type_supported(self):
+        """Requesting confidential client auth method should be rejected."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "redirect_uris": ["https://example.com/callback"],
+                "token_endpoint_auth_method": "client_secret_post",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+
+    def test_rate_limiting_enforced(self):
+        """DCR endpoint should enforce rate limiting."""
+        from unittest.mock import patch
+
+        # Mock the throttle to have a very low limit
+        with patch("posthog.api.oauth.dcr.DCRBurstThrottle.rate", "2/minute"):
+            with patch("posthog.api.oauth.dcr.DCRBurstThrottle.get_cache_key") as mock_cache_key:
+                # Use a consistent cache key for all requests
+                mock_cache_key.return_value = "test_rate_limit_key"
+
+                # First two requests should succeed
+                for i in range(2):
+                    response = self.client.post(
+                        "/oauth/register/",
+                        {"redirect_uris": [f"https://example{i}.com/callback"]},
+                        format="json",
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i + 1} should succeed")
+
+                # Third request should be rate limited
+                response = self.client.post(
+                    "/oauth/register/",
+                    {"redirect_uris": ["https://example-limited.com/callback"]},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_blocked_client_name_posthog(self):
+        """Client names containing 'posthog' should be rejected to prevent confusion attacks."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "client_name": "PostHog Official Client",
+                "redirect_uris": ["https://example.com/callback"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+
+    def test_blocked_client_name_official(self):
+        """Client names containing 'official' should be rejected."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "client_name": "Official MCP Client",
+                "redirect_uris": ["https://example.com/callback"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+
+    def test_blocked_client_name_verified(self):
+        """Client names containing 'verified' should be rejected."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "client_name": "Verified App",
+                "redirect_uris": ["https://example.com/callback"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+
+    def test_blocked_client_name_case_insensitive(self):
+        """Blocked word check should be case-insensitive."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "client_name": "POSTHOG Integration",
+                "redirect_uris": ["https://example.com/callback"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+
+    def test_valid_client_name_accepted(self):
+        """Normal client names without blocked words should be accepted."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "client_name": "My Analytics Dashboard",
+                "redirect_uris": ["https://example.com/callback"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["client_name"], "My Analytics Dashboard")
