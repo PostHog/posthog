@@ -14,6 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
+import { TRACES_PER_PAGE } from './constants'
 import { ClusterTraceInfo, TraceSummary } from './types'
 
 export const scene: SceneExport<ClusterDetailLogicProps> = {
@@ -112,8 +113,8 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
             {totalPages > 1 && (
                 <div className="flex justify-between items-center mb-4">
                     <span className="text-muted text-sm">
-                        Showing {(currentPage - 1) * 50 + 1}-{Math.min(currentPage * 50, totalTraces)} of {totalTraces}{' '}
-                        traces
+                        Showing {(currentPage - 1) * TRACES_PER_PAGE + 1}-
+                        {Math.min(currentPage * TRACES_PER_PAGE, totalTraces)} of {totalTraces} traces
                     </span>
                     <div className="flex items-center gap-2">
                         <LemonButton
@@ -163,7 +164,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                                 traceId={traceId}
                                 traceInfo={traceInfo}
                                 summary={summary}
-                                displayRank={(currentPage - 1) * 50 + index + 1}
+                                displayRank={(currentPage - 1) * TRACES_PER_PAGE + index + 1}
                             />
                         )
                     )

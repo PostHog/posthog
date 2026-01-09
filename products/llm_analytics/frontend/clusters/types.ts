@@ -1,8 +1,5 @@
 import { dayjs } from 'lib/dayjs'
 
-// Noise/outlier cluster ID from HDBSCAN
-export const NOISE_CLUSTER_ID = -1
-
 /**
  * Extract day bounds from a clustering run ID for efficient timestamp filtering.
  * Run IDs are formatted as `<team_id>_<YYYYMMDD>_<HHMMSS>`.

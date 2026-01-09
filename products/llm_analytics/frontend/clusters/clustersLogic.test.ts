@@ -3,7 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { clustersLogic } from './clustersLogic'
-import { Cluster, ClusteringRun, NOISE_CLUSTER_ID } from './types'
+import { NOISE_CLUSTER_ID } from './constants'
+import { Cluster, ClusteringRun } from './types'
 
 describe('clustersLogic', () => {
     let logic: ReturnType<typeof clustersLogic.build>

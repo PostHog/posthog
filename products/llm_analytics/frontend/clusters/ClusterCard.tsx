@@ -5,7 +5,8 @@ import { urls } from 'scenes/urls'
 
 import { ClusterDescription } from './ClusterDescriptionComponents'
 import { ClusterTraceList } from './ClusterTraceList'
-import { Cluster, NOISE_CLUSTER_ID, TraceSummary } from './types'
+import { NOISE_CLUSTER_ID } from './constants'
+import { Cluster, TraceSummary } from './types'
 
 interface ClusterCardProps {
     cluster: Cluster

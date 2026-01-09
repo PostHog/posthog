@@ -10,10 +10,9 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
+import { NOISE_CLUSTER_ID, TRACES_PER_PAGE } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
-import { Cluster, ClusterTraceInfo, NOISE_CLUSTER_ID, TraceSummary, getTimestampBoundsFromRunId } from './types'
-
-const TRACES_PER_PAGE = 50
+import { Cluster, ClusterTraceInfo, TraceSummary, getTimestampBoundsFromRunId } from './types'
 
 export interface ClusterDetailLogicProps {
     runId: string

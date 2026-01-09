@@ -12,7 +12,8 @@ import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
 import { clustersAdminLogic } from './clustersAdminLogic'
 import { clustersLogic } from './clustersLogic'
-import { Cluster, ClusteringParams, NOISE_CLUSTER_ID } from './types'
+import { NOISE_CLUSTER_ID } from './constants'
+import { Cluster, ClusteringParams } from './types'
 
 function ClusteringParamsTooltip({ params }: { params: ClusteringParams }): JSX.Element {
     const formatMethodParams = (methodParams: Record<string, unknown>): string => {

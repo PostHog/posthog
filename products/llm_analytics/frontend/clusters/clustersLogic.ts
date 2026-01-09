@@ -11,13 +11,13 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clustersLogicType } from './clustersLogicType'
+import { NOISE_CLUSTER_ID } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
     Cluster,
     ClusteringParams,
     ClusteringRun,
     ClusteringRunOption,
-    NOISE_CLUSTER_ID,
     TraceSummary,
     getTimestampBoundsFromRunId,
 } from './types'
