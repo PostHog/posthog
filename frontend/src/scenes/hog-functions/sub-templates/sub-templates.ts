@@ -463,12 +463,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when an issue is spiking',
             inputs: {
                 content: {
-                    value: `**📈 Issue is spiking**
+                    value: `**📈 Issue spiking**
                     
 \`\`\`
 {event.properties.name}: {substring(event.properties.description, 1, 1000)}
 \`\`\`
-**Current:** {event.properties.current_bucket_value} exceptions (baseline: {round(event.properties.computed_baseline)})
+**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({round(((event.properties.current_bucket_value - event.properties.computed_baseline) / event.properties.computed_baseline) * 100)}% over baseline)
 **Project:** [{project.name}]({project.url})
 **Alert:** [{source.name}]({source.url})
 
@@ -484,7 +484,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             inputs: {
                 blocks: {
                     value: [
-                        { type: 'header', text: { type: 'plain_text', text: '📈 Issue is spiking' } },
+                        { type: 'header', text: { type: 'plain_text', text: '📈 Issue spiking' } },
                         {
                             type: 'section',
                             text: {
@@ -497,7 +497,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             elements: [
                                 {
                                     type: 'plain_text',
-                                    text: 'Current: {event.properties.current_bucket_value} exceptions (baseline: {round(event.properties.computed_baseline)})',
+                                    text: 'Exceptions in last 5 minutes: {event.properties.current_bucket_value} ({round(((event.properties.current_bucket_value - event.properties.computed_baseline) / event.properties.computed_baseline) * 100)}% over baseline)',
                                 },
                                 { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
                                 { type: 'mrkdwn', text: 'Alert: <{source.url}|{source.name}>' },
