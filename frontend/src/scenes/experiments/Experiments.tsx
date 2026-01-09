@@ -562,7 +562,7 @@ export function Experiments(): JSX.Element {
                 tabs={[
                     {
                         key: ExperimentsTabs.All,
-                        label: 'All experiments',
+                        label: 'Experiments',
                         content: (
                             <ExperimentsTable
                                 openDuplicateModal={setDuplicateModalExperiment}
