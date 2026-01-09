@@ -11,6 +11,7 @@ interface GroupCaptionProps {
 
 export function GroupCaption({ groupData, groupTypeName, displayType = 'wrap' }: GroupCaptionProps): JSX.Element {
     const className = displayType === 'col' ? 'flex flex-col' : 'flex items-center flex-wrap'
+
     return (
         <div className={className}>
             <div className="mr-4">

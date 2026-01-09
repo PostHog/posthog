@@ -1,17 +1,26 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconTrending } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { GroupCaption } from 'scenes/groups/components/GroupCaption'
+import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { percentage } from 'lib/utils'
+import { formatCurrency } from 'lib/utils/geography/currency'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -82,15 +91,96 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
                     </div>
                 ) : groupData ? (
                     <>
-                        <div className="flex-1 font-semibold truncate">{groupDisplay}</div>
-                        <GroupCaption
-                            groupData={groupData}
-                            groupTypeName={groupTypeName}
-                            displayType={inGroupFeed ? 'col' : 'wrap'}
-                        />
+                        <div>
+                            <div className="flex-1 font-semibold truncate">{groupDisplay}</div>
+                            <CopyToClipboardInline
+                                explicitValue={id}
+                                iconStyle={{ color: 'var(--color-accent)' }}
+                                description="group key"
+                                className="text-xs text-muted"
+                            >
+                                {stringWithWBR(id, 40)}
+                            </CopyToClipboardInline>
+                        </div>
+
+                        <GroupInfo groupData={groupData} />
                     </>
                 ) : null}
             </div>
+        </div>
+    )
+}
+
+function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
+    const mrr: number | null = groupData.group_properties.mrr || null
+    const forecastedMrr: number | null = groupData.group_properties.forecasted_mrr || null
+    const lifetimeValue: number | null = groupData.group_properties.customer_lifetime_value || null
+    const { baseCurrency } = useValues(teamLogic)
+
+    return (
+        <div className="flex flex-col">
+            <div>
+                <span className="text-secondary">First seen:</span>{' '}
+                {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
+            </div>
+            <MRR mrr={mrr} forecastedMrr={forecastedMrr} />
+            {lifetimeValue && (
+                <div>
+                    <Tooltip title="Total worth of revenue from this customer over the whole relationship">
+                        <span className="text-secondary">Lifetime value: </span>{' '}
+                    </Tooltip>
+                    {formatCurrency(lifetimeValue, baseCurrency)}
+                </div>
+            )}
+        </div>
+    )
+}
+
+interface MRRProps {
+    mrr: number | null
+    forecastedMrr: number | null
+}
+
+function MRR({ mrr, forecastedMrr }: MRRProps): JSX.Element | null {
+    const { baseCurrency } = useValues(teamLogic)
+
+    if (!mrr) {
+        return null
+    }
+
+    const percentageDiff = mrr === null || forecastedMrr === null ? null : (forecastedMrr - mrr) / mrr
+    const percentageDiffTooltip =
+        percentageDiff === null
+            ? null
+            : forecastedMrr === null // Duplicated check for appropriate type narrowing
+              ? null
+              : percentageDiff > 0
+                ? `${percentage(percentageDiff)} MRR growth forecasted to ${formatCurrency(forecastedMrr, baseCurrency)}`
+                : percentageDiff < 0
+                  ? `${percentage(-percentageDiff)} MRR decrease forecasted to ${formatCurrency(forecastedMrr, baseCurrency)}`
+                  : `No MRR change forecasted, flat at ${formatCurrency(mrr, baseCurrency)}`
+    const icon =
+        percentageDiff === null ? null : percentageDiff > 0 ? (
+            <IconTrending className="text-success" />
+        ) : percentageDiff < 0 ? (
+            <IconTrendingDown className="text-danger" />
+        ) : (
+            <IconTrendingFlat />
+        )
+
+    return (
+        <div>
+            {mrr && (
+                <div className="flex gap-1 items-center">
+                    <span className="text-secondary">MRR:</span>
+                    <Tooltip title={percentageDiffTooltip}>
+                        <div className="flex gap-2 items-center">
+                            {formatCurrency(mrr, baseCurrency)}
+                            {icon}
+                        </div>
+                    </Tooltip>
+                </div>
+            )}
         </div>
     )
 }
