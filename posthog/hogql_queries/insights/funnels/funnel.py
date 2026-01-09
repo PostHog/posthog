@@ -57,15 +57,6 @@ class FunnelUDFMixin:
 
 
 class FunnelUDF(FunnelUDFMixin, FunnelBase):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # In base, these fields only get added if you're running an actors query
-        if "uuid" not in self._extra_event_fields:
-            self._extra_event_fields.append("uuid")
-        for property in ("$session_id", "$window_id"):
-            if property not in self._extra_event_properties:
-                self._extra_event_properties.append(property)
-
     def conversion_window_limit(self) -> int:
         return int(
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
