@@ -1,5 +1,6 @@
 """Tests for the person property reconciliation job."""
 
+import os
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -821,6 +822,251 @@ class TestUpdatePersonWithVersionCheck:
         assert success is False
         assert result_data is None
 
+
+class TestBatchCommits:
+    """Test that batch commits work correctly with different batch sizes.
+
+    These tests use the process_persons_in_batches helper function directly,
+    which is separated from the Dagster op for testability.
+    """
+
+    @pytest.mark.parametrize(
+        "num_persons,batch_size,expected_commits",
+        [
+            # 5 persons, batch_size=2: batches of [2, 2, 1] = 3 commits
+            (5, 2, 3),
+            # 4 persons, batch_size=2: batches of [2, 2] = 2 commits (no partial)
+            (4, 2, 2),
+            # 3 persons, batch_size=5: batches of [3] = 1 commit (all in one partial batch)
+            (3, 5, 1),
+            # 1 person, batch_size=100: batches of [1] = 1 commit
+            (1, 100, 1),
+            # 6 persons, batch_size=0 (disabled): single commit at end
+            (6, 0, 1),
+        ],
+    )
+    def test_batch_commits_correct_number_of_times(self, num_persons: int, batch_size: int, expected_commits: int):
+        """
+        Test that commits happen the correct number of times based on batch_size.
+
+        With batch_size=2 and 5 persons:
+        - Batch 1: persons 0,1 → commit
+        - Batch 2: persons 2,3 → commit
+        - Batch 3: person 4 → commit (partial final batch)
+        Total: 3 commits
+        """
+        from posthog.dags.person_property_reconciliation import process_persons_in_batches
+
+        # Create mock persons with updates (timestamps must be timezone-aware)
+        person_diffs_list = []
+        for i in range(num_persons):
+            person_diffs_list.append(
+                PersonPropertyDiffs(
+                    person_id=f"person-uuid-{i}",
+                    set_updates={
+                        "prop": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=f"value_{i}")
+                    },
+                    set_once_updates={},
+                    unset_updates={},
+                )
+            )
+
+        # Mock cursor
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {
+            "id": 123,
+            "uuid": "test-uuid",
+            "properties": {"prop": "old_value"},
+            "properties_last_updated_at": {"prop": "2024-01-01T00:00:00+00:00"},
+            "properties_last_operation": {"prop": "set"},
+            "version": 1,
+            "is_identified": False,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+        mock_cursor.rowcount = 1  # UPDATE succeeds
+
+        # Track commits
+        commit_count = [0]
+
+        def mock_commit():
+            commit_count[0] += 1
+
+        # Track batch callbacks
+        batch_callbacks = []
+
+        def on_batch_committed(batch_num, batch_persons):
+            batch_callbacks.append((batch_num, len(batch_persons)))
+
+        # Call the helper function directly
+        result = process_persons_in_batches(
+            person_property_diffs=person_diffs_list,
+            cursor=mock_cursor,
+            job_id="test-job-id",
+            team_id=1,
+            batch_size=batch_size,
+            dry_run=False,
+            backup_enabled=False,
+            commit_fn=mock_commit,
+            on_batch_committed=on_batch_committed,
+        )
+
+        # Verify commit was called the expected number of times
+        assert result.total_commits == expected_commits, (
+            f"Expected {expected_commits} commits for {num_persons} persons with batch_size={batch_size}, "
+            f"got {result.total_commits}"
+        )
+
+        # Verify all persons were processed
+        assert result.total_processed == num_persons
+        assert result.total_updated == num_persons
+
+        # Verify batch callback was called for each batch
+        assert len(batch_callbacks) == expected_commits
+
+    def test_batch_commits_partial_final_batch_all_persons_updated(self):
+        """
+        Specifically test that the partial final batch commits correctly
+        and all persons are updated (not just full batches).
+
+        5 persons with batch_size=2:
+        - Batch 1: persons 0,1 → commit ✓
+        - Batch 2: persons 2,3 → commit ✓
+        - Batch 3: person 4 → commit ✓ (THIS is the partial batch we're testing)
+        """
+        from posthog.dags.person_property_reconciliation import process_persons_in_batches
+
+        num_persons = 5
+        batch_size = 2
+
+        person_uuids = [f"uuid-{i}" for i in range(num_persons)]
+        person_diffs_list = [
+            PersonPropertyDiffs(
+                person_id=uuid,
+                set_updates={
+                    "email": PropertyValue(
+                        timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=f"user{i}@example.com"
+                    )
+                },
+                set_once_updates={},
+                unset_updates={},
+            )
+            for i, uuid in enumerate(person_uuids)
+        ]
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {
+            "id": 123,
+            "uuid": "test-uuid",
+            "properties": {"email": "old@example.com"},
+            "properties_last_updated_at": {"email": "2024-01-01T00:00:00+00:00"},
+            "properties_last_operation": {"email": "set"},
+            "version": 1,
+            "is_identified": False,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+        mock_cursor.rowcount = 1
+
+        commit_count = [0]
+
+        def mock_commit():
+            commit_count[0] += 1
+
+        # Track batch sizes to verify partial final batch
+        batch_sizes = []
+
+        def on_batch_committed(batch_num, batch_persons):
+            batch_sizes.append(len(batch_persons))
+
+        result = process_persons_in_batches(
+            person_property_diffs=person_diffs_list,
+            cursor=mock_cursor,
+            job_id="test-job-id",
+            team_id=1,
+            batch_size=batch_size,
+            dry_run=False,
+            backup_enabled=False,
+            commit_fn=mock_commit,
+            on_batch_committed=on_batch_committed,
+        )
+
+        # All 5 persons should be processed and updated
+        assert result.total_processed == 5
+        assert result.total_updated == 5
+        assert result.total_skipped == 0
+
+        # 3 commits: batch 1 (2), batch 2 (2), batch 3 (1)
+        assert result.total_commits == 3
+
+        # Verify batch sizes: [2, 2, 1]
+        assert batch_sizes == [2, 2, 1], f"Expected batches [2, 2, 1], got {batch_sizes}"
+
+    def test_empty_person_list_no_commits(self):
+        """Test that empty person list results in zero commits."""
+        from posthog.dags.person_property_reconciliation import process_persons_in_batches
+
+        mock_cursor = MagicMock()
+        commit_count = [0]
+
+        def mock_commit():
+            commit_count[0] += 1
+
+        result = process_persons_in_batches(
+            person_property_diffs=[],
+            cursor=mock_cursor,
+            job_id="test-job-id",
+            team_id=1,
+            batch_size=10,
+            dry_run=False,
+            backup_enabled=False,
+            commit_fn=mock_commit,
+        )
+
+        assert result.total_processed == 0
+        assert result.total_commits == 0
+        assert commit_count[0] == 0
+
+    def test_dry_run_no_commits(self):
+        """Test that dry_run=True doesn't commit when there are no backups."""
+        from posthog.dags.person_property_reconciliation import process_persons_in_batches
+
+        person_diffs_list = [
+            PersonPropertyDiffs(
+                person_id="person-uuid-0",
+                set_updates={
+                    "prop": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="value_0")
+                },
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        mock_cursor = MagicMock()
+        # Return None from fetchone to simulate person not found (no backup, no update)
+        mock_cursor.fetchone.return_value = None
+
+        commit_count = [0]
+
+        def mock_commit():
+            commit_count[0] += 1
+
+        result = process_persons_in_batches(
+            person_property_diffs=person_diffs_list,
+            cursor=mock_cursor,
+            job_id="test-job-id",
+            team_id=1,
+            batch_size=10,
+            dry_run=True,
+            backup_enabled=False,
+            commit_fn=mock_commit,
+        )
+
+        # Person not found, so skipped
+        assert result.total_processed == 1
+        assert result.total_skipped == 1
+        assert result.total_commits == 0
+
+
+>>>>>>> 4afebb5f51 (fix merge conflicts and update tests)
 class TestBackupFunctionality:
     """Test the backup functionality for person property reconciliation."""
 
@@ -1595,3 +1841,2078 @@ class TestClickHouseQueryIntegration:
         assert len(person_diffs.unset_updates) == 1
         assert "deprecated_field" in person_diffs.unset_updates
         assert person_diffs.unset_updates["deprecated_field"].value is None
+
+    def test_set_with_various_json_types(self, cluster: ClickhouseCluster):
+        """Test $set with various JSON value types: string, number, boolean, null, array, object."""
+        team_id = 99906
+        person_id = UUID("66666666-6666-6666-6666-000000000006")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with various JSON types in $set
+        # Note: null values are filtered out in the query (use $unset for removal)
+        events = [
+            (
+                team_id,
+                "distinct_id_6",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            "string_prop": "hello world",
+                            "int_prop": 42,
+                            "float_prop": 3.14159,
+                            "bool_true_prop": True,
+                            "bool_false_prop": False,
+                            "array_prop": [1, "two", True],
+                            "object_prop": {"nested": "value", "count": 123},
+                        }
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different values for all properties (so set_diff includes them)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps(
+                    {
+                        "string_prop": "old",
+                        "int_prop": 0,
+                        "float_prop": 0.0,
+                        "bool_true_prop": False,
+                        "bool_false_prop": True,
+                        "array_prop": [],
+                        "object_prop": {},
+                    }
+                ),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {key: pv.value for key, pv in results[0].set_updates.items()}
+
+        # String
+        assert updates["string_prop"] == "hello world"
+        assert isinstance(updates["string_prop"], str)
+
+        # Integer
+        assert updates["int_prop"] == 42
+        assert isinstance(updates["int_prop"], int)
+
+        # Float
+        assert updates["float_prop"] == 3.14159
+        assert isinstance(updates["float_prop"], float)
+
+        # Boolean true
+        assert updates["bool_true_prop"] is True
+        assert isinstance(updates["bool_true_prop"], bool)
+
+        # Boolean false
+        assert updates["bool_false_prop"] is False
+        assert isinstance(updates["bool_false_prop"], bool)
+
+        # Array
+        assert updates["array_prop"] == [1, "two", True]
+        assert isinstance(updates["array_prop"], list)
+
+        # Object
+        assert updates["object_prop"] == {"nested": "value", "count": 123}
+        assert isinstance(updates["object_prop"], dict)
+
+    def test_set_with_null_value_is_filtered_out(self, cluster: ClickhouseCluster):
+        """Test that $set with null value is filtered out (use $unset for removal)."""
+        team_id = 99907
+        person_id = UUID("77777777-7777-7777-7777-000000000007")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with null value in $set - should be filtered out
+        events = [
+            (
+                team_id,
+                "distinct_id_7",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            "keep_prop": "value",
+                            "null_prop": None,  # This should be filtered out
+                        }
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different values (so set_diff includes them)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps(
+                    {
+                        "keep_prop": "old_value",
+                        "null_prop": "existing_value",  # This exists, but $set null should NOT update it
+                    }
+                ),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {key: pv.value for key, pv in results[0].set_updates.items()}
+
+        # keep_prop should be included
+        assert "keep_prop" in updates
+        assert updates["keep_prop"] == "value"
+
+        # null_prop should NOT be included (filtered out because value is null)
+        assert "null_prop" not in updates, (
+            "$set with null value should be filtered out. " "Use $unset to remove properties."
+        )
+
+    def test_set_once_with_various_json_types(self, cluster: ClickhouseCluster):
+        """Test $set_once with various JSON value types: string, number, boolean, array, object."""
+        team_id = 99908
+        person_id = UUID("88888888-8888-8888-8888-000000000008")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with various JSON types in $set_once
+        # Note: null values are filtered out in the query
+        events = [
+            (
+                team_id,
+                "distinct_id_8",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set_once": {
+                            "string_prop": "hello world",
+                            "int_prop": 42,
+                            "float_prop": 3.14159,
+                            "bool_true_prop": True,
+                            "bool_false_prop": False,
+                            "array_prop": [1, "two", True],
+                            "object_prop": {"nested": "value", "count": 123},
+                        }
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person WITHOUT these properties (so set_once_diff includes them)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"other_prop": "value"}),  # None of the $set_once keys exist
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {key: pv.value for key, pv in results[0].set_once_updates.items()}
+
+        # String
+        assert updates["string_prop"] == "hello world"
+        assert isinstance(updates["string_prop"], str)
+
+        # Integer
+        assert updates["int_prop"] == 42
+        assert isinstance(updates["int_prop"], int)
+
+        # Float
+        assert updates["float_prop"] == 3.14159
+        assert isinstance(updates["float_prop"], float)
+
+        # Boolean true
+        assert updates["bool_true_prop"] is True
+        assert isinstance(updates["bool_true_prop"], bool)
+
+        # Boolean false
+        assert updates["bool_false_prop"] is False
+        assert isinstance(updates["bool_false_prop"], bool)
+
+        # Array
+        assert updates["array_prop"] == [1, "two", True]
+        assert isinstance(updates["array_prop"], list)
+
+        # Object
+        assert updates["object_prop"] == {"nested": "value", "count": 123}
+        assert isinstance(updates["object_prop"], dict)
+
+    def test_set_once_with_null_value_is_filtered_out(self, cluster: ClickhouseCluster):
+        """Test that $set_once with null value is filtered out."""
+        team_id = 99909
+        person_id = UUID("99999999-9999-9999-9999-000000000009")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with null value in $set_once - should be filtered out
+        events = [
+            (
+                team_id,
+                "distinct_id_9",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set_once": {
+                            "keep_prop": "value",
+                            "null_prop": None,  # This should be filtered out
+                        }
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person without these properties (so set_once_diff would include them if not filtered)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"other_prop": "value"}),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {key: pv.value for key, pv in results[0].set_once_updates.items()}
+
+        # keep_prop should be included
+        assert "keep_prop" in updates
+        assert updates["keep_prop"] == "value"
+
+        # null_prop should NOT be included (filtered out because value is null)
+        assert "null_prop" not in updates, "$set_once with null value should be filtered out."
+
+    # ==================== Person Merge Tests ====================
+
+    def test_person_merge_uses_override_person_id(self, cluster: ClickhouseCluster):
+        """
+        When a distinct_id has an override in person_distinct_id_overrides,
+        events should be attributed to the override person_id, not the original.
+
+        This test verifies that:
+        1. Events with an overridden distinct_id are attributed to the merged person
+        2. The $set property update is correctly associated with the merged person
+        """
+        team_id = 99910
+        original_person_id = UUID("aaaa0000-0000-0000-0000-000000000001")
+        merged_person_id = UUID("aaaa0000-0000-0000-0000-000000000002")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with original person_id, but distinct_id will be overridden
+        # Using $set on a property that EXISTS in the merged person but has DIFFERENT value
+        events = [
+            (
+                team_id,
+                "merged_distinct_id",
+                original_person_id,  # Original person_id in event
+                event_ts,
+                json.dumps({"$set": {"existing": "new_value"}}),  # Update existing property
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert override: merged_distinct_id -> merged_person_id
+        # Must include _timestamp for the data to be visible
+        override_data = [
+            (
+                team_id,
+                "merged_distinct_id",
+                merged_person_id,  # Override to this person
+                now - timedelta(days=4),  # _timestamp - must be provided
+                1,  # version
+                0,  # is_deleted = false
+            ),
+        ]
+
+        def insert_override(client):
+            client.execute(
+                """INSERT INTO person_distinct_id_overrides
+                (team_id, distinct_id, person_id, _timestamp, version, is_deleted)
+                VALUES""",
+                override_data,
+            )
+
+        cluster.any_host(insert_override).result()
+
+        # Insert the MERGED person (not the original)
+        # Has "existing" property with old value that event will update
+        person_data = [
+            (
+                team_id,
+                merged_person_id,
+                json.dumps({"existing": "old_value"}),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should get results for merged_person_id, not original_person_id
+        assert len(results) == 1
+        assert results[0].person_id == str(merged_person_id)
+
+        updates = {key: pv.value for key, pv in results[0].set_updates.items()}
+        assert "existing" in updates
+        assert updates["existing"] == "new_value"
+
+    def test_multiple_distinct_ids_same_person(self, cluster: ClickhouseCluster):
+        """
+        Events from multiple distinct_ids that map to the same person
+        should be aggregated together.
+        """
+        team_id = 99911
+        person_id = UUID("bbbb0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        earlier_ts = now - timedelta(days=5)
+        later_ts = now - timedelta(days=2)
+
+        # Two events from different distinct_ids, same person
+        events = [
+            (team_id, "distinct_id_A", person_id, earlier_ts, json.dumps({"$set": {"name": "First"}})),
+            (team_id, "distinct_id_B", person_id, later_ts, json.dumps({"$set": {"name": "Latest"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [(team_id, person_id, json.dumps({"name": "Old"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should have one result with the latest value (aggregated from both distinct_ids)
+        assert len(results) == 1
+        updates = {key: pv.value for key, pv in results[0].set_updates.items()}
+        assert updates["name"] == "Latest"
+
+    def test_deleted_override_not_used(self, cluster: ClickhouseCluster):
+        """
+        When an override has is_deleted=1, it should not be used.
+        Events should use the original person_id from the event.
+        """
+        team_id = 99920
+        original_person_id = UUID("eeee0000-0000-0000-0000-000000000001")
+        merged_person_id = UUID("eeee0000-0000-0000-0000-000000000002")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "deleted_override_distinct",
+                original_person_id,
+                event_ts,
+                json.dumps({"$set": {"prop": "value"}}),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert a DELETED override (is_deleted=1)
+        override_data = [
+            (
+                team_id,
+                "deleted_override_distinct",
+                merged_person_id,
+                now - timedelta(days=4),  # _timestamp
+                1,  # version
+                1,  # is_deleted = TRUE
+            ),
+        ]
+
+        def insert_override(client):
+            client.execute(
+                """INSERT INTO person_distinct_id_overrides
+                (team_id, distinct_id, person_id, _timestamp, version, is_deleted)
+                VALUES""",
+                override_data,
+            )
+
+        cluster.any_host(insert_override).result()
+
+        # Insert the ORIGINAL person (not the merged one)
+        person_data = [(team_id, original_person_id, json.dumps({"prop": "old"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Since override is deleted, should use original_person_id
+        assert len(results) == 1
+        assert results[0].person_id == str(original_person_id)
+
+    def test_override_version_ordering(self, cluster: ClickhouseCluster):
+        """
+        When multiple override versions exist, the highest version should win.
+        """
+        team_id = 99921
+        original_person_id = UUID("ffff0000-0000-0000-0000-000000000001")
+        first_merged_person_id = UUID("ffff0000-0000-0000-0000-000000000002")
+        final_merged_person_id = UUID("ffff0000-0000-0000-0000-000000000003")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "multi_version_distinct",
+                original_person_id,
+                event_ts,
+                json.dumps({"$set": {"prop": "value"}}),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert multiple override versions - version 2 should win
+        override_data = [
+            (team_id, "multi_version_distinct", first_merged_person_id, now - timedelta(days=5), 1, 0),
+            (team_id, "multi_version_distinct", final_merged_person_id, now - timedelta(days=4), 2, 0),
+        ]
+
+        def insert_override(client):
+            client.execute(
+                """INSERT INTO person_distinct_id_overrides
+                (team_id, distinct_id, person_id, _timestamp, version, is_deleted)
+                VALUES""",
+                override_data,
+            )
+
+        cluster.any_host(insert_override).result()
+
+        # Insert the FINAL merged person
+        person_data = [(team_id, final_merged_person_id, json.dumps({"prop": "old"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should use final_merged_person_id (version 2)
+        assert len(results) == 1
+        assert results[0].person_id == str(final_merged_person_id)
+
+    def test_deleted_person_filtered_out(self, cluster: ClickhouseCluster):
+        """
+        Persons with is_deleted=1 in the person table should be filtered out.
+        There's no point updating properties on a deleted person.
+        """
+        team_id = 99922
+        person_id = UUID("11110000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "deleted_person_distinct", person_id, event_ts, json.dumps({"$set": {"prop": "new_value"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert a DELETED person (is_deleted=1)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"prop": "old_value"}),
+                1,  # version
+                1,  # is_deleted = TRUE
+                now - timedelta(days=8),  # _timestamp
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, is_deleted, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Deleted persons should NOT be processed
+        assert len(results) == 0
+
+    def test_person_multiple_versions_uses_latest(self, cluster: ClickhouseCluster):
+        """
+        When a person has multiple versions in CH, argMax(properties, version)
+        should select the properties from the highest version.
+        """
+        team_id = 99923
+        person_id = UUID("22220000-0000-0000-0000-000000000002")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "multi_version_person_distinct",
+                person_id,
+                event_ts,
+                json.dumps({"$set": {"prop": "event_value"}}),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert multiple versions of the same person
+        # Version 2 has different properties than version 1
+        person_data = [
+            (team_id, person_id, json.dumps({"prop": "v1_value"}), 1, now - timedelta(days=8)),
+            (team_id, person_id, json.dumps({"prop": "v2_value"}), 2, now - timedelta(days=7)),
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should compare against v2_value (latest version)
+        # Event has "event_value", person v2 has "v2_value" - different, so should be in diff
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+        assert updates["prop"] == "event_value"
+
+    # ==================== Same Key Operation Tests ====================
+
+    def test_set_and_set_once_on_same_key(self, cluster: ClickhouseCluster):
+        """
+        When $set and $set_once both target the same key, both should be returned
+        as separate operations (query doesn't merge them, Python logic handles precedence).
+        """
+        team_id = 99912
+        person_id = UUID("cccc0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        set_once_ts = now - timedelta(days=5)
+        set_ts = now - timedelta(days=2)
+
+        events = [
+            (team_id, "distinct_1", person_id, set_once_ts, json.dumps({"$set_once": {"email": "first@example.com"}})),
+            (team_id, "distinct_1", person_id, set_ts, json.dumps({"$set": {"email": "latest@example.com"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person WITHOUT email (so set_once_diff includes it)
+        # Person WITH different email for set_diff
+        # Actually, to get both in results, we need person to NOT have email (for set_once)
+        # and have a different email (for set). That's contradictory.
+        # Let's test with person having a different email - set_diff should include it,
+        # set_once_diff should NOT (key exists).
+        person_data = [(team_id, person_id, json.dumps({"email": "old@example.com"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+
+        # $set should be included (value differs from person)
+        assert len(results[0].set_updates) == 1
+        assert "email" in results[0].set_updates
+        assert results[0].set_updates["email"].value == "latest@example.com"
+
+        # $set_once should NOT be included (key already exists in person)
+        assert len(results[0].set_once_updates) == 0
+
+    # ==================== Diff Filtering Tests ====================
+
+    def test_set_with_same_value_not_in_diff(self, cluster: ClickhouseCluster):
+        """
+        When $set value equals current person property value,
+        it should NOT be in set_diff (no change needed).
+        """
+        team_id = 99913
+        person_id = UUID("dddd0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$set": {"name": "Same Value"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with SAME value
+        person_data = [(team_id, person_id, json.dumps({"name": "Same Value"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should be empty - no diff when values are the same
+        assert len(results) == 0
+
+    def test_set_on_missing_property_not_in_diff(self, cluster: ClickhouseCluster):
+        """
+        When $set targets a property that doesn't exist in person,
+        it should NOT be in set_diff (set_diff only updates existing different values).
+        """
+        team_id = 99914
+        person_id = UUID("eeee0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$set": {"new_prop": "value"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person WITHOUT new_prop
+        person_data = [(team_id, person_id, json.dumps({"other_prop": "value"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should be empty - set_diff doesn't include missing properties
+        assert len(results) == 0
+
+    def test_unset_on_missing_property_not_in_diff(self, cluster: ClickhouseCluster):
+        """
+        When $unset targets a property that doesn't exist in person,
+        it should NOT be in unset_diff.
+        """
+        team_id = 99915
+        person_id = UUID("ffff0000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$unset": ["nonexistent_prop"]})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person WITHOUT nonexistent_prop
+        person_data = [(team_id, person_id, json.dumps({"other_prop": "value"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should be empty - unset_diff doesn't include missing properties
+        assert len(results) == 0
+
+    # ==================== Empty Value Tests ====================
+
+    def test_empty_set_object_no_results(self, cluster: ClickhouseCluster):
+        """Empty $set object should not cause issues or return results."""
+        team_id = 99916
+        person_id = UUID("11110000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$set": {}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [(team_id, person_id, json.dumps({"prop": "value"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Empty $set should produce no results
+        assert len(results) == 0
+
+    def test_empty_string_value_is_valid(self, cluster: ClickhouseCluster):
+        """Empty string is a valid value in $set - different from null."""
+        team_id = 99917
+        person_id = UUID("22220000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "distinct_1",
+                person_id,
+                event_ts,
+                json.dumps({"$set": {"empty_prop": "", "valid_prop": "value"}}),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [
+            (team_id, person_id, json.dumps({"empty_prop": "old", "valid_prop": "old"}), 1, now - timedelta(days=8))
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {u.key: u.value for u in results[0].updates}
+
+        # valid_prop should be included (changed from "old" to "value")
+        assert "valid_prop" in updates
+        assert updates["valid_prop"] == "value"
+
+        # empty_prop should be included - empty string is a valid value, not filtered like null
+        # It changes from "old" to "" (empty string)
+        assert "empty_prop" in updates
+        assert updates["empty_prop"] == ""
+
+    # ==================== Window Filtering Tests ====================
+
+    def test_events_outside_bug_window_filtered(self, cluster: ClickhouseCluster):
+        """Events with timestamp outside bug window should be filtered."""
+        team_id = 99918
+        person_id = UUID("33330000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=5)
+        bug_window_end = now - timedelta(days=2)
+
+        # Event BEFORE window
+        before_ts = now - timedelta(days=7)
+        # Event AFTER window
+        after_ts = now - timedelta(days=1)
+        # Event IN window
+        in_window_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, before_ts, json.dumps({"$set": {"before": "value"}})),
+            (team_id, "distinct_1", person_id, after_ts, json.dumps({"$set": {"after": "value"}})),
+            (team_id, "distinct_1", person_id, in_window_ts, json.dumps({"$set": {"in_window": "value"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"before": "old", "after": "old", "in_window": "old"}),
+                1,
+                now - timedelta(days=4),  # Person _timestamp in window
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {key: pv.value for key, pv in results[0].set_updates.items()}
+
+        # Only in_window should be included
+        assert "in_window" in updates
+        assert "before" not in updates
+        assert "after" not in updates
+
+    def test_person_outside_bug_window_no_results(self, cluster: ClickhouseCluster):
+        """Person with _timestamp outside bug window should not be joined."""
+        team_id = 99919
+        person_id = UUID("44440000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=5)
+        bug_window_end = now - timedelta(days=2)
+
+        # Event IN window
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, event_ts, json.dumps({"$set": {"prop": "value"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person _timestamp OUTSIDE window (before)
+        person_data = [(team_id, person_id, json.dumps({"prop": "old"}), 1, now - timedelta(days=10))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # No results because person _timestamp is outside window
+        assert len(results) == 0
+
+    # ==================== Edge Case Tests ====================
+
+    def test_same_timestamp_deterministic(self, cluster: ClickhouseCluster):
+        """
+        When multiple events have exact same timestamp,
+        argMax/argMin should still produce deterministic results.
+        """
+        team_id = 99920
+        person_id = UUID("55550000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        # Same timestamp for both events
+        same_ts = now - timedelta(days=3)
+
+        events = [
+            (team_id, "distinct_1", person_id, same_ts, json.dumps({"$set": {"name": "Value A"}})),
+            (team_id, "distinct_2", person_id, same_ts, json.dumps({"$set": {"name": "Value B"}})),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        person_data = [(team_id, person_id, json.dumps({"name": "Old"}), 1, now - timedelta(days=8))]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        # Should get exactly one result with one of the values
+        assert len(results) == 1
+        updates = {key: pv.value for key, pv in results[0].set_updates.items()}
+        assert updates["name"] in ["Value A", "Value B"]
+
+    def test_special_characters_in_property_keys(self, cluster: ClickhouseCluster):
+        """Property keys with special characters should work correctly."""
+        team_id = 99921
+        person_id = UUID("66660000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        event_ts = now - timedelta(days=3)
+
+        events = [
+            (
+                team_id,
+                "distinct_1",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            "key with spaces": "value1",
+                            "key.with.dots": "value2",
+                            "key-with-dashes": "value3",
+                            "key_with_underscores": "value4",
+                            "キー": "unicode value",  # Japanese "key"
+                        }
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different values for these keys
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps(
+                    {
+                        "key with spaces": "old1",
+                        "key.with.dots": "old2",
+                        "key-with-dashes": "old3",
+                        "key_with_underscores": "old4",
+                        "キー": "old unicode",
+                    }
+                ),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        updates = {key: pv.value for key, pv in results[0].set_updates.items()}
+
+        assert updates["key with spaces"] == "value1"
+        assert updates["key.with.dots"] == "value2"
+        assert updates["key-with-dashes"] == "value3"
+        assert updates["key_with_underscores"] == "value4"
+        assert updates["キー"] == "unicode value"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBatchCommitsEndToEnd:
+    """End-to-end integration tests for batch commit functionality.
+
+    These tests use real ClickHouse and Postgres connections to verify
+    that batch commits work correctly in a production-like environment.
+    """
+
+    @pytest.fixture
+    def organization(self):
+        """Create a test organization."""
+        from posthog.models import Organization
+
+        return Organization.objects.create(name="Batch Test Organization")
+
+    @pytest.fixture
+    def team(self, organization):
+        """Create a test team."""
+        from posthog.models import Team
+
+        return Team.objects.create(organization=organization, name="Batch Test Team")
+
+    def test_batch_commits_end_to_end(self, cluster: ClickhouseCluster, team):
+        """
+        End-to-end test that verifies batch commits work with real databases.
+
+        Creates 5 persons in Postgres, inserts events in ClickHouse,
+        runs reconciliation with batch_size=2, and verifies:
+        1. All persons are updated in Postgres
+        2. Commits happen in batches (3 batches: [2, 2, 1])
+        """
+        from posthog.dags.person_property_reconciliation import (
+            get_person_property_updates_from_clickhouse,
+            process_persons_in_batches,
+        )
+        from posthog.models import Person
+
+        num_persons = 5
+        batch_size = 2
+
+        # Use a unique team_id to avoid conflicts with other tests
+        team_id = team.id
+
+        # Time setup
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+        event_ts = now - timedelta(days=5)
+
+        # Create persons in Postgres with old property values
+        persons = []
+        for i in range(num_persons):
+            person = Person.objects.create(
+                team_id=team_id,
+                properties={"email": f"old_{i}@example.com", "counter": i},
+                properties_last_updated_at={
+                    "email": "2024-01-01T00:00:00+00:00",
+                    "counter": "2024-01-01T00:00:00+00:00",
+                },
+                properties_last_operation={"email": "set", "counter": "set"},
+                version=1,
+            )
+            persons.append(person)
+
+        # Insert events in ClickHouse with new property values
+        events = []
+        for i, person in enumerate(persons):
+            events.append(
+                (
+                    team_id,
+                    f"distinct_id_{i}",
+                    person.uuid,
+                    event_ts,
+                    json.dumps({"$set": {"email": f"new_{i}@example.com"}}),
+                )
+            )
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert persons in ClickHouse (required for the query join)
+        person_ch_data = []
+        for i, person in enumerate(persons):
+            person_ch_data.append(
+                (
+                    team_id,
+                    person.uuid,
+                    json.dumps({"email": f"old_{i}@example.com", "counter": i}),
+                    1,  # version
+                    0,  # is_deleted
+                    now - timedelta(days=8),  # _timestamp
+                )
+            )
+
+        def insert_persons_ch(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, is_deleted, _timestamp)
+                VALUES""",
+                person_ch_data,
+            )
+
+        cluster.any_host(insert_persons_ch).result()
+
+        # Get person property updates from ClickHouse
+        person_property_updates = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert (
+            len(person_property_updates) == num_persons
+        ), f"Expected {num_persons} persons from ClickHouse query, got {len(person_property_updates)}"
+
+        # Track batches
+        batch_sizes = []
+
+        def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
+            batch_sizes.append(len(batch_persons))
+
+        # Use Django's database connection for persons DB (shares test transaction)
+        from django.db import connections
+
+        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+
+        connection = connections[PERSONS_DB_FOR_WRITE]
+        with connection.cursor() as cursor:
+            # Set up cursor settings
+            cursor.execute("SET application_name = 'test_batch_commits'")
+
+            result = process_persons_in_batches(
+                person_property_diffs=person_property_updates,
+                cursor=cursor,
+                job_id="test-batch-job",
+                team_id=team_id,
+                batch_size=batch_size,
+                dry_run=False,
+                backup_enabled=False,
+                commit_fn=lambda: None,  # No-op commit in tests (Django manages transaction)
+                on_batch_committed=on_batch_committed,
+            )
+
+        # Verify all persons were processed
+        assert result.total_processed == num_persons, f"Expected {num_persons} processed, got {result.total_processed}"
+        assert result.total_updated == num_persons, f"Expected {num_persons} updated, got {result.total_updated}"
+        assert result.total_skipped == 0, f"Expected 0 skipped, got {result.total_skipped}"
+
+        # Verify batch sizes: [2, 2, 1] for 5 persons with batch_size=2
+        assert result.total_commits == 3, f"Expected 3 commits, got {result.total_commits}"
+        assert batch_sizes == [2, 2, 1], f"Expected batch sizes [2, 2, 1], got {batch_sizes}"
+
+        # Verify Postgres was actually updated with correct properties and metadata
+        for i, person in enumerate(persons):
+            person.refresh_from_db()
+
+            # Property value should be updated
+            assert (
+                person.properties["email"] == f"new_{i}@example.com"
+            ), f"Person {i} email not updated. Expected 'new_{i}@example.com', got '{person.properties.get('email')}'"
+
+            # Counter should be unchanged (wasn't in the update)
+            assert (
+                person.properties["counter"] == i
+            ), f"Person {i} counter changed unexpectedly. Expected {i}, got {person.properties.get('counter')}"
+
+            # Version should be incremented
+            assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
+
+            # properties_last_updated_at should have new timestamp for email
+            assert (
+                "email" in person.properties_last_updated_at
+            ), f"Person {i} properties_last_updated_at missing 'email' key"
+            # The timestamp should be from the event (event_ts), not the old value
+            email_updated_at = person.properties_last_updated_at["email"]
+            assert (
+                email_updated_at != "2024-01-01T00:00:00+00:00"
+            ), f"Person {i} email timestamp not updated. Still has old value: {email_updated_at}"
+
+            # properties_last_operation should be 'set' for email
+            assert person.properties_last_operation.get("email") == "set", (
+                f"Person {i} properties_last_operation['email'] should be 'set', "
+                f"got '{person.properties_last_operation.get('email')}'"
+            )
+
+            # Counter's metadata should be unchanged
+            assert (
+                person.properties_last_updated_at.get("counter") == "2024-01-01T00:00:00+00:00"
+            ), f"Person {i} counter timestamp changed unexpectedly"
+
+    def test_batch_commits_with_missing_person(self, cluster: ClickhouseCluster, team):
+        """
+        Test that missing persons in Postgres are skipped gracefully.
+
+        Creates 4 persons in ClickHouse events but only 3 in Postgres.
+        Verifies the missing person is skipped and others are updated.
+        """
+        from posthog.dags.person_property_reconciliation import (
+            get_person_property_updates_from_clickhouse,
+            process_persons_in_batches,
+        )
+        from posthog.models import Person
+
+        team_id = team.id
+
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+        event_ts = now - timedelta(days=5)
+
+        # Create only 3 persons in Postgres
+        persons = []
+        for i in range(3):
+            person = Person.objects.create(
+                team_id=team_id,
+                properties={"name": f"old_name_{i}"},
+                properties_last_updated_at={"name": "2024-01-01T00:00:00+00:00"},
+                properties_last_operation={"name": "set"},
+                version=1,
+            )
+            persons.append(person)
+
+        # Create a 4th UUID that won't exist in Postgres
+        missing_uuid = UUID("99999999-9999-9999-9999-999999999999")
+
+        # Insert 4 events in ClickHouse (including one for missing person)
+        events = []
+        for i, person in enumerate(persons):
+            events.append(
+                (
+                    team_id,
+                    f"distinct_id_{i}",
+                    person.uuid,
+                    event_ts,
+                    json.dumps({"$set": {"name": f"new_name_{i}"}}),
+                )
+            )
+        # Add event for missing person
+        events.append(
+            (
+                team_id,
+                "distinct_id_missing",
+                missing_uuid,
+                event_ts,
+                json.dumps({"$set": {"name": "new_name_missing"}}),
+            )
+        )
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Insert 4 persons in ClickHouse (including missing one)
+        person_ch_data = []
+        for i, person in enumerate(persons):
+            person_ch_data.append(
+                (
+                    team_id,
+                    person.uuid,
+                    json.dumps({"name": f"old_name_{i}"}),
+                    1,
+                    0,
+                    now - timedelta(days=8),
+                )
+            )
+        # Add the missing person to ClickHouse
+        person_ch_data.append(
+            (
+                team_id,
+                missing_uuid,
+                json.dumps({"name": "old_name_missing"}),
+                1,
+                0,
+                now - timedelta(days=8),
+            )
+        )
+
+        def insert_persons_ch(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, is_deleted, _timestamp)
+                VALUES""",
+                person_ch_data,
+            )
+
+        cluster.any_host(insert_persons_ch).result()
+
+        # Get updates from ClickHouse - should return 4 persons
+        person_property_updates = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(person_property_updates) == 4
+
+        batch_sizes = []
+
+        def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
+            batch_sizes.append(len(batch_persons))
+
+        # Use Django's database connection for persons DB (shares test transaction)
+        from django.db import connections
+
+        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+
+        connection = connections[PERSONS_DB_FOR_WRITE]
+        with connection.cursor() as cursor:
+            result = process_persons_in_batches(
+                person_property_diffs=person_property_updates,
+                cursor=cursor,
+                job_id="test-missing-person-job",
+                team_id=team_id,
+                batch_size=2,
+                dry_run=False,
+                backup_enabled=False,
+                commit_fn=lambda: None,  # No-op commit in tests (Django manages transaction)
+                on_batch_committed=on_batch_committed,
+            )
+
+        # 4 persons processed, 1 skipped (missing from Postgres), 3 updated
+        assert result.total_processed == 4
+        assert result.total_skipped == 1  # The missing person
+        assert result.total_updated == 3
+
+        # Verify existing persons were updated with correct properties and metadata
+        for i, person in enumerate(persons):
+            person.refresh_from_db()
+
+            # Property value should be updated
+            assert (
+                person.properties["name"] == f"new_name_{i}"
+            ), f"Person {i} name not updated. Expected 'new_name_{i}', got '{person.properties.get('name')}'"
+
+            # Version should be incremented
+            assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
+
+            # properties_last_updated_at should have new timestamp
+            assert (
+                "name" in person.properties_last_updated_at
+            ), f"Person {i} properties_last_updated_at missing 'name' key"
+            name_updated_at = person.properties_last_updated_at["name"]
+            assert (
+                name_updated_at != "2024-01-01T00:00:00+00:00"
+            ), f"Person {i} name timestamp not updated. Still has old value: {name_updated_at}"
+
+            # properties_last_operation should be 'set'
+            assert person.properties_last_operation.get("name") == "set", (
+                f"Person {i} properties_last_operation['name'] should be 'set', "
+                f"got '{person.properties_last_operation.get('name')}'"
+            )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestKafkaClickHouseRoundTrip:
+    """Integration tests that verify person updates flow through Kafka to ClickHouse.
+
+    These tests use real Kafka (not mocked) and verify that:
+    1. publish_person_to_kafka produces messages in the correct format
+    2. ClickHouse's Kafka engine consumes the messages
+    3. The person table in ClickHouse has the correct data
+
+    This ensures the reconciliation job's Kafka message format is compatible
+    with ClickHouse's expectations (matching Node.js ingestion format).
+    """
+
+    @pytest.fixture
+    def organization(self):
+        """Create a test organization."""
+        from posthog.models import Organization
+
+        return Organization.objects.create(name="Kafka Test Organization")
+
+    @pytest.fixture
+    def team(self, organization):
+        """Create a test team."""
+        from posthog.models import Team
+
+        return Team.objects.create(organization=organization, name="Kafka Test Team")
+
+    def _wait_for_clickhouse_person(
+        self,
+        team_id: int,
+        person_uuid: str,
+        expected_version: int,
+        max_wait_seconds: int = 30,
+        poll_interval_seconds: float = 0.5,
+    ) -> dict | None:
+        """
+        Poll ClickHouse until the person appears with the expected version.
+
+        Returns the person row as a dict, or None if not found within timeout.
+        """
+        import time
+
+        from posthog.clickhouse.client import sync_execute
+
+        start_time = time.time()
+        while time.time() - start_time < max_wait_seconds:
+            rows = sync_execute(
+                """
+                SELECT id, team_id, properties, is_identified, version, is_deleted, created_at
+                FROM person FINAL
+                WHERE team_id = %(team_id)s AND id = %(person_uuid)s
+                """,
+                {"team_id": team_id, "person_uuid": person_uuid},
+            )
+            if rows:
+                row = rows[0]
+                person_data = {
+                    "id": str(row[0]),
+                    "team_id": row[1],
+                    "properties": row[2],
+                    "is_identified": row[3],
+                    "version": row[4],
+                    "is_deleted": row[5],
+                    "created_at": row[6],
+                }
+                if person_data["version"] >= expected_version:
+                    return person_data
+            time.sleep(poll_interval_seconds)
+        return None
+
+    @pytest.mark.skipif(
+        os.environ.get("KAFKA_ROUNDTRIP_TESTS") != "1",
+        reason="Requires real Kafka infrastructure. Set KAFKA_ROUNDTRIP_TESTS=1 to run.",
+    )
+    def test_publish_person_to_kafka_updates_clickhouse(self, team):
+        """
+        Test that publish_person_to_kafka produces messages that ClickHouse consumes correctly.
+
+        This verifies the full round-trip:
+        1. Create a person in Postgres
+        2. Publish to Kafka using publish_person_to_kafka (with real Kafka, not mocked)
+        3. Wait for ClickHouse to consume the message
+        4. Verify ClickHouse has the correct person data
+        """
+        from django.test import override_settings
+
+        from posthog.dags.person_property_reconciliation import publish_person_to_kafka
+        from posthog.kafka_client.client import _KafkaProducer
+        from posthog.models import Person
+
+        # Create person in Postgres
+        person = Person.objects.create(
+            team_id=team.id,
+            properties={"email": "kafka_test@example.com", "name": "Kafka Test User"},
+            version=1,
+            is_identified=True,
+        )
+
+        # Prepare person data for Kafka (simulating what reconciliation job does)
+        person_data = {
+            "id": person.uuid,
+            "team_id": team.id,
+            "properties": {"email": "kafka_test@example.com", "name": "Kafka Test User"},
+            "is_identified": True,
+            "is_deleted": 0,
+            "created_at": person.created_at,
+            "version": 1,
+        }
+
+        # Create a real Kafka producer (not mocked)
+        with override_settings(TEST=False):
+            producer = _KafkaProducer(test=False)
+            try:
+                publish_person_to_kafka(person_data, producer)
+                producer.flush(timeout=10)
+            finally:
+                producer.close()
+
+        # Wait for ClickHouse to consume the message
+        ch_person = self._wait_for_clickhouse_person(
+            team_id=team.id,
+            person_uuid=str(person.uuid),
+            expected_version=1,
+            max_wait_seconds=30,
+        )
+
+        # Verify ClickHouse received the person
+        assert ch_person is not None, f"Person {person.uuid} not found in ClickHouse after 30 seconds"
+        assert ch_person["team_id"] == team.id
+        assert ch_person["version"] == 1
+        assert ch_person["is_identified"] == 1  # ClickHouse stores as Int8
+
+        # Parse properties (stored as JSON string in ClickHouse)
+        ch_properties = json.loads(ch_person["properties"])
+        assert ch_properties["email"] == "kafka_test@example.com"
+        assert ch_properties["name"] == "Kafka Test User"
+
+    @pytest.mark.skipif(
+        os.environ.get("KAFKA_ROUNDTRIP_TESTS") != "1",
+        reason="Requires real Kafka infrastructure. Set KAFKA_ROUNDTRIP_TESTS=1 to run.",
+    )
+    def test_reconciliation_kafka_message_format_matches_nodejs(self, team, cluster: ClickhouseCluster):
+        """
+        Test that the reconciliation job's Kafka message format produces the same
+        ClickHouse state as Node.js ingestion would.
+
+        This is important because both systems publish to the same Kafka topic,
+        and ClickHouse must be able to handle messages from both sources.
+        """
+        from django.test import override_settings
+
+        from posthog.dags.person_property_reconciliation import publish_person_to_kafka
+        from posthog.kafka_client.client import _KafkaProducer
+        from posthog.models import Person
+
+        # Create person in Postgres with version 1
+        person = Person.objects.create(
+            team_id=team.id,
+            properties={"email": "original@example.com"},
+            version=1,
+            is_identified=False,
+        )
+
+        # First, publish version 1 to establish baseline
+        person_data_v1 = {
+            "id": person.uuid,
+            "team_id": team.id,
+            "properties": {"email": "original@example.com"},
+            "is_identified": False,
+            "is_deleted": 0,
+            "created_at": person.created_at,
+            "version": 1,
+        }
+
+        with override_settings(TEST=False):
+            producer = _KafkaProducer(test=False)
+            try:
+                publish_person_to_kafka(person_data_v1, producer)
+                producer.flush(timeout=10)
+            finally:
+                producer.close()
+
+        # Wait for version 1 in ClickHouse
+        ch_person_v1 = self._wait_for_clickhouse_person(
+            team_id=team.id,
+            person_uuid=str(person.uuid),
+            expected_version=1,
+        )
+        assert ch_person_v1 is not None, "Version 1 not found in ClickHouse"
+
+        # Now simulate reconciliation updating the person to version 2
+        person_data_v2 = {
+            "id": person.uuid,
+            "team_id": team.id,
+            "properties": {"email": "reconciled@example.com", "source": "reconciliation"},
+            "is_identified": True,
+            "is_deleted": 0,
+            "created_at": person.created_at,
+            "version": 2,
+        }
+
+        with override_settings(TEST=False):
+            producer = _KafkaProducer(test=False)
+            try:
+                publish_person_to_kafka(person_data_v2, producer)
+                producer.flush(timeout=10)
+            finally:
+                producer.close()
+
+        # Wait for version 2 in ClickHouse
+        ch_person_v2 = self._wait_for_clickhouse_person(
+            team_id=team.id,
+            person_uuid=str(person.uuid),
+            expected_version=2,
+        )
+
+        # Verify ClickHouse received the update
+        assert ch_person_v2 is not None, "Version 2 not found in ClickHouse after 30 seconds"
+        assert ch_person_v2["version"] == 2
+        assert ch_person_v2["is_identified"] == 1
+
+        ch_properties = json.loads(ch_person_v2["properties"])
+        assert ch_properties["email"] == "reconciled@example.com"
+        assert ch_properties["source"] == "reconciliation"
+
+    @pytest.mark.skipif(
+        os.environ.get("KAFKA_ROUNDTRIP_TESTS") != "1",
+        reason="Requires real Kafka infrastructure. Set KAFKA_ROUNDTRIP_TESTS=1 to run.",
+    )
+    def test_full_dagster_job_with_real_kafka(self, team, cluster: ClickhouseCluster):
+        """
+        Test the full Dagster reconciliation job with real Kafka.
+
+        This is the most comprehensive test - it:
+        1. Creates persons in Postgres with outdated properties
+        2. Inserts events in ClickHouse with updated properties
+        3. Runs the actual Dagster job with real Kafka producer
+        4. Waits for ClickHouse to consume the Kafka messages
+        5. Verifies both Postgres AND ClickHouse have the correct data
+        """
+        from django.test import override_settings
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation
+        from posthog.kafka_client.client import _KafkaProducer
+        from posthog.models import Person
+
+        # Time setup - create a bug window that includes our test events
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = (now - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
+        bug_window_end = (now + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        event_ts = now - timedelta(days=5)
+
+        # Create person in Postgres with old property value
+        person = Person.objects.create(
+            team_id=team.id,
+            properties={"email": "old@example.com", "unchanged": "value"},
+            properties_last_updated_at={
+                "email": "2024-01-01T00:00:00+00:00",
+                "unchanged": "2024-01-01T00:00:00+00:00",
+            },
+            properties_last_operation={"email": "set", "unchanged": "set"},
+            version=1,
+        )
+
+        # Insert event in ClickHouse with new property value
+        def insert_event(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                [
+                    (
+                        team.id,
+                        "test_distinct_id",
+                        person.uuid,
+                        event_ts,
+                        json.dumps({"$set": {"email": "new@example.com"}}),
+                    )
+                ],
+            )
+
+        cluster.any_host(insert_event).result()
+
+        # Insert person in ClickHouse (required for the reconciliation query join)
+        def insert_person_ch(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, is_deleted, _timestamp)
+                VALUES""",
+                [
+                    (
+                        team.id,
+                        person.uuid,
+                        json.dumps({"email": "old@example.com", "unchanged": "value"}),
+                        1,
+                        0,
+                        now - timedelta(days=8),
+                    )
+                ],
+            )
+
+        cluster.any_host(insert_person_ch).result()
+
+        # Get a Postgres connection for the job
+        from posthog.dags.common.resources import get_persons_db_connection
+
+        persons_conn = get_persons_db_connection()
+
+        # Create real Kafka producer
+        with override_settings(TEST=False):
+            kafka_producer = _KafkaProducer(test=False)
+
+            try:
+                # Run the actual Dagster job
+                result = person_property_reconciliation.execute_in_process(
+                    run_config={
+                        "ops": {
+                            "get_teams_to_reconcile": {
+                                "config": {
+                                    "team_ids": [team.id],
+                                    "bug_window_start": bug_window_start,
+                                    "bug_window_end": bug_window_end,
+                                    "dry_run": False,
+                                    "backup_enabled": False,
+                                    "batch_size": 100,
+                                }
+                            },
+                            "reconcile_team_chunk": {
+                                "config": {
+                                    "bug_window_start": bug_window_start,
+                                    "bug_window_end": bug_window_end,
+                                    "dry_run": False,
+                                    "backup_enabled": False,
+                                    "batch_size": 100,
+                                }
+                            },
+                        }
+                    },
+                    resources={
+                        "cluster": cluster,
+                        "persons_database": persons_conn,
+                        "kafka_producer": kafka_producer,
+                    },
+                )
+
+                assert result.success, f"Dagster job failed: {result}"
+
+                # Flush kafka to ensure all messages are sent
+                kafka_producer.flush(timeout=10)
+
+            finally:
+                kafka_producer.close()
+
+        # Verify Postgres was updated
+        person.refresh_from_db()
+        assert (
+            person.properties["email"] == "new@example.com"
+        ), f"Postgres email not updated. Expected 'new@example.com', got '{person.properties.get('email')}'"
+        assert person.properties["unchanged"] == "value", "Unchanged property was modified"
+        assert person.version == 2, f"Postgres version not incremented. Expected 2, got {person.version}"
+
+        # Wait for ClickHouse to consume the Kafka message
+        ch_person = self._wait_for_clickhouse_person(
+            team_id=team.id,
+            person_uuid=str(person.uuid),
+            expected_version=2,
+            max_wait_seconds=30,
+        )
+
+        # Verify ClickHouse received the update via Kafka
+        assert ch_person is not None, (
+            f"Person {person.uuid} version 2 not found in ClickHouse after 30 seconds. "
+            "This suggests the Kafka message format may not be compatible with ClickHouse."
+        )
+        assert ch_person["version"] == 2
+
+        ch_properties = json.loads(ch_person["properties"])
+        assert (
+            ch_properties["email"] == "new@example.com"
+        ), f"ClickHouse email not updated. Expected 'new@example.com', got '{ch_properties.get('email')}'"
+        assert ch_properties["unchanged"] == "value", "ClickHouse unchanged property was modified"

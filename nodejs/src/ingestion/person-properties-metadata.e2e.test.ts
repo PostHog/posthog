@@ -540,4 +540,126 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             })
         }
     )
+
+    testWithTeamIngester(
+        '$set can overwrite a property that was set with $set_once',
+        {},
+        async (ingester, hub, team) => {
+            const distinctId = new UUIDT().toString()
+            const t1 = DateTime.now().toMillis()
+            const t2 = t1 + 60000 // 1 minute later
+
+            // First event: Create person with $set_once property
+            const createEvents = [
+                new EventBuilder(team, distinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set_once: { favorite_color: 'blue' },
+                    })
+                    .withTimestamp(t1)
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(createEvents))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                expect(persons.length).toBe(1)
+                expect(persons[0].properties.favorite_color).toBe('blue')
+                expect(persons[0].properties_last_operation?.favorite_color).toBe('set_once')
+            })
+
+            // Second event: Overwrite the property with $set
+            const overwriteEvents = [
+                new EventBuilder(team, distinctId)
+                    .withEvent('$set')
+                    .withProperties({
+                        $set: { favorite_color: 'red' },
+                    })
+                    .withTimestamp(t2)
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(overwriteEvents))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                expect(persons.length).toBe(1)
+
+                const person = persons[0]
+
+                // Property value should be overwritten by $set
+                expect(person.properties.favorite_color).toBe('red')
+
+                // Note: properties_last_operation is not updated after person creation,
+                // so it will still show 'set_once' even though it was overwritten by $set
+                expect(person.properties_last_operation?.favorite_color).toBe('set_once')
+            })
+        }
+    )
+
+    testWithTeamIngester(
+        '$unset can delete a property that was set with $set_once',
+        {},
+        async (ingester, hub, team) => {
+            const distinctId = new UUIDT().toString()
+            const t1 = DateTime.now().toMillis()
+            const t2 = t1 + 60000 // 1 minute later
+
+            // First event: Create person with $set_once property
+            const createEvents = [
+                new EventBuilder(team, distinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set_once: { temp_setting: 'initial_value' },
+                        $set: { email: 'test@example.com' },
+                    })
+                    .withTimestamp(t1)
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(createEvents))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                expect(persons.length).toBe(1)
+                expect(persons[0].properties.temp_setting).toBe('initial_value')
+                expect(persons[0].properties.email).toBe('test@example.com')
+                expect(persons[0].properties_last_operation?.temp_setting).toBe('set_once')
+            })
+
+            // Second event: Delete the property with $unset
+            const unsetEvents = [
+                new EventBuilder(team, distinctId)
+                    .withEvent('$set')
+                    .withProperties({
+                        $unset: ['temp_setting'],
+                    })
+                    .withTimestamp(t2)
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(unsetEvents))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                expect(persons.length).toBe(1)
+
+                const person = persons[0]
+
+                // Property should be deleted by $unset
+                expect(person.properties.temp_setting).toBeUndefined()
+
+                // Other properties should still exist
+                expect(person.properties.email).toBe('test@example.com')
+
+                // Note: properties_last_operation entry may or may not be cleaned up
+                // depending on implementation - this documents current behavior
+            })
+        }
+    )
 })

@@ -276,7 +276,9 @@ The query flows like this:
 
 ## Open Concerns (TODO: write tests)
 
-### 1. Deleted/merged persons not filtered in person join
+### 1. Deleted persons filtered in person join (FIXED)
+
+The query now filters out deleted persons using `HAVING argMax(is_deleted, version) = 0`:
 
 ```sql
 INNER JOIN (
@@ -288,10 +290,12 @@ INNER JOIN (
       AND _timestamp > %(bug_window_start)s
       AND _timestamp < %(bug_window_end)s
     GROUP BY id
+    -- Filter out deleted persons (latest version has is_deleted=1)
+    HAVING argMax(is_deleted, version) = 0
 ) AS p ON p.id = merged.person_id
 ```
 
-This doesn't filter out deleted persons (`is_deleted = 1`). What happens if a person was deleted or merged during the bug window? Could we be reconciling properties for a person that no longer exists?
+Test: `test_deleted_person_filtered_out`
 
 ### 2. Person state only from bug window - potential to overwrite newer updates
 
