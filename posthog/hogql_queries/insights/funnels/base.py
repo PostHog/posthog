@@ -46,11 +46,7 @@ class FunnelBase(ABC):
         self._extra_event_fields: list[ColumnName] = []
         self._extra_event_properties: list[PropertyName] = []
 
-        if (
-            hasattr(self.context, "actorsQuery")
-            and self.context.actorsQuery is not None
-            and self.context.actorsQuery.includeRecordings
-        ):
+        if self._include_matched_events():
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
 
