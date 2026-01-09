@@ -25,7 +25,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.webAnalytics(),
-        featureFlags: [FEATURE_FLAGS.CONDENSED_FILTER_BAR],
+        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
