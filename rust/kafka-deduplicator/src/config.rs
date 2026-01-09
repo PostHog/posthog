@@ -77,6 +77,10 @@ pub struct Config {
     // 2 minutes default - interval for checking and cleaning up old data when capacity is exceeded
     pub cleanup_interval_secs: u64,
 
+    #[envconfig(default = "900")]
+    // 15 minutes default - minimum staleness (no recent WAL activity) before orphan directories can be deleted
+    pub orphan_cleanup_min_staleness_secs: u64,
+
     // Consumer processing configuration
     #[envconfig(default = "100")]
     pub max_in_flight_messages: usize,
@@ -314,6 +318,11 @@ impl Config {
     /// Get cleanup interval as Duration
     pub fn cleanup_interval(&self) -> Duration {
         Duration::from_secs(self.cleanup_interval_secs)
+    }
+
+    /// Get orphan cleanup minimum staleness as Duration
+    pub fn orphan_cleanup_min_staleness(&self) -> Duration {
+        Duration::from_secs(self.orphan_cleanup_min_staleness_secs)
     }
 
     /// Get producer send timeout as Duration

@@ -155,7 +155,7 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         label: (
             <TitleWithIcon
                 icon={
-                    <Tooltip title="Core events are key business events like signups, purchases, or subscriptions.">
+                    <Tooltip title="Core events are key business events used across Marketing analytics, Customer analytics, and Revenue analytics.">
                         <IconInfo />
                     </Tooltip>
                 }
