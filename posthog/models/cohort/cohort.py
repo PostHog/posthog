@@ -42,6 +42,10 @@ class CohortType(StrEnum):
 # set in cohorts_cache
 CohortOrEmpty = Union["Cohort", Literal[""], None]
 
+# Maximum person count for a cohort to be eligible for real-time evaluation
+# Cohorts with more than 20M persons cannot be real-time due to system limitations
+REALTIME_COHORT_MAX_PERSON_COUNT = 20_000_000
+
 logger = structlog.get_logger(__name__)
 
 DELETE_QUERY = """
@@ -721,7 +725,6 @@ class CohortPeople(models.Model):
 
 @receiver(post_delete, sender=CohortPeople)
 def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
-    from posthog.api.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
     from posthog.models.cohort.util import get_static_cohort_size
 
     try:

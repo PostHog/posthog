@@ -57,7 +57,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.cohort import CohortType
+from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, CohortType
 from posthog.models.cohort.util import get_all_cohort_dependencies, get_friendly_error_message, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -78,10 +78,6 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
-
-# Maximum person count for a cohort to be eligible for real-time evaluation
-# Cohorts with more than 20M persons cannot be real-time due to system limitations
-REALTIME_COHORT_MAX_PERSON_COUNT = 20_000_000
 
 
 def validate_filters_and_compute_realtime_support(
