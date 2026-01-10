@@ -83,11 +83,12 @@ void JSONBuilder::addFloat(double value) {
   } else if (value == -numeric_limits<double>::infinity()) {
     buffer << "\"-Infinity\"";
   } else {
+    auto buffer_pos = buffer.tellp();
     buffer << std::setprecision(17) << value;
 
     // Ensure decimal point for whole numbers (but not scientific notation)
-    std::string num_str = buffer.str();
-    if (floor(value) == value && num_str.find('e') == std::string::npos && num_str.find('E') == std::string::npos) {
+    auto num_str = buffer.str().substr(static_cast<size_t>(buffer_pos));
+    if (floor(value) == value && num_str.find('e') == string::npos && num_str.find('E') == string::npos) {
       buffer << ".0";
     }
   }
