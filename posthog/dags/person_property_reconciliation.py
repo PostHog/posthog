@@ -1352,7 +1352,7 @@ def person_property_reconciliation_scheduler(
     Configuration (set via Dagster UI or launchpad):
     - range_start/range_end: Team ID range to process (inclusive)
     - chunk_size: Number of team IDs per job (default 1000)
-    - max_concurrent: Max simultaneous jobs (default 20)
+    - max_concurrent: Max simultaneous jobs (default 5)
     - bug_window_start/end: Time window for the reconciliation
     - dry_run, backup_enabled, batch_size: Passed to each job
     """
@@ -1363,7 +1363,7 @@ def person_property_reconciliation_scheduler(
     if not sensor_config_raw:
         context.log.info(
             "No cursor set. Initialize the sensor by setting cursor to JSON config: "
-            '{"range_start": 1, "range_end": 10000, "chunk_size": 1000, "max_concurrent": 20, '
+            '{"range_start": 1, "range_end": 10000, "chunk_size": 1000, "max_concurrent": 5, '
             '"bug_window_start": "...", "bug_window_end": "...", "dry_run": false, '
             '"backup_enabled": true, "batch_size": 100}'
         )
