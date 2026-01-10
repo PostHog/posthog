@@ -137,3 +137,42 @@ DEBUG=1 SNOWFLAKE_WAREHOUSE='your-warehouse' SNOWFLAKE_USERNAME='your-username' 
 ```
 
 Replace the `SNOWFLAKE_*` environment variables with the values obtained from the setup steps.
+
+## Testing Azure Blob Storage batch exports
+
+Azure Blob Storage batch exports are tested against the [Azurite](https://learn.microsoft.com/en-us/azure/storage/common/storage-use-azurite) emulator available in the local development stack. This allows running tests without requiring real Azure credentials.
+
+### Using the Azurite emulator (default)
+
+The Azurite emulator provides Azure Storage API compatibility locally. To run the tests:
+
+1. Ensure the development Docker stack is running (includes Azurite):
+
+   ```bash
+   docker compose -f docker-compose.dev.yml -f products/batch_exports/backend/tests/docker-compose.yml up -d
+   ```
+
+2. Run the tests from the root of the `posthog` repo:
+
+   ```bash
+   DEBUG=1 pytest products/batch_exports/backend/tests/temporal/destinations/azure_blob/ -v
+   ```
+
+### Using a real Azure Storage account
+
+To run tests against a real Azure Storage account (for E2E validation):
+
+1. Create an Azure Storage account
+2. Create a container for testing
+3. Generate a connection string with access to the container
+
+> [!NOTE]
+> For PostHog employees, check the password manager for Azure Storage development credentials.
+
+With these setup steps done, we can run the Azure-specific tests from the root of the `posthog` repo with:
+
+```bash
+DEBUG=1 AZURE_STORAGE_CONNECTION_STRING='DefaultEndpointsProtocol=https;AccountName=<ACCOUNT_NAME>;AccountKey=<ACCOUNT_KEY>;EndpointSuffix=core.windows.net' \
+    AZURE_TEST_CONTAINER='<CONTAINER_NAME>' \
+    pytest products/batch_exports/backend/tests/temporal/destinations/azure_blob/test_workflow_with_azure_account.py -v
+```

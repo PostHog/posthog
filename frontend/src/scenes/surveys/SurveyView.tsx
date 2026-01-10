@@ -3,7 +3,7 @@ import './SurveyView.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGraph, IconTrash } from '@posthog/icons'
+import { IconArchive, IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -26,6 +26,7 @@ import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
+import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
@@ -57,7 +58,7 @@ const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey } = useActions(surveyLogic)
+    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -108,44 +109,43 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             />
                         </ScenePanelActionsSection>
                         <ScenePanelDivider />
-                        <ScenePanelActionsSection>
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Survey}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={survey.user_access_level}
-                            >
-                                <ButtonPrimitive
-                                    menuItem
-                                    variant="danger"
-                                    data-attr={`${RESOURCE_TYPE}-delete`}
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete this survey?',
-                                            content: (
-                                                <div className="text-sm text-secondary">
-                                                    This action cannot be undone. All survey data will be permanently
-                                                    removed.
-                                                </div>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                onClick: () => deleteSurvey(id),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
+                        {!survey.archived && (
+                            <ScenePanelActionsSection>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Survey}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={survey.user_access_level}
                                 >
-                                    <IconTrash />
-                                    Delete survey
-                                </ButtonPrimitive>
-                            </AccessControlAction>
-                        </ScenePanelActionsSection>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        data-attr={`${RESOURCE_TYPE}-archive`}
+                                        onClick={() => openArchiveSurveyDialog(survey, archiveSurvey)}
+                                    >
+                                        <IconArchive />
+                                        Archive
+                                    </ButtonPrimitive>
+                                </AccessControlAction>
+                            </ScenePanelActionsSection>
+                        )}
+                        {canDeleteSurvey(survey) && (
+                            <ScenePanelActionsSection>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Survey}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={survey.user_access_level}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        variant="danger"
+                                        data-attr={`${RESOURCE_TYPE}-delete`}
+                                        onClick={() => openDeleteSurveyDialog(survey, () => deleteSurvey(id))}
+                                    >
+                                        <IconTrash />
+                                        Delete permanently
+                                    </ButtonPrimitive>
+                                </AccessControlAction>
+                            </ScenePanelActionsSection>
+                        )}
                     </ScenePanel>
 
                     <SurveysDisabledBanner />

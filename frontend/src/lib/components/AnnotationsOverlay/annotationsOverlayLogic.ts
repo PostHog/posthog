@@ -241,7 +241,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                                     id: -(index + 1), // -1 for Jan 6, -2 for Jan 7
                                     scope: AnnotationScope.Project,
                                     content:
-                                        'Some person properties on this date may have been set incorrectly. See https://status.posthog.com/ for more information.',
+                                        'Some person properties may have been set incorrectly on events between January 6, 20:01 UTC and January 7, 14:52 UTC. See https://status.posthog.com/ for more information.',
                                     date_marker: dateInTimezone,
                                     created_at: dayjs(),
                                     updated_at: dayjs().toISOString(),
