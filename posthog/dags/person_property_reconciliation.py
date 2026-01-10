@@ -1337,9 +1337,7 @@ def build_reconciliation_run_config(
     minimum_interval_seconds=30,
     default_status=dagster.DefaultSensorStatus.STOPPED,
 )
-def person_property_reconciliation_scheduler(
-    context: dagster.SensorEvaluationContext,
-) -> dagster.SensorResult:
+def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationContext):
     """
     Sensor that automatically schedules person property reconciliation jobs.
 
@@ -1361,31 +1359,43 @@ def person_property_reconciliation_scheduler(
     sensor_config_raw = context.cursor
 
     if not sensor_config_raw:
-        context.log.info(
-            "No cursor set. Initialize the sensor by setting cursor to JSON config: "
-            '{"range_start": 1, "range_end": 10000, "chunk_size": 1000, "max_concurrent": 5, '
+        return dagster.SkipReason(
+            "No cursor set. Initialize by setting cursor to JSON: "
+            '{"range_start": 1, "range_end": 10000, "chunk_size": 1000, "max_concurrent": 20, '
             '"bug_window_start": "...", "bug_window_end": "...", "dry_run": false, '
             '"backup_enabled": true, "batch_size": 100}'
         )
-        return dagster.SensorResult(run_requests=[], cursor=None)
 
     try:
         cursor_data = json.loads(sensor_config_raw)
     except json.JSONDecodeError:
-        context.log.warning(f"Invalid cursor JSON: {sensor_config_raw}")
-        return dagster.SensorResult(run_requests=[], cursor=sensor_config_raw)
+        return dagster.SkipReason(f"Invalid cursor JSON: {sensor_config_raw[:100]}...")
 
     # Extract config and progress
     range_start = cursor_data.get("range_start", 1)
     range_end = cursor_data.get("range_end", 10000)
     chunk_size = cursor_data.get("chunk_size", 1000)
-    max_concurrent = cursor_data.get("max_concurrent", 20)
+    max_concurrent = cursor_data.get("max_concurrent", 5)
     next_chunk_start = cursor_data.get("next_chunk_start", range_start)
+
+    # Validate config
+    MAX_CONCURRENT_CAP = 50
+    if range_start > range_end:
+        return dagster.SkipReason(
+            f"Invalid config: range_start ({range_start}) cannot be greater than range_end ({range_end})"
+        )
+    if chunk_size <= 0:
+        return dagster.SkipReason(f"Invalid config: chunk_size must be > 0, got {chunk_size}")
+    if max_concurrent <= 0:
+        return dagster.SkipReason(f"Invalid config: max_concurrent must be > 0, got {max_concurrent}")
+    if max_concurrent > MAX_CONCURRENT_CAP:
+        return dagster.SkipReason(
+            f"Invalid config: max_concurrent ({max_concurrent}) exceeds cap of {MAX_CONCURRENT_CAP}"
+        )
 
     # Check if we've completed the range
     if next_chunk_start > range_end:
-        context.log.info(f"Reconciliation complete: processed all teams up to {range_end}")
-        return dagster.SensorResult(run_requests=[], cursor=sensor_config_raw)
+        return dagster.SkipReason(f"Reconciliation complete: processed all teams up to {range_end}")
 
     # Build config object for run config generation
     config = ReconciliationSchedulerConfig(
@@ -1416,8 +1426,7 @@ def person_property_reconciliation_scheduler(
 
     available_slots = max(0, max_concurrent - active_count)
     if available_slots == 0:
-        context.log.info(f"At max concurrency ({active_count}/{max_concurrent}), waiting for slots")
-        return dagster.SensorResult(run_requests=[], cursor=sensor_config_raw)
+        return dagster.SkipReason(f"At max concurrency ({active_count}/{max_concurrent}), waiting for slots")
 
     context.log.info(f"Active runs: {active_count}/{max_concurrent}, available slots: {available_slots}")
 
