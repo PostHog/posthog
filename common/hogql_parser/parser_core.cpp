@@ -33,18 +33,15 @@ void addPositionInfo(JSONBuilder& json, antlr4::ParserRuleContext* ctx) {
 
   if (start_token) {
     JSONBuilder::Position start = {
-      start_token->getLine(),
-      start_token->getCharPositionInLine(),
-      start_token->getStartIndex()
+        start_token->getLine(), start_token->getCharPositionInLine(), start_token->getStartIndex()
     };
     json.addPosition("start", start);
   }
 
   if (stop_token) {
     JSONBuilder::Position end = {
-      stop_token->getLine(),
-      stop_token->getCharPositionInLine() + stop_token->getText().length(),
-      stop_token->getStopIndex() + 1
+        stop_token->getLine(), stop_token->getCharPositionInLine() + stop_token->getText().length(),
+        stop_token->getStopIndex() + 1
     };
     json.addPosition("end", end);
   }
@@ -54,11 +51,7 @@ void addPositionInfo(JSONBuilder& json, antlr4::ParserRuleContext* ctx) {
 void addPositionInfo(JSONBuilder& json, const string& key, antlr4::Token* token) {
   if (!token) return;
 
-  JSONBuilder::Position pos = {
-    token->getLine(),
-    token->getCharPositionInLine(),
-    token->getStartIndex()
-  };
+  JSONBuilder::Position pos = {token->getLine(), token->getCharPositionInLine(), token->getStartIndex()};
   json.addPosition(key, pos);
 }
 
@@ -67,9 +60,7 @@ void addEndPositionInfo(JSONBuilder& json, antlr4::Token* token) {
   if (!token) return;
 
   JSONBuilder::Position end = {
-    token->getLine(),
-    token->getCharPositionInLine() + token->getText().length(),
-    token->getStopIndex() + 1
+      token->getLine(), token->getCharPositionInLine() + token->getText().length(), token->getStopIndex() + 1
   };
   json.addPosition("end", end);
 }
@@ -88,9 +79,12 @@ void addStringArray(JSONBuilder& json, const string& key, const vector<string>& 
 string buildJSONError(const char* error_type, const string& message, size_t start, size_t end) {
   JSONBuilder json;
   json.startObject();
-  json.addKey("error"); json.addBool(true);
-  json.addKey("type"); json.addString(error_type);
-  json.addKey("message"); json.addString(message);
+  json.addKey("error");
+  json.addBool(true);
+  json.addKey("type");
+  json.addString(error_type);
+  json.addKey("message");
+  json.addString(message);
   json.addPosition("start", {0, 0, start});
   json.addPosition("end", {0, 0, end});
   json.endObject();
@@ -245,9 +239,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     throw ParsingError("Declaration must be either a varDecl or a statement");
   }
 
-  VISIT(Expression) {
-    return visit(ctx->columnExpr());
-  }
+  VISIT(Expression) { return visit(ctx->columnExpr()); }
 
   VISIT(VarDecl) {
     JSONBuilder json;
@@ -257,8 +249,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       addPositionInfo(json, ctx);
     }
     string name = visitAsString(ctx->identifier());
-    json.addKey("name"); json.addString(name);
-    json.addKey("expr"); json.addRawJSON(visitAsJSONOrNull(ctx->expression()));
+    json.addKey("name");
+    json.addString(name);
+    json.addKey("expr");
+    json.addRawJSON(visitAsJSONOrNull(ctx->expression()));
     json.endObject();
     return json.toString();
   }
@@ -270,8 +264,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("left"); json.addRawJSON(visitAsJSON(ctx->expression(0)));
-    json.addKey("right"); json.addRawJSON(visitAsJSON(ctx->expression(1)));
+    json.addKey("left");
+    json.addRawJSON(visitAsJSON(ctx->expression(0)));
+    json.addKey("right");
+    json.addRawJSON(visitAsJSON(ctx->expression(1)));
     json.endObject();
     return json.toString();
   }
@@ -337,8 +333,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(empty_stmt_ctx);
     }
 
-    throw ParsingError("Statement must be one of returnStmt, throwStmt, tryCatchStmt, ifStmt, whileStmt, forStmt, forInStmt, funcStmt, "
-                       "varAssignment, block, exprStmt, or emptyStmt");
+    throw ParsingError(
+        "Statement must be one of returnStmt, throwStmt, tryCatchStmt, ifStmt, whileStmt, forStmt, forInStmt, "
+        "funcStmt, "
+        "varAssignment, block, exprStmt, or emptyStmt"
+    );
   }
 
   VISIT(ExprStmt) {
@@ -348,7 +347,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("expr"); json.addRawJSON(visitAsJSON(ctx->expression()));
+    json.addKey("expr");
+    json.addRawJSON(visitAsJSON(ctx->expression()));
     json.endObject();
     return json.toString();
   }
@@ -360,7 +360,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("expr"); json.addRawJSON(visitAsJSONOrNull(ctx->expression()));
+    json.addKey("expr");
+    json.addRawJSON(visitAsJSONOrNull(ctx->expression()));
     json.endObject();
     return json.toString();
   }
@@ -372,7 +373,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("expr"); json.addRawJSON(visitAsJSONOrNull(ctx->expression()));
+    json.addKey("expr");
+    json.addRawJSON(visitAsJSONOrNull(ctx->expression()));
     json.endObject();
     return json.toString();
   }
@@ -408,7 +410,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("try_stmt"); json.addRawJSON(visitAsJSON(ctx->tryStmt));
+    json.addKey("try_stmt");
+    json.addRawJSON(visitAsJSON(ctx->tryStmt));
     json.addKey("catches");
     json.startArray();
     auto catch_block_ctxs = ctx->catchBlock();
@@ -416,7 +419,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       json.addRawJSON(visitAsJSON(catch_block_ctx));
     }
     json.endArray();
-    json.addKey("finally_stmt"); json.addRawJSON(visitAsJSONOrNull(ctx->finallyStmt));
+    json.addKey("finally_stmt");
+    json.addRawJSON(visitAsJSONOrNull(ctx->finallyStmt));
     json.endObject();
     return json.toString();
   }
@@ -428,9 +432,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("expr"); json.addRawJSON(visitAsJSON(ctx->expression()));
-    json.addKey("then"); json.addRawJSON(visitAsJSON(ctx->statement(0)));
-    json.addKey("else_"); json.addRawJSON(visitAsJSONOrNull(ctx->statement(1)));
+    json.addKey("expr");
+    json.addRawJSON(visitAsJSON(ctx->expression()));
+    json.addKey("then");
+    json.addRawJSON(visitAsJSON(ctx->statement(0)));
+    json.addKey("else_");
+    json.addRawJSON(visitAsJSONOrNull(ctx->statement(1)));
     json.endObject();
     return json.toString();
   }
@@ -442,8 +449,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("expr"); json.addRawJSON(visitAsJSON(ctx->expression()));
-    json.addKey("body"); json.addRawJSON(visitAsJSONOrNull(ctx->statement()));
+    json.addKey("expr");
+    json.addRawJSON(visitAsJSON(ctx->expression()));
+    json.addKey("body");
+    json.addRawJSON(visitAsJSONOrNull(ctx->statement()));
     json.endObject();
     return json.toString();
   }
@@ -467,7 +476,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       json.addNull();
     }
 
-    json.addKey("condition"); json.addRawJSON(visitAsJSONOrNull(ctx->condition));
+    json.addKey("condition");
+    json.addRawJSON(visitAsJSONOrNull(ctx->condition));
 
     json.addKey("increment");
     if (ctx->incrementVarDeclr) {
@@ -480,7 +490,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       json.addNull();
     }
 
-    json.addKey("body"); json.addRawJSON(visitAsJSON(ctx->statement()));
+    json.addKey("body");
+    json.addRawJSON(visitAsJSON(ctx->statement()));
     json.endObject();
     return json.toString();
   }
@@ -497,15 +508,21 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string second_identifier;
     if (ctx->identifier(1)) {
       second_identifier = visitAsString(ctx->identifier(1));
-      json.addKey("keyVar"); json.addString(first_identifier);
-      json.addKey("valueVar"); json.addString(second_identifier);
+      json.addKey("keyVar");
+      json.addString(first_identifier);
+      json.addKey("valueVar");
+      json.addString(second_identifier);
     } else {
-      json.addKey("keyVar"); json.addNull();
-      json.addKey("valueVar"); json.addString(first_identifier);
+      json.addKey("keyVar");
+      json.addNull();
+      json.addKey("valueVar");
+      json.addString(first_identifier);
     }
 
-    json.addKey("expr"); json.addRawJSON(visitAsJSON(ctx->expression()));
-    json.addKey("body"); json.addRawJSON(visitAsJSON(ctx->statement()));
+    json.addKey("expr");
+    json.addRawJSON(visitAsJSON(ctx->expression()));
+    json.addKey("body");
+    json.addRawJSON(visitAsJSON(ctx->statement()));
     json.endObject();
     return json.toString();
   }
@@ -519,7 +536,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     string name = visitAsString(ctx->identifier());
-    json.addKey("name"); json.addString(name);
+    json.addKey("name");
+    json.addString(name);
 
     json.addKey("params");
     auto identifier_list_ctx = ctx->identifierList();
@@ -535,14 +553,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       json.endArray();
     }
 
-    json.addKey("body"); json.addRawJSON(visitAsJSON(ctx->block()));
+    json.addKey("body");
+    json.addRawJSON(visitAsJSON(ctx->block()));
     json.endObject();
     return json.toString();
   }
 
-  VISIT(KvPairList) {
-    return visitJSONArrayOfObjects(ctx->kvPair());
-  }
+  VISIT(KvPairList) { return visitJSONArrayOfObjects(ctx->kvPair()); }
 
   VISIT(KvPair) {
     // KvPair returns an array [key, value]
@@ -554,9 +571,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return json.toString();
   }
 
-  VISIT(IdentifierList) {
-    return visitAsVectorOfStrings(ctx->identifier());
-  }
+  VISIT(IdentifierList) { return visitAsVectorOfStrings(ctx->identifier()); }
 
   VISIT(EmptyStmt) {
     JSONBuilder json;
@@ -565,7 +580,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("expr"); json.addNull();
+    json.addKey("expr");
+    json.addNull();
     json.endObject();
     return json.toString();
   }
@@ -642,17 +658,19 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     for (auto subsequent : subsequent_clauses) {
       const char* set_operator;
       if (subsequent->UNION() && subsequent->ALL()) {
-          set_operator = "UNION ALL";
+        set_operator = "UNION ALL";
       } else if (subsequent->UNION() && subsequent->DISTINCT()) {
-          set_operator = "UNION DISTINCT";
+        set_operator = "UNION DISTINCT";
       } else if (subsequent->INTERSECT() && subsequent->DISTINCT()) {
-          set_operator = "INTERSECT DISTINCT";
+        set_operator = "INTERSECT DISTINCT";
       } else if (subsequent->INTERSECT()) {
-          set_operator = "INTERSECT";
+        set_operator = "INTERSECT";
       } else if (subsequent->EXCEPT()) {
-          set_operator = "EXCEPT";
+        set_operator = "EXCEPT";
       } else {
-          throw SyntaxError("Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT");
+        throw SyntaxError(
+            "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
+        );
       }
 
       JSONBuilder node_json;
@@ -679,20 +697,28 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     // Add basic query fields
-    json.addKey("ctes"); json.addRawJSON(visitAsJSONOrNull(ctx->withClause()));
-    json.addKey("select"); json.addRawJSON(visitAsJSONOrEmptyArray(ctx->columnExprList()));
+    json.addKey("ctes");
+    json.addRawJSON(visitAsJSONOrNull(ctx->withClause()));
+    json.addKey("select");
+    json.addRawJSON(visitAsJSONOrEmptyArray(ctx->columnExprList()));
     json.addKey("distinct");
     if (ctx->DISTINCT()) {
       json.addBool(true);
     } else {
       json.addNull();
     }
-    json.addKey("select_from"); json.addRawJSON(visitAsJSONOrNull(ctx->fromClause()));
-    json.addKey("where"); json.addRawJSON(visitAsJSONOrNull(ctx->whereClause()));
-    json.addKey("prewhere"); json.addRawJSON(visitAsJSONOrNull(ctx->prewhereClause()));
-    json.addKey("having"); json.addRawJSON(visitAsJSONOrNull(ctx->havingClause()));
-    json.addKey("group_by"); json.addRawJSON(visitAsJSONOrNull(ctx->groupByClause()));
-    json.addKey("order_by"); json.addRawJSON(visitAsJSONOrNull(ctx->orderByClause()));
+    json.addKey("select_from");
+    json.addRawJSON(visitAsJSONOrNull(ctx->fromClause()));
+    json.addKey("where");
+    json.addRawJSON(visitAsJSONOrNull(ctx->whereClause()));
+    json.addKey("prewhere");
+    json.addRawJSON(visitAsJSONOrNull(ctx->prewhereClause()));
+    json.addKey("having");
+    json.addRawJSON(visitAsJSONOrNull(ctx->havingClause()));
+    json.addKey("group_by");
+    json.addRawJSON(visitAsJSONOrNull(ctx->groupByClause()));
+    json.addKey("order_by");
+    json.addRawJSON(visitAsJSONOrNull(ctx->orderByClause()));
 
     // Handle window clause
     auto window_clause_ctx = ctx->windowClause();
@@ -771,8 +797,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         if (expr_json.find("\"node\":\"Alias\"") == string::npos) {
           auto relevant_column_expr_ctx = array_join_exprs[i];
           throw SyntaxError(
-              "ARRAY JOIN arrays must have an alias",
-              relevant_column_expr_ctx->getStart()->getStartIndex(),
+              "ARRAY JOIN arrays must have an alias", relevant_column_expr_ctx->getStart()->getStartIndex(),
               relevant_column_expr_ctx->getStop()->getStopIndex() + 1
           );
         }
@@ -833,8 +858,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       int brace_count = 0;
       size_t comma_pos = string::npos;
       for (size_t i = 1; i < limit_expr_result.length(); i++) {
-        if (limit_expr_result[i] == '{') brace_count++;
-        else if (limit_expr_result[i] == '}') brace_count--;
+        if (limit_expr_result[i] == '{')
+          brace_count++;
+        else if (limit_expr_result[i] == '}')
+          brace_count--;
         else if (limit_expr_result[i] == ',' && brace_count == 0) {
           comma_pos = i;
           break;
@@ -842,19 +869,26 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
       if (comma_pos != string::npos) {
         string n = limit_expr_result.substr(1, comma_pos - 1);  // Skip '[' and get until ','
-        string offset_value = limit_expr_result.substr(comma_pos + 1, limit_expr_result.length() - comma_pos - 2);  // Get after ',' until ']'
-        json.addKey("n"); json.addRawJSON(n);
-        json.addKey("offset_value"); json.addRawJSON(offset_value);
+        string offset_value = limit_expr_result.substr(
+            comma_pos + 1, limit_expr_result.length() - comma_pos - 2
+        );  // Get after ',' until ']'
+        json.addKey("n");
+        json.addRawJSON(n);
+        json.addKey("offset_value");
+        json.addRawJSON(offset_value);
       } else {
         throw ParsingError("Invalid array format from limitExpr");
       }
     } else {
       // It's a single value, use as n with null offset_value
-      json.addKey("n"); json.addRawJSON(limit_expr_result);
-      json.addKey("offset_value"); json.addNull();
+      json.addKey("n");
+      json.addRawJSON(limit_expr_result);
+      json.addKey("offset_value");
+      json.addNull();
     }
 
-    json.addKey("exprs"); json.addRawJSON(exprs);
+    json.addKey("exprs");
+    json.addRawJSON(exprs);
     json.endObject();
     return json.toString();
   }
@@ -885,13 +919,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return json.toString();
   }
 
-  VISIT(OffsetOnlyClause) {
-    return visitAsJSON(ctx->columnExpr());
-  }
+  VISIT(OffsetOnlyClause) { return visitAsJSON(ctx->columnExpr()); }
 
   VISIT_UNSUPPORTED(ProjectionOrderByClause)
 
-  VISIT_UNSUPPORTED(LimitAndOffsetClause) // We handle this directly in the SelectStmt visitor
+  VISIT_UNSUPPORTED(LimitAndOffsetClause)  // We handle this directly in the SelectStmt visitor
 
   VISIT_UNSUPPORTED(SettingsClause)
 
@@ -928,8 +960,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     // Find the position after the opening brace and node type
     size_t insert_pos = join2_json.find(",", join2_json.find("\"node\""));
     if (insert_pos != string::npos) {
-      string injection = "\"join_type\":\"" + JSONBuilder::escapeString(join_op) +
-                        "\",\"constraint\":" + constraint_json + ",";
+      string injection =
+          "\"join_type\":\"" + JSONBuilder::escapeString(join_op) + "\",\"constraint\":" + constraint_json + ",";
       join2_json.insert(insert_pos + 1, injection);
     }
 
@@ -964,16 +996,20 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       if (!is_internal) {
         addPositionInfo(json, ctx);
       }
-      json.addKey("table"); json.addRawJSON(table_json);
+      json.addKey("table");
+      json.addRawJSON(table_json);
       json.addKey("table_final");
       if (table_final) {
         json.addBool(true);
       } else {
         json.addNull();
       }
-      json.addKey("sample"); json.addRawJSON(sample_json);
-      json.addKey("next_join"); json.addNull();
-      json.addKey("alias"); json.addNull();
+      json.addKey("sample");
+      json.addRawJSON(sample_json);
+      json.addKey("next_join");
+      json.addNull();
+      json.addKey("alias");
+      json.addNull();
       json.endObject();
       return json.toString();
     }
@@ -1069,9 +1105,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     int bracket_depth = 0;
     int expr_count = 1;
     for (char c : column_expr_list_json) {
-      if (c == '[' || c == '{') bracket_depth++;
-      else if (c == ']' || c == '}') bracket_depth--;
-      else if (c == ',' && bracket_depth == 1) expr_count++;
+      if (c == '[' || c == '{')
+        bracket_depth++;
+      else if (c == ']' || c == '}')
+        bracket_depth--;
+      else if (c == ',' && bracket_depth == 1)
+        expr_count++;
     }
 
     if (expr_count > 1) {
@@ -1089,8 +1128,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("expr"); json.addRawJSON(expr_json);
-    json.addKey("constraint_type"); json.addString(ctx->USING() ? "USING" : "ON");
+    json.addKey("expr");
+    json.addRawJSON(expr_json);
+    json.addKey("constraint_type");
+    json.addString(ctx->USING() ? "USING" : "ON");
     json.endObject();
     return json.toString();
   }
@@ -1102,8 +1143,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("sample_value"); json.addRawJSON(visitAsJSON(ctx->ratioExpr(0)));
-    json.addKey("offset_value"); json.addRawJSON(visitAsJSONOrNull(ctx->ratioExpr(1)));
+    json.addKey("sample_value");
+    json.addRawJSON(visitAsJSON(ctx->ratioExpr(0)));
+    json.addKey("offset_value");
+    json.addRawJSON(visitAsJSONOrNull(ctx->ratioExpr(1)));
     json.endObject();
     return json.toString();
   }
@@ -1118,8 +1161,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("expr"); json.addRawJSON(visitAsJSON(ctx->columnExpr()));
-    json.addKey("order"); json.addString(order);
+    json.addKey("expr");
+    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
+    json.addKey("order");
+    json.addString(order);
     json.endObject();
     return json.toString();
   }
@@ -1147,8 +1192,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("left"); json.addRawJSON(visitAsJSON(left_ctx));
-    json.addKey("right"); json.addRawJSON(visitAsJSONOrNull(right_ctx));
+    json.addKey("left");
+    json.addRawJSON(visitAsJSON(left_ctx));
+    json.addKey("right");
+    json.addRawJSON(visitAsJSONOrNull(right_ctx));
     json.endObject();
     return json.toString();
   }
@@ -1172,15 +1219,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       int brace_count = 0;
       size_t comma_pos = string::npos;
       for (size_t i = 1; i < frame_json.length(); i++) {
-        if (frame_json[i] == '{') brace_count++;
-        else if (frame_json[i] == '}') brace_count--;
+        if (frame_json[i] == '{')
+          brace_count++;
+        else if (frame_json[i] == '}')
+          brace_count--;
         else if (frame_json[i] == ',' && brace_count == 0) {
           comma_pos = i;
           break;
         }
       }
       if (comma_pos != string::npos) {
-        frame_start_json = frame_json.substr(1, comma_pos - 1);  // Skip '['
+        frame_start_json = frame_json.substr(1, comma_pos - 1);                                  // Skip '['
         frame_end_json = frame_json.substr(comma_pos + 1, frame_json.length() - comma_pos - 2);  // Skip ']'
       } else {
         throw ParsingError("WindowExpr frame must be an array of size 2");
@@ -1203,16 +1252,20 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("partition_by"); json.addRawJSON(visitAsJSONOrNull(ctx->winPartitionByClause()));
-    json.addKey("order_by"); json.addRawJSON(visitAsJSONOrNull(ctx->winOrderByClause()));
+    json.addKey("partition_by");
+    json.addRawJSON(visitAsJSONOrNull(ctx->winPartitionByClause()));
+    json.addKey("order_by");
+    json.addRawJSON(visitAsJSONOrNull(ctx->winOrderByClause()));
     json.addKey("frame_method");
     if (!frame_method.empty()) {
       json.addString(frame_method);
     } else {
       json.addNull();
     }
-    json.addKey("frame_start"); json.addRawJSON(frame_start_json);
-    json.addKey("frame_end"); json.addRawJSON(frame_end_json);
+    json.addKey("frame_start");
+    json.addRawJSON(frame_start_json);
+    json.addKey("frame_end");
+    json.addRawJSON(frame_end_json);
     json.endObject();
     return json.toString();
   }
@@ -1244,7 +1297,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     if (ctx->PRECEDING() || ctx->FOLLOWING()) {
-      json.addKey("frame_type"); json.addString(ctx->PRECEDING() ? "PRECEDING" : "FOLLOWING");
+      json.addKey("frame_type");
+      json.addString(ctx->PRECEDING() ? "PRECEDING" : "FOLLOWING");
       json.addKey("frame_value");
       if (ctx->numberLiteral()) {
         // Extract the value from the Constant node
@@ -1263,7 +1317,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         json.addNull();
       }
     } else {
-      json.addKey("frame_type"); json.addString("CURRENT ROW");
+      json.addKey("frame_type");
+      json.addString("CURRENT ROW");
     }
 
     json.endObject();
@@ -1291,7 +1346,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("name"); json.addString("if");
+    json.addKey("name");
+    json.addString("if");
     json.addKey("args");
     json.startArray();
     json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
@@ -1323,8 +1379,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("expr"); json.addRawJSON(visitAsJSON(ctx->columnExpr()));
-    json.addKey("alias"); json.addString(alias);
+    json.addKey("expr");
+    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
+    json.addKey("alias");
+    json.addString(alias);
     json.endObject();
     return json.toString();
   }
@@ -1340,12 +1398,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     JSONBuilder left_json;
     left_json.startObject();
     left_json.addNodeType("Constant");
-    left_json.addKey("value"); left_json.addInt(0);
+    left_json.addKey("value");
+    left_json.addInt(0);
     left_json.endObject();
 
-    json.addKey("left"); json.addRawJSON(left_json.toString());
-    json.addKey("right"); json.addRawJSON(visitAsJSON(ctx->columnExpr()));
-    json.addKey("op"); json.addString("-");
+    json.addKey("left");
+    json.addRawJSON(left_json.toString());
+    json.addKey("right");
+    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
+    json.addKey("op");
+    json.addString("-");
     json.endObject();
     return json.toString();
   }
@@ -1359,7 +1421,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("exprs"); json.addRawJSON(visitAsJSONOrEmptyArray(ctx->columnExprList()));
+    json.addKey("exprs");
+    json.addRawJSON(visitAsJSONOrEmptyArray(ctx->columnExprList()));
     json.endObject();
     return json.toString();
   }
@@ -1371,7 +1434,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("items"); json.addRawJSON(visitAsJSONOrEmptyArray(ctx->kvPairList()));
+    json.addKey("items");
+    json.addRawJSON(visitAsJSONOrEmptyArray(ctx->kvPairList()));
     json.endObject();
     return json.toString();
   }
@@ -1398,9 +1462,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("left"); json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
-    json.addKey("right"); json.addRawJSON(visitAsJSON(ctx->right));
-    json.addKey("op"); json.addString(op);
+    json.addKey("left");
+    json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
+    json.addKey("right");
+    json.addRawJSON(visitAsJSON(ctx->right));
+    json.addKey("op");
+    json.addString(op);
     json.endObject();
     return json.toString();
   }
@@ -1416,9 +1483,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       if (!is_internal) {
         addPositionInfo(json, ctx);
       }
-      json.addKey("left"); json.addRawJSON(left_json);
-      json.addKey("right"); json.addRawJSON(right_json);
-      json.addKey("op"); json.addString("+");
+      json.addKey("left");
+      json.addRawJSON(left_json);
+      json.addKey("right");
+      json.addRawJSON(right_json);
+      json.addKey("op");
+      json.addString("+");
       json.endObject();
       return json.toString();
     } else if (ctx->DASH()) {
@@ -1428,17 +1498,20 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       if (!is_internal) {
         addPositionInfo(json, ctx);
       }
-      json.addKey("left"); json.addRawJSON(left_json);
-      json.addKey("right"); json.addRawJSON(right_json);
-      json.addKey("op"); json.addString("-");
+      json.addKey("left");
+      json.addRawJSON(left_json);
+      json.addKey("right");
+      json.addRawJSON(right_json);
+      json.addKey("op");
+      json.addString("-");
       json.endObject();
       return json.toString();
     } else if (ctx->CONCAT()) {
       // Check if left or right are already concat calls
-      bool is_left_concat = left_json.find("\"node\":\"Call\"") != string::npos &&
-                           left_json.find("\"name\":\"concat\"") != string::npos;
+      bool is_left_concat =
+          left_json.find("\"node\":\"Call\"") != string::npos && left_json.find("\"name\":\"concat\"") != string::npos;
       bool is_right_concat = right_json.find("\"node\":\"Call\"") != string::npos &&
-                            right_json.find("\"name\":\"concat\"") != string::npos;
+                             right_json.find("\"name\":\"concat\"") != string::npos;
 
       JSONBuilder json;
       json.startObject();
@@ -1446,7 +1519,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       if (!is_internal) {
         addPositionInfo(json, ctx);
       }
-      json.addKey("name"); json.addString("concat");
+      json.addKey("name");
+      json.addString("concat");
       json.addKey("args");
       json.startArray();
 
@@ -1459,7 +1533,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           int depth = 0;
           size_t i = args_start;
           for (; i < left_json.length(); i++) {
-            if (left_json[i] == '[' || left_json[i] == '{') depth++;
+            if (left_json[i] == '[' || left_json[i] == '{')
+              depth++;
             else if (left_json[i] == ']' || left_json[i] == '}') {
               depth--;
               if (depth == 0 && left_json[i] == ']') break;
@@ -1480,15 +1555,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           int depth = 0;
           size_t i = args_start;
           for (; i < right_json.length(); i++) {
-            if (right_json[i] == '[' || right_json[i] == '{') depth++;
+            if (right_json[i] == '[' || right_json[i] == '{')
+              depth++;
             else if (right_json[i] == ']' || right_json[i] == '}') {
               depth--;
               if (depth == 0 && right_json[i] == ']') break;
             }
           }
           string args_content = right_json.substr(args_start + 1, i - args_start - 1);
-          // Add comma if there were left args
-          if (is_left_concat) json.addRawJSON(",");
           json.addRawJSON(args_content);
         }
       } else {
@@ -1545,9 +1619,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("left"); json.addRawJSON(visitAsJSON(ctx->left));
-    json.addKey("right"); json.addRawJSON(visitAsJSON(ctx->right));
-    json.addKey("op"); json.addString(op);
+    json.addKey("left");
+    json.addRawJSON(visitAsJSON(ctx->left));
+    json.addKey("right");
+    json.addRawJSON(visitAsJSON(ctx->right));
+    json.addKey("op");
+    json.addString(op);
     json.endObject();
     return json.toString();
   }
@@ -1581,7 +1658,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("name"); json.addString(name);
+    json.addKey("name");
+    json.addString(name);
     json.addKey("args");
     json.startArray();
     json.addRawJSON(visitAsJSON(ctx->columnExpr()));
@@ -1640,14 +1718,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("name"); json.addString(name);
+    json.addKey("name");
+    json.addString(name);
     json.addKey("args");
     json.startArray();
     // Create inline Constant for the count
     JSONBuilder constant;
     constant.startObject();
     constant.addNodeType("Constant");
-    constant.addKey("value"); constant.addInt(count_int);
+    constant.addKey("value");
+    constant.addInt(count_int);
     constant.endObject();
     json.addRawJSON(constant.toString());
     json.endArray();
@@ -1662,15 +1742,19 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("left"); json.addRawJSON(visitAsJSON(ctx->columnExpr()));
+    json.addKey("left");
+    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
     // Create null constant for right side
     JSONBuilder null_constant;
     null_constant.startObject();
     null_constant.addNodeType("Constant");
-    null_constant.addKey("value"); null_constant.addNull();
+    null_constant.addKey("value");
+    null_constant.addNull();
     null_constant.endObject();
-    json.addKey("right"); json.addRawJSON(null_constant.toString());
-    json.addKey("op"); json.addString(ctx->NOT() ? "!=" : "==");
+    json.addKey("right");
+    json.addRawJSON(null_constant.toString());
+    json.addKey("op");
+    json.addString(ctx->NOT() ? "!=" : "==");
     json.endObject();
     return json.toString();
   }
@@ -1692,7 +1776,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("name"); json.addString(name);
+    json.addKey("name");
+    json.addString(name);
     json.addKey("args");
     json.startArray();
     json.addRawJSON(visitAsJSON(ctx->columnExpr()));
@@ -1709,7 +1794,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("exprs"); json.addRawJSON(visitAsJSONOrEmptyArray(ctx->columnExprList()));
+    json.addKey("exprs");
+    json.addRawJSON(visitAsJSONOrEmptyArray(ctx->columnExprList()));
     json.endObject();
     return json.toString();
   }
@@ -1721,8 +1807,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("array"); json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
-    json.addKey("property"); json.addRawJSON(visitAsJSON(ctx->columnExpr(1)));
+    json.addKey("array");
+    json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
+    json.addKey("property");
+    json.addRawJSON(visitAsJSON(ctx->columnExpr(1)));
     json.endObject();
     return json.toString();
   }
@@ -1734,9 +1822,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("array"); json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
-    json.addKey("property"); json.addRawJSON(visitAsJSON(ctx->columnExpr(1)));
-    json.addKey("nullish"); json.addBool(true);
+    json.addKey("array");
+    json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
+    json.addKey("property");
+    json.addRawJSON(visitAsJSON(ctx->columnExpr(1)));
+    json.addKey("nullish");
+    json.addBool(true);
     json.endObject();
     return json.toString();
   }
@@ -1747,7 +1838,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     JSONBuilder property;
     property.startObject();
     property.addNodeType("Constant");
-    property.addKey("value"); property.addString(identifier);
+    property.addKey("value");
+    property.addString(identifier);
     property.endObject();
 
     JSONBuilder json;
@@ -1756,8 +1848,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) {
       addPositionInfo(json, ctx);
     }
-    json.addKey("array"); json.addRawJSON(visitAsJSON(ctx->columnExpr()));
-    json.addKey("property"); json.addRawJSON(property.toString());
+    json.addKey("array");
+    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
+    json.addKey("property");
+    json.addRawJSON(property.toString());
     json.endObject();
     return json.toString();
   }
@@ -1829,7 +1923,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       // Extract exprs array from left And node
       size_t exprs_pos = left_json.find("\"exprs\":[");
       if (exprs_pos != string::npos) {
-        size_t start = exprs_pos + 9; // after "exprs":[
+        size_t start = exprs_pos + 9;  // after "exprs":[
         size_t end = left_json.find_last_of(']');
         string exprs_content = left_json.substr(start, end - start);
         if (!exprs_content.empty()) {
@@ -1837,8 +1931,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           int depth = 0;
           size_t expr_start = 0;
           for (size_t i = 0; i < exprs_content.size(); i++) {
-            if (exprs_content[i] == '{') depth++;
-            else if (exprs_content[i] == '}') depth--;
+            if (exprs_content[i] == '{')
+              depth++;
+            else if (exprs_content[i] == '}')
+              depth--;
             else if (exprs_content[i] == ',' && depth == 0) {
               exprs.push_back(exprs_content.substr(expr_start, i - expr_start));
               expr_start = i + 1;
@@ -1865,8 +1961,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           int depth = 0;
           size_t expr_start = 0;
           for (size_t i = 0; i < exprs_content.size(); i++) {
-            if (exprs_content[i] == '{') depth++;
-            else if (exprs_content[i] == '}') depth--;
+            if (exprs_content[i] == '{')
+              depth++;
+            else if (exprs_content[i] == '}')
+              depth--;
             else if (exprs_content[i] == ',' && depth == 0) {
               exprs.push_back(exprs_content.substr(expr_start, i - expr_start));
               expr_start = i + 1;
@@ -1908,7 +2006,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       // Extract exprs array from left Or node
       size_t exprs_pos = left_json.find("\"exprs\":[");
       if (exprs_pos != string::npos) {
-        size_t start = exprs_pos + 9; // after "exprs":[
+        size_t start = exprs_pos + 9;  // after "exprs":[
         size_t end = left_json.find_last_of(']');
         string exprs_content = left_json.substr(start, end - start);
         if (!exprs_content.empty()) {
@@ -1916,8 +2014,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           int depth = 0;
           size_t expr_start = 0;
           for (size_t i = 0; i < exprs_content.size(); i++) {
-            if (exprs_content[i] == '{') depth++;
-            else if (exprs_content[i] == '}') depth--;
+            if (exprs_content[i] == '{')
+              depth++;
+            else if (exprs_content[i] == '}')
+              depth--;
             else if (exprs_content[i] == ',' && depth == 0) {
               exprs.push_back(exprs_content.substr(expr_start, i - expr_start));
               expr_start = i + 1;
@@ -1944,8 +2044,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           int depth = 0;
           size_t expr_start = 0;
           for (size_t i = 0; i < exprs_content.size(); i++) {
-            if (exprs_content[i] == '{') depth++;
-            else if (exprs_content[i] == '}') depth--;
+            if (exprs_content[i] == '{')
+              depth++;
+            else if (exprs_content[i] == '}')
+              depth--;
             else if (exprs_content[i] == ',' && depth == 0) {
               exprs.push_back(exprs_content.substr(expr_start, i - expr_start));
               expr_start = i + 1;
@@ -2263,7 +2365,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       // Extract the "name" field from the CTE JSON to use as the key
       size_t name_pos = cte_json.find("\"name\":\"");
       if (name_pos != string::npos) {
-        size_t name_start = name_pos + 8; // after "name":"
+        size_t name_start = name_pos + 8;  // after "name":"
         size_t name_end = cte_json.find("\"", name_start);
         string name = cte_json.substr(name_start, name_end - name_start);
 
@@ -2440,7 +2542,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     json.addRawJSON(table_json);
     json.addKey("alias");
     json.addString(alias);
-    json.addKey("next_join"); json.addNull();
+    json.addKey("next_join");
+    json.addNull();
     json.endObject();
     return json.toString();
   }
@@ -2682,62 +2785,62 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     /* ── children ───────────────────────────────────────────── */
     std::vector<string> kept_children;
     for (auto childCtx : ctx->hogqlxChildElement()) {
-        string child_json = visitAsJSON(childCtx);
+      string child_json = visitAsJSON(childCtx);
 
-        /* drop Constant nodes that are only-whitespace *and* contain a line-break */
-        bool is_const = child_json.find("\"node\":\"Constant\"") != string::npos;
-        if (is_const) {
-            // Extract value from JSON
-            size_t value_pos = child_json.find("\"value\":\"");
-            if (value_pos != string::npos) {
-                size_t value_start = value_pos + 9; // after "value":"
-                size_t value_end = child_json.find("\"", value_start);
-                if (value_end != string::npos) {
-                    string value_text = child_json.substr(value_start, value_end - value_start);
-                    // Unescape the string to check for whitespace
-                    bool only_ws = std::all_of(value_text.begin(), value_text.end(),
-                                    [](unsigned char c){ return std::isspace(c) || c == '\\'; });
-                    bool has_newline = value_text.find("\\n") != std::string::npos ||
-                                       value_text.find("\\r") != std::string::npos ||
-                                       value_text.find('\n') != std::string::npos ||
-                                       value_text.find('\r') != std::string::npos;
-                    if (only_ws && has_newline) {
-                        continue;  // skip it
-                    }
-                }
+      /* drop Constant nodes that are only-whitespace *and* contain a line-break */
+      bool is_const = child_json.find("\"node\":\"Constant\"") != string::npos;
+      if (is_const) {
+        // Extract value from JSON
+        size_t value_pos = child_json.find("\"value\":\"");
+        if (value_pos != string::npos) {
+          size_t value_start = value_pos + 9;  // after "value":"
+          size_t value_end = child_json.find("\"", value_start);
+          if (value_end != string::npos) {
+            string value_text = child_json.substr(value_start, value_end - value_start);
+            // Unescape the string to check for whitespace
+            bool only_ws = std::all_of(value_text.begin(), value_text.end(), [](unsigned char c) {
+              return std::isspace(c) || c == '\\';
+            });
+            bool has_newline = value_text.find("\\n") != std::string::npos ||
+                               value_text.find("\\r") != std::string::npos ||
+                               value_text.find('\n') != std::string::npos || value_text.find('\r') != std::string::npos;
+            if (only_ws && has_newline) {
+              continue;  // skip it
             }
+          }
         }
+      }
 
-        kept_children.push_back(child_json);  // keep
+      kept_children.push_back(child_json);  // keep
     }
 
     /* if we have child nodes, validate + attach them as attribute "children" */
     if (!kept_children.empty()) {
-        // Check if any attribute is named "children"
-        for (const auto& attr_json : attributes) {
-            if (attr_json.find("\"name\":\"children\"") != string::npos) {
-                throw SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute");
-            }
+      // Check if any attribute is named "children"
+      for (const auto& attr_json : attributes) {
+        if (attr_json.find("\"name\":\"children\"") != string::npos) {
+          throw SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute");
         }
+      }
 
-        /* build children attribute */
-        JSONBuilder children_array;
-        children_array.startArray();
-        for (const auto& child : kept_children) {
-            children_array.addRawJSON(child);
-        }
-        children_array.endArray();
+      /* build children attribute */
+      JSONBuilder children_array;
+      children_array.startArray();
+      for (const auto& child : kept_children) {
+        children_array.addRawJSON(child);
+      }
+      children_array.endArray();
 
-        JSONBuilder children_attr;
-        children_attr.startObject();
-        children_attr.addNodeType("HogQLXAttribute");
-        children_attr.addKey("name");
-        children_attr.addString("children");
-        children_attr.addKey("value");
-        children_attr.addRawJSON(children_array.toString());
-        children_attr.endObject();
+      JSONBuilder children_attr;
+      children_attr.startObject();
+      children_attr.addNodeType("HogQLXAttribute");
+      children_attr.addKey("name");
+      children_attr.addString("children");
+      children_attr.addKey("value");
+      children_attr.addRawJSON(children_array.toString());
+      children_attr.endObject();
 
-        attributes.push_back(children_attr.toString());
+      attributes.push_back(children_attr.toString());
     }
 
     JSONBuilder json;
@@ -2826,13 +2929,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       // Extract chain array from Field
       size_t chain_pos = expr_json.find("\"chain\":[");
       if (chain_pos != string::npos) {
-        size_t chain_start = chain_pos + 9; // after "chain":[
+        size_t chain_start = chain_pos + 9;  // after "chain":[
         size_t chain_end = expr_json.find("]", chain_start);
         string chain_content = expr_json.substr(chain_start, chain_end - chain_start);
 
         // Check if chain has exactly one string element
         if (chain_content.find("\"") != string::npos &&
-            chain_content.find("\",\"") == string::npos) { // single element
+            chain_content.find("\",\"") == string::npos) {  // single element
 
           // Extract function name
           size_t name_start = chain_content.find("\"") + 1;

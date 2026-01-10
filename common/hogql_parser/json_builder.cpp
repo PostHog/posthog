@@ -5,10 +5,6 @@
 #include <limits>
 #include <sstream>
 
-JSONBuilder::JSONBuilder() {
-  // Start with clean state
-}
-
 void JSONBuilder::addCommaIfNeeded() {
   if (!context_stack.empty() && !needs_comma.empty() && needs_comma.back()) {
     buffer << ",";

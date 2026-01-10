@@ -1,10 +1,10 @@
 #ifndef JSON_BUILDER_H
 #define JSON_BUILDER_H
 
+#include <iomanip>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <sstream>
-#include <iomanip>
 
 using namespace std;
 
@@ -24,51 +24,51 @@ using namespace std;
  *   string result = json.toString(); // {"node":"Constant","value":42}
  */
 class JSONBuilder {
-private:
-    stringstream buffer;
-    vector<bool> context_stack; // true = object, false = array
-    vector<bool> needs_comma;   // Track if next item needs comma
+ private:
+  stringstream buffer;
+  vector<bool> context_stack;  // true = object, false = array
+  vector<bool> needs_comma;    // Track if next item needs comma
 
-    void addCommaIfNeeded();
-    void markItemAdded();
+  void addCommaIfNeeded();
+  void markItemAdded();
 
-public:
-    JSONBuilder();
+ public:
+  JSONBuilder() = default;
 
-    // Object/Array structure
-    void startObject();
-    void endObject();
-    void startArray();
-    void endArray();
+  // Object/Array structure
+  void startObject();
+  void endObject();
+  void startArray();
+  void endArray();
 
-    // Key for object properties
-    void addKey(const string& key);
+  // Key for object properties
+  void addKey(const string& key);
 
-    // Values
-    void addString(const string& value);
-    void addInt(int64_t value);
-    void addFloat(double value);
-    void addBool(bool value);
-    void addNull();
+  // Values
+  void addString(const string& value);
+  void addInt(int64_t value);
+  void addFloat(double value);
+  void addBool(bool value);
+  void addNull();
 
-    // Add raw JSON (for embedding already-serialized JSON)
-    void addRawJSON(const string& json);
+  // Add raw JSON (for embedding already-serialized JSON)
+  void addRawJSON(const string& json);
 
-    // Utility: escape string for JSON
-    static string escapeString(const string& str);
+  // Utility: escape string for JSON
+  static string escapeString(const string& str);
 
-    // Get the final JSON string
-    string toString() const;
+  // Get the final JSON string
+  string toString() const;
 
-    // AST-specific helpers
-    struct Position {
-        size_t line;
-        size_t column;
-        size_t offset;
-    };
+  // AST-specific helpers
+  struct Position {
+    size_t line;
+    size_t column;
+    size_t offset;
+  };
 
-    void addPosition(const string& key, const Position& pos);
-    void addNodeType(const string& node_type);
+  void addPosition(const string& key, const Position& pos);
+  void addNodeType(const string& node_type);
 };
 
-#endif // JSON_BUILDER_H
+#endif  // JSON_BUILDER_H
