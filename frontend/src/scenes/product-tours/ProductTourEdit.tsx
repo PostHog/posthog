@@ -20,8 +20,8 @@ import { AnnouncementContentEditor } from './AnnouncementContentEditor'
 import { BannerContentEditor } from './BannerContentEditor'
 import { AutoShowSection } from './components/AutoShowSection'
 import { BannerCustomization } from './components/BannerCustomization'
-import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { ProductTourCustomization } from './components/ProductTourCustomization'
+import { ProductToursToolbarButton } from './components/ProductToursToolbarButton'
 import { ProductTourStepsEditor } from './editor'
 import { ProductTourEditTab, productTourLogic } from './productTourLogic'
 import { isAnnouncement, isBannerAnnouncement } from './productToursLogic'
@@ -60,7 +60,10 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     isLoading={productTourLoading}
                     actions={
                         <>
-                            {!isAnnouncement(productTour) && <EditInToolbarButton tourId={id} />}
+                            <ProductToursToolbarButton
+                                tourId={id}
+                                mode={isAnnouncement(productTour) ? 'preview' : 'edit'}
+                            />
                             <LemonButton type="secondary" size="small" onClick={() => editingProductTour(false)}>
                                 Cancel
                             </LemonButton>
