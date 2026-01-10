@@ -1,0 +1,437 @@
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+
+import api from 'lib/api'
+import { urls } from 'scenes/urls'
+
+import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { groupsModel } from '~/models/groupsModel'
+import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
+import { Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
+
+import type { commandSearchLogicType } from './commandSearchLogicType'
+
+// Types for command search results
+export interface CommandSearchItem {
+    id: string
+    name: string
+    displayName?: string
+    category: string
+    href?: string
+    icon?: React.ReactNode
+    lastViewedAt?: string | null
+    groupNoun?: string | null
+    itemType?: string | null
+    record?: Record<string, unknown>
+}
+
+export interface CommandCategory {
+    key: string
+    items: CommandSearchItem[]
+    isLoading: boolean
+}
+
+export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
+
+const RECENTS_LIMIT = 20
+const SEARCH_LIMIT = 5
+
+function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[] {
+    return response.results.map((row) => ({
+        group_key: row[response.columns.indexOf('key')],
+        group_properties: {
+            name: row[response.columns.indexOf('group_name')],
+        },
+    }))
+}
+
+export const commandSearchLogic = kea<commandSearchLogicType>([
+    path(['lib', 'components', 'Command', 'commandSearchLogic']),
+    connect({
+        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
+    }),
+    actions({
+        setSearch: (search: string) => ({ search }),
+    }),
+    loaders(({ values }) => ({
+        recents: [
+            { results: [], hasMore: false } as { results: FileSystemEntry[]; hasMore: boolean },
+            {
+                loadRecents: async ({ search }: { search: string }, breakpoint) => {
+                    const searchTerm = search.trim()
+
+                    const response = await api.fileSystem.list({
+                        search: searchTerm || undefined,
+                        limit: RECENTS_LIMIT + 1,
+                        orderBy: '-last_viewed_at',
+                        notType: 'folder',
+                    })
+                    breakpoint()
+
+                    return {
+                        results: response.results.slice(0, RECENTS_LIMIT),
+                        hasMore: response.results.length > RECENTS_LIMIT,
+                    }
+                },
+            },
+        ],
+        unifiedSearchResults: [
+            null as SearchResponse | null,
+            {
+                loadUnifiedSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+
+                    if (trimmed === '') {
+                        return null
+                    }
+
+                    await breakpoint(300)
+
+                    const response = await api.search.list({ q: trimmed })
+                    breakpoint()
+
+                    return response
+                },
+            },
+        ],
+        groupSearchResults: [
+            {} as Partial<Record<GroupTypeIndex, GroupQueryResult[]>>,
+            {
+                loadGroupSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+
+                    if (trimmed === '') {
+                        return {}
+                    }
+
+                    const groupTypesList = Array.from(values.groupTypes.values())
+                    if (groupTypesList.length === 0) {
+                        return {}
+                    }
+
+                    await breakpoint(200)
+
+                    const responses = await Promise.all(
+                        groupTypesList.map((groupType) =>
+                            api.groups.listClickhouse({
+                                group_type_index: groupType.group_type_index,
+                                search: trimmed,
+                                limit: SEARCH_LIMIT,
+                            })
+                        )
+                    )
+
+                    breakpoint()
+
+                    return Object.fromEntries(
+                        responses.map((response, index) => [
+                            groupTypesList[index].group_type_index,
+                            mapGroupQueryResponse(response),
+                        ])
+                    ) as Record<GroupTypeIndex, GroupQueryResult[]>
+                },
+            },
+        ],
+        personSearchResults: [
+            [] as PersonType[],
+            {
+                loadPersonSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+
+                    if (trimmed === '') {
+                        return []
+                    }
+
+                    await breakpoint(200)
+
+                    const response = await api.persons.list({ search: trimmed, limit: SEARCH_LIMIT })
+                    breakpoint()
+
+                    return response.results
+                },
+            },
+        ],
+    })),
+    reducers({
+        search: [
+            '',
+            {
+                setSearch: (_, { search }) => search,
+            },
+        ],
+        searchPending: [
+            false,
+            {
+                setSearch: (_, { search }) => search.trim() !== '',
+                loadRecentsSuccess: () => false,
+                loadRecentsFailure: () => false,
+                loadUnifiedSearchResultsSuccess: () => false,
+                loadUnifiedSearchResultsFailure: () => false,
+            },
+        ],
+    }),
+    selectors({
+        isSearching: [
+            (s) => [
+                s.recentsLoading,
+                s.unifiedSearchResultsLoading,
+                s.groupSearchResultsLoading,
+                s.personSearchResultsLoading,
+                s.searchPending,
+                s.search,
+            ],
+            (
+                recentsLoading: boolean,
+                unifiedSearchResultsLoading: boolean,
+                groupSearchResultsLoading: boolean,
+                personSearchResultsLoading: boolean,
+                searchPending: boolean,
+                search: string
+            ): boolean =>
+                (recentsLoading ||
+                    unifiedSearchResultsLoading ||
+                    groupSearchResultsLoading ||
+                    personSearchResultsLoading ||
+                    searchPending) &&
+                search.trim() !== '',
+        ],
+        recentItems: [
+            (s) => [s.recents],
+            (recents): CommandSearchItem[] => {
+                return recents.results.map((item) => {
+                    const name = splitPath(item.path).pop()
+                    return {
+                        id: item.path,
+                        name: name ? unescapePath(name) : item.path,
+                        category: 'recents',
+                        href: item.href || '#',
+                        lastViewedAt: item.last_viewed_at ?? null,
+                        itemType: item.type ?? null,
+                        record: item as unknown as Record<string, unknown>,
+                    }
+                })
+            },
+        ],
+        groupItems: [
+            (s) => [s.groupSearchResults, s.aggregationLabel],
+            (groupSearchResults, aggregationLabel): CommandSearchItem[] => {
+                const items: CommandSearchItem[] = []
+                for (const [groupTypeIndexString, groups] of Object.entries(groupSearchResults)) {
+                    const groupTypeIndex = parseInt(groupTypeIndexString, 10) as GroupTypeIndex
+                    const noun = aggregationLabel(groupTypeIndex).singular
+                    ;(groups as GroupQueryResult[]).forEach((group) => {
+                        const display = group.group_properties?.name || group.group_key || String(group.group_key)
+                        items.push({
+                            id: `group-${groupTypeIndex}-${group.group_key}`,
+                            name: `${noun}: ${display}`,
+                            displayName: display,
+                            category: 'groups',
+                            href: `/groups/${groupTypeIndex}/${encodeURIComponent(group.group_key)}`,
+                            groupNoun: noun,
+                            itemType: 'group',
+                            record: {
+                                type: 'group',
+                                groupTypeIndex,
+                                groupKey: group.group_key,
+                                groupNoun: noun,
+                            },
+                        })
+                    })
+                }
+                return items
+            },
+        ],
+        personItems: [
+            (s) => [s.personSearchResults],
+            (personSearchResults): CommandSearchItem[] => {
+                return personSearchResults.map((person) => {
+                    const personId = person.distinct_ids?.[0] || person.uuid || 'unknown'
+                    const displayName = person.properties?.email || person.properties?.name || personId
+
+                    return {
+                        id: `person-${person.uuid}`,
+                        name: displayName,
+                        displayName,
+                        category: 'persons',
+                        href: urls.personByUUID(person.uuid || ''),
+                        itemType: 'person',
+                        record: {
+                            type: 'person',
+                            uuid: person.uuid,
+                            distinctIds: person.distinct_ids,
+                        },
+                    }
+                })
+            },
+        ],
+        unifiedSearchItems: [
+            (s) => [s.unifiedSearchResults],
+            (unifiedSearchResults): Record<string, CommandSearchItem[]> => {
+                if (!unifiedSearchResults) {
+                    return {}
+                }
+
+                const categoryItems: Record<string, CommandSearchItem[]> = {}
+
+                for (const result of unifiedSearchResults.results) {
+                    const category = result.type
+                    if (!categoryItems[category]) {
+                        categoryItems[category] = []
+                    }
+
+                    let name = result.result_id
+                    let href = ''
+
+                    switch (result.type) {
+                        case 'insight':
+                            name = (result.extra_fields.name as string) || result.result_id
+                            href = `/insights/${result.result_id}`
+                            break
+                        case 'dashboard':
+                            name = (result.extra_fields.name as string) || result.result_id
+                            href = `/dashboard/${result.result_id}`
+                            break
+                        case 'feature_flag':
+                            name = (result.extra_fields.key as string) || result.result_id
+                            href = `/feature_flags/${result.result_id}`
+                            break
+                        case 'experiment':
+                            name = (result.extra_fields.name as string) || result.result_id
+                            href = `/experiments/${result.result_id}`
+                            break
+                        case 'survey':
+                            name = (result.extra_fields.name as string) || result.result_id
+                            href = `/surveys/${result.result_id}`
+                            break
+                        case 'notebook':
+                            name = (result.extra_fields.title as string) || result.result_id
+                            href = `/notebooks/${result.result_id}`
+                            break
+                        case 'cohort':
+                            name = (result.extra_fields.name as string) || result.result_id
+                            href = `/cohorts/${result.result_id}`
+                            break
+                        case 'action':
+                            name = (result.extra_fields.name as string) || result.result_id
+                            href = `/data-management/actions/${result.result_id}`
+                            break
+                    }
+
+                    categoryItems[category].push({
+                        id: `${result.type}-${result.result_id}`,
+                        name,
+                        category,
+                        href,
+                        itemType: result.type,
+                        record: {
+                            type: result.type,
+                            ...result.extra_fields,
+                        },
+                    })
+                }
+
+                return categoryItems
+            },
+        ],
+        allCategories: [
+            (s) => [
+                s.recentItems,
+                s.personItems,
+                s.groupItems,
+                s.unifiedSearchItems,
+                s.recentsLoading,
+                s.personSearchResultsLoading,
+                s.groupSearchResultsLoading,
+                s.unifiedSearchResultsLoading,
+                s.search,
+            ],
+            (
+                recentItems,
+                personItems,
+                groupItems,
+                unifiedSearchItems,
+                recentsLoading,
+                personSearchResultsLoading,
+                groupSearchResultsLoading,
+                unifiedSearchResultsLoading,
+                search
+            ): CommandCategory[] => {
+                const categories: CommandCategory[] = []
+                const hasSearch = search.trim() !== ''
+
+                // Always show recents first
+                if (recentItems.length > 0 || recentsLoading) {
+                    categories.push({
+                        key: 'recents',
+                        items: recentItems,
+                        isLoading: recentsLoading,
+                    })
+                }
+
+                // Only show unified search results when searching
+                if (hasSearch) {
+                    const unifiedLoading = unifiedSearchResultsLoading
+
+                    // Add unified search categories
+                    const categoryOrder = [
+                        'insight',
+                        'dashboard',
+                        'feature_flag',
+                        'experiment',
+                        'survey',
+                        'notebook',
+                        'cohort',
+                        'action',
+                    ]
+
+                    for (const category of categoryOrder) {
+                        const items = unifiedSearchItems[category] || []
+                        if (items.length > 0 || unifiedLoading) {
+                            categories.push({
+                                key: category,
+                                items,
+                                isLoading: unifiedLoading && items.length === 0,
+                            })
+                        }
+                    }
+
+                    // Add persons
+                    if (personItems.length > 0 || personSearchResultsLoading) {
+                        categories.push({
+                            key: 'persons',
+                            items: personItems,
+                            isLoading: personSearchResultsLoading,
+                        })
+                    }
+
+                    // Add groups
+                    if (groupItems.length > 0 || groupSearchResultsLoading) {
+                        categories.push({
+                            key: 'groups',
+                            items: groupItems,
+                            isLoading: groupSearchResultsLoading,
+                        })
+                    }
+                }
+
+                return categories
+            },
+        ],
+    }),
+    listeners(({ actions }) => ({
+        setSearch: async ({ search }, breakpoint) => {
+            await breakpoint(150)
+
+            actions.loadRecents({ search })
+
+            if (search.trim() !== '') {
+                actions.loadUnifiedSearchResults({ searchTerm: search })
+                actions.loadPersonSearchResults({ searchTerm: search })
+                actions.loadGroupSearchResults({ searchTerm: search })
+            }
+        },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadRecents({ search: '' })
+    }),
+])

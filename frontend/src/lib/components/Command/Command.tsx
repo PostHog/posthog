@@ -1,6 +1,6 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { Dialog } from '@base-ui/react/dialog'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -11,27 +11,14 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
-import { formatRelativeTimeShort } from 'scenes/new-tab/components/Results'
-import { NewTabTreeDataItem, getNewTabProjectTreeLogicProps, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 
+import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { commandLogic } from './commandLogic'
-
-interface CommandItem {
-    id: string
-    name: string
-    displayName?: string
-    category: string
-    href?: string
-    icon?: React.ReactNode
-    lastViewedAt?: string | null
-    groupNoun?: string | null
-    itemType?: string | null
-    record?: Record<string, unknown>
-}
+import { CommandSearchItem, commandSearchLogic } from './commandSearchLogic'
 
 const getItemTypeDisplayName = (type: string | null | undefined): string | null => {
     if (!type) {
@@ -57,7 +44,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         revenue_analytics: 'Revenue analytics',
         marketing_analytics: 'Marketing analytics',
         session_replay: 'Session replay',
-        session_recording_playlist: 'Session recording playlist',
+        session_recording_playlist: 'Session recording filter',
         error_tracking: 'Error tracking',
         feature_flag: 'Feature flag',
         experiment: 'Experiment',
@@ -93,30 +80,67 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
     return typeDisplayNames[type] || null
 }
 
-const mapToCommandItems = (items: NewTabTreeDataItem[]): CommandItem[] => {
-    return items.map((item) => {
-        const record = item.record as
-            | { groupNoun?: string; last_viewed_at?: string | null; type?: string; [key: string]: unknown }
-            | undefined
-
-        const itemType = record?.type ?? null
-
-        return {
-            id: item.id,
-            name: item.name,
-            displayName: typeof item.displayName === 'string' ? item.displayName : undefined,
-            category: item.category,
-            href: item.href,
-            icon: item.icon,
-            lastViewedAt: item.lastViewedAt ?? record?.last_viewed_at ?? null,
-            groupNoun: item.category === 'groups' ? record?.groupNoun || item.name.split(':')[0] : null,
-            itemType,
-            record: record as Record<string, unknown> | undefined,
-        }
-    })
+const getCategoryDisplayName = (category: string): string => {
+    const displayNames: Record<string, string> = {
+        // Category names
+        recents: 'Recents',
+        insight: 'Insights',
+        dashboard: 'Dashboards',
+        feature_flag: 'Feature flags',
+        experiment: 'Experiments',
+        survey: 'Surveys',
+        notebook: 'Notebooks',
+        cohort: 'Cohorts',
+        action: 'Actions',
+        persons: 'Persons',
+        groups: 'Groups',
+    }
+    return displayNames[category] || category
 }
 
-const commandItemToTreeDataItem = (item: CommandItem): TreeDataItem => {
+const formatRelativeTimeShort = (dateString: string): string => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+
+    if (diffMins < 1) {
+        return 'now'
+    }
+    if (diffMins < 60) {
+        return `${diffMins}m`
+    }
+    if (diffHours < 24) {
+        return `${diffHours}h`
+    }
+    if (diffDays < 7) {
+        return `${diffDays}d`
+    }
+    if (diffDays < 30) {
+        return `${Math.floor(diffDays / 7)}w`
+    }
+    return `${Math.floor(diffDays / 30)}mo`
+}
+
+const getIconForItem = (item: CommandSearchItem): React.ReactNode => {
+    if (item.icon) {
+        return item.icon
+    }
+    // Use the iconForType helper for file system items
+    const itemType = item.itemType || item.record?.type
+    if (itemType) {
+        return (
+            <ProductIconWrapper type={itemType as string}>
+                {iconForType(itemType as FileSystemIconType)}
+            </ProductIconWrapper>
+        )
+    }
+    return null
+}
+
+const commandItemToTreeDataItem = (item: CommandSearchItem): TreeDataItem => {
     return {
         id: item.id,
         name: item.name,
@@ -132,16 +156,11 @@ export function Command(): JSX.Element {
     const { isCommandOpen } = useValues(commandLogic)
     const { closeCommand } = useActions(commandLogic)
 
-    const tabId = 'command'
-    const recentsLimit = 20
-    const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [])
-    useMountedLogic(projectTreeLogic(projectTreeLogicProps))
-
-    const { allCategories, isSearching } = useValues(newTabSceneLogic({ tabId, recentsLimit }))
-    const { setSearch } = useActions(newTabSceneLogic({ tabId, recentsLimit }))
+    const { allCategories, isSearching } = useValues(commandSearchLogic)
+    const { setSearch } = useActions(commandSearchLogic)
 
     const [searchValue, setSearchValue] = useState('')
-    const [filteredItems, setFilteredItems] = useState<CommandItem[]>([])
+    const [filteredItems, setFilteredItems] = useState<CommandSearchItem[]>([])
     const inputRef = useRef<HTMLInputElement>(null)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
 
@@ -149,9 +168,9 @@ export function Command(): JSX.Element {
 
     // Flatten all category items into a single list
     const allItems = useMemo(() => {
-        const items: CommandItem[] = []
+        const items: CommandSearchItem[] = []
         for (const category of allCategories) {
-            items.push(...mapToCommandItems(category.items))
+            items.push(...category.items)
         }
         return items
     }, [allCategories])
@@ -205,7 +224,7 @@ export function Command(): JSX.Element {
     }, [isCommandOpen, setSearch])
 
     const handleItemClick = useCallback(
-        (item: CommandItem) => {
+        (item: CommandSearchItem) => {
             if (item.href) {
                 router.actions.push(item.href)
                 closeCommand()
@@ -220,8 +239,8 @@ export function Command(): JSX.Element {
 
     // Group items by category for rendering
     const groupedItems = useMemo(() => {
-        const groups: { category: string; items: CommandItem[] }[] = []
-        const categoryMap = new Map<string, CommandItem[]>()
+        const groups: { category: string; items: CommandSearchItem[] }[] = []
+        const categoryMap = new Map<string, CommandSearchItem[]>()
 
         for (const item of filteredItems) {
             const existing = categoryMap.get(item.category)
@@ -238,80 +257,6 @@ export function Command(): JSX.Element {
 
         return groups
     }, [filteredItems])
-
-    const getCategoryDisplayName = (category: string): string => {
-        const displayNames: Record<string, string> = {
-            // Dashboards & Insights
-            dashboard: 'Dashboard',
-            insight: 'Insight',
-            'insight/funnels': 'Funnel',
-            'insight/trends': 'Trend',
-            'insight/retention': 'Retention',
-            'insight/paths': 'Paths',
-            'insight/lifecycle': 'Lifecycle',
-            'insight/stickiness': 'Stickiness',
-            'insight/hog': 'SQL insight',
-
-            // Analytics products
-            product_analytics: 'Product analytics',
-            web_analytics: 'Web analytics',
-            llm_analytics: 'LLM analytics',
-            revenue_analytics: 'Revenue analytics',
-            marketing_analytics: 'Marketing analytics',
-            session_replay: 'Session replay',
-            session_recording_playlist: 'Session recording playlist',
-            error_tracking: 'Error tracking',
-            feature_flag: 'Feature flag',
-            experiment: 'Experiment',
-            early_access_feature: 'Early access feature',
-            survey: 'Survey',
-            product_tour: 'Product tour',
-            user_interview: 'User interview',
-
-            // Data
-            notebook: 'Notebook',
-            cohort: 'Cohort',
-            action: 'Action',
-            annotation: 'Annotation',
-            event_definition: 'Event',
-            property_definition: 'Property',
-            data_warehouse: 'Data warehouse',
-            data_pipeline: 'Data pipeline',
-
-            // People
-            persons: 'Person',
-            user: 'User',
-            group: 'Group',
-
-            // Other
-            heatmap: 'Heatmap',
-            link: 'Link',
-            workflows: 'Workflow',
-            sql_editor: 'SQL query',
-            logs: 'Logs',
-            alert: 'Alert',
-            folder: 'Folder',
-
-            // Category names for unified search results
-            recents: 'Recents',
-            insights: 'Insights',
-            dashboards: 'Dashboards',
-            featureFlags: 'Feature flags',
-            experiments: 'Experiments',
-            surveys: 'Surveys',
-            notebooks: 'Notebooks',
-            cohorts: 'Cohorts',
-            actions: 'Actions',
-            apps: 'Apps',
-            'create-new': 'Create new',
-            'data-management': 'Data management',
-            eventDefinitions: 'Events',
-            propertyDefinitions: 'Properties',
-            groups: 'Groups',
-            askAI: 'PostHog AI',
-        }
-        return displayNames[category] || category
-    }
 
     // Build status message
     const statusMessage = useMemo(() => {
@@ -407,8 +352,9 @@ export function Command(): JSX.Element {
                                                 }
                                             />
                                             <Autocomplete.Collection>
-                                                {(item: CommandItem) => {
+                                                {(item: CommandSearchItem) => {
                                                     const typeLabel = getItemTypeDisplayName(item.itemType)
+                                                    const icon = getIconForItem(item)
 
                                                     return (
                                                         <ContextMenu key={item.id}>
@@ -418,7 +364,7 @@ export function Command(): JSX.Element {
                                                                     onClick={() => handleItemClick(item)}
                                                                     className="flex items-center gap-2 px-3 py-2 mx-1 rounded cursor-pointer text-sm text-primary hover:bg-fill-highlight-100 data-[highlighted]:bg-fill-highlight-100 data-[highlighted]:outline-none transition-colors"
                                                                 >
-                                                                    {item.icon && item.icon}
+                                                                    {icon}
                                                                     <span className="truncate">
                                                                         {item.displayName || item.name}
                                                                     </span>
