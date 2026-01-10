@@ -126,6 +126,7 @@ export type SettingId =
     | 'details'
     | 'change-password'
     | '2fa'
+    | 'passkeys'
     | 'personal-api-keys'
     | 'notifications'
     | 'feature-previews'

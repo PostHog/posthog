@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { DateRange } from '~/queries/schema/schema-general'
 import { Breadcrumb, FeatureFlagFilters, ProductTour, ProductTourContent } from '~/types'
 
+import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
 import { productToursLogic } from './productToursLogic'
 
@@ -272,10 +273,15 @@ export const productTourLogic = kea<productTourLogicType>([
                 name: !name ? 'Name is required' : undefined,
             }),
             submit: async (formValues: ProductTourForm) => {
+                const processedContent: ProductTourContent = {
+                    ...formValues.content,
+                    steps: formValues.content.steps ? prepareStepsForRender(formValues.content.steps) : [],
+                }
+
                 const payload = {
                     name: formValues.name,
                     description: formValues.description,
-                    content: formValues.content,
+                    content: processedContent,
                     auto_launch: formValues.auto_launch,
                     targeting_flag_filters: formValues.targeting_flag_filters,
                 }

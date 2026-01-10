@@ -196,11 +196,16 @@ export function StepContentEditor({
     }, [editor, content])
 
     const setLink = (): void => {
-        if (linkUrl) {
-            editor?.chain().focus().setLink({ href: linkUrl }).run()
-        } else {
-            editor?.chain().focus().unsetLink().run()
+        if (!linkUrl) {
+            return
         }
+        editor?.chain().focus().setLink({ href: linkUrl }).run()
+        setShowLinkPopover(false)
+        setLinkUrl('')
+    }
+
+    const removeLink = (): void => {
+        editor?.chain().focus().unsetLink().run()
         setShowLinkPopover(false)
         setLinkUrl('')
     }
@@ -211,10 +216,13 @@ export function StepContentEditor({
         setShowLinkPopover(true)
     }
 
+    const hasExistingLink = editor?.isActive('link') ?? false
+
     const insertEmbed = (): void => {
-        if (videoUrl && editor) {
-            editor.chain().focus().setEmbed({ src: videoUrl }).run()
+        if (!videoUrl || !editor) {
+            return
         }
+        editor.chain().focus().setEmbed({ src: videoUrl }).run()
         setShowVideoModal(false)
         setVideoUrl('')
     }
@@ -228,49 +236,43 @@ export function StepContentEditor({
             <LemonMenu
                 items={[
                     {
-                        title: 'Headings',
-                        items: [
-                            {
-                                label: 'Heading 1',
-                                onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
-                                active: editor.isActive('heading', { level: 1 }),
-                            },
-                            {
-                                label: 'Heading 2',
-                                onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
-                                active: editor.isActive('heading', { level: 2 }),
-                            },
-                            {
-                                label: 'Heading 3',
-                                onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
-                                active: editor.isActive('heading', { level: 3 }),
-                            },
-                        ],
+                        label: 'Heading 1',
+                        onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+                        active: editor.isActive('heading', { level: 1 }),
                     },
                     {
-                        title: 'Formatting',
-                        items: [
-                            {
-                                label: 'Bold',
-                                onClick: () => editor.chain().focus().toggleBold().run(),
-                                active: editor.isActive('bold'),
-                            },
-                            {
-                                label: 'Italic',
-                                onClick: () => editor.chain().focus().toggleItalic().run(),
-                                active: editor.isActive('italic'),
-                            },
-                            {
-                                label: 'Underline',
-                                onClick: () => editor.chain().focus().toggleUnderline().run(),
-                                active: editor.isActive('underline'),
-                            },
-                            {
-                                label: 'Code',
-                                onClick: () => editor.chain().focus().toggleCode().run(),
-                                active: editor.isActive('code'),
-                            },
-                        ],
+                        label: 'Heading 2',
+                        onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
+                        active: editor.isActive('heading', { level: 2 }),
+                    },
+                    {
+                        label: 'Heading 3',
+                        onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
+                        active: editor.isActive('heading', { level: 3 }),
+                    },
+                    {
+                        label: 'Bold',
+                        icon: <IconBold />,
+                        onClick: () => editor.chain().focus().toggleBold().run(),
+                        active: editor.isActive('bold'),
+                    },
+                    {
+                        label: 'Italic',
+                        icon: <IconItalic />,
+                        onClick: () => editor.chain().focus().toggleItalic().run(),
+                        active: editor.isActive('italic'),
+                    },
+                    {
+                        label: 'Underline',
+                        icon: <IconUnderline />,
+                        onClick: () => editor.chain().focus().toggleUnderline().run(),
+                        active: editor.isActive('underline'),
+                    },
+                    {
+                        label: 'Code',
+                        icon: <IconCode />,
+                        onClick: () => editor.chain().focus().toggleCode().run(),
+                        active: editor.isActive('code'),
                     },
                 ]}
             >
@@ -281,7 +283,7 @@ export function StepContentEditor({
                 visible={showLinkPopover}
                 onClickOutside={() => setShowLinkPopover(false)}
                 overlay={
-                    <div className="p-2 flex gap-2 min-w-64">
+                    <div className="p-2 flex flex-col gap-2 min-w-64">
                         <LemonInput
                             size="small"
                             placeholder="https://..."
@@ -291,9 +293,21 @@ export function StepContentEditor({
                             autoFocus
                             fullWidth
                         />
-                        <LemonButton size="small" type="primary" onClick={setLink}>
-                            {linkUrl ? 'Set' : 'Remove'}
-                        </LemonButton>
+                        <div className="flex gap-2 justify-end">
+                            {hasExistingLink && (
+                                <LemonButton size="small" status="danger" onClick={removeLink}>
+                                    Remove
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                onClick={setLink}
+                                disabledReason={!linkUrl ? 'Enter a URL' : undefined}
+                            >
+                                {hasExistingLink ? 'Update' : 'Set'}
+                            </LemonButton>
+                        </div>
                     </div>
                 }
             >
@@ -398,7 +412,7 @@ export function StepContentEditor({
                 visible={showLinkPopover}
                 onClickOutside={() => setShowLinkPopover(false)}
                 overlay={
-                    <div className="p-2 flex gap-2">
+                    <div className="p-2 flex flex-col gap-2 min-w-64">
                         <LemonInput
                             size="small"
                             placeholder="https://..."
@@ -406,10 +420,23 @@ export function StepContentEditor({
                             onChange={setLinkUrl}
                             onPressEnter={setLink}
                             autoFocus
+                            fullWidth
                         />
-                        <LemonButton size="small" type="primary" onClick={setLink}>
-                            {linkUrl ? 'Set' : 'Remove'}
-                        </LemonButton>
+                        <div className="flex gap-2 justify-end">
+                            {hasExistingLink && (
+                                <LemonButton size="small" status="danger" onClick={removeLink}>
+                                    Remove
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                onClick={setLink}
+                                disabledReason={!linkUrl ? 'Enter a URL' : undefined}
+                            >
+                                {hasExistingLink ? 'Update' : 'Set'}
+                            </LemonButton>
+                        </div>
                     </div>
                 }
             >

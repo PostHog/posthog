@@ -23,8 +23,12 @@ from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.client import sync_execute
+from posthog.models import Team
 from posthog.rate_limit import (
     LLMAnalyticsSummarizationBurstThrottle,
     LLMAnalyticsSummarizationDailyThrottle,
@@ -153,13 +157,14 @@ def load_prompt_template(template_name: str, context: dict) -> str:
     return template.render(Context(context, autoescape=False))
 
 
-def fetch_log_by_uuid(team_id: int, uuid: str, timestamp: str) -> dict | None:
+def fetch_log_by_uuid(team: Team, uuid: str, timestamp: str) -> dict | None:
     """Fetch a single log entry from ClickHouse by UUID.
 
     The timestamp parameter is required for efficient lookup - it allows ClickHouse
     to use the primary key index instead of scanning all data for the team.
     """
-    query = """
+    query = parse_select(
+        """
         SELECT
             uuid,
             timestamp,
@@ -172,22 +177,29 @@ def fetch_log_by_uuid(team_id: int, uuid: str, timestamp: str) -> dict | None:
             hex(span_id) as span_id,
             event_name
         FROM logs
-        WHERE team_id = %(team_id)s
-          AND uuid = %(uuid)s
-          AND timestamp >= %(timestamp)s - INTERVAL 1 SECOND
-          AND timestamp <= %(timestamp)s + INTERVAL 1 SECOND
+        WHERE uuid = {uuid}
+          AND timestamp >= {timestamp} - INTERVAL 1 SECOND
+          AND timestamp <= {timestamp} + INTERVAL 1 SECOND
         LIMIT 1
-    """
-    results = sync_execute(query, {"team_id": team_id, "uuid": uuid, "timestamp": timestamp})
-    if not results:
+        """,
+        placeholders={
+            "uuid": ast.Constant(value=uuid),
+            "timestamp": ast.Constant(value=timestamp),
+        },
+    )
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+    )
+    if not response.results:
         return None
 
-    row = results[0]
+    row = response.results[0]
     return {
         "uuid": row[0],
         "timestamp": row[1].replace(tzinfo=ZoneInfo("UTC")) if row[1] else None,
         "body": row[2],
-        "attributes": row[3],  # filtered_attributes from query
+        "attributes": row[3],
         "severity_text": row[4],
         "service_name": row[5],
         "resource_attributes": row[6],
@@ -297,7 +309,7 @@ class LogExplainViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     )
                     return Response(cached_result, status=status.HTTP_200_OK)
 
-            log_data = fetch_log_by_uuid(self.team_id, uuid, timestamp)
+            log_data = fetch_log_by_uuid(self.team, uuid, timestamp)
             if not log_data:
                 return Response({"error": "Log not found"}, status=status.HTTP_404_NOT_FOUND)
 
