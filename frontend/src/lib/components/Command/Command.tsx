@@ -291,6 +291,24 @@ export function Command(): JSX.Element {
             logs: 'Logs',
             alert: 'Alert',
             folder: 'Folder',
+
+            // Category names for unified search results
+            recents: 'Recents',
+            insights: 'Insights',
+            dashboards: 'Dashboards',
+            featureFlags: 'Feature flags',
+            experiments: 'Experiments',
+            surveys: 'Surveys',
+            notebooks: 'Notebooks',
+            cohorts: 'Cohorts',
+            actions: 'Actions',
+            apps: 'Apps',
+            'create-new': 'Create new',
+            'data-management': 'Data management',
+            eventDefinitions: 'Events',
+            propertyDefinitions: 'Properties',
+            groups: 'Groups',
+            askAI: 'PostHog AI',
         }
         return displayNames[category] || category
     }

@@ -7,14 +7,21 @@ import {
     IconActivity,
     IconApps,
     IconArrowRight,
+    IconCursor,
     IconDatabase,
+    IconFlag,
+    IconFlask,
     IconFolder,
     IconGear,
+    IconGraph,
     IconHogQL,
+    IconMessage,
+    IconNotebook,
     IconPeople,
     IconPerson,
     IconSparkles,
     IconToolbar,
+    IconTrends,
 } from '@posthog/icons'
 
 import api from 'lib/api'
@@ -58,8 +65,10 @@ import {
     EventDefinition,
     Group,
     GroupTypeIndex,
+    InsightShortId,
     PersonType,
     PropertyDefinition,
+    SearchResponse,
 } from '~/types'
 
 import { SearchInputCommand, SearchInputHandle } from './components/SearchInput'
@@ -77,6 +86,14 @@ export type NEW_TAB_CATEGORY_ITEMS =
     | 'propertyDefinitions'
     | 'askAI'
     | 'folders'
+    | 'insights'
+    | 'dashboards'
+    | 'featureFlags'
+    | 'experiments'
+    | 'surveys'
+    | 'notebooks'
+    | 'cohorts'
+    | 'actions'
 
 export type NEW_TAB_COMMANDS =
     | 'all'
@@ -243,6 +260,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         debouncedEventDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedPropertyDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedGroupSearch: (searchTerm: string) => ({ searchTerm }),
+        debouncedUnifiedSearch: (searchTerm: string) => ({ searchTerm }),
         setNewTabSceneDataInclude: (include: NEW_TAB_COMMANDS[]) => ({ include }),
         toggleNewTabSceneDataInclude: (item: NEW_TAB_COMMANDS) => ({ item }),
         triggerSearchForIncludedItems: true,
@@ -585,6 +603,25 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 },
             },
         ],
+        unifiedSearchResults: [
+            null as SearchResponse | null,
+            {
+                loadUnifiedSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+
+                    if (trimmed === '') {
+                        return null
+                    }
+
+                    await breakpoint(300)
+
+                    const response = await api.search.list({ q: trimmed })
+                    breakpoint()
+
+                    return response
+                },
+            },
+        ],
     })),
     reducers({
         search: [
@@ -659,6 +696,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 loadGroupSearchResults: () => false,
                 loadGroupSearchResultsSuccess: () => false,
                 loadGroupSearchResultsFailure: () => false,
+            },
+        ],
+        unifiedSearchPending: [
+            false,
+            {
+                debouncedUnifiedSearch: () => true,
+                loadUnifiedSearchResults: () => false,
+                loadUnifiedSearchResultsSuccess: () => false,
+                loadUnifiedSearchResultsFailure: () => false,
             },
         ],
         rawSelectedIndex: [
@@ -803,6 +849,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.propertyDefinitionSearchPending,
                 s.groupSearchResultsLoading,
                 s.groupSearchPending,
+                s.unifiedSearchResultsLoading,
+                s.unifiedSearchPending,
                 s.search,
             ],
             (
@@ -815,6 +863,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 propertyDefinitionSearchPending: boolean,
                 groupSearchResultsLoading: boolean,
                 groupSearchPending: boolean,
+                unifiedSearchResultsLoading: boolean,
+                unifiedSearchPending: boolean,
                 search: string
             ): boolean =>
                 (recentsLoading ||
@@ -825,7 +875,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     propertyDefinitionSearchResultsLoading ||
                     propertyDefinitionSearchPending ||
                     groupSearchResultsLoading ||
-                    groupSearchPending) &&
+                    groupSearchPending ||
+                    unifiedSearchResultsLoading ||
+                    unifiedSearchPending) &&
                 search.trim() !== '',
         ],
         categoryLoadingStates: [
@@ -839,6 +891,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.propertyDefinitionSearchPending,
                 s.groupSearchResultsLoading,
                 s.groupSearchPending,
+                s.unifiedSearchResultsLoading,
+                s.unifiedSearchPending,
             ],
             (
                 recentsLoading: boolean,
@@ -849,20 +903,33 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 propertyDefinitionSearchResultsLoading: boolean,
                 propertyDefinitionSearchPending: boolean,
                 groupSearchResultsLoading: boolean,
-                groupSearchPending: boolean
-            ): Record<NEW_TAB_CATEGORY_ITEMS, boolean> => ({
-                all: false,
-                'create-new': false,
-                apps: false,
-                'data-management': false,
-                recents: recentsLoading,
-                folders: false,
-                persons: personSearchResultsLoading || personSearchPending,
-                groups: groupSearchResultsLoading || groupSearchPending,
-                eventDefinitions: eventDefinitionSearchResultsLoading || eventDefinitionSearchPending,
-                propertyDefinitions: propertyDefinitionSearchResultsLoading || propertyDefinitionSearchPending,
-                askAI: false,
-            }),
+                groupSearchPending: boolean,
+                unifiedSearchResultsLoading: boolean,
+                unifiedSearchPending: boolean
+            ): Record<NEW_TAB_CATEGORY_ITEMS, boolean> => {
+                const unifiedLoading = unifiedSearchResultsLoading || unifiedSearchPending
+                return {
+                    all: false,
+                    'create-new': false,
+                    apps: false,
+                    'data-management': false,
+                    recents: recentsLoading,
+                    folders: false,
+                    persons: personSearchResultsLoading || personSearchPending,
+                    groups: groupSearchResultsLoading || groupSearchPending,
+                    eventDefinitions: eventDefinitionSearchResultsLoading || eventDefinitionSearchPending,
+                    propertyDefinitions: propertyDefinitionSearchResultsLoading || propertyDefinitionSearchPending,
+                    askAI: false,
+                    insights: unifiedLoading,
+                    dashboards: unifiedLoading,
+                    featureFlags: unifiedLoading,
+                    experiments: unifiedLoading,
+                    surveys: unifiedLoading,
+                    notebooks: unifiedLoading,
+                    cohorts: unifiedLoading,
+                    actions: unifiedLoading,
+                }
+            },
         ],
         showFoldersCategory: [
             (s) => [s.newTabSceneDataInclude, s.projectExplorerEnabled],
@@ -1020,6 +1087,147 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 }
 
                 return items
+            },
+        ],
+        unifiedSearchItemsByCategory: [
+            (s) => [s.unifiedSearchResults],
+            (unifiedSearchResults: SearchResponse | null): Record<string, NewTabTreeDataItem[]> => {
+                if (!unifiedSearchResults) {
+                    return {}
+                }
+
+                const categoryItems: Record<string, NewTabTreeDataItem[]> = {
+                    insights: [],
+                    dashboards: [],
+                    featureFlags: [],
+                    experiments: [],
+                    surveys: [],
+                    notebooks: [],
+                    cohorts: [],
+                    actions: [],
+                }
+
+                for (const result of unifiedSearchResults.results) {
+                    switch (result.type) {
+                        case 'insight':
+                            categoryItems.insights.push({
+                                id: `insight-${result.result_id}`,
+                                name: (result.extra_fields.name as string) || result.result_id,
+                                category: 'insights' as NEW_TAB_CATEGORY_ITEMS,
+                                href: urls.insightView(result.result_id as InsightShortId),
+                                icon: <IconTrends />,
+                                record: {
+                                    type: 'insight',
+                                    path: (result.extra_fields.name as string) || result.result_id,
+                                    href: urls.insightView(result.result_id as InsightShortId),
+                                },
+                            })
+                            break
+                        case 'dashboard':
+                            categoryItems.dashboards.push({
+                                id: `dashboard-${result.result_id}`,
+                                name: (result.extra_fields.name as string) || result.result_id,
+                                category: 'dashboards' as NEW_TAB_CATEGORY_ITEMS,
+                                href: urls.dashboard(result.result_id),
+                                icon: <IconGraph />,
+                                record: {
+                                    type: 'dashboard',
+                                    path: (result.extra_fields.name as string) || result.result_id,
+                                    href: urls.dashboard(result.result_id),
+                                },
+                            })
+                            break
+                        case 'feature_flag':
+                            categoryItems.featureFlags.push({
+                                id: `feature-flag-${result.result_id}`,
+                                name:
+                                    (result.extra_fields.key as string) ||
+                                    (result.extra_fields.name as string) ||
+                                    result.result_id,
+                                category: 'featureFlags' as NEW_TAB_CATEGORY_ITEMS,
+                                href: urls.featureFlag(result.result_id),
+                                icon: <IconFlag />,
+                                record: {
+                                    type: 'feature_flag',
+                                    path: (result.extra_fields.key as string) || result.result_id,
+                                    href: urls.featureFlag(result.result_id),
+                                },
+                            })
+                            break
+                        case 'experiment':
+                            categoryItems.experiments.push({
+                                id: `experiment-${result.result_id}`,
+                                name: (result.extra_fields.name as string) || result.result_id,
+                                category: 'experiments' as NEW_TAB_CATEGORY_ITEMS,
+                                href: urls.experiment(result.result_id),
+                                icon: <IconFlask />,
+                                record: {
+                                    type: 'experiment',
+                                    path: (result.extra_fields.name as string) || result.result_id,
+                                    href: urls.experiment(result.result_id),
+                                },
+                            })
+                            break
+                        case 'survey':
+                            categoryItems.surveys.push({
+                                id: `survey-${result.result_id}`,
+                                name: (result.extra_fields.name as string) || result.result_id,
+                                category: 'surveys' as NEW_TAB_CATEGORY_ITEMS,
+                                href: urls.survey(result.result_id),
+                                icon: <IconMessage />,
+                                record: {
+                                    type: 'survey',
+                                    path: (result.extra_fields.name as string) || result.result_id,
+                                    href: urls.survey(result.result_id),
+                                },
+                            })
+                            break
+                        case 'notebook':
+                            categoryItems.notebooks.push({
+                                id: `notebook-${result.result_id}`,
+                                name: (result.extra_fields.title as string) || result.result_id,
+                                category: 'notebooks' as NEW_TAB_CATEGORY_ITEMS,
+                                href: urls.notebook(result.result_id),
+                                icon: <IconNotebook />,
+                                record: {
+                                    type: 'notebook',
+                                    path: (result.extra_fields.title as string) || result.result_id,
+                                    href: urls.notebook(result.result_id),
+                                },
+                            })
+                            break
+                        case 'cohort':
+                            categoryItems.cohorts.push({
+                                id: `cohort-${result.result_id}`,
+                                name: (result.extra_fields.name as string) || result.result_id,
+                                category: 'cohorts' as NEW_TAB_CATEGORY_ITEMS,
+                                href: urls.cohort(result.result_id),
+                                icon: <IconPeople />,
+                                record: {
+                                    type: 'cohort',
+                                    path: (result.extra_fields.name as string) || result.result_id,
+                                    href: urls.cohort(result.result_id),
+                                },
+                            })
+                            break
+                        case 'action':
+                            categoryItems.actions.push({
+                                id: `action-${result.result_id}`,
+                                name: (result.extra_fields.name as string) || result.result_id,
+                                category: 'actions' as NEW_TAB_CATEGORY_ITEMS,
+                                href: urls.action(result.result_id),
+                                icon: <IconCursor />,
+                                record: {
+                                    type: 'action',
+                                    path: (result.extra_fields.name as string) || result.result_id,
+                                    href: urls.action(result.result_id),
+                                },
+                            })
+                            break
+                    }
+                }
+
+                return categoryItems
             },
         ],
         aiSearchItems: [
@@ -1386,6 +1594,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.propertyDefinitionSearchItems,
                 s.aiSearchItems,
                 s.getSectionItemLimit,
+                s.unifiedSearchItemsByCategory,
             ],
             (
                 itemsGrid: NewTabTreeDataItem[],
@@ -1396,7 +1605,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
                 aiSearchItems: NewTabTreeDataItem[],
-                getSectionItemLimit: (section: string) => number
+                getSectionItemLimit: (section: string) => number,
+                unifiedSearchItemsByCategory: Record<string, NewTabTreeDataItem[]>
             ): Record<string, NewTabTreeDataItem[]> => {
                 // Filter all items by search term
                 const searchLower = search.toLowerCase().trim()
@@ -1426,6 +1636,27 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Group items by category and filter based on what's selected
                 const grouped: Record<string, NewTabTreeDataItem[]> = {}
+
+                // Add unified search entity categories (only when searching)
+                if (searchLower && showAll) {
+                    const unifiedCategories = [
+                        'insights',
+                        'dashboards',
+                        'featureFlags',
+                        'experiments',
+                        'surveys',
+                        'notebooks',
+                        'cohorts',
+                        'actions',
+                    ] as const
+                    for (const category of unifiedCategories) {
+                        const items = unifiedSearchItemsByCategory[category] || []
+                        if (items.length > 0) {
+                            const limit = getSectionItemLimit(category)
+                            grouped[category] = items.slice(0, limit)
+                        }
+                    }
+                }
 
                 // Add persons section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
@@ -1600,6 +1831,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             ): CategoryWithItems[] => {
                 const orderedSections: string[] = []
                 const showAll = newTabSceneDataInclude.includes('all')
+                const hasSearch = search.trim() !== ''
 
                 // Add sections in a useful order
                 const mainSections = ['recents', 'create-new', 'apps', 'data-management']
@@ -1608,6 +1840,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         orderedSections.push(section)
                     }
                 })
+
+                // Add unified search entity categories when searching
+                if (hasSearch && showAll) {
+                    orderedSections.push(
+                        'insights',
+                        'dashboards',
+                        'featureFlags',
+                        'experiments',
+                        'surveys',
+                        'notebooks',
+                        'cohorts',
+                        'actions'
+                    )
+                }
+
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
                     orderedSections.push('persons')
                 }
@@ -1860,6 +2107,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         triggerSearchForIncludedItems: () => {
             const searchTerm = values.search.trim()
 
+            // Always trigger unified search when searching
+            if (searchTerm !== '') {
+                actions.debouncedUnifiedSearch(searchTerm)
+            } else {
+                actions.loadUnifiedSearchResultsSuccess(null)
+            }
+
             // Expand 'all' to include all data types
             const itemsToProcess = values.newTabSceneDataInclude.includes('all')
                 ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
@@ -2071,6 +2325,27 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
             await breakpoint(300)
             actions.loadGroupSearchResults({ searchTerm })
+        },
+        debouncedUnifiedSearch: async ({ searchTerm }, breakpoint) => {
+            const trimmed = searchTerm.trim()
+
+            if (trimmed === '') {
+                actions.loadUnifiedSearchResultsSuccess(null)
+                return
+            }
+
+            await breakpoint(300)
+
+            try {
+                const response = await api.search.list({ q: trimmed })
+                breakpoint()
+                actions.loadUnifiedSearchResultsSuccess(response)
+            } catch (error: any) {
+                if (!isBreakpoint(error)) {
+                    console.error('Unified search failed:', error)
+                    actions.loadUnifiedSearchResultsFailure(error as string)
+                }
+            }
         },
         focusNewTabSearchInput: () => {
             if (values.newTabSearchInputRef?.current) {
