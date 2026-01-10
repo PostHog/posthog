@@ -1268,3 +1268,192 @@ def person_property_reconciliation_job():
     team_ids = get_team_ids_to_reconcile()
     chunks = create_team_chunks(team_ids)
     chunks.map(reconcile_team_chunk)
+
+
+# --- Sensor-based scheduler for automated batch reconciliation ---
+
+
+class ReconciliationSchedulerConfig(dagster.Config):
+    """Configuration for the reconciliation scheduler sensor.
+
+    This sensor automates launching multiple reconciliation jobs across a range
+    of team IDs while respecting concurrency limits.
+    """
+
+    range_start: int  # First team_id (inclusive)
+    range_end: int  # Last team_id (inclusive)
+    chunk_size: int = 1000  # Team ID range per job run
+    max_concurrent: int = 20  # Maximum simultaneous job runs
+
+    # Base job configuration (applied to all runs)
+    bug_window_start: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS"
+    bug_window_end: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS"
+    dry_run: bool = False
+    backup_enabled: bool = True
+    batch_size: int = 100
+
+
+def build_reconciliation_run_config(
+    config: ReconciliationSchedulerConfig,
+    min_team_id: int,
+    max_team_id: int,
+) -> dict[str, Any]:
+    """Build run config for a single reconciliation job covering a team ID range."""
+    op_config = {
+        "bug_window_start": config.bug_window_start,
+        "bug_window_end": config.bug_window_end,
+        "min_team_id": min_team_id,
+        "max_team_id": max_team_id,
+        "dry_run": config.dry_run,
+        "backup_enabled": config.backup_enabled,
+        "batch_size": config.batch_size,
+    }
+
+    return {
+        "execution": {"config": {"max_concurrent": config.max_concurrent}},
+        "ops": {
+            "get_team_ids_to_reconcile": {"config": op_config},
+            "reconcile_team_chunk": {"config": op_config},
+        },
+        "resources": {
+            "cluster": {
+                "config": {
+                    "client_settings": {
+                        "lightweight_deletes_sync": "0",
+                        "max_execution_time": "0",
+                        "max_memory_usage": "0",
+                        "mutations_sync": "0",
+                        "receive_timeout": "900",
+                    }
+                }
+            },
+            "persons_database": {"config": {"connection_url": {"env": "PERSONS_DB_WRITER_URL"}}},
+        },
+    }
+
+
+@dagster.sensor(
+    job=person_property_reconciliation_job,
+    minimum_interval_seconds=30,
+    default_status=dagster.DefaultSensorStatus.STOPPED,
+)
+def person_property_reconciliation_scheduler(
+    context: dagster.SensorEvaluationContext,
+) -> dagster.SensorResult:
+    """
+    Sensor that automatically schedules person property reconciliation jobs.
+
+    Splits a team_id range into chunks and launches jobs up to max_concurrent,
+    tracking progress via cursor. Enable via Dagster UI after configuring.
+
+    Cursor format: JSON with 'next_chunk_start' tracking the next range to process.
+    When cursor reaches range_end, the sensor stops yielding new runs.
+
+    Configuration (set via Dagster UI or launchpad):
+    - range_start/range_end: Team ID range to process (inclusive)
+    - chunk_size: Number of team IDs per job (default 1000)
+    - max_concurrent: Max simultaneous jobs (default 20)
+    - bug_window_start/end: Time window for the reconciliation
+    - dry_run, backup_enabled, batch_size: Passed to each job
+    """
+    # Load sensor config - in production this comes from the sensor configuration in UI
+    # For now, we require it to be set via run config or environment
+    sensor_config_raw = context.cursor
+
+    if not sensor_config_raw:
+        context.log.info(
+            "No cursor set. Initialize the sensor by setting cursor to JSON config: "
+            '{"range_start": 1, "range_end": 10000, "chunk_size": 1000, "max_concurrent": 20, '
+            '"bug_window_start": "...", "bug_window_end": "...", "dry_run": false, '
+            '"backup_enabled": true, "batch_size": 100}'
+        )
+        return dagster.SensorResult(run_requests=[], cursor=None)
+
+    try:
+        cursor_data = json.loads(sensor_config_raw)
+    except json.JSONDecodeError:
+        context.log.warning(f"Invalid cursor JSON: {sensor_config_raw}")
+        return dagster.SensorResult(run_requests=[], cursor=sensor_config_raw)
+
+    # Extract config and progress
+    range_start = cursor_data.get("range_start", 1)
+    range_end = cursor_data.get("range_end", 10000)
+    chunk_size = cursor_data.get("chunk_size", 1000)
+    max_concurrent = cursor_data.get("max_concurrent", 20)
+    next_chunk_start = cursor_data.get("next_chunk_start", range_start)
+
+    # Check if we've completed the range
+    if next_chunk_start > range_end:
+        context.log.info(f"Reconciliation complete: processed all teams up to {range_end}")
+        return dagster.SensorResult(run_requests=[], cursor=sensor_config_raw)
+
+    # Build config object for run config generation
+    config = ReconciliationSchedulerConfig(
+        range_start=range_start,
+        range_end=range_end,
+        chunk_size=chunk_size,
+        max_concurrent=max_concurrent,
+        bug_window_start=cursor_data.get("bug_window_start", ""),
+        bug_window_end=cursor_data.get("bug_window_end", ""),
+        dry_run=cursor_data.get("dry_run", False),
+        backup_enabled=cursor_data.get("backup_enabled", True),
+        batch_size=cursor_data.get("batch_size", 100),
+    )
+
+    # Count active runs for this job
+    active_runs = context.instance.get_run_records(
+        dagster.RunsFilter(
+            job_name="person_property_reconciliation_job",
+            statuses=[
+                dagster.DagsterRunStatus.QUEUED,
+                dagster.DagsterRunStatus.NOT_STARTED,
+                dagster.DagsterRunStatus.STARTING,
+                dagster.DagsterRunStatus.STARTED,
+            ],
+        )
+    )
+    active_count = len(active_runs)
+
+    available_slots = max(0, max_concurrent - active_count)
+    if available_slots == 0:
+        context.log.info(f"At max concurrency ({active_count}/{max_concurrent}), waiting for slots")
+        return dagster.SensorResult(run_requests=[], cursor=sensor_config_raw)
+
+    context.log.info(f"Active runs: {active_count}/{max_concurrent}, available slots: {available_slots}")
+
+    # Generate run requests for available slots
+    run_requests: list[dagster.RunRequest] = []
+    current_start = next_chunk_start
+
+    while len(run_requests) < available_slots and current_start <= range_end:
+        chunk_end = min(current_start + chunk_size - 1, range_end)
+
+        run_config = build_reconciliation_run_config(
+            config=config,
+            min_team_id=current_start,
+            max_team_id=chunk_end,
+        )
+
+        run_key = f"reconcile_teams_{current_start}_{chunk_end}"
+        context.log.info(f"Scheduling run for teams {current_start}-{chunk_end}")
+
+        run_requests.append(
+            dagster.RunRequest(
+                run_key=run_key,
+                run_config=run_config,
+                tags={
+                    "reconciliation_range": f"{current_start}-{chunk_end}",
+                    "owner": JobOwners.TEAM_INGESTION.value,
+                },
+            )
+        )
+
+        current_start = chunk_end + 1
+
+    # Update cursor with next chunk to process
+    cursor_data["next_chunk_start"] = current_start
+    new_cursor = json.dumps(cursor_data)
+
+    context.log.info(f"Scheduled {len(run_requests)} runs, next_chunk_start: {current_start}")
+
+    return dagster.SensorResult(run_requests=run_requests, cursor=new_cursor)
