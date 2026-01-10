@@ -31,7 +31,7 @@ export function ProductToursToolbarMenu(): JSX.Element {
                         <div className="space-y-1">
                             <div className="text-xs font-medium text-muted uppercase">Existing tours</div>
                             {tours
-                                .filter((tour) => !tour.archived)
+                                .filter((tour) => !tour.archived && tour.content?.type !== 'announcement')
                                 .map((tour) => (
                                     <LemonButton
                                         key={tour.id}
