@@ -70,7 +70,7 @@ def _deserialize_node(data: Any) -> Any:
         "ArithmeticOperation": ast.ArithmeticOperation,
         "Array": ast.Array,
         "ArrayAccess": ast.ArrayAccess,
-        "BetweenExpr": ast.CompareOperation,  # BetweenExpr is represented as CompareOperation
+        "BetweenExpr": ast.BetweenExpr,
         "Block": ast.Block,
         "CTE": ast.CTE,
         "Call": ast.Call,

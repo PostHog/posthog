@@ -1,28 +1,27 @@
-from posthog.hogql.ast import Program, SelectQuery, SelectSetQuery
-from posthog.hogql.base import AST
+from posthog.hogql.ast import Program
 
-def parse_expr(expr: str, /, *, is_internal: bool = False) -> AST:
+def parse_expr(expr: str, /, *, is_internal: bool = False) -> str:
     """Parse the HogQL expression string into an AST.
 
     If the expr `is_internal`, spans and notices won't be included in the AST.
     """
     ...
 
-def parse_order_expr(expr: str, /, *, is_internal: bool = False) -> AST:
+def parse_order_expr(expr: str, /, *, is_internal: bool = False) -> str:
     """Parse the ORDER BY clause string into an AST.
 
     If the expr `is_internal`, spans and notices won't be included in the AST.
     """
     ...
 
-def parse_select(expr: str, /, *, is_internal: bool = False) -> SelectQuery | SelectSetQuery:
+def parse_select(expr: str, /, *, is_internal: bool = False) -> str:
     """Parse the HogQL SELECT statement string into an AST.
 
     If the expr `is_internal`, spans and notices won't be included in the AST.
     """
     ...
 
-def parse_full_template_string(expr: str, /, *, is_internal: bool = False) -> AST:
+def parse_full_template_string(expr: str, /, *, is_internal: bool = False) -> str:
     """Parse a Hog template string into an AST.
 
     If the expr `is_internal`, spans and notices won't be included in the AST.

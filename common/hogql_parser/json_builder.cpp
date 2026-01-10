@@ -85,8 +85,9 @@ void JSONBuilder::addFloat(double value) {
   } else {
     buffer << std::setprecision(17) << value;
 
-    // Ensure decimal point for whole numbers
-    if (floor(value) == value) {
+    // Ensure decimal point for whole numbers (but not scientific notation)
+    std::string num_str = buffer.str();
+    if (floor(value) == value && num_str.find('e') == std::string::npos && num_str.find('E') == std::string::npos) {
       buffer << ".0";
     }
   }
