@@ -24,6 +24,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -162,7 +163,8 @@ def fetch_log_by_uuid(team: Team, uuid: str, timestamp: str) -> dict | None:
     The timestamp parameter is required for efficient lookup - it allows ClickHouse
     to use the primary key index instead of scanning all data for the team.
     """
-    query = """
+    query = parse_select(
+        """
         SELECT
             uuid,
             timestamp,
@@ -179,14 +181,15 @@ def fetch_log_by_uuid(team: Team, uuid: str, timestamp: str) -> dict | None:
           AND timestamp >= {timestamp} - INTERVAL 1 SECOND
           AND timestamp <= {timestamp} + INTERVAL 1 SECOND
         LIMIT 1
-    """
-    response = execute_hogql_query(
-        query=query,
-        team=team,
+        """,
         placeholders={
             "uuid": ast.Constant(value=uuid),
             "timestamp": ast.Constant(value=timestamp),
         },
+    )
+    response = execute_hogql_query(
+        query=query,
+        team=team,
     )
     if not response.results:
         return None

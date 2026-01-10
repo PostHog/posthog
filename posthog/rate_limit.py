@@ -464,21 +464,17 @@ class AISustainedRateThrottle(UserRateThrottle):
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):
     scope = "llm_proxy_burst"
-    rate = "30/minute"
+    rate = "2/minute"
 
 
 class LLMProxySustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
-    # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_proxy_sustained"
-    rate = "500/hour"
+    rate = "10/hour"
 
 
 class LLMProxyDailyRateThrottle(UserRateThrottle):
-    # Daily cap for LLM proxy (playground) endpoint
-    # Hard limit to prevent runaway costs from sustained abuse
     scope = "llm_proxy_daily"
-    rate = "1000/day"
+    rate = "20/day"
 
 
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):

@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 
 import { IconGear, IconMessage, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonModal,
@@ -16,6 +17,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { humanFriendlyDuration } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
@@ -45,9 +47,27 @@ export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     )
 }
 
+function RateLimitBanner(): JSX.Element | null {
+    const { rateLimitedUntil } = useValues(llmAnalyticsPlaygroundLogic)
+
+    if (rateLimitedUntil === null || Date.now() >= rateLimitedUntil) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="warning" className="mb-4">
+            You've hit our playground request limit. You can make another request in{' '}
+            <strong>{humanFriendlyDuration(Math.ceil((rateLimitedUntil - Date.now()) / 1000), { maxUnits: 1 })}</strong>
+            . We're working on bring-your-own-key and other improvements to remove this limit.
+        </LemonBanner>
+    )
+}
+
 function PlaygroundLayout(): JSX.Element {
     return (
         <div className="flex flex-col min-h-[calc(100vh-120px)] relative">
+            <RateLimitBanner />
+
             {/* Main conversation area - full width */}
             <div className="flex flex-col border rounded overflow-hidden flex-1">
                 <ConversationPanel />

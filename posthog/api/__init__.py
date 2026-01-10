@@ -130,7 +130,7 @@ from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
-from .oauth_application import OAuthApplicationPublicMetadataViewSet
+from .oauth import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
 from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 

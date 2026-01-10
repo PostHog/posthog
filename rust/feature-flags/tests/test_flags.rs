@@ -14,7 +14,7 @@ use crate::common::*;
 use feature_flags::config::{FlexBool, TeamIdCollection, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
     insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
-    setup_redis_client, TestContext,
+    setup_redis_client, update_team_in_hypercache, TestContext,
 };
 
 pub mod common;
@@ -2197,16 +2197,7 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
     team.inject_web_apps = Some(true);
 
     // Update the team in Redis with inject_web_apps enabled
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2322,16 +2313,7 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
     ])));
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2485,16 +2467,7 @@ async fn test_config_comprehensive_minimal_team() -> Result<()> {
     team.autocapture_web_vitals_allowed_metrics = None;
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2586,16 +2559,7 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
     team.autocapture_opt_out = None; // Default (should be false)
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2686,16 +2650,7 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
         TeamIdCollection::TeamIds(vec![team.id, 999, 1000]);
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2762,16 +2717,7 @@ async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
     team.heatmaps_opt_in = Some(true);
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2850,16 +2796,7 @@ async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
     team.autocapture_exceptions_opt_in = Some(true);
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -5994,16 +5931,7 @@ async fn test_session_recording_script_config(
     team.session_recording_opt_in = true;
     team.extra_settings = extra_settings.map(sqlx::types::Json);
 
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 

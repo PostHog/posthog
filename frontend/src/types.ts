@@ -3320,6 +3320,8 @@ export interface ProductTourStep {
     selector?: string
     /** Rich text content in tiptap JSONContent format */
     content: Record<string, any> | null
+    /** Pre-rendered HTML content for SDK consumption. Built from `content` on tour save. */
+    contentHtml?: string
     position?: 'top' | 'bottom' | 'left' | 'right'
     /** Inline survey question config - only for survey steps */
     survey?: ProductTourSurveyQuestion
@@ -3823,6 +3825,8 @@ interface InstancePreferencesInterface {
     debug_queries: boolean
     /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
     disable_paid_fs: boolean
+    /** Whether Cloudflare proxy is enabled for managed reverse proxies. */
+    cloudflare_proxy_enabled?: boolean
 }
 
 export interface PreflightStatus {
@@ -6134,6 +6138,7 @@ export interface ProjectTreeRef {
 export type OAuthApplicationPublicMetadata = {
     name: string
     client_id: string
+    is_verified: boolean
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
