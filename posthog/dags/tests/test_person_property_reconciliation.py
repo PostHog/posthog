@@ -5336,7 +5336,8 @@ class TestReconciliationSchedulerSensor:
             range_start=1,
             range_end=10000,
             chunk_size=1000,
-            max_concurrent=20,
+            max_concurrent_jobs=5,
+            max_concurrent_tasks=10,
             bug_window_start="2024-01-06 20:01:00",
             bug_window_end="2024-01-07 14:52:00",
             dry_run=False,
@@ -5351,7 +5352,7 @@ class TestReconciliationSchedulerSensor:
         assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["bug_window_start"] == "2024-01-06 20:01:00"
         assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["dry_run"] is False
         assert run_config["ops"]["reconcile_team_chunk"]["config"]["backup_enabled"] is True
-        assert run_config["execution"]["config"]["max_concurrent"] == 20
+        assert run_config["execution"]["config"]["max_concurrent"] == 10  # max_concurrent_tasks
 
     def test_sensor_no_cursor_returns_skip_reason(self):
         """Test that sensor returns SkipReason when no cursor is set."""
@@ -5412,7 +5413,7 @@ class TestReconciliationSchedulerSensor:
                 "range_start": 1,
                 "range_end": 10000,
                 "chunk_size": 1000,
-                "max_concurrent": 2,
+                "max_concurrent_jobs": 2,
                 "next_chunk_start": 1,
                 "bug_window_start": "2024-01-06 20:01:00",
                 "bug_window_end": "2024-01-07 14:52:00",
@@ -5440,7 +5441,7 @@ class TestReconciliationSchedulerSensor:
                 "range_start": 1,
                 "range_end": 5000,
                 "chunk_size": 1000,
-                "max_concurrent": 3,
+                "max_concurrent_jobs": 3,
                 "next_chunk_start": 1,
                 "bug_window_start": "2024-01-06 20:01:00",
                 "bug_window_end": "2024-01-07 14:52:00",
@@ -5474,7 +5475,7 @@ class TestReconciliationSchedulerSensor:
                 "range_start": 1,
                 "range_end": 1500,
                 "chunk_size": 1000,
-                "max_concurrent": 5,
+                "max_concurrent_jobs": 5,
                 "next_chunk_start": 1001,
                 "bug_window_start": "2024-01-06 20:01:00",
                 "bug_window_end": "2024-01-07 14:52:00",
@@ -5507,7 +5508,7 @@ class TestReconciliationSchedulerSensor:
                 "range_start": 1,
                 "range_end": 2000,
                 "chunk_size": 1000,
-                "max_concurrent": 5,
+                "max_concurrent_jobs": 5,
                 "next_chunk_start": 1,
                 "bug_window_start": "2024-01-06 20:01:00",
                 "bug_window_end": "2024-01-07 14:52:00",
@@ -5570,8 +5571,8 @@ class TestReconciliationSchedulerSensor:
         assert result.skip_message is not None
         assert "chunk_size" in result.skip_message
 
-    def test_sensor_validates_max_concurrent_positive(self):
-        """Test that sensor rejects max_concurrent <= 0."""
+    def test_sensor_validates_max_concurrent_jobs_positive(self):
+        """Test that sensor rejects max_concurrent_jobs <= 0."""
         from dagster import SkipReason, build_sensor_context
 
         from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
@@ -5580,7 +5581,7 @@ class TestReconciliationSchedulerSensor:
             {
                 "range_start": 1,
                 "range_end": 1000,
-                "max_concurrent": 0,
+                "max_concurrent_jobs": 0,
                 "bug_window_start": "2024-01-06 20:01:00",
                 "bug_window_end": "2024-01-07 14:52:00",
             }
@@ -5590,10 +5591,10 @@ class TestReconciliationSchedulerSensor:
 
         assert isinstance(result, SkipReason)
         assert result.skip_message is not None
-        assert "max_concurrent" in result.skip_message
+        assert "max_concurrent_jobs" in result.skip_message
 
-    def test_sensor_validates_max_concurrent_cap(self):
-        """Test that sensor rejects max_concurrent exceeding the cap."""
+    def test_sensor_validates_max_concurrent_jobs_cap(self):
+        """Test that sensor rejects max_concurrent_jobs exceeding the cap."""
         from dagster import SkipReason, build_sensor_context
 
         from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
@@ -5602,7 +5603,7 @@ class TestReconciliationSchedulerSensor:
             {
                 "range_start": 1,
                 "range_end": 1000,
-                "max_concurrent": 100,
+                "max_concurrent_jobs": 100,
                 "bug_window_start": "2024-01-06 20:01:00",
                 "bug_window_end": "2024-01-07 14:52:00",
             }
@@ -5613,3 +5614,87 @@ class TestReconciliationSchedulerSensor:
         assert isinstance(result, SkipReason)
         assert result.skip_message is not None
         assert "exceeds cap" in result.skip_message.lower()
+
+    def test_sensor_validates_max_concurrent_tasks_positive(self):
+        """Test that sensor rejects max_concurrent_tasks <= 0."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent_tasks": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "max_concurrent_tasks" in result.skip_message
+
+    def test_sensor_validates_max_concurrent_tasks_cap(self):
+        """Test that sensor rejects max_concurrent_tasks exceeding the cap."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent_tasks": 200,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "exceeds cap" in result.skip_message.lower()
+
+    def test_sensor_validates_bug_window_start_required(self):
+        """Test that sensor rejects missing bug_window_start."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "bug_window_start" in result.skip_message
+
+    def test_sensor_validates_bug_window_end_required(self):
+        """Test that sensor rejects missing bug_window_end."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "bug_window_start": "2024-01-06 20:01:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "bug_window_end" in result.skip_message

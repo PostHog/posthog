@@ -1283,7 +1283,8 @@ class ReconciliationSchedulerConfig(dagster.Config):
     range_start: int  # First team_id (inclusive)
     range_end: int  # Last team_id (inclusive)
     chunk_size: int = 1000  # Team ID range per job run
-    max_concurrent: int = 20  # Maximum simultaneous job runs
+    max_concurrent_jobs: int = 5  # Max reconciliation jobs the sensor can schedule at once
+    max_concurrent_tasks: int = 10  # Max k8s pods per job (executor concurrency)
 
     # Base job configuration (applied to all runs)
     bug_window_start: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS"
@@ -1313,7 +1314,7 @@ def build_reconciliation_run_config(
     }
 
     return {
-        "execution": {"config": {"max_concurrent": config.max_concurrent}},
+        "execution": {"config": {"max_concurrent": config.max_concurrent_tasks}},
         "ops": {
             "get_team_ids_to_reconcile": {"config": op_config},
             "reconcile_team_chunk": {"config": op_config},
@@ -1344,7 +1345,7 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
     """
     Sensor that automatically schedules person property reconciliation jobs.
 
-    Splits a team_id range into chunks and launches jobs up to max_concurrent,
+    Splits a team_id range into chunks and launches jobs up to max_concurrent_jobs,
     tracking progress via cursor. Enable via Dagster UI after configuring.
 
     Cursor format: JSON with 'next_chunk_start' tracking the next range to process.
@@ -1353,7 +1354,8 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
     Configuration (set via Dagster UI or launchpad):
     - range_start/range_end: Team ID range to process (inclusive)
     - chunk_size: Number of team IDs per job (default 1000)
-    - max_concurrent: Max simultaneous jobs (default 5)
+    - max_concurrent_jobs: Max reconciliation jobs sensor can schedule at once (default 5, cap 50)
+    - max_concurrent_tasks: Max k8s pods per job / executor concurrency (default 20, cap 100)
     - bug_window_start/end: Time window for the reconciliation
     - dry_run, backup_enabled, batch_size: Passed to each job
     """
@@ -1378,23 +1380,37 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
     range_start = cursor_data.get("range_start", 1)
     range_end = cursor_data.get("range_end", 10000)
     chunk_size = cursor_data.get("chunk_size", 1000)
-    max_concurrent = cursor_data.get("max_concurrent", 5)
+    max_concurrent_jobs = cursor_data.get("max_concurrent_jobs", 5)
+    max_concurrent_tasks = cursor_data.get("max_concurrent_tasks", 10)
+    bug_window_start = cursor_data.get("bug_window_start", "")
+    bug_window_end = cursor_data.get("bug_window_end", "")
     next_chunk_start = cursor_data.get("next_chunk_start", range_start)
 
     # Validate config
-    MAX_CONCURRENT_CAP = 50
+    MAX_CONCURRENT_JOBS_CAP = 50
+    MAX_CONCURRENT_TASKS_CAP = 100
     if range_start > range_end:
         return dagster.SkipReason(
             f"Invalid config: range_start ({range_start}) cannot be greater than range_end ({range_end})"
         )
     if chunk_size <= 0:
         return dagster.SkipReason(f"Invalid config: chunk_size must be > 0, got {chunk_size}")
-    if max_concurrent <= 0:
-        return dagster.SkipReason(f"Invalid config: max_concurrent must be > 0, got {max_concurrent}")
-    if max_concurrent > MAX_CONCURRENT_CAP:
+    if max_concurrent_jobs <= 0:
+        return dagster.SkipReason(f"Invalid config: max_concurrent_jobs must be > 0, got {max_concurrent_jobs}")
+    if max_concurrent_jobs > MAX_CONCURRENT_JOBS_CAP:
         return dagster.SkipReason(
-            f"Invalid config: max_concurrent ({max_concurrent}) exceeds cap of {MAX_CONCURRENT_CAP}"
+            f"Invalid config: max_concurrent_jobs ({max_concurrent_jobs}) exceeds cap of {MAX_CONCURRENT_JOBS_CAP}"
         )
+    if max_concurrent_tasks <= 0:
+        return dagster.SkipReason(f"Invalid config: max_concurrent_tasks must be > 0, got {max_concurrent_tasks}")
+    if max_concurrent_tasks > MAX_CONCURRENT_TASKS_CAP:
+        return dagster.SkipReason(
+            f"Invalid config: max_concurrent_tasks ({max_concurrent_tasks}) exceeds cap of {MAX_CONCURRENT_TASKS_CAP}"
+        )
+    if not bug_window_start:
+        return dagster.SkipReason("Invalid config: bug_window_start is required")
+    if not bug_window_end:
+        return dagster.SkipReason("Invalid config: bug_window_end is required")
 
     # Check if we've completed the range
     if next_chunk_start > range_end:
@@ -1405,9 +1421,10 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
         range_start=range_start,
         range_end=range_end,
         chunk_size=chunk_size,
-        max_concurrent=max_concurrent,
-        bug_window_start=cursor_data.get("bug_window_start", ""),
-        bug_window_end=cursor_data.get("bug_window_end", ""),
+        max_concurrent_jobs=max_concurrent_jobs,
+        max_concurrent_tasks=max_concurrent_tasks,
+        bug_window_start=bug_window_start,
+        bug_window_end=bug_window_end,
         dry_run=cursor_data.get("dry_run", False),
         backup_enabled=cursor_data.get("backup_enabled", True),
         batch_size=cursor_data.get("batch_size", 100),
@@ -1428,11 +1445,11 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
     )
     active_count = len(active_runs)
 
-    available_slots = max(0, max_concurrent - active_count)
+    available_slots = max(0, max_concurrent_jobs - active_count)
     if available_slots == 0:
-        return dagster.SkipReason(f"At max concurrency ({active_count}/{max_concurrent}), waiting for slots")
+        return dagster.SkipReason(f"At max concurrency ({active_count}/{max_concurrent_jobs} jobs), waiting for slots")
 
-    context.log.info(f"Active runs: {active_count}/{max_concurrent}, available slots: {available_slots}")
+    context.log.info(f"Active runs: {active_count}/{max_concurrent_jobs}, available slots: {available_slots}")
 
     # Generate run requests for available slots
     run_requests: list[dagster.RunRequest] = []
