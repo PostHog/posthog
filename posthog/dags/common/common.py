@@ -20,6 +20,7 @@ class JobOwners(str, Enum):
     TEAM_POSTHOG_AI = "team-posthog-ai"
     TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
     TEAM_WEB_ANALYTICS = "team-web-analytics"
+    TEAM_DJANGO_INFRA = "team-django-infra"
 
 
 def dagster_tags(

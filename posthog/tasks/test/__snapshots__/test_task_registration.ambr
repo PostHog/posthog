@@ -74,6 +74,7 @@
     'posthog.tasks.tasks.calculate_decide_usage',
     'posthog.tasks.tasks.check_async_migration_health',
     'posthog.tasks.tasks.check_flags_to_rollback',
+    'posthog.tasks.tasks.clean_stale_expired_sessions',
     'posthog.tasks.tasks.clean_stale_partials',
     'posthog.tasks.tasks.clear_clickhouse_deleted_person',
     'posthog.tasks.tasks.clickhouse_clear_removed_data',
