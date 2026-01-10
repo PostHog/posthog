@@ -366,3 +366,9 @@ Ensure `$anon_distinct_id` is a **top-level field**, not nested in `person_prope
 - `/flags` endpoint logs for `anon_distinct_id` processing
 - Canonical log field: `hash_key_override_skipped` (optimization active)
 - Metric: `flags_experience_continuity_optimized_total`
+
+## See also
+
+- [Creating feature flags](https://posthog.com/docs/feature-flags/creating-feature-flags) - How to enable "persist flag across authentication steps"
+- [Client-side bootstrapping](https://posthog.com/docs/feature-flags/bootstrapping) - Alternative approach (incompatible with experience continuity)
+- [Feature flags troubleshooting](https://posthog.com/docs/feature-flags/common-questions) - Common issues and solutions
