@@ -15,7 +15,6 @@ from posthog.hogql.base import AST
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, Table
-from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import (
@@ -69,13 +68,6 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
-def get_events_table_alias(table_type: ast.BaseTableType) -> str:
-    """Get the alias for an events table (either explicit alias or 'events')."""
-    if isinstance(table_type, ast.TableAliasType):
-        return table_type.alias
-    return "events"
-
-
 class HogQLPrinter(Visitor[str]):
     # NOTE: Call "print_ast()", not this class directly.
 
@@ -94,8 +86,6 @@ class HogQLPrinter(Visitor[str]):
         self.pretty = pretty
         self._indent = -1
         self.tab_size = 4
-        # Track EAV property accesses for the current SELECT scope
-        self._current_eav_set: set[tuple[str, str]] = set()
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
@@ -148,11 +138,6 @@ class HogQLPrinter(Visitor[str]):
         # We will add extra clauses onto this from the joined tables
         where = node.where
 
-        # Save EAV set for this scope (ClickHouse only)
-        old_eav_set = self._current_eav_set
-        if self.dialect == "clickhouse":
-            self._current_eav_set = set()
-
         joined_tables = []
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
@@ -177,7 +162,6 @@ class HogQLPrinter(Visitor[str]):
 
             next_join = next_join.next_join
 
-        # Visit expressions first - this populates _current_eav_set via visit_property_type
         if node.select:
             columns = self._print_select_columns(node.select)
         else:
@@ -195,19 +179,6 @@ class HogQLPrinter(Visitor[str]):
         group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
         having = self.visit(node.having) if node.having else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
-
-        # Add EAV JOINs for event properties found in this SELECT (ClickHouse only)
-        if self.dialect == "clickhouse":
-            for events_alias, property_name in self._current_eav_set:
-                eav_alias = f"eav_{events_alias}_{property_name}"
-                eav_join_sql = self._generate_eav_join_sql(
-                    alias=eav_alias,
-                    property_name=property_name,
-                    events_alias=events_alias,
-                )
-                joined_tables.append(eav_join_sql)
-            # Restore EAV set
-            self._current_eav_set = old_eav_set
 
         array_join = ""
         if node.array_join_op is not None:
@@ -1053,20 +1024,9 @@ class HogQLPrinter(Visitor[str]):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
-        # Check for EAV (Entity-Attribute-Value) materialization (ClickHouse only)
-        if self.dialect == "clickhouse" and self.context.property_swapper and len(type.chain) >= 1:
-            property_name = str(type.chain[0])
-            if isinstance(type.field_type.table_type, ast.BaseTableType):
-                resolved_table = type.field_type.table_type.resolve_database_table(self.context)
-                if isinstance(resolved_table, EventsTable):
-                    prop_info = self.context.property_swapper.event_properties.get(property_name, {})
-                    eav_column = prop_info.get("eav")
-                    if eav_column is not None:
-                        events_alias = get_events_table_alias(type.field_type.table_type)
-                        # Track this EAV property for JOIN generation in visit_select_query
-                        self._current_eav_set.add((events_alias, property_name))
-                        eav_alias = f"eav_{events_alias}_{property_name}"
-                        return f"{self._print_identifier(eav_alias)}.{self._print_identifier(eav_column)}"
+        # EAV materialization: output alias.column from the EAV join
+        if type.eav_join_alias is not None and type.eav_column is not None:
+            return f"{self._print_identifier(type.eav_join_alias)}.{self._print_identifier(type.eav_column)}"
 
         materialized_property_source = self._get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
@@ -1331,33 +1291,6 @@ class HogQLPrinter(Visitor[str]):
             return prop_info.get("dmat")
 
         return None
-
-    def _generate_eav_join_sql(self, alias: str, property_name: str, events_alias: str) -> str:
-        """
-        Generate the SQL for an EAV JOIN to the event_properties table.
-
-        Generates:
-        ANY LEFT JOIN event_properties AS {alias}
-            ON {events_alias}.team_id = {alias}.team_id
-            AND toDate({events_alias}.timestamp) = toDate({alias}.timestamp)
-            AND {events_alias}.event = {alias}.event
-            AND cityHash64({events_alias}.distinct_id) = cityHash64({alias}.distinct_id)
-            AND cityHash64({events_alias}.uuid) = cityHash64({alias}.uuid)
-            AND {alias}.key = '{property_name}'
-        """
-        e = self._print_identifier(events_alias)
-        a = self._print_identifier(alias)
-        prop = self._print_escaped_string(property_name)
-
-        return (
-            f"ANY LEFT JOIN event_properties AS {a} ON "
-            f"{e}.team_id = {a}.team_id AND "
-            f"toDate({e}.timestamp) = toDate({a}.timestamp) AND "
-            f"{e}.event = {a}.event AND "
-            f"cityHash64({e}.distinct_id) = cityHash64({a}.distinct_id) AND "
-            f"cityHash64({e}.uuid) = cityHash64({a}.uuid) AND "
-            f"{a}.key = {prop}"
-        )
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:

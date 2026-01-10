@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -41,7 +43,7 @@ class TestEAVJoins(BaseTest):
         result, _ = prepare_and_print_ast(query, context, dialect="clickhouse")
 
         # Should contain a JOIN to event_properties
-        assert "ANY LEFT JOIN" in result
+        assert "LEFT ANY JOIN" in result
         assert "event_properties" in result
         assert "eav_events_plan" in result
         # Should reference the EAV value column instead of JSON extraction
@@ -91,7 +93,7 @@ class TestEAVJoins(BaseTest):
         result, _ = prepare_and_print_ast(query, context, dialect="clickhouse")
 
         # Should contain two JOINs
-        assert result.count("ANY LEFT JOIN") == 2
+        assert result.count("LEFT ANY JOIN") == 2
         assert "eav_events_plan" in result
         assert "eav_events_previous_plan" in result
 
@@ -217,7 +219,7 @@ class TestEAVJoinsComplexQueries(BaseTest):
         result, _ = prepare_and_print_ast(query, self._get_context(), dialect="clickhouse")
 
         # Should have two separate EAV joins, one for each events table
-        assert result.count("ANY LEFT JOIN") >= 2
+        assert result.count("LEFT ANY JOIN") >= 2
         # Each join should reference its respective events table alias
         assert "eav_" in result
         # The foo property should join to e1, bar should join to e2
@@ -236,7 +238,7 @@ class TestEAVJoinsComplexQueries(BaseTest):
 
         # Should have two separate EAV joins - one for e1.plan, one for e2.plan
         # They can't share a join because they reference different events tables
-        assert result.count("ANY LEFT JOIN") >= 2
+        assert result.count("LEFT ANY JOIN") >= 2
 
     def test_subquery_with_eav_property(self):
         """Test: SELECT (SELECT e.properties.plan FROM events e LIMIT 1) as x FROM events"""
@@ -291,7 +293,7 @@ class TestEAVJoinsComplexQueries(BaseTest):
         assert "foo" in result
         assert "bar" in result
         # Should have at least 2 EAV joins total
-        assert result.count("ANY LEFT JOIN") >= 2
+        assert result.count("LEFT ANY JOIN") >= 2
 
     def test_nested_subselects(self):
         """Test: SELECT (SELECT (SELECT e.properties.plan FROM events e LIMIT 1) FROM events LIMIT 1) FROM events"""
@@ -364,7 +366,81 @@ class TestEAVJoinsComplexQueries(BaseTest):
 
         # HogQL output should NOT have EAV joins - just the property access
         assert "event_properties" not in result
-        assert "ANY LEFT JOIN" not in result
+        assert "LEFT ANY JOIN" not in result
         assert "eav_" not in result
         # Should have the property access in HogQL form
         assert "properties.plan" in result
+
+    @parameterized.expand(
+        [
+            (PropertyType.String, "value_string"),
+            (PropertyType.Numeric, "value_numeric"),
+            (PropertyType.Boolean, "value_bool"),
+            (PropertyType.Datetime, "value_datetime"),
+        ]
+    )
+    def test_eav_property_uses_correct_column_for_type(self, property_type: str, expected_column: str):
+        """Each property type should use the appropriate EAV value column."""
+        prop_name = f"test_prop_{property_type}"
+        self._create_eav_property(prop_name, property_type=property_type)
+
+        query = parse_select(f"SELECT properties.{prop_name} FROM events")
+        result, _ = prepare_and_print_ast(query, self._get_context(), dialect="clickhouse")
+
+        assert "LEFT ANY JOIN" in result
+        assert f".{expected_column}" in result
+
+    def test_union_queries_with_eav_properties(self):
+        """UNION queries should have EAV joins in each SELECT."""
+        self._create_eav_property("plan")
+
+        query = parse_select(
+            """
+            SELECT properties.plan FROM events WHERE event = 'A'
+            UNION ALL
+            SELECT properties.plan FROM events WHERE event = 'B'
+            """
+        )
+        result, _ = prepare_and_print_ast(query, self._get_context(), dialect="clickhouse")
+
+        # Both SELECT statements should have EAV joins
+        assert result.count("LEFT ANY JOIN") == 2
+        assert "eav_events_plan" in result
+
+    def test_property_name_with_dollar_sign(self):
+        """Property names with $ prefix should work correctly."""
+        self._create_eav_property("$browser")
+
+        query = parse_select("SELECT properties.`$browser` FROM events")
+        result, _ = prepare_and_print_ast(query, self._get_context(), dialect="clickhouse")
+
+        assert "LEFT ANY JOIN" in result
+        # The alias should contain the property name (escaped or not)
+        assert "eav_" in result
+        assert "$browser" in result or "browser" in result
+
+    def test_property_name_with_spaces(self):
+        """Property names with spaces should work correctly."""
+        self._create_eav_property("my property")
+
+        query = parse_select("SELECT properties.`my property` FROM events")
+        result, _ = prepare_and_print_ast(query, self._get_context(), dialect="clickhouse")
+
+        assert "LEFT ANY JOIN" in result
+        assert "eav_" in result
+
+    def test_nested_property_access_not_eav(self):
+        """Nested property access (properties.foo.bar) should not use EAV."""
+        # EAV only supports single-level property access (len(chain) == 1)
+        # Create an EAV property for 'foo'
+        self._create_eav_property("foo")
+
+        # Access nested property foo.bar - should fall back to JSON extraction
+        # because the chain length is 2, not 1
+        query = parse_select("SELECT properties.foo.bar FROM events")
+        result, _ = prepare_and_print_ast(query, self._get_context(), dialect="clickhouse")
+
+        # Should NOT have an EAV join for nested access
+        assert "LEFT ANY JOIN" not in result
+        # Should use JSON extraction for nested access
+        assert "JSONExtract" in result or "replaceRegexpAll" in result
