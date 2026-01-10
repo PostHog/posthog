@@ -25,7 +25,6 @@ export const BATCH_EXPORT_ICON_MAP: Record<BatchExportService['type'], string> =
     Snowflake: IconSnowflake,
     HTTP: IconHTTP,
     Databricks: IconDatabricks,
-    AzureBlob: IconAzureBlob,
     Workflows: IconWorkflows,
 }
 

@@ -18,21 +18,19 @@ def container_name() -> str:
 
 @pytest.fixture
 async def azurite_container(container_name: str):
-    client = BlobServiceClient.from_connection_string(AZURITE_CONNECTION_STRING)
-    container_client = client.get_container_client(container_name)
+    async with BlobServiceClient.from_connection_string(AZURITE_CONNECTION_STRING) as client:
+        container_client = client.get_container_client(container_name)
 
-    await container_client.create_container()
+        await container_client.create_container()
 
-    yield container_client
+        yield container_client
 
-    try:
-        async for blob in container_client.list_blobs():
-            await container_client.delete_blob(blob.name)
-        await container_client.delete_container()
-    except Exception as e:
-        logging.warning("Failed to cleanup Azurite container %s: %s", container_name, e)
-    finally:
-        await client.close()
+        try:
+            async for blob in container_client.list_blobs():
+                await container_client.delete_blob(blob.name)
+            await container_client.delete_container()
+        except Exception as e:
+            logging.warning("Failed to cleanup Azurite container %s: %s", container_name, e)
 
 
 async def test_azure_blob_check_container_exists_test_step(container_name, azurite_container):

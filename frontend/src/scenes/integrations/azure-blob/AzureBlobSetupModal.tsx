@@ -8,8 +8,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { AzureBlobSetupModalLogicProps, azureBlobSetupModalLogic } from './azureBlobSetupModalLogic'
 
 export const AzureBlobSetupModal = (props: AzureBlobSetupModalLogicProps): JSX.Element => {
-    const { isAzureBlobIntegrationSubmitting } = useValues(azureBlobSetupModalLogic(props))
-    const { submitAzureBlobIntegration } = useActions(azureBlobSetupModalLogic(props))
+    const logic = azureBlobSetupModalLogic(props)
+    const { isAzureBlobIntegrationSubmitting } = useValues(logic)
+    const { submitAzureBlobIntegration } = useActions(logic)
 
     return (
         <LemonModal
@@ -32,7 +33,7 @@ export const AzureBlobSetupModal = (props: AzureBlobSetupModalLogicProps): JSX.E
                 </>
             }
         >
-            <Form logic={azureBlobSetupModalLogic} formKey="azureBlobIntegration">
+            <Form logic={logic} formKey="azureBlobIntegration">
                 <LemonField
                     name="connectionString"
                     label="Connection string"

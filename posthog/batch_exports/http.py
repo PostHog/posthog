@@ -58,7 +58,12 @@ from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+    SUPPORTED_COMPRESSIONS as S3_SUPPORTED_COMPRESSIONS,
+)
+from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+    SUPPORTED_COMPRESSIONS as AZURE_BLOB_SUPPORTED_COMPRESSIONS,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -449,15 +454,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = merged_config.get("file_format", "JSONLines")
-            supported_file_formats = SUPPORTED_COMPRESSIONS.keys()
+            supported_file_formats = S3_SUPPORTED_COMPRESSIONS.keys()
             if file_format not in supported_file_formats:
                 raise serializers.ValidationError(
                     f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
                 )
             compression = merged_config.get("compression", None)
-            if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+            if compression and compression not in S3_SUPPORTED_COMPRESSIONS[file_format]:
                 raise serializers.ValidationError(
-                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
+                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {S3_SUPPORTED_COMPRESSIONS[file_format]}"
                 )
 
             # if someone is trying to reset the endpoint url, then we need to convert empty string to None
@@ -526,6 +531,19 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 AzureBlobIntegration(integration)
             except AzureBlobIntegrationError as e:
                 raise serializers.ValidationError(str(e))
+
+            config = destination_attrs["config"]
+            file_format = config.get("file_format", "JSONLines")
+            supported_file_formats = AZURE_BLOB_SUPPORTED_COMPRESSIONS.keys()
+            if file_format not in supported_file_formats:
+                raise serializers.ValidationError(
+                    f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
+                )
+            compression = config.get("compression", None)
+            if compression and compression not in AZURE_BLOB_SUPPORTED_COMPRESSIONS[file_format]:
+                raise serializers.ValidationError(
+                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {AZURE_BLOB_SUPPORTED_COMPRESSIONS[file_format]}"
+                )
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
             mode = merged_config.get("mode")
 
