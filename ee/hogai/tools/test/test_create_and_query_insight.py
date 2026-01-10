@@ -18,9 +18,11 @@ from posthog.schema import (
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.create_and_query_insight import (
+from ee.hogai.tools.create_and_query_insight import CreateAndQueryInsightTool
+from ee.hogai.tools.insight_error_prompts import (
     INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT,
-    CreateAndQueryInsightTool,
+    INSIGHT_TOOL_HANDLED_FAILURE_PROMPT,
+    INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT,
 )
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
@@ -315,3 +317,48 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         config_other = RunnableConfig(configurable={"contextual_tools": {"some_other_tool": {}}})
         context_manager_other = AssistantContextManager(team=self.team, user=self.user, config=config_other)
         self.assertFalse(CreateAndQueryInsightTool.is_editing_mode(context_manager_other))
+
+
+class TestCreateAndQueryInsightErrorPrompts(ClickhouseTestMixin, NonAtomicBaseTest):
+    """Tests for anti-hallucination error prompts (Bug #44592 fix)."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_failure_system_reminder_contains_anti_hallucination_warning(self):
+        """Test that the failure system reminder explicitly warns against hallucinating insight URLs."""
+        # Check for critical warning about no insight being created
+        self.assertIn("NOT created", INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT)
+        self.assertIn("No insight exists", INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT)
+
+        # Check for anti-hallucination instructions
+        self.assertIn("Do NOT provide any insight names, IDs, or URLs", INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT)
+        self.assertIn("Do NOT claim the insight exists", INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT)
+
+        # Check for explicit anti-hallucination warning
+        self.assertIn("NEVER fabricate", INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT)
+        self.assertIn("hallucinate", INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT)
+
+    def test_handled_failure_prompt_contains_failure_indicator(self):
+        """Test that handled failure prompt clearly indicates no insight was created."""
+        # Check for clear failure header
+        self.assertIn("INSIGHT CREATION FAILED", INSIGHT_TOOL_HANDLED_FAILURE_PROMPT)
+        self.assertIn("NO INSIGHT WAS CREATED", INSIGHT_TOOL_HANDLED_FAILURE_PROMPT)
+
+        # Check for explicit non-existence statement
+        self.assertIn("NOT saved", INSIGHT_TOOL_HANDLED_FAILURE_PROMPT)
+        self.assertIn("does NOT exist", INSIGHT_TOOL_HANDLED_FAILURE_PROMPT)
+
+    def test_unhandled_failure_prompt_contains_failure_indicator(self):
+        """Test that unhandled failure prompt clearly indicates no insight was created."""
+        # Check for clear failure header
+        self.assertIn("INSIGHT CREATION FAILED", INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT)
+        self.assertIn("NO INSIGHT WAS CREATED", INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT)
+
+        # Check for explicit non-existence statement
+        self.assertIn("NOT saved", INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT)
+        self.assertIn("does NOT exist", INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT)
+
+    def test_failure_prompts_include_system_reminder_placeholder(self):
+        """Test that failure prompts include placeholder for system reminder."""
+        self.assertIn("{{{system_reminder}}}", INSIGHT_TOOL_HANDLED_FAILURE_PROMPT)
+        self.assertIn("{{{system_reminder}}}", INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT)

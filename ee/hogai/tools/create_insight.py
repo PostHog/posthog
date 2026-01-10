@@ -12,6 +12,11 @@ from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tools.insight_error_prompts import (
+    INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT,
+    INSIGHT_TOOL_HANDLED_FAILURE_PROMPT,
+    INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT,
+)
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, NodePath
 
@@ -478,35 +483,6 @@ The user is currently editing an insight (aka query). Here is that insight's cur
 <system_reminder>
 Do not remove any fields from the current insight definition. Do not change any other fields than the ones the user asked for. Keep the rest as is.
 </system_reminder>
-""".strip()
-
-INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT = """
-<system_reminder>
-Inform the user that you've encountered an error during the creation of the insight. Afterwards, try to generate a new insight with a different query.
-Terminate if the error persists.
-</system_reminder>
-""".strip()
-
-INSIGHT_TOOL_HANDLED_FAILURE_PROMPT = """
-The agent has encountered the error while creating an insight.
-
-Generated output:
-```
-{{{output}}}
-```
-
-Error message:
-```
-{{{error_message}}}
-```
-
-{{{system_reminder}}}
-""".strip()
-
-
-INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT = """
-The agent has encountered an unknown error while creating an insight.
-{{{system_reminder}}}
 """.strip()
 
 InsightType = Literal["trends", "funnel", "retention"]
