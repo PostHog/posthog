@@ -38,7 +38,7 @@ from posthog.hogql.printer.types import (
     PrintableMaterializedPropertyGroupItem,
 )
 from posthog.hogql.resolver_utils import lookup_field_by_name
-from posthog.hogql.visitor import TraversingVisitor, Visitor, clone_expr
+from posthog.hogql.visitor import Visitor, clone_expr
 
 from posthog.clickhouse.materialized_columns import (
     MaterializedColumn,
@@ -76,51 +76,6 @@ def get_events_table_alias(table_type: ast.BaseTableType) -> str:
     return "events"
 
 
-class EAVPropertyCollector(TraversingVisitor):
-    """
-    Collect EAV property accesses in a SELECT without descending into subqueries.
-
-    This visitor finds PropertyType nodes that need EAV joins and collects
-    information about which events table they reference.
-    """
-
-    def __init__(self, context: HogQLContext):
-        super().__init__()
-        self.context = context
-        # Key: (events_alias, property_name), Value: eav_column (e.g., "value_string")
-        self.eav_properties: dict[tuple[str, str], str] = {}
-
-    def visit_select_query(self, node: ast.SelectQuery):
-        # Don't descend into subqueries - they handle their own EAV joins
-        pass
-
-    def visit_select_set_query(self, node: ast.SelectSetQuery):
-        # Don't descend into union queries
-        pass
-
-    def visit_property_type(self, node: ast.PropertyType):
-        if not self.context.property_swapper:
-            return
-
-        if node.field_type.name != "properties" or len(node.chain) != 1:
-            return
-
-        if not isinstance(node.field_type.table_type, ast.BaseTableType):
-            return
-
-        resolved_table = node.field_type.table_type.resolve_database_table(self.context)
-        if not isinstance(resolved_table, EventsTable):
-            return
-
-        property_name = str(node.chain[0])
-        prop_info = self.context.property_swapper.event_properties.get(property_name, {})
-
-        eav_column = prop_info.get("eav")
-        if eav_column is not None:
-            events_alias = get_events_table_alias(node.field_type.table_type)
-            self.eav_properties[(events_alias, property_name)] = eav_column
-
-
 class HogQLPrinter(Visitor[str]):
     # NOTE: Call "print_ast()", not this class directly.
 
@@ -139,6 +94,8 @@ class HogQLPrinter(Visitor[str]):
         self.pretty = pretty
         self._indent = -1
         self.tab_size = 4
+        # Track EAV property accesses for the current SELECT scope
+        self._current_eav_set: set[tuple[str, str]] = set()
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
@@ -191,24 +148,10 @@ class HogQLPrinter(Visitor[str]):
         # We will add extra clauses onto this from the joined tables
         where = node.where
 
-        # Find EAV properties used in THIS SELECT (not in subqueries)
-        # EAV joins are only generated for ClickHouse dialect
-        eav_properties: dict[tuple[str, str], str] = {}
+        # Save EAV set for this scope (ClickHouse only)
+        old_eav_set = self._current_eav_set
         if self.dialect == "clickhouse":
-            eav_collector = EAVPropertyCollector(self.context)
-            for expr in node.select or []:
-                eav_collector.visit(expr)
-            if node.where:
-                eav_collector.visit(node.where)
-            if node.prewhere:
-                eav_collector.visit(node.prewhere)
-            if node.having:
-                eav_collector.visit(node.having)
-            for expr in node.group_by or []:
-                eav_collector.visit(expr)
-            for expr in node.order_by or []:
-                eav_collector.visit(expr)
-            eav_properties = eav_collector.eav_properties
+            self._current_eav_set = set()
 
         joined_tables = []
         next_join = node.select_from
@@ -234,16 +177,7 @@ class HogQLPrinter(Visitor[str]):
 
             next_join = next_join.next_join
 
-        # Add EAV JOINs for event properties found in this SELECT (ClickHouse only)
-        for events_alias, property_name in eav_properties.keys():
-            eav_alias = f"eav_{events_alias}_{property_name}"
-            eav_join_sql = self._generate_eav_join_sql(
-                alias=eav_alias,
-                property_name=property_name,
-                events_alias=events_alias,
-            )
-            joined_tables.append(eav_join_sql)
-
+        # Visit expressions first - this populates _current_eav_set via visit_property_type
         if node.select:
             columns = self._print_select_columns(node.select)
         else:
@@ -261,6 +195,19 @@ class HogQLPrinter(Visitor[str]):
         group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
         having = self.visit(node.having) if node.having else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
+
+        # Add EAV JOINs for event properties found in this SELECT (ClickHouse only)
+        if self.dialect == "clickhouse":
+            for events_alias, property_name in self._current_eav_set:
+                eav_alias = f"eav_{events_alias}_{property_name}"
+                eav_join_sql = self._generate_eav_join_sql(
+                    alias=eav_alias,
+                    property_name=property_name,
+                    events_alias=events_alias,
+                )
+                joined_tables.append(eav_join_sql)
+            # Restore EAV set
+            self._current_eav_set = old_eav_set
 
         array_join = ""
         if node.array_join_op is not None:
@@ -1116,6 +1063,8 @@ class HogQLPrinter(Visitor[str]):
                     eav_column = prop_info.get("eav")
                     if eav_column is not None:
                         events_alias = get_events_table_alias(type.field_type.table_type)
+                        # Track this EAV property for JOIN generation in visit_select_query
+                        self._current_eav_set.add((events_alias, property_name))
                         eav_alias = f"eav_{events_alias}_{property_name}"
                         return f"{self._print_identifier(eav_alias)}.{self._print_identifier(eav_column)}"
 
