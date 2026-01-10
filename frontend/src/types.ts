@@ -3320,6 +3320,8 @@ export interface ProductTourStep {
     selector?: string
     /** Rich text content in tiptap JSONContent format */
     content: Record<string, any> | null
+    /** Pre-rendered HTML content for SDK consumption. Built from `content` on tour save. */
+    contentHtml?: string
     position?: 'top' | 'bottom' | 'left' | 'right'
     /** Inline survey question config - only for survey steps */
     survey?: ProductTourSurveyQuestion
