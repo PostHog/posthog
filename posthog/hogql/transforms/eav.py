@@ -14,7 +14,7 @@ def resolve_eav_properties(node: ast.AST, context: HogQLContext) -> None:
     This mutates the AST in place:
     1. For each SelectQuery, finds PropertyType nodes that need EAV
     2. Adds JoinExpr nodes to select_from for each EAV property
-    3. Sets joined_subquery on PropertyType so the printer outputs alias.column
+    3. Sets eav_join_alias and eav_column on PropertyType so the printer outputs alias.column
     """
     EAVResolver(context=context).visit(node)
 
@@ -30,9 +30,9 @@ class EAVResolver(TraversingVisitor):
     def __init__(self, context: HogQLContext):
         super().__init__()
         self.context = context
-        # Stack of sets to track EAV properties per SELECT scope
-        # Each entry: set of (events_alias, property_name, eav_column)
-        self._eav_properties_stack: list[set[tuple[str, str, str]]] = []
+        # EAV properties for the current SELECT scope
+        # Each entry: (events_alias, property_name, eav_column)
+        self._current_eav_properties: set[tuple[str, str, str]] = set()
 
     def visit_property_type(self, node: ast.PropertyType):
         if not self.context.property_swapper:
@@ -52,19 +52,21 @@ class EAVResolver(TraversingVisitor):
         prop_info = self.context.property_swapper.event_properties.get(property_name, {})
         eav_column = prop_info.get("eav")
 
-        if eav_column is not None and self._eav_properties_stack:
+        if eav_column is not None:
             events_alias = _get_events_table_alias(node.field_type.table_type)
-            self._eav_properties_stack[-1].add((events_alias, property_name, eav_column))
+            self._current_eav_properties.add((events_alias, property_name, eav_column))
 
     def visit_select_query(self, node: ast.SelectQuery):
-        # Push new set for this SELECT's EAV properties
-        self._eav_properties_stack.append(set())
+        # Save current set and create new one for this SELECT's scope
+        old_eav_properties = self._current_eav_properties
+        self._current_eav_properties = set()
 
         # Visit all child nodes to collect EAV property accesses
         super().visit_select_query(node)
 
-        # Pop and get the EAV properties for this SELECT
-        eav_properties = self._eav_properties_stack.pop()
+        # Get the EAV properties for this SELECT and restore parent scope
+        eav_properties = self._current_eav_properties
+        self._current_eav_properties = old_eav_properties
 
         if not eav_properties:
             return
