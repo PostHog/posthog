@@ -280,7 +280,9 @@ class HogQLPrinter(Visitor[str]):
         raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
 
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
+        # Constraints to add to the SELECT's WHERE clause (for most join types)
         extra_where: ast.Expr | None = None
+        # For LEFT JOINs, team_id goes in ON instead of WHERE to preserve NULL rows
         team_id_for_on_clause: ast.Expr | None = None
 
         join_strings = []
