@@ -45,7 +45,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapFilters: (filters: HeatmapFilters) => ({ filters }),
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
-        setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
+        setHeatmapColorPalette: (palette: string | null) => ({ palette }),
         setHref: (href: string) => ({ href }),
         setHrefMatchType: (matchType: HrefMatchType) => ({ matchType }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
@@ -65,6 +65,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         ],
         commonFilters: [
             { date_from: '-7d' } as CommonFilters,
+            { persist: true },
             {
                 setCommonFilters: (_, { filters }) => filters,
             },
@@ -79,6 +80,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         ],
         heatmapFixedPositionMode: [
             'fixed' as HeatmapFixedPositionMode,
+            { persist: true },
             {
                 setHeatmapFixedPositionMode: (_, { mode }) => mode,
             },
@@ -87,7 +89,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             'default' as string | null,
             { persist: true },
             {
-                setHeatmapColorPalette: (_, { Palette }) => Palette,
+                setHeatmapColorPalette: (_, { palette }) => palette,
             },
         ],
         href: [
@@ -106,6 +108,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         ],
         windowWidthOverride: [
             null as number | null,
+            { persist: true },
             {
                 setWindowWidthOverride: (_, { widthOverride }) => widthOverride,
             },
