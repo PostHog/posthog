@@ -5322,6 +5322,91 @@ class TestQueryTeamIdsFromClickHouse:
         assert "min_team_id (100) cannot be greater than max_team_id (50)" in str(exc_info.value)
 
 
+class TestReconcileSingleTeamErrorHandling:
+    """Tests for error handling in reconcile_single_team and reconcile_team_chunk."""
+
+    def test_team_failure_does_not_crash_chunk(self):
+        """Test that if one team fails, the chunk continues processing other teams."""
+        from posthog.dags.person_property_reconciliation import (
+            PersonPropertyReconciliationConfig,
+            TeamReconciliationResult,
+        )
+
+        # Mock reconcile_single_team to fail for team 2 but succeed for teams 1 and 3
+        call_count = {"value": 0}
+        original_results = {
+            1: TeamReconciliationResult(team_id=1, persons_processed=10, persons_updated=5, persons_skipped=5),
+            3: TeamReconciliationResult(team_id=3, persons_processed=20, persons_updated=15, persons_skipped=5),
+        }
+
+        def mock_reconcile_single_team(team_id, **kwargs):
+            call_count["value"] += 1
+            if team_id == 2:
+                raise Exception("Simulated failure for team 2")
+            return original_results[team_id]
+
+        with patch(
+            "posthog.dags.person_property_reconciliation.reconcile_single_team",
+            side_effect=mock_reconcile_single_team,
+        ):
+            # Create mock context with run info
+            mock_context = MagicMock()
+            mock_context.run.job_name = "test_job"
+            mock_context.run.run_id = "test_run_123"
+
+            # Create real config
+            config = PersonPropertyReconciliationConfig(
+                bug_window_start="2024-01-01 00:00:00",
+                batch_size=100,
+                dry_run=False,
+                backup_enabled=False,
+            )
+
+            # Create mock resources
+            mock_db = MagicMock()
+            mock_cluster = MagicMock()
+            mock_kafka = MagicMock()
+
+            # Import the underlying function (not the op wrapper)
+            from posthog.dags.person_property_reconciliation import reconcile_team_chunk
+
+            # Call the op's underlying function directly via __wrapped__
+            result = reconcile_team_chunk.__wrapped__(
+                context=mock_context,
+                config=config,
+                chunk=[1, 2, 3],
+                persons_database=mock_db,
+                cluster=mock_cluster,
+                kafka_producer=mock_kafka,
+            )
+
+            # All 3 teams should have been attempted
+            assert call_count["value"] == 3
+
+            # Check overall results
+            assert result["teams_count"] == 3
+            assert result["teams_succeeded"] == 2
+            assert result["teams_failed"] == 1
+            assert result["persons_processed"] == 30  # 10 + 0 + 20
+            assert result["persons_updated"] == 20  # 5 + 0 + 15
+
+            # Check individual team results
+            teams_results = result["teams_results"]
+            assert len(teams_results) == 3
+
+            team1_result = next(r for r in teams_results if r["team_id"] == 1)
+            assert team1_result["status"] == "success"
+            assert team1_result["persons_processed"] == 10
+
+            team2_result = next(r for r in teams_results if r["team_id"] == 2)
+            assert team2_result["status"] == "failed"
+            assert "Simulated failure" in team2_result["error"]
+
+            team3_result = next(r for r in teams_results if r["team_id"] == 3)
+            assert team3_result["status"] == "success"
+            assert team3_result["persons_processed"] == 20
+
+
 class TestReconciliationSchedulerSensor:
     """Tests for the person_property_reconciliation_scheduler sensor."""
 
