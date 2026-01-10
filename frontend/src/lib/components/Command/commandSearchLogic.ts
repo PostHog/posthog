@@ -33,7 +33,7 @@ export interface CommandCategory {
 
 export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
 
-const RECENTS_LIMIT = 20
+const RECENTS_LIMIT = 5
 const SEARCH_LIMIT = 5
 
 function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[] {
@@ -151,6 +151,29 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                 },
             },
         ],
+        playlistSearchResults: [
+            [] as FileSystemEntry[],
+            {
+                loadPlaylistSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+
+                    if (trimmed === '') {
+                        return []
+                    }
+
+                    await breakpoint(200)
+
+                    const response = await api.fileSystem.list({
+                        search: trimmed,
+                        type: 'session_recording_playlist',
+                        limit: SEARCH_LIMIT,
+                    })
+                    breakpoint()
+
+                    return response.results
+                },
+            },
+        ],
     })),
     reducers({
         search: [
@@ -177,6 +200,7 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                 s.unifiedSearchResultsLoading,
                 s.groupSearchResultsLoading,
                 s.personSearchResultsLoading,
+                s.playlistSearchResultsLoading,
                 s.searchPending,
                 s.search,
             ],
@@ -185,6 +209,7 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                 unifiedSearchResultsLoading: boolean,
                 groupSearchResultsLoading: boolean,
                 personSearchResultsLoading: boolean,
+                playlistSearchResultsLoading: boolean,
                 searchPending: boolean,
                 search: string
             ): boolean =>
@@ -192,6 +217,7 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                     unifiedSearchResultsLoading ||
                     groupSearchResultsLoading ||
                     personSearchResultsLoading ||
+                    playlistSearchResultsLoading ||
                     searchPending) &&
                 search.trim() !== '',
         ],
@@ -260,6 +286,22 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                             uuid: person.uuid,
                             distinctIds: person.distinct_ids,
                         },
+                    }
+                })
+            },
+        ],
+        playlistItems: [
+            (s) => [s.playlistSearchResults],
+            (playlistSearchResults): CommandSearchItem[] => {
+                return playlistSearchResults.map((item) => {
+                    const name = splitPath(item.path).pop()
+                    return {
+                        id: `playlist-${item.id}`,
+                        name: name ? unescapePath(name) : item.path,
+                        category: 'session_recording_playlist',
+                        href: item.href || '#',
+                        itemType: 'session_recording_playlist',
+                        record: item as unknown as Record<string, unknown>,
                     }
                 })
             },
@@ -338,10 +380,12 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                 s.recentItems,
                 s.personItems,
                 s.groupItems,
+                s.playlistItems,
                 s.unifiedSearchItems,
                 s.recentsLoading,
                 s.personSearchResultsLoading,
                 s.groupSearchResultsLoading,
+                s.playlistSearchResultsLoading,
                 s.unifiedSearchResultsLoading,
                 s.search,
             ],
@@ -349,10 +393,12 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                 recentItems,
                 personItems,
                 groupItems,
+                playlistItems,
                 unifiedSearchItems,
                 recentsLoading,
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
+                playlistSearchResultsLoading,
                 unifiedSearchResultsLoading,
                 search
             ): CommandCategory[] => {
@@ -395,6 +441,15 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                         }
                     }
 
+                    // Add session recording playlists
+                    if (playlistItems.length > 0 || playlistSearchResultsLoading) {
+                        categories.push({
+                            key: 'session_recording_playlist',
+                            items: playlistItems,
+                            isLoading: playlistSearchResultsLoading,
+                        })
+                    }
+
                     // Add persons
                     if (personItems.length > 0 || personSearchResultsLoading) {
                         categories.push({
@@ -428,6 +483,7 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                 actions.loadUnifiedSearchResults({ searchTerm: search })
                 actions.loadPersonSearchResults({ searchTerm: search })
                 actions.loadGroupSearchResults({ searchTerm: search })
+                actions.loadPlaylistSearchResults({ searchTerm: search })
             }
         },
     })),

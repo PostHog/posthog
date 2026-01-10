@@ -92,6 +92,7 @@ const getCategoryDisplayName = (category: string): string => {
         notebook: 'Notebooks',
         cohort: 'Cohorts',
         action: 'Actions',
+        session_recording_playlist: 'Session recording filter',
         persons: 'Persons',
         groups: 'Groups',
     }
