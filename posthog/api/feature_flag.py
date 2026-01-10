@@ -685,12 +685,7 @@ class FeatureFlagSerializer(
                         detail=f"Invalid value for operator {prop.operator}: {prop.value}", code="invalid_value"
                     )
 
-                if prop.operator in (PropertyOperator.IN_.value, PropertyOperator.NOT_IN.value) and prop.type not in [
-                    "cohort",
-                    "static-cohort",
-                    "precalculated-cohort",
-                    "dynamic-cohort",
-                ]:
+                if prop.operator in (PropertyOperator.IN_.value, PropertyOperator.NOT_IN.value) and prop.type != "cohort":
                     raise serializers.ValidationError(
                         detail=f"The '{prop.operator}' operator is only valid for cohort properties, not '{prop.type}' properties.",
                         code="invalid_operator",
