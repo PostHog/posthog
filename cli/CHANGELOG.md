@@ -1,5 +1,13 @@
 # posthog-cli
 
+# 0.5.22
+
+- feat: add `--project` and `--version` to upload command to define release
+
+# 0.5.20
+
+- chore: add global `--rate-limit` option for Posthog client
+
 # 0.5.19
 
 - chore: upgrade cargo-dist to 0.30.3

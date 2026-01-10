@@ -22,7 +22,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -982,6 +982,26 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
 
+    @patch("posthog.api.user.send_password_changed_email.delay")
+    def test_user_without_password_can_set_password(self, mock_send_email):
+        # Create a user without a password (e.g., SSO user)
+        self.user.set_unusable_password()
+        self.user.save()
+
+        # Re-authenticate with force_login since password is now unusable
+        self.client.force_login(self.user)
+
+        # User should be able to set password without providing current_password
+        # Use a strong password that meets validation requirements
+        new_password = "NewSecurePassword123!"
+        response = self.client.patch("/api/users/@me/", {"password": new_password})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Password should be set
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.has_usable_password())
+        self.assertTrue(self.user.check_password(new_password))
+
     def test_unauthenticated_user_cannot_update_anything(self):
         self.client.logout()
         response = self.client.patch(
@@ -1136,7 +1156,7 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         assert (
             unquote(locationHeader)
-            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -1152,7 +1172,7 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert (
             unquote(response.json()["toolbarParams"])
-            == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -1183,7 +1203,7 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "productTourId": null, "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")

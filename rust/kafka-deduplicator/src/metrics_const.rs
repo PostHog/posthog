@@ -90,12 +90,6 @@ pub const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
 /// Counter for checkpoint worker status
 pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
-/// Counter for the number of checkpoint directories found
-pub const CHECKPOINT_CLEANER_DIRS_FOUND: &str = "checkpoint_cleaner_dirs_found";
-
-/// Counter for the number of checkpoint directories deleted
-pub const CHECKPOINT_CLEANER_DELETE_ATTEMPTS: &str = "checkpoint_cleaner_delete_attempts";
-
 /// Counts number of times a StoreManager lookup by partition
 /// finds no associated DeduplicationStore, meaning ownership
 /// has changed across a rebalance or other event asynchronously
@@ -126,3 +120,33 @@ pub const CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM: &str = "checkpoint_file_fetch_a
 
 /// Histogram for checkpoint metadata file list duration; only measured on success
 pub const CHECKPOINT_LIST_METADATA_HISTOGRAM: &str = "checkpoint_list_metadata_seconds";
+
+/// Record outcomes for attempts to restore checkpoints
+/// when local store is missing after Kafka rebalances
+pub const REBALANCE_CHECKPOINT_IMPORT_COUNTER: &str = "rebalance_checkpoint_import_total";
+
+// ==== Store Manager Diagnostics ====
+/// Histogram for store creation duration (in milliseconds)
+pub const STORE_CREATION_DURATION_MS: &str = "store_creation_duration_ms";
+
+/// Counter for store creation events by outcome (success/failure)
+pub const STORE_CREATION_EVENTS: &str = "store_creation_events_total";
+
+/// Gauge for active store count
+pub const ACTIVE_STORE_COUNT: &str = "active_store_count";
+
+// ==== Partition Batch Processing Diagnostics ====
+/// Histogram for partition batch processing duration (in milliseconds)
+pub const PARTITION_BATCH_PROCESSING_DURATION_MS: &str = "partition_batch_processing_duration_ms";
+
+/// Histogram for RocksDB multi_get duration (in milliseconds)
+pub const ROCKSDB_MULTI_GET_DURATION_MS: &str = "rocksdb_multi_get_duration_ms";
+
+/// Histogram for RocksDB put_batch duration (in milliseconds)
+pub const ROCKSDB_PUT_BATCH_DURATION_MS: &str = "rocksdb_put_batch_duration_ms";
+
+/// Histogram for Kafka producer send duration (in milliseconds)
+pub const KAFKA_PRODUCER_SEND_DURATION_MS: &str = "kafka_producer_send_duration_ms";
+
+/// Histogram for event parsing duration using rayon (in milliseconds)
+pub const EVENT_PARSING_DURATION_MS: &str = "event_parsing_duration_ms";

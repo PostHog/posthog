@@ -9,8 +9,7 @@ import React, { ReactNode, useEffect, useState } from 'react'
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
@@ -22,7 +21,6 @@ import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
-import { ToolsDisplay } from './ToolsDisplay'
 
 interface QuestionInputProps {
     isSticky?: boolean
@@ -45,15 +43,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         contextDisplaySize,
         isThreadVisible,
         topActions,
-        bottomActions,
         textAreaRef,
         containerClassName,
         onSubmit,
     },
     ref
 ) {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
@@ -63,16 +59,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         inputDisabled,
         submissionDisabledReason,
         isSharedThread,
-        deepResearchMode,
         cancelLoading,
         pendingPrompt,
         isImpersonatingExistingConversation,
         supportOverrideEnabled,
+        streamingActive,
     } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled } = useActions(maxThreadLogic)
-
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
+    const isAiUx = useFeatureFlag('AI_UX')
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -85,10 +81,18 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         setShowAutocomplete(isSlashCommand)
     }, [question, showAutocomplete])
 
-    let disabledReason = threadLoading && !dataProcessingAccepted ? 'Pending approval' : submissionDisabledReason
+    const pendingApproval = !dataProcessingAccepted && !threadLoading
+    let disabledReason = !threadLoading ? submissionDisabledReason : undefined
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
     }
+    const tooltipReason = pendingApproval ? 'Pending approval' : disabledReason
+
+    useEffect(() => {
+        if (!streamingActive && textAreaRef?.current) {
+            textAreaRef.current.focus()
+        }
+    }, [streamingActive])
 
     return (
         <div
@@ -115,7 +119,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'input-like flex flex-col cursor-text',
                             'border border-primary',
                             'bg-[var(--color-bg-fill-input)]',
-                            isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg'
+                            isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg',
+                            // for flag, we change the ring size and color
+                            isAiUx && '[--input-ring-size:2px]',
+                            // when streaming, we make the ring default color, and when done streaming pop back to very this purple to let users know it's their turn to type
+                            // When we allow appending messages, this ux will likely not be useful
+                            isAiUx && !streamingActive && '[--input-ring-color:#b62ad9]'
                         )}
                     >
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
@@ -201,19 +210,19 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             <LemonButton
                                 type={(isThreadVisible && !question) || threadLoading ? 'secondary' : 'primary'}
                                 onClick={() => {
+                                    if (threadLoading) {
+                                        stopGeneration()
+                                        return
+                                    }
                                     if (submissionDisabledReason) {
                                         textAreaRef?.current?.focus()
                                         return
                                     }
-                                    if (threadLoading) {
-                                        stopGeneration()
-                                    } else {
-                                        askMax(question)
-                                    }
+                                    askMax(question)
                                 }}
                                 tooltip={
-                                    disabledReason ? (
-                                        disabledReason
+                                    tooltipReason ? (
+                                        tooltipReason
                                     ) : threadLoading ? (
                                         <>
                                             Let's bail <KeyboardShortcut enter />
@@ -225,8 +234,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     )
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
-                                // disabledReason={disabledReason}
-                                className={disabledReason || threadLoading ? 'opacity-[0.5]' : ''}
+                                disabledReason={disabledReason}
+                                className={tooltipReason ? 'opacity-[0.5]' : ''}
                                 size="small"
                                 icon={
                                     threadLoading ? (
@@ -240,14 +249,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                {!isSharedThread && !featureFlags[FEATURE_FLAGS.AGENT_MODES] && (
-                    <ToolsDisplay
-                        isFloating={isThreadVisible}
-                        tools={tools}
-                        bottomActions={bottomActions}
-                        deepResearchMode={deepResearchMode}
-                    />
-                )}
                 {/* Info banner for conversations created during impersonation (marked as internal) */}
                 {isImpersonatedInternalConversation && (
                     <div className="flex justify-start items-center gap-1 w-full px-2 py-1 bg-bg-light text-muted text-xs rounded-b-lg">
@@ -267,6 +268,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                 )}
             </div>
+            <p className="w-full flex text-xs text-muted mt-1">
+                <span className="mx-auto">PostHog AI can make mistakes. Please double-check responses.</span>
+            </p>
         </div>
     )
 })

@@ -9,6 +9,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { DataWarehouseSyncInterval } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
+import { endpointSceneLogic } from '../endpointSceneLogic'
 
 interface EndpointConfigurationProps {
     tabId: string
@@ -50,16 +51,10 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
 }
 
 export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
-    const { setCacheAge, setSyncFrequency, setIsMaterialized, loadMaterializationStatus } = useActions(
-        endpointLogic({ tabId })
-    )
-    const {
-        endpoint,
-        cacheAge,
-        syncFrequency,
-        isMaterialized: localIsMaterialized,
-        materializationStatusLoading,
-    } = useValues(endpointLogic({ tabId }))
+    const { loadMaterializationStatus } = useActions(endpointLogic({ tabId }))
+    const { endpoint, materializationStatusLoading } = useValues(endpointLogic({ tabId }))
+    const { setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(endpointSceneLogic({ tabId }))
+    const { cacheAge, syncFrequency, isMaterialized: localIsMaterialized } = useValues(endpointSceneLogic({ tabId }))
 
     if (!endpoint) {
         return <></>

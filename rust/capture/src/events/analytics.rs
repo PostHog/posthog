@@ -13,6 +13,7 @@ use tracing::{error, instrument, Span};
 
 use crate::{
     api::CaptureError,
+    debug_or_info,
     prometheus::report_dropped_events,
     router, sinks,
     utils::uuid_v7,
@@ -123,6 +124,8 @@ pub async fn process_events<'a>(
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
+    let chatty_debug_enabled = context.chatty_debug_enabled;
+
     Span::current().record("request_id", &context.request_id);
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
 
@@ -130,6 +133,8 @@ pub async fn process_events<'a>(
         .iter()
         .map(|e| process_single_event(e, historical_cfg.clone(), context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
+
+    debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
 
     events.retain(|e| {
         if dropper.should_drop(&e.event.token, &e.event.distinct_id) {
@@ -140,16 +145,17 @@ pub async fn process_events<'a>(
         }
     });
 
-    tracing::debug!(
-        event_count = events.len(),
-        "process_event: batch successful"
-    );
+    debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered ProcessedEvents batch");
 
     if events.len() == 1 {
-        sink.send(events[0].clone()).await
+        sink.send(events[0].clone()).await?;
     } else {
-        sink.send_batch(events).await
+        sink.send_batch(events).await?;
     }
+
+    debug_or_info!(chatty_debug_enabled, context=?context, "sent analytics events");
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -177,6 +183,7 @@ mod tests {
             path: "/e/".to_string(),
             is_mirror_deploy: false,
             historical_migration: false,
+            chatty_debug_enabled: false,
         }
     }
 

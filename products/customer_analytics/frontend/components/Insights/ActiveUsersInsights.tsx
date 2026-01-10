@@ -2,36 +2,29 @@ import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isEventsNode } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../constants'
 import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import { buildDashboardItemId } from '../../utils'
+import { buildDashboardItemId, isPageviewWithoutFilters } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 
 export function ActiveUsersInsights(): JSX.Element {
     const { activityEvent, activeUsersInsights, customerLabel, tabId } = useValues(customerAnalyticsSceneLogic)
-    const activityEventBannerCopy = useFeatureFlag('ACTIVITY_EVENT_BANNER_WORDING', 'test')
-        ? 'What makes a user active in your product? Choose an event that signals real engagement, like completing a core action, rather than generic pageviews.'
-        : 'You are currently using the pageview event to define user activity. Consider using a more specific event or action to track activity accurately.'
 
     // Check if using pageview as default, with no properties filter
-    const isOnlyPageview =
-        isEventsNode(activityEvent) &&
-        activityEvent.event === '$pageview' &&
-        (!activityEvent.properties || activityEvent.properties.length === 0)
+    const isOnlyPageview = isPageviewWithoutFilters(activityEvent)
 
     return (
         <div className="space-y-2">
             {isOnlyPageview && (
                 <LemonBanner type="warning">
-                    {activityEventBannerCopy}
+                    What makes a user active in your product? Choose an event that signals real engagement, like
+                    completing a core action, rather than generic pageviews.
                     <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
                         <LemonButton
                             data-attr="customer-analytics-configure-activity-event"
@@ -74,7 +67,9 @@ function PowerUsersTable(): JSX.Element {
         showSourceQueryOptions: false,
         source: {
             kind: NodeKind.ActorsQuery,
-            select: isB2c ? ['person', 'event_count', 'last_seen'] : ['group', 'event_count', 'last_seen'],
+            select: isB2c
+                ? ['person_display_name -- Person', 'event_count', 'last_seen']
+                : ['group', 'event_count', 'last_seen'],
             source: {
                 kind: NodeKind.InsightActorsQuery,
                 source: {
@@ -101,7 +96,7 @@ function PowerUsersTable(): JSX.Element {
             <div className="flex items-center gap-2">
                 <Tooltip
                     title={`Power ${customerLabel.plural} are the ${customerLabel.plural} that performed your activity event most frequently in the past 30 days.`}
-                    // TODO: Add docs link when released
+                    docLink="https://posthog.com/docs/customer-analytics/dashboard-metrics#power-users"
                 >
                     <h2 className="mb-0 ml-1">Power {customerLabel.plural}</h2>
                 </Tooltip>

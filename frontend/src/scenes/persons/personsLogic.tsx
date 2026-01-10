@@ -45,12 +45,13 @@ function createInitialEventsPayload(personId: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
         full: true,
+        showEventsFilter: true,
+        showSavedFilters: true,
         hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
         source: {
             kind: NodeKind.EventsQuery,
             select: defaultDataTableColumns(NodeKind.EventsQuery),
             personId: personId,
-            where: ["notEquals(event, '$exception')"],
             after: '-24h',
         },
     }

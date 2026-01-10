@@ -51,11 +51,18 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         setSharedMetrics,
         setExposureCriteria,
         setFeatureFlagConfig,
+        clearDraft,
         saveExperiment,
         validateField,
     } = useActions(logic)
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
+    const handleCancel = (): void => {
+        if (!isEditMode) {
+            clearDraft()
+        }
+        router.actions.push(urls.experiments())
+    }
 
     return (
         <div>
@@ -83,9 +90,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                 data-attr="cancel-experiment"
                                 type="secondary"
                                 size="small"
-                                onClick={() => {
-                                    router.actions.push(urls.experiments())
-                                }}
+                                onClick={handleCancel}
                             >
                                 Cancel
                             </LemonButton>
@@ -170,22 +175,12 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                                 : experiment[context.field].map((m) =>
                                                       m.uuid === metric.uuid ? metric : m
                                                   ),
-                                            ...(isNew && {
-                                                [context.orderingField]: [
-                                                    ...(experiment[context.orderingField] ?? []),
-                                                    metric.uuid,
-                                                ],
-                                            }),
                                         })
                                     }}
                                     onDeleteMetric={(metric, context) => {
                                         if (metric.isSharedMetric) {
                                             setExperiment({
                                                 ...experiment,
-                                                [context.orderingField]: (
-                                                    experiment[context.orderingField] ?? []
-                                                ).filter((uuid) => uuid !== metric.uuid),
-                                                // Remove from saved_metrics so modal shows it as available again
                                                 saved_metrics: (experiment.saved_metrics ?? []).filter(
                                                     (sm) => sm.saved_metric !== metric.sharedMetricId
                                                 ),
@@ -209,19 +204,12 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                                 [context.field]: experiment[context.field].filter(
                                                     ({ uuid }) => uuid !== metric.uuid
                                                 ),
-                                                [context.orderingField]: (
-                                                    experiment[context.orderingField] ?? []
-                                                ).filter((uuid) => uuid !== metric.uuid),
                                             })
                                         }
                                     }}
                                     onSaveSharedMetrics={(metrics, context) => {
                                         setExperiment({
                                             ...experiment,
-                                            [context.orderingField]: [
-                                                ...(experiment[context.orderingField] ?? []),
-                                                ...metrics.map((metric) => metric.uuid),
-                                            ],
                                             saved_metrics: [
                                                 ...(experiment.saved_metrics ?? []),
                                                 ...metrics.map((metric) => ({
@@ -243,14 +231,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
 
                 <SceneDivider />
                 <div className="flex justify-end gap-2">
-                    <LemonButton
-                        data-attr="cancel-experiment"
-                        type="secondary"
-                        size="small"
-                        onClick={() => {
-                            router.actions.push(urls.experiments())
-                        }}
-                    >
+                    <LemonButton data-attr="cancel-experiment" type="secondary" size="small" onClick={handleCancel}>
                         Cancel
                     </LemonButton>
 

@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { handleApprovalRequired } from 'lib/approvals/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -45,6 +46,7 @@ import {
     Breadcrumb,
     CohortType,
     EarlyAccessFeatureType,
+    FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagStatusResponse,
@@ -114,6 +116,7 @@ export const NEW_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    bucketing_identifier: null,
     evaluation_tags: [],
     _should_create_usage_dashboard: true,
 }
@@ -354,6 +357,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
+            bucketingIdentifier,
+        }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -439,6 +445,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return {
                         ...state,
                         is_remote_configuration: enabled,
+                    }
+                },
+                setBucketingIdentifier: (state, { bucketingIdentifier }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        bucketing_identifier: bucketingIdentifier,
                     }
                 },
                 resetEncryptedPayload: (state) => {
@@ -1128,15 +1144,30 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         submitFeatureFlagFailure: async () => {
             scrollToFormError()
         },
-        updateFeatureFlagActiveFailure: ({ error }) => {
+        updateFeatureFlagActiveFailure: ({ error, errorObject }) => {
+            if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
+                return
+            }
+
             lemonToast.error(`Failed to toggle flag: ${error}`)
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
+            actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
+        },
+        saveFeatureFlagFailure: ({ error, errorObject }) => {
+            if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
+                // Redirect to detail page so user can see the CR banner
+                router.actions.replace(urls.featureFlag(values.featureFlag.id))
+                actions.editFeatureFlag(false)
+                return
+            }
+
+            lemonToast.error(`Failed to save flag: ${error}`)
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
@@ -1243,6 +1274,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
+                actions.setScheduleDateMarker(null)
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.setIsRecurring(false)
                 actions.setRecurrenceInterval(null)

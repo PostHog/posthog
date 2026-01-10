@@ -1,6 +1,8 @@
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { buildAlertFilterConfig } from 'lib/utils/alertUtils'
+
 import { AlertType } from '~/lib/components/Alerts/types'
 import { DashboardType, HogFunctionType, InsightModel, QueryBasedInsightModel } from '~/types'
 
@@ -59,7 +61,11 @@ async function fetchHogFunctionsForAlerts(alerts: AlertType[]): Promise<Map<stri
 
     const hogFunctionPromises = alerts.map(async (alert) => {
         try {
-            const response = await api.hogFunctions.listForAlert(alert.id)
+            const response = await api.hogFunctions.list({
+                filter_groups: [buildAlertFilterConfig(alert.id)],
+                types: ['internal_destination'],
+                full: true,
+            })
             return { alertId: alert.id, hogFunctions: response.results }
         } catch (e) {
             posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
@@ -94,10 +100,18 @@ async function exportInsight(insight: Partial<InsightModel>, checkStale: () => b
         throw new Error('Fetch cancelled')
     }
 
-    return generateInsightHCL(insight, {
-        alerts,
-        hogFunctionsByAlertId,
-    })
+    try {
+        return generateInsightHCL(insight, {
+            alerts,
+            hogFunctionsByAlertId,
+        })
+    } catch (e) {
+        const resourceId = insight.id || insight.short_id || 'unknown'
+        const resourceName = insight.name || 'unnamed insight'
+        throw new Error(
+            `Failed to generate HCL for insight "${resourceName}" (${resourceId}): ${e instanceof Error ? e.message : String(e)}`
+        )
+    }
 }
 
 async function exportDashboard(
@@ -121,11 +135,19 @@ async function exportDashboard(
         throw new Error('Fetch cancelled')
     }
 
-    return generateDashboardHCL(dashboard, {
-        insights,
-        alertsByInsightId,
-        hogFunctionsByAlertId,
-    })
+    try {
+        return generateDashboardHCL(dashboard, {
+            insights,
+            alertsByInsightId,
+            hogFunctionsByAlertId,
+        })
+    } catch (e) {
+        const resourceId = dashboard.id || 'unknown'
+        const resourceName = dashboard.name || 'unnamed dashboard'
+        throw new Error(
+            `Failed to generate HCL for dashboard "${resourceName}" (${resourceId}): ${e instanceof Error ? e.message : String(e)}`
+        )
+    }
 }
 
 export function useTerraformDownload(result: TerraformExportResult | null, baseName: string): () => void {
@@ -195,7 +217,7 @@ export function useTerraformExport(resource: TerraformExportResource, isOpen: bo
                 }
             } catch (e) {
                 posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
-                    extra: { context: 'TerraformExporter', resourceType: resource.type },
+                    extra: { context: 'TerraformExporter', resourceType: resource.type, resourceId: resource.data.id },
                 })
                 if (!isStale()) {
                     setState({

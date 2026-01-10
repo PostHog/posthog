@@ -20,7 +20,7 @@ from ee.tasks.subscriptions import deliver_subscription_report_async
 
 LOGGER = get_logger(__name__)
 
-# Changed 28-Nov-2025
+# Changed 20260109-01
 
 
 @dataclasses.dataclass
