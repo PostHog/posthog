@@ -263,11 +263,140 @@ update_flag_caches(team)
 | S3 fallback errors           | Object storage misconfigured         | Verify OBJECT_STORAGE_ENABLED setting |
 | ETag mismatches              | Non-deterministic JSON serialization | HyperCache uses `sort_keys=True`      |
 
+## Dedicated flags Redis
+
+The feature-flags Rust service can use a separate Redis instance for caching, isolated from the shared Django cache. This prevents flag cache operations from affecting other cache users.
+
+### Enabling dedicated Redis
+
+```bash
+FLAGS_REDIS_URL=redis://flags-redis:6379  # Separate instance for flags
+```
+
+When `FLAGS_REDIS_URL` is set, the system uses a dual-write pattern:
+
+```python
+# posthog/caching/flags_redis_cache.py
+def write_flags_to_cache(key: str, value: Any, timeout: Optional[int] = None) -> None:
+    # Always write to shared cache (Django reads from here)
+    cache.set(key, value, timeout)
+
+    # Also write to dedicated cache if configured (Rust service reads from here)
+    if has_dedicated_cache:
+        dedicated_cache = caches[FLAGS_DEDICATED_CACHE_ALIAS]
+        dedicated_cache.set(key, value, timeout)
+```
+
+### Why dual-write?
+
+| Consumer     | Reads from      | Purpose                         |
+| ------------ | --------------- | ------------------------------- |
+| Django       | Shared cache    | Local evaluation, SDK endpoints |
+| Rust service | Dedicated cache | High-throughput flag evaluation |
+
+The dual-write pattern is temporary while the Rust port is being completed. Once the Rust service handles all flag evaluation, Django will stop writing to the shared cache for local evaluation, and only the dedicated cache will be used.
+
+The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache update functions check this setting and skip operations if not set.
+
+## Scheduled tasks
+
+Cache freshness is maintained through scheduled Celery tasks.
+
+| Task                                       | Schedule         | Purpose                                              |
+| ------------------------------------------ | ---------------- | ---------------------------------------------------- |
+| `refresh_expiring_flags_cache_entries`     | Hourly at :15    | Refresh caches with TTL < 24h before they expire     |
+| `cleanup_stale_flags_expiry_tracking_task` | Daily at 3:15 AM | Remove expired team entries from tracking sorted set |
+| `verify_and_fix_flags_cache_task`          | Every 30 min     | Compare cache to database and fix mismatches         |
+
+### Refresh task
+
+The hourly refresh job prevents cache misses by proactively refreshing entries before they expire:
+
+```python
+# posthog/tasks/feature_flags.py
+@shared_task
+def refresh_expiring_flags_cache_entries():
+    successful, failed = refresh_expiring_flags_caches(
+        ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,  # Default: 24
+        limit=settings.FLAGS_CACHE_REFRESH_LIMIT,  # Default: 5000
+    )
+```
+
+The task uses a Redis sorted set (`flags_cache_expiry`) to efficiently find expiring entries without scanning all keys.
+
+### Verification task
+
+The verification task compares cached data against the database and fixes discrepancies:
+
+1. Samples teams from the cache
+2. Compares cached flags to current database state
+3. Auto-fixes mismatches by refreshing the cache
+4. Reports metrics on match/mismatch/miss rates
+
+Configuration:
+
+```bash
+FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5  # Skip recently updated flags
+```
+
+### For initial cache build
+
+Scheduled tasks only maintain existing caches. For initial population or schema migrations, use the management command:
+
+```bash
+python manage.py warm_flags_cache [--invalidate-first]
+```
+
+## Signal handlers
+
+Django signals automatically invalidate the cache when models change.
+
+### Models that trigger cache updates
+
+| Model                      | Signal      | Action                             |
+| -------------------------- | ----------- | ---------------------------------- |
+| `FeatureFlag`              | post_save   | Refresh team's flags cache         |
+| `FeatureFlag`              | post_delete | Refresh team's flags cache         |
+| `Team`                     | post_save   | Warm cache for new team            |
+| `Team`                     | post_delete | Clear team's flags cache           |
+| `FeatureFlagEvaluationTag` | post_save   | Refresh team's flags cache         |
+| `FeatureFlagEvaluationTag` | post_delete | Refresh team's flags cache         |
+| `Tag`                      | post_save   | Refresh caches for teams using tag |
+
+### Transaction safety
+
+All signal handlers use `transaction.on_commit()` to avoid race conditions:
+
+```python
+# posthog/models/feature_flag/flags_cache.py
+@receiver([post_save, post_delete], sender=FeatureFlag)
+def feature_flag_changed_flags_cache(sender, instance, **kwargs):
+    transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))
+```
+
+This ensures the cache update task runs after the database transaction commits, not before.
+
+### Cohort invalidation
+
+The local evaluation cache (for SDKs) also invalidates when cohorts change. See `posthog/models/feature_flag/local_evaluation.py` for the full signal handler list.
+
 ## Configuration
 
 ```bash
 # Required
 REDIS_URL=redis://localhost:6379
+
+# Dedicated flags Redis (optional, enables dual-write)
+FLAGS_REDIS_URL=redis://flags-redis:6379
+
+# Cache TTL settings
+FLAGS_CACHE_TTL=604800             # 7 days (default)
+FLAGS_CACHE_MISS_TTL=86400         # 1 day (default)
+
+# Scheduled task settings
+FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS=24  # Refresh caches expiring within 24h
+FLAGS_CACHE_REFRESH_LIMIT=5000              # Max teams per refresh run
+FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5  # Skip recently updated flags
 
 # For S3 fallback
 OBJECT_STORAGE_ENABLED=true
@@ -283,10 +412,14 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.example.com"]
 
 - `posthog/storage/hypercache.py` - Core HyperCache implementation
 - `posthog/models/feature_flag/local_evaluation.py` - Local evaluation caching
+- `posthog/models/feature_flag/flags_cache.py` - Flags cache, signal handlers, verification
+- `posthog/caching/flags_redis_cache.py` - Dual-write pattern for dedicated Redis
 - `posthog/models/remote_config.py` - Remote config caching
 - `posthog/models/team/team_caching.py` - Team authentication caching
-- `posthog/tasks/feature_flags.py` - Cache update Celery tasks
+- `posthog/tasks/feature_flags.py` - Cache update and refresh Celery tasks
+- `posthog/tasks/hypercache_verification.py` - Cache verification task
 - `posthog/tasks/remote_config.py` - Remote config sync tasks
+- `posthog/tasks/scheduled.py` - Task schedule definitions
 
 ## See also
 
