@@ -5371,7 +5371,7 @@ class TestReconcileSingleTeamErrorHandling:
             from posthog.dags.person_property_reconciliation import reconcile_team_chunk
 
             # Call the op's underlying function directly via __wrapped__
-            result = reconcile_team_chunk.__wrapped__(
+            result = reconcile_team_chunk.__wrapped__(  # type: ignore[attr-defined]
                 context=mock_context,
                 config=config,
                 chunk=[1, 2, 3],
