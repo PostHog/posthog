@@ -69,7 +69,10 @@ jobs:
                         ref: sha
                       });
                       core.setOutput('short_sha', sha.substring(0, 7));
-                      core.setOutput('message', commit.commit.message.split('\n')[0].substring(0, 50));
+                      const message = commit.commit.message.split('\n')[0].substring(0, 50);
+                      // Escape quotes and backslashes for YAML
+                      const escapedMessage = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                      core.setOutput('message', escapedMessage);
                       core.setOutput('author', commit.author?.login || commit.commit.author.name);
                       core.setOutput('url', commit.html_url);
 
