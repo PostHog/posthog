@@ -11,6 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func ptrFloat64(f float64) *float64 { return &f }
+func ptrString(s string) *string   { return &s }
+
 func TestNewFilter(t *testing.T) {
 	subChan := make(chan Subscription)
 	unSubChan := make(chan Subscription)
@@ -53,14 +56,14 @@ func TestUuidFromDistinctId(t *testing.T) {
 
 func TestConvertToResponseGeoEvent(t *testing.T) {
 	event := PostHogEvent{
-		Lat: 40.7128,
-		Lng: -74.0060,
+		Lat: ptrFloat64(40.7128),
+		Lng: ptrFloat64(-74.0060),
 	}
 
 	result := convertToResponseGeoEvent(event)
 
-	assert.Equal(t, 40.7128, result.Lat)
-	assert.Equal(t, -74.0060, result.Lng)
+	assert.Equal(t, 40.7128, *result.Lat)
+	assert.Equal(t, -74.0060, *result.Lng)
 	assert.Equal(t, uint(1), result.Count)
 }
 
@@ -167,8 +170,8 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 
 	// Test geo event filtering
 	event := PostHogEvent{
-		Lat: 40.7128,
-		Lng: -74.0060,
+		Lat: ptrFloat64(40.7128),
+		Lng: ptrFloat64(-74.0060),
 	}
 	inboundChan <- event
 
@@ -177,8 +180,8 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 	case receivedEvent := <-eventChan:
 		geoEvent, ok := receivedEvent.(ResponseGeoEvent)
 		require.True(t, ok)
-		assert.Equal(t, 40.7128, geoEvent.Lat)
-		assert.Equal(t, -74.0060, geoEvent.Lng)
+		assert.Equal(t, 40.7128, *geoEvent.Lat)
+		assert.Equal(t, -74.0060, *geoEvent.Lng)
 		assert.Equal(t, uint(1), geoEvent.Count)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Timed out waiting for geo event")
@@ -197,5 +200,5 @@ func TestResponsePostHogEvent_MarshalJSON(t *testing.T) {
 
 	json, err := json.Marshal(event)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"uuid":"123","timestamp":"2023-01-01T00:00:00Z","distinct_id":"user1","person_id":"person1","event":"pageview","properties":{"url":"https://example.com"}}`, string(json))
+	assert.JSONEq(t, `{"uuid":"123","timestamp":"2023-01-01T00:00:00Z","distinct_id":"user1","person_id":"person1","event":"pageview","properties":{"url":"https://example.com"},"geo":null}`, string(json))
 }

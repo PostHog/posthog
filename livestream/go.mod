@@ -1,6 +1,8 @@
 module github.com/posthog/posthog/livestream
 
-go 1.24
+go 1.24.0
+
+toolchain go1.24.6
 
 require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.10.1
@@ -12,10 +14,10 @@ require (
 	github.com/labstack/echo-contrib v0.17.4
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/mailru/easyjson v0.9.0
-	github.com/oschwald/maxminddb-golang v1.13.1
+	github.com/oschwald/maxminddb-golang/v2 v2.1.1
 	github.com/prometheus/client_golang v1.22.0
 	github.com/spf13/viper v1.20.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 )
 
 require (
@@ -58,7 +60,7 @@ require (
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
 	golang.org/x/net v0.41.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.26.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect

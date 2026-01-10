@@ -61,16 +61,28 @@ func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Le
 				for !in.IsDelim('}') {
 					key := string(in.String())
 					in.WantColon()
-					v1 := in.Interface()
+					var v1 interface{}
 					if m, ok := v1.(easyjson.Unmarshaler); ok {
 						m.UnmarshalEasyJSON(in)
 					} else if m, ok := v1.(json.Unmarshaler); ok {
 						_ = m.UnmarshalJSON(in.Raw())
+					} else {
+						v1 = in.Interface()
 					}
 					(out.Properties)[key] = v1
 					in.WantComma()
 				}
 				in.Delim('}')
+			}
+		case "geo":
+			if in.IsNull() {
+				in.Skip()
+				out.Geo = nil
+			} else {
+				if out.Geo == nil {
+					out.Geo = new(GeoData)
+				}
+				(*out.Geo).UnmarshalEasyJSON(in)
 			}
 		default:
 			in.SkipRecursive()
@@ -144,6 +156,15 @@ func easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents(out *jwriter.
 			out.RawByte('}')
 		}
 	}
+	{
+		const prefix string = ",\"geo\":"
+		out.RawString(prefix)
+		if in.Geo == nil {
+			out.RawString("null")
+		} else {
+			(*in.Geo).MarshalEasyJSON(out)
+		}
+	}
 	out.RawByte('}')
 }
 
@@ -190,9 +211,25 @@ func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.L
 		}
 		switch key {
 		case "lat":
-			out.Lat = float64(in.Float64())
+			if in.IsNull() {
+				in.Skip()
+				out.Lat = nil
+			} else {
+				if out.Lat == nil {
+					out.Lat = new(float64)
+				}
+				*out.Lat = float64(in.Float64())
+			}
 		case "lng":
-			out.Lng = float64(in.Float64())
+			if in.IsNull() {
+				in.Skip()
+				out.Lng = nil
+			} else {
+				if out.Lng == nil {
+					out.Lng = new(float64)
+				}
+				*out.Lng = float64(in.Float64())
+			}
 		case "count":
 			out.Count = uint(in.Uint())
 		default:
@@ -209,19 +246,30 @@ func easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter
 	out.RawByte('{')
 	first := true
 	_ = first
-	{
+	if in.Lat != nil {
 		const prefix string = ",\"lat\":"
+		first = false
 		out.RawString(prefix[1:])
-		out.Float64(float64(in.Lat))
+		out.Float64(float64(*in.Lat))
 	}
-	{
+	if in.Lng != nil {
 		const prefix string = ",\"lng\":"
-		out.RawString(prefix)
-		out.Float64(float64(in.Lng))
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Float64(float64(*in.Lng))
 	}
 	{
 		const prefix string = ",\"count\":"
-		out.RawString(prefix)
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
 		out.Uint(uint(in.Count))
 	}
 	out.RawByte('}')
@@ -249,4 +297,119 @@ func (v *ResponseGeoEvent) UnmarshalJSON(data []byte) error {
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ResponseGeoEvent) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents1(l, v)
+}
+func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents2(in *jlexer.Lexer, out *GeoData) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "lat":
+			if in.IsNull() {
+				in.Skip()
+				out.Lat = nil
+			} else {
+				if out.Lat == nil {
+					out.Lat = new(float64)
+				}
+				*out.Lat = float64(in.Float64())
+			}
+		case "lng":
+			if in.IsNull() {
+				in.Skip()
+				out.Lng = nil
+			} else {
+				if out.Lng == nil {
+					out.Lng = new(float64)
+				}
+				*out.Lng = float64(in.Float64())
+			}
+		case "country_code":
+			if in.IsNull() {
+				in.Skip()
+				out.CountryCode = nil
+			} else {
+				if out.CountryCode == nil {
+					out.CountryCode = new(string)
+				}
+				*out.CountryCode = string(in.String())
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents2(out *jwriter.Writer, in GeoData) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	if in.Lat != nil {
+		const prefix string = ",\"lat\":"
+		first = false
+		out.RawString(prefix[1:])
+		out.Float64(float64(*in.Lat))
+	}
+	if in.Lng != nil {
+		const prefix string = ",\"lng\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Float64(float64(*in.Lng))
+	}
+	if in.CountryCode != nil {
+		const prefix string = ",\"country_code\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.String(string(*in.CountryCode))
+	}
+	out.RawByte('}')
+}
+
+// MarshalJSON supports json.Marshaler interface
+func (v GeoData) MarshalJSON() ([]byte, error) {
+	w := jwriter.Writer{}
+	easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents2(&w, v)
+	return w.Buffer.BuildBytes(), w.Error
+}
+
+// MarshalEasyJSON supports easyjson.Marshaler interface
+func (v GeoData) MarshalEasyJSON(w *jwriter.Writer) {
+	easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents2(w, v)
+}
+
+// UnmarshalJSON supports json.Unmarshaler interface
+func (v *GeoData) UnmarshalJSON(data []byte) error {
+	r := jlexer.Lexer{Data: data}
+	easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents2(&r, v)
+	return r.Error()
+}
+
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
+func (v *GeoData) UnmarshalEasyJSON(l *jlexer.Lexer) {
+	easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents2(l, v)
 }

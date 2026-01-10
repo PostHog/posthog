@@ -27,6 +27,13 @@ type Subscription struct {
 }
 
 //easyjson:json
+type GeoData struct {
+	Lat         *float64 `json:"lat,omitempty"`
+	Lng         *float64 `json:"lng,omitempty"`
+	CountryCode *string  `json:"country_code,omitempty"`
+}
+
+//easyjson:json
 type ResponsePostHogEvent struct {
 	Uuid       string                 `json:"uuid"`
 	Timestamp  interface{}            `json:"timestamp"`
@@ -34,13 +41,14 @@ type ResponsePostHogEvent struct {
 	PersonId   string                 `json:"person_id"`
 	Event      string                 `json:"event"`
 	Properties map[string]interface{} `json:"properties"`
+	Geo        *GeoData               `json:"geo"`
 }
 
 //easyjson:json
 type ResponseGeoEvent struct {
-	Lat   float64 `json:"lat"`
-	Lng   float64 `json:"lng"`
-	Count uint    `json:"count"`
+	Lat   *float64 `json:"lat,omitempty"`
+	Lng   *float64 `json:"lng,omitempty"`
+	Count uint     `json:"count"`
 }
 
 type Filter struct {
@@ -63,6 +71,12 @@ func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 }
 
 func convertToResponsePostHogEvent(event PostHogEvent, teamId int) *ResponsePostHogEvent {
+	geo := &GeoData{
+		Lat:         event.Lat,
+		Lng:         event.Lng,
+		CountryCode: event.CountryCode,
+	}
+
 	return &ResponsePostHogEvent{
 		Uuid:       event.Uuid,
 		Timestamp:  event.Timestamp,
@@ -70,6 +84,7 @@ func convertToResponsePostHogEvent(event PostHogEvent, teamId int) *ResponsePost
 		PersonId:   uuidFromDistinctId(teamId, event.DistinctId),
 		Event:      event.Event,
 		Properties: event.Properties,
+		Geo:        geo,
 	}
 }
 
@@ -126,7 +141,7 @@ func (c *Filter) Run() {
 				}
 
 				if sub.Geo {
-					if event.Lat != 0.0 {
+					if event.Lat != nil {
 						if responseGeoEvent == nil {
 							responseGeoEvent = convertToResponseGeoEvent(event)
 						}

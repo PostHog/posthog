@@ -193,6 +193,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
             const url = new URL(`${host}/events`)
             url.searchParams.append('eventType', '$pageview')
+            url.searchParams.append('includeProperties', '')
 
             cache.batch = [] as LiveEvent[]
             cache.lastBatchTime = performance.now()
