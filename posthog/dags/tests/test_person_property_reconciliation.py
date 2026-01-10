@@ -5320,3 +5320,296 @@ class TestQueryTeamIdsFromClickHouse:
             )
 
         assert "min_team_id (100) cannot be greater than max_team_id (50)" in str(exc_info.value)
+
+
+class TestReconciliationSchedulerSensor:
+    """Tests for the person_property_reconciliation_scheduler sensor."""
+
+    def test_build_reconciliation_run_config(self):
+        """Test that run config is built correctly from scheduler config."""
+        from posthog.dags.person_property_reconciliation import (
+            ReconciliationSchedulerConfig,
+            build_reconciliation_run_config,
+        )
+
+        config = ReconciliationSchedulerConfig(
+            range_start=1,
+            range_end=10000,
+            chunk_size=1000,
+            max_concurrent=20,
+            bug_window_start="2024-01-06 20:01:00",
+            bug_window_end="2024-01-07 14:52:00",
+            dry_run=False,
+            backup_enabled=True,
+            batch_size=100,
+        )
+
+        run_config = build_reconciliation_run_config(config, min_team_id=1, max_team_id=1000)
+
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["min_team_id"] == 1
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["max_team_id"] == 1000
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["bug_window_start"] == "2024-01-06 20:01:00"
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["dry_run"] is False
+        assert run_config["ops"]["reconcile_team_chunk"]["config"]["backup_enabled"] is True
+        assert run_config["execution"]["config"]["max_concurrent"] == 20
+
+    def test_sensor_no_cursor_returns_skip_reason(self):
+        """Test that sensor returns SkipReason when no cursor is set."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        context = build_sensor_context(cursor=None)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "No cursor set" in result.skip_message
+
+    def test_sensor_invalid_cursor_json_returns_skip_reason(self):
+        """Test that sensor returns SkipReason for invalid JSON cursor."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        context = build_sensor_context(cursor="not valid json {")
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "Invalid cursor JSON" in result.skip_message
+
+    def test_sensor_completed_range_returns_skip_reason(self):
+        """Test that sensor returns SkipReason when range is completed."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "next_chunk_start": 1001,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "complete" in result.skip_message.lower()
+
+    def test_sensor_at_max_concurrency_returns_skip_reason(self):
+        """Test that sensor returns SkipReason when at max concurrency."""
+        from dagster import DagsterInstance, SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 10000,
+                "chunk_size": 1000,
+                "max_concurrent": 2,
+                "next_chunk_start": 1,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = [MagicMock(), MagicMock()]
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "max concurrency" in result.skip_message.lower()
+
+    def test_sensor_yields_runs_up_to_available_slots(self):
+        """Test that sensor yields correct number of runs based on available slots."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 5000,
+                "chunk_size": 1000,
+                "max_concurrent": 3,
+                "next_chunk_start": 1,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = [MagicMock()]
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 2
+        assert result.run_requests[0].run_key == "reconcile_teams_1_1000"
+        assert result.run_requests[1].run_key == "reconcile_teams_1001_2000"
+
+        assert result.cursor is not None
+        new_cursor = json.loads(result.cursor)
+        assert new_cursor["next_chunk_start"] == 2001
+
+    def test_sensor_handles_partial_final_chunk(self):
+        """Test that sensor correctly handles a final chunk smaller than chunk_size."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1500,
+                "chunk_size": 1000,
+                "max_concurrent": 5,
+                "next_chunk_start": 1001,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 1
+        assert result.run_requests[0].run_key == "reconcile_teams_1001_1500"
+
+        assert result.cursor is not None
+        new_cursor = json.loads(result.cursor)
+        assert new_cursor["next_chunk_start"] == 1501
+
+    def test_sensor_run_request_has_correct_tags(self):
+        """Test that run requests include expected tags."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 2000,
+                "chunk_size": 1000,
+                "max_concurrent": 5,
+                "next_chunk_start": 1,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 2
+        assert result.run_requests[0].tags["reconciliation_range"] == "1-1000"
+        assert result.run_requests[0].tags["owner"] == "team-ingestion"
+
+    def test_sensor_validates_range_start_less_than_range_end(self):
+        """Test that sensor rejects range_start > range_end."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1000,
+                "range_end": 500,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "range_start" in result.skip_message
+        assert "range_end" in result.skip_message
+
+    def test_sensor_validates_chunk_size_positive(self):
+        """Test that sensor rejects chunk_size <= 0."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "chunk_size": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "chunk_size" in result.skip_message
+
+    def test_sensor_validates_max_concurrent_positive(self):
+        """Test that sensor rejects max_concurrent <= 0."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "max_concurrent" in result.skip_message
+
+    def test_sensor_validates_max_concurrent_cap(self):
+        """Test that sensor rejects max_concurrent exceeding the cap."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent": 100,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "exceeds cap" in result.skip_message.lower()
