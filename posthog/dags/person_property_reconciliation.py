@@ -42,6 +42,7 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     dry_run: bool = False  # Log changes without applying
     backup_enabled: bool = True  # Store before/after state in backup table
     batch_size: int = 100  # Commit Postgres transaction every N persons (0 = single commit at end)
+    teams_per_chunk: int = 100  # Number of teams to process per task (reduces task overhead)
 
 
 @dataclass
@@ -943,6 +944,7 @@ def query_team_ids_from_clickhouse(
     min_team_id: int | None = None,
     max_team_id: int | None = None,
     exclude_team_ids: list[int] | None = None,
+    include_team_ids: list[int] | None = None,
 ) -> list[int]:
     """
     Query ClickHouse for distinct team_ids with property-setting events in the bug window.
@@ -953,6 +955,7 @@ def query_team_ids_from_clickhouse(
         min_team_id: Optional minimum team_id (inclusive)
         max_team_id: Optional maximum team_id (inclusive)
         exclude_team_ids: Optional list of team_ids to exclude
+        include_team_ids: Optional list of team_ids to include (only these teams will be queried)
 
     Returns:
         List of team_ids sorted ascending
@@ -970,6 +973,10 @@ def query_team_ids_from_clickhouse(
         "bug_window_start": bug_window_start,
         "bug_window_end": bug_window_end,
     }
+
+    if include_team_ids:
+        team_id_filters.append("team_id IN %(include_team_ids)s")
+        params["include_team_ids"] = tuple(include_team_ids)
 
     if min_team_id is not None:
         team_id_filters.append("team_id >= %(min_team_id)s")
@@ -1011,19 +1018,17 @@ def get_team_ids_to_reconcile(
     """
     Query ClickHouse for distinct team_ids with property-setting events in the bug window.
     """
-    if config.team_ids:
-        context.log.info(f"Using configured team_ids: {config.team_ids}")
-        return config.team_ids
-
     if not config.bug_window_end:
         raise dagster.Failure(
-            description="Either team_ids or bug_window_end must be provided",
+            description="bug_window_end must be provided",
             metadata={
                 "bug_window_start": dagster.MetadataValue.text(config.bug_window_start),
             },
         )
 
     filter_info_parts = []
+    if config.team_ids:
+        filter_info_parts.append(f"team_ids: {config.team_ids}")
     if config.min_team_id is not None or config.max_team_id is not None:
         filter_info_parts.append(f"range: {config.min_team_id or 'any'} to {config.max_team_id or 'any'}")
     if config.exclude_team_ids:
@@ -1040,6 +1045,7 @@ def get_team_ids_to_reconcile(
         min_team_id=config.min_team_id,
         max_team_id=config.max_team_id,
         exclude_team_ids=config.exclude_team_ids,
+        include_team_ids=config.team_ids,
     )
 
     if not team_ids:
@@ -1053,51 +1059,153 @@ def get_team_ids_to_reconcile(
     return team_ids
 
 
-@dagster.op(out=dagster.DynamicOut(int))
+@dagster.op(out=dagster.DynamicOut(list[int]))
 def create_team_chunks(
     context: dagster.OpExecutionContext,
+    config: PersonPropertyReconciliationConfig,
     team_ids: list[int],
 ):
     """
-    Create a chunk for each team_id.
-    Yields DynamicOutput for each team.
+    Create chunks of team_ids based on teams_per_chunk config.
+    Yields DynamicOutput for each chunk containing one or more teams.
     """
     if not team_ids:
         context.log.info("No teams to process")
         return
 
-    context.log.info(f"Creating {len(team_ids)} team chunks")
+    teams_per_chunk = max(1, config.teams_per_chunk)
+    num_chunks = (len(team_ids) + teams_per_chunk - 1) // teams_per_chunk
+    context.log.info(f"Creating {num_chunks} chunks for {len(team_ids)} teams (teams_per_chunk={teams_per_chunk})")
 
-    for team_id in team_ids:
-        chunk_key = f"team_{team_id}"
-        context.log.info(f"Yielding chunk for team_id: {team_id}")
+    for i in range(0, len(team_ids), teams_per_chunk):
+        chunk = team_ids[i : i + teams_per_chunk]
+        chunk_key = f"teams_{chunk[0]}_{chunk[-1]}" if len(chunk) > 1 else f"team_{chunk[0]}"
+        context.log.info(
+            f"Yielding chunk with {len(chunk)} teams: {chunk[0]}-{chunk[-1] if len(chunk) > 1 else chunk[0]}"
+        )
         yield dagster.DynamicOutput(
-            value=team_id,
+            value=chunk,
             mapping_key=chunk_key,
         )
+
+
+@dataclass
+class TeamReconciliationResult:
+    """Result of reconciling a single team."""
+
+    team_id: int
+    persons_processed: int
+    persons_updated: int
+    persons_skipped: int
+
+
+def reconcile_single_team(
+    team_id: int,
+    bug_window_start: str,
+    run_id: str,
+    batch_size: int,
+    dry_run: bool,
+    backup_enabled: bool,
+    persons_database: psycopg2.extensions.connection,
+    kafka_producer: _KafkaProducer,
+    logger: Any,
+) -> TeamReconciliationResult:
+    """
+    Reconcile person properties for all affected persons in a single team.
+
+    This function does not catch exceptions - the caller is responsible for error handling.
+    """
+    # Query ClickHouse for all persons with property updates in this team
+    person_property_diffs = get_person_property_updates_from_clickhouse(
+        team_id=team_id,
+        bug_window_start=bug_window_start,
+    )
+
+    # Filter conflicting set/unset operations
+    person_property_diffs = filter_event_person_properties(person_property_diffs)
+
+    if not person_property_diffs:
+        logger.info(f"No persons to reconcile for team_id={team_id}")
+        return TeamReconciliationResult(
+            team_id=team_id,
+            persons_processed=0,
+            persons_updated=0,
+            persons_skipped=0,
+        )
+
+    logger.info(f"Processing {len(person_property_diffs)} persons for team_id={team_id}")
+
+    # Callback for batch commits - handles Kafka publishing after each batch
+    def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
+        if batch_persons and not dry_run:
+            for person_data in batch_persons:
+                try:
+                    publish_person_to_kafka(person_data, kafka_producer)
+                except Exception as kafka_error:
+                    logger.warning(f"Failed to publish person to Kafka: {person_data['id']}, error: {kafka_error}")
+            try:
+                kafka_producer.flush()
+            except Exception as flush_error:
+                logger.warning(f"Failed to flush Kafka producer: {flush_error}")
+
+            logger.info(f"Batch {batch_num}: committed {len(batch_persons)} updates for team_id={team_id}")
+        elif batch_persons and dry_run:
+            logger.info(f"[DRY RUN] Batch {batch_num}: would apply {len(batch_persons)} updates for team_id={team_id}")
+
+    with persons_database.cursor() as cursor:
+        cursor.execute("SET application_name = 'person_property_reconciliation'")
+        cursor.execute("SET lock_timeout = '5s'")
+        cursor.execute("SET statement_timeout = '30min'")
+        cursor.execute("SET synchronous_commit = off")
+
+        # Process persons in batches using the helper function
+        result = process_persons_in_batches(
+            person_property_diffs=person_property_diffs,
+            cursor=cursor,
+            job_id=run_id,
+            team_id=team_id,
+            batch_size=batch_size,
+            dry_run=dry_run,
+            backup_enabled=backup_enabled,
+            commit_fn=persons_database.commit,
+            on_batch_committed=on_batch_committed,
+            logger=logger,
+        )
+
+    logger.info(
+        f"Completed team_id={team_id}: processed={result.total_processed}, "
+        f"updated={result.total_updated}, skipped={result.total_skipped}"
+    )
+
+    return TeamReconciliationResult(
+        team_id=team_id,
+        persons_processed=result.total_processed,
+        persons_updated=result.total_updated,
+        persons_skipped=result.total_skipped,
+    )
 
 
 @dagster.op
 def reconcile_team_chunk(
     context: dagster.OpExecutionContext,
     config: PersonPropertyReconciliationConfig,
-    chunk: int,
+    chunk: list[int],
     persons_database: dagster.ResourceParam[psycopg2.extensions.connection],
     cluster: dagster.ResourceParam[ClickhouseCluster],
     kafka_producer: dagster.ResourceParam[_KafkaProducer],
 ) -> dict[str, Any]:
     """
-    Reconcile person properties for all affected persons in a team.
+    Reconcile person properties for all affected persons in a chunk of teams.
     """
-    team_id = chunk
-    chunk_id = f"team_{team_id}"
+    team_ids = chunk
+    chunk_id = f"teams_{team_ids[0]}_{team_ids[-1]}" if len(team_ids) > 1 else f"team_{team_ids[0]}"
     job_name = context.run.job_name
     run_id = context.run.run_id
 
     metrics_client = MetricsClient(cluster)
 
     context.log.info(
-        f"Starting reconciliation for team_id: {team_id}, "
+        f"Starting reconciliation for {len(team_ids)} teams: {team_ids}, "
         f"bug_window_start: {config.bug_window_start}, "
         f"dry_run: {config.dry_run}"
     )
@@ -1105,118 +1213,72 @@ def reconcile_team_chunk(
     total_persons_processed = 0
     total_persons_updated = 0
     total_persons_skipped = 0
+    total_teams_succeeded = 0
+    total_teams_failed = 0
+    teams_results: list[dict[str, Any]] = []
 
-    try:
-        start_time = time.time()
+    start_time = time.time()
 
-        # Query ClickHouse for all persons with property updates in this team
-        person_property_diffs = get_person_property_updates_from_clickhouse(
-            team_id=team_id,
-            bug_window_start=config.bug_window_start,
-        )
+    for team_id in team_ids:
+        team_result: dict[str, Any] = {
+            "team_id": team_id,
+            "status": "success",
+            "persons_processed": 0,
+            "persons_updated": 0,
+            "persons_skipped": 0,
+        }
 
-        # Filter conflicting set/unset operations
-        person_property_diffs = filter_event_person_properties(person_property_diffs)
-
-        if not person_property_diffs:
-            context.log.info(f"No persons to reconcile for team_id={team_id}")
-            return {
-                "team_id": team_id,
-                "persons_processed": 0,
-                "persons_updated": 0,
-                "persons_skipped": 0,
-            }
-
-        context.log.info(f"Processing {len(person_property_diffs)} persons for team_id={team_id}")
-
-        # Callback for batch commits - handles Kafka publishing after each batch
-        def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
-            if batch_persons and not config.dry_run:
-                for person_data in batch_persons:
-                    try:
-                        publish_person_to_kafka(person_data, kafka_producer)
-                    except Exception as kafka_error:
-                        context.log.warning(
-                            f"Failed to publish person to Kafka: {person_data['id']}, error: {kafka_error}"
-                        )
-                try:
-                    kafka_producer.flush()
-                except Exception as flush_error:
-                    context.log.warning(f"Failed to flush Kafka producer: {flush_error}")
-
-                context.log.info(f"Batch {batch_num}: committed {len(batch_persons)} updates for team_id={team_id}")
-            elif batch_persons and config.dry_run:
-                context.log.info(
-                    f"[DRY RUN] Batch {batch_num}: would apply {len(batch_persons)} updates for team_id={team_id}"
-                )
-
-        with persons_database.cursor() as cursor:
-            cursor.execute("SET application_name = 'person_property_reconciliation'")
-            cursor.execute("SET lock_timeout = '5s'")
-            cursor.execute("SET statement_timeout = '30min'")
-            cursor.execute("SET synchronous_commit = off")
-
-            # Process persons in batches using the helper function
-            result = process_persons_in_batches(
-                person_property_diffs=person_property_diffs,
-                cursor=cursor,
-                job_id=run_id,
+        try:
+            result = reconcile_single_team(
                 team_id=team_id,
+                bug_window_start=config.bug_window_start,
+                run_id=run_id,
                 batch_size=config.batch_size,
                 dry_run=config.dry_run,
                 backup_enabled=config.backup_enabled,
-                commit_fn=persons_database.commit,
-                on_batch_committed=on_batch_committed,
+                persons_database=persons_database,
+                kafka_producer=kafka_producer,
                 logger=context.log,
             )
+            team_result["persons_processed"] = result.persons_processed
+            team_result["persons_updated"] = result.persons_updated
+            team_result["persons_skipped"] = result.persons_skipped
+            total_teams_succeeded += 1
 
-            total_persons_processed = result.total_processed
-            total_persons_updated = result.total_updated
-            total_persons_skipped = result.total_skipped
+        except Exception as e:
+            team_result["status"] = "failed"
+            team_result["error"] = str(e)
+            total_teams_failed += 1
 
-        # Track metrics
-        duration = time.time() - start_time
-        try:
-            metrics_client.increment(
-                "person_property_reconciliation_persons_processed_total",
-                labels={"job_name": job_name, "chunk_id": chunk_id},
-                value=float(total_persons_processed),
-            ).result()
-            metrics_client.increment(
-                "person_property_reconciliation_duration_seconds_total",
-                labels={"job_name": job_name, "chunk_id": chunk_id},
-                value=duration,
-            ).result()
-        except Exception:
-            pass
+            context.log.exception(f"Failed team_id={team_id}: {e}")
 
-    except Exception as e:
-        error_msg = f"Error for team_id={team_id}: {e}"
-        context.log.exception(error_msg)
+            try:
+                metrics_client.increment(
+                    "person_property_reconciliation_error",
+                    labels={"job_name": job_name, "chunk_id": chunk_id, "team_id": str(team_id), "reason": "error"},
+                    value=1.0,
+                ).result()
+            except Exception:
+                pass
 
-        try:
-            metrics_client.increment(
-                "person_property_reconciliation_error",
-                labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "error"},
-                value=1.0,
-            ).result()
-        except Exception:
-            pass
+        total_persons_processed += team_result["persons_processed"]
+        total_persons_updated += team_result["persons_updated"]
+        total_persons_skipped += team_result["persons_skipped"]
+        teams_results.append(team_result)
 
-        raise dagster.Failure(
-            description=error_msg,
-            metadata={
-                "team_id": dagster.MetadataValue.int(team_id),
-                "error_message": dagster.MetadataValue.text(str(e)),
-                "persons_processed_before_failure": dagster.MetadataValue.int(total_persons_processed),
-            },
-        ) from e
-
-    context.log.info(
-        f"Completed team_id={team_id}: processed={total_persons_processed}, updated={total_persons_updated}, skipped={total_persons_skipped}"
-    )
-
+    # Track metrics for the entire chunk
+    duration = time.time() - start_time
     try:
+        metrics_client.increment(
+            "person_property_reconciliation_persons_processed_total",
+            labels={"job_name": job_name, "chunk_id": chunk_id},
+            value=float(total_persons_processed),
+        ).result()
+        metrics_client.increment(
+            "person_property_reconciliation_duration_seconds_total",
+            labels={"job_name": job_name, "chunk_id": chunk_id},
+            value=duration,
+        ).result()
         metrics_client.increment(
             "person_property_reconciliation_persons_updated_total",
             labels={"job_name": job_name, "chunk_id": chunk_id},
@@ -1227,23 +1289,53 @@ def reconcile_team_chunk(
             labels={"job_name": job_name, "chunk_id": chunk_id},
             value=float(total_persons_skipped),
         ).result()
+        metrics_client.increment(
+            "person_property_reconciliation_teams_succeeded_total",
+            labels={"job_name": job_name, "chunk_id": chunk_id},
+            value=float(total_teams_succeeded),
+        ).result()
+        metrics_client.increment(
+            "person_property_reconciliation_teams_failed_total",
+            labels={"job_name": job_name, "chunk_id": chunk_id},
+            value=float(total_teams_failed),
+        ).result()
     except Exception:
         pass
 
+    # Log failed teams for easy searching
+    failed_teams = [r for r in teams_results if r["status"] == "failed"]
+    if failed_teams:
+        failed_team_ids = [r["team_id"] for r in failed_teams]
+        context.log.warning(f"Failed teams in chunk {chunk_id}: {failed_team_ids}")
+
+    context.log.info(
+        f"Completed chunk {chunk_id}: teams={len(team_ids)} (succeeded={total_teams_succeeded}, failed={total_teams_failed}), "
+        f"persons: processed={total_persons_processed}, updated={total_persons_updated}, skipped={total_persons_skipped}"
+    )
+
     context.add_output_metadata(
         {
-            "team_id": dagster.MetadataValue.int(team_id),
+            "team_ids": dagster.MetadataValue.text(str(team_ids)),
+            "teams_count": dagster.MetadataValue.int(len(team_ids)),
+            "teams_succeeded": dagster.MetadataValue.int(total_teams_succeeded),
+            "teams_failed": dagster.MetadataValue.int(total_teams_failed),
+            "failed_team_ids": dagster.MetadataValue.text(str([r["team_id"] for r in failed_teams])),
             "persons_processed": dagster.MetadataValue.int(total_persons_processed),
             "persons_updated": dagster.MetadataValue.int(total_persons_updated),
             "persons_skipped": dagster.MetadataValue.int(total_persons_skipped),
+            "teams_results": dagster.MetadataValue.json(teams_results),
         }
     )
 
     return {
-        "team_id": team_id,
+        "team_ids": team_ids,
+        "teams_count": len(team_ids),
+        "teams_succeeded": total_teams_succeeded,
+        "teams_failed": total_teams_failed,
         "persons_processed": total_persons_processed,
         "persons_updated": total_persons_updated,
         "persons_skipped": total_persons_skipped,
+        "teams_results": teams_results,
     }
 
 
@@ -1292,6 +1384,7 @@ class ReconciliationSchedulerConfig(dagster.Config):
     dry_run: bool = False
     backup_enabled: bool = True
     batch_size: int = 100
+    teams_per_chunk: int = 100  # Number of teams to process per task
 
     # Resource configuration - the env var name for the PG connection string
     persons_db_env_var: str = "PERSONS_DB_WRITER_URL"  # Env var for Postgres connection URL
@@ -1311,12 +1404,14 @@ def build_reconciliation_run_config(
         "dry_run": config.dry_run,
         "backup_enabled": config.backup_enabled,
         "batch_size": config.batch_size,
+        "teams_per_chunk": config.teams_per_chunk,
     }
 
     return {
         "execution": {"config": {"max_concurrent": config.max_concurrent_tasks}},
         "ops": {
             "get_team_ids_to_reconcile": {"config": op_config},
+            "create_team_chunks": {"config": op_config},
             "reconcile_team_chunk": {"config": op_config},
         },
         "resources": {
@@ -1428,6 +1523,7 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
         dry_run=cursor_data.get("dry_run", False),
         backup_enabled=cursor_data.get("backup_enabled", True),
         batch_size=cursor_data.get("batch_size", 100),
+        teams_per_chunk=cursor_data.get("teams_per_chunk", 100),
         persons_db_env_var=cursor_data.get("persons_db_env_var", "PERSONS_DB_WRITER_URL"),
     )
 
