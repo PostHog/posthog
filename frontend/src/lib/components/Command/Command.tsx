@@ -1,10 +1,11 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { Dialog } from '@base-ui/react/dialog'
 import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter } from 'kea-forms'
 import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconX } from '@posthog/icons'
+import { IconSearch, IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -12,6 +13,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -19,6 +21,45 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { commandLogic } from './commandLogic'
 import { CommandSearchItem, commandSearchLogic } from './commandSearchLogic'
+
+const PLACEHOLDER_OPTIONS = [
+    'insights...',
+    'dashboards...',
+    'feature flags...',
+    'experiments...',
+    'surveys...',
+    'notebooks...',
+    'cohorts...',
+    'persons...',
+    'recordings filters...',
+]
+
+const PLACEHOLDER_CYCLE_INTERVAL = 3000
+
+const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: boolean } => {
+    const [index, setIndex] = useState(0)
+    const [isVisible, setIsVisible] = useState(true)
+
+    useEffect(() => {
+        if (!isActive) {
+            setIndex(0)
+            setIsVisible(true)
+            return
+        }
+
+        const interval = setInterval(() => {
+            setIsVisible(false)
+            setTimeout(() => {
+                setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
+                setIsVisible(true)
+            }, 200) // fade out duration
+        }, PLACEHOLDER_CYCLE_INTERVAL)
+
+        return () => clearInterval(interval)
+    }, [isActive])
+
+    return { text: PLACEHOLDER_OPTIONS[index], isVisible }
+}
 
 const getItemTypeDisplayName = (type: string | null | undefined): string | null => {
     if (!type) {
@@ -165,6 +206,10 @@ export function Command(): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
 
+    const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(
+        isCommandOpen && !searchValue
+    )
+
     const { contains } = Autocomplete.useFilter({ sensitivity: 'base' })
 
     // Flatten all category items into a single list
@@ -296,34 +341,55 @@ export function Command(): JSX.Element {
                         openOnInputClick={false}
                         defaultOpen
                     >
-                        <div className="p-2 border-b border-primary space-y-2">
-                            <div className="input-like relative">
+                        <div className="p-1 space-y-2">
+                            <label
+                                htmlFor="command-palette-search"
+                                className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus:outline-none focus:ring-2 focus-within:ring-primary py-1 px-2"
+                            >
+                                <Autocomplete.Icon
+                                    className="size-4"
+                                    render={<IconSearch className="text-tertiary group-focus-within:text-primary" />}
+                                />
+                                {searchValue ? null : (
+                                    <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 ">
+                                        Search for{' '}
+                                        <span
+                                            className="transition-opacity duration-200"
+                                            style={{ opacity: placeholderVisible ? 1 : 0 }}
+                                        >
+                                            {placeholderText}
+                                        </span>
+                                    </span>
+                                )}
                                 <Autocomplete.Input
                                     ref={inputRef}
                                     value={searchValue}
                                     onChange={(e) => handleInputChange(e.target.value)}
-                                    placeholder="Search for anything, or ask an AI question..."
-                                    className="w-full px-3 py-2 text-sm bg-fill-input border border-primary rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent placeholder:text-muted"
                                     aria-label="Command palette search"
+                                    id="command-palette-search"
+                                    className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
                                 />
+                                <span className="pointer-events-none whitespace-nowrap">
+                                    <KeyboardShortcut command k minimal />
+                                </span>
                                 <Autocomplete.Clear
-                                    className="absolute right-1 top-1/2 -translate-y-1/2"
                                     render={
                                         <ButtonPrimitive
                                             iconOnly
                                             size="sm"
                                             onClick={() => setSearchValue('')}
                                             aria-label="Clear search"
+                                            className="-mr-1"
                                         >
                                             <IconX className="size-4 text-tertiary" />
                                         </ButtonPrimitive>
                                     }
                                 />
-                            </div>
+                            </label>
                         </div>
 
                         <ScrollableShadows direction="vertical" styledScrollbars className="flex-1 overflow-y-auto">
-                            <Autocomplete.Status className="px-3 py-2 text-xs text-muted border-b border-primary">
+                            <Autocomplete.Status className="px-3 pt-1 pb-2 text-xs text-muted border-b border-primary">
                                 {statusMessage}
                             </Autocomplete.Status>
 
@@ -371,9 +437,11 @@ export function Command(): JSX.Element {
                                                                     </span>
                                                                     {(group.category === 'recents' ||
                                                                         group.category === 'groups') &&
-                                                                        typeLabel && (
+                                                                        (item.groupNoun || typeLabel) && (
                                                                             <span className="text-xs text-tertiary shrink-0">
-                                                                                {typeLabel}
+                                                                                {capitalizeFirstLetter(
+                                                                                    item.groupNoun || typeLabel || ''
+                                                                                )}
                                                                             </span>
                                                                         )}
                                                                     {item.lastViewedAt && (

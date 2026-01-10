@@ -29,6 +29,7 @@ import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavP
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -54,6 +55,7 @@ import { SidePanelTab } from '~/types'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
 import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
+import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
@@ -102,6 +104,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { firstTabIsActive } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
+
+    const isUsingNewCommandKModal = useFeatureFlag('NEW_COMMAND_K_MODAL')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -161,6 +165,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         onClick?: (e?: React.KeyboardEvent) => void
         collapsedTooltip?: React.ReactNode | [React.ReactNode, React.ReactNode] // Open and closed tooltips
         documentationUrl?: string
+        keyboardShortcut?: string[]
     }[] = [
         {
             identifier: 'ProjectHomepage',
@@ -178,6 +183,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 toggleCommand()
             },
             collapsedTooltip: 'Search',
+            keyboardShortcut: isUsingNewCommandKModal ? ['command', 'k'] : undefined,
         },
         ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
             ? [
@@ -419,6 +425,19 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <span className={iconClassName}>{item.icon}</span>
                                                             {!isLayoutNavCollapsed && (
                                                                 <span className="truncate">{item.label}</span>
+                                                            )}
+                                                            {!!item.keyboardShortcut && (
+                                                                <span className="ml-auto">
+                                                                    <KeyboardShortcut
+                                                                        minimal
+                                                                        {...Object.fromEntries(
+                                                                            item.keyboardShortcut?.map((key) => [
+                                                                                key,
+                                                                                true,
+                                                                            ]) ?? []
+                                                                        )}
+                                                                    />
+                                                                </span>
                                                             )}
                                                         </Link>
                                                     </ButtonGroupPrimitive>
