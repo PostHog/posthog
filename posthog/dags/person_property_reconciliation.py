@@ -944,6 +944,7 @@ def query_team_ids_from_clickhouse(
     min_team_id: int | None = None,
     max_team_id: int | None = None,
     exclude_team_ids: list[int] | None = None,
+    include_team_ids: list[int] | None = None,
 ) -> list[int]:
     """
     Query ClickHouse for distinct team_ids with property-setting events in the bug window.
@@ -954,6 +955,7 @@ def query_team_ids_from_clickhouse(
         min_team_id: Optional minimum team_id (inclusive)
         max_team_id: Optional maximum team_id (inclusive)
         exclude_team_ids: Optional list of team_ids to exclude
+        include_team_ids: Optional list of team_ids to include (only these teams will be queried)
 
     Returns:
         List of team_ids sorted ascending
@@ -971,6 +973,10 @@ def query_team_ids_from_clickhouse(
         "bug_window_start": bug_window_start,
         "bug_window_end": bug_window_end,
     }
+
+    if include_team_ids:
+        team_id_filters.append("team_id IN %(include_team_ids)s")
+        params["include_team_ids"] = tuple(include_team_ids)
 
     if min_team_id is not None:
         team_id_filters.append("team_id >= %(min_team_id)s")
@@ -1012,19 +1018,17 @@ def get_team_ids_to_reconcile(
     """
     Query ClickHouse for distinct team_ids with property-setting events in the bug window.
     """
-    if config.team_ids:
-        context.log.info(f"Using configured team_ids: {config.team_ids}")
-        return config.team_ids
-
     if not config.bug_window_end:
         raise dagster.Failure(
-            description="Either team_ids or bug_window_end must be provided",
+            description="bug_window_end must be provided",
             metadata={
                 "bug_window_start": dagster.MetadataValue.text(config.bug_window_start),
             },
         )
 
     filter_info_parts = []
+    if config.team_ids:
+        filter_info_parts.append(f"team_ids: {config.team_ids}")
     if config.min_team_id is not None or config.max_team_id is not None:
         filter_info_parts.append(f"range: {config.min_team_id or 'any'} to {config.max_team_id or 'any'}")
     if config.exclude_team_ids:
@@ -1041,6 +1045,7 @@ def get_team_ids_to_reconcile(
         min_team_id=config.min_team_id,
         max_team_id=config.max_team_id,
         exclude_team_ids=config.exclude_team_ids,
+        include_team_ids=config.team_ids,
     )
 
     if not team_ids:

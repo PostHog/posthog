@@ -5309,6 +5309,124 @@ class TestQueryTeamIdsFromClickHouse:
 
         assert result == [93001, 93003]
 
+    def test_include_team_ids_filters_to_specified_teams(self, cluster: ClickhouseCluster):
+        """Test that include_team_ids only returns teams in the specified list."""
+        bug_window_start = datetime.now(UTC) - timedelta(hours=2)
+        bug_window_end = datetime.now(UTC) + timedelta(hours=1)
+        event_time = datetime.now(UTC) - timedelta(hours=1)
+
+        # Create events for teams 94001-94005
+        events = [
+            (
+                94001,
+                "user_a",
+                "00000000-0000-0000-0000-000000094001",
+                event_time,
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                94002,
+                "user_b",
+                "00000000-0000-0000-0000-000000094002",
+                event_time,
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                94003,
+                "user_c",
+                "00000000-0000-0000-0000-000000094003",
+                event_time,
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                94004,
+                "user_d",
+                "00000000-0000-0000-0000-000000094004",
+                event_time,
+                json.dumps({"$set": {"d": 4}}),
+            ),
+            (
+                94005,
+                "user_e",
+                "00000000-0000-0000-0000-000000094005",
+                event_time,
+                json.dumps({"$set": {"e": 5}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Only include teams 94002 and 94004 - should not return 94001, 94003, 94005
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            include_team_ids=[94002, 94004],
+        )
+
+        assert result == [94002, 94004]
+
+    def test_include_team_ids_combined_with_other_filters(self, cluster: ClickhouseCluster):
+        """Test that include_team_ids works as AND with other filters."""
+        bug_window_start = datetime.now(UTC) - timedelta(hours=2)
+        bug_window_end = datetime.now(UTC) + timedelta(hours=1)
+        event_time = datetime.now(UTC) - timedelta(hours=1)
+
+        # Create events for teams 95001-95004
+        events = [
+            (
+                95001,
+                "user_a",
+                "00000000-0000-0000-0000-000000095001",
+                event_time,
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                95002,
+                "user_b",
+                "00000000-0000-0000-0000-000000095002",
+                event_time,
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                95003,
+                "user_c",
+                "00000000-0000-0000-0000-000000095003",
+                event_time,
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                95004,
+                "user_d",
+                "00000000-0000-0000-0000-000000095004",
+                event_time,
+                json.dumps({"$set": {"d": 4}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # include_team_ids=[95001, 95002, 95003] AND exclude_team_ids=[95002] -> only 95001, 95003
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            include_team_ids=[95001, 95002, 95003],
+            exclude_team_ids=[95002],
+        )
+
+        assert result == [95001, 95003]
+
     def test_invalid_range_raises_error(self):
         """Test that min_team_id > max_team_id raises ValueError."""
         with pytest.raises(ValueError) as exc_info:
