@@ -1292,6 +1292,9 @@ class ReconciliationSchedulerConfig(dagster.Config):
     backup_enabled: bool = True
     batch_size: int = 100
 
+    # Resource configuration - the env var name for the PG connection string
+    persons_db_env_var: str = "PERSONS_DB_WRITER_URL"  # Env var for Postgres connection URL
+
 
 def build_reconciliation_run_config(
     config: ReconciliationSchedulerConfig,
@@ -1327,7 +1330,7 @@ def build_reconciliation_run_config(
                     }
                 }
             },
-            "persons_database": {"config": {"connection_url": {"env": "PERSONS_DB_WRITER_URL"}}},
+            "persons_database": {"config": {"connection_url": {"env": config.persons_db_env_var}}},
         },
     }
 
@@ -1408,6 +1411,7 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
         dry_run=cursor_data.get("dry_run", False),
         backup_enabled=cursor_data.get("backup_enabled", True),
         batch_size=cursor_data.get("batch_size", 100),
+        persons_db_env_var=cursor_data.get("persons_db_env_var", "PERSONS_DB_WRITER_URL"),
     )
 
     # Count active runs for this job
