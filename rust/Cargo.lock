@@ -3073,7 +3073,6 @@ dependencies = [
  "petgraph",
  "rand 0.8.5",
  "rayon",
- "redis",
  "regex",
  "reqwest 0.12.15",
  "rstest",
