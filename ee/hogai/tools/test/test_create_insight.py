@@ -261,7 +261,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             )
 
         self.assertIsNone(artifact)
-        self.assertIn("unknown error", result_text)
+        self.assertIn("unexpected error", result_text)
         self.assertIn(INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, result_text)
 
     async def test_human_feedback_requested_returns_only_tool_call_message(self):
