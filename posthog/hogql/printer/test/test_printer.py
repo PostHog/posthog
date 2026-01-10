@@ -1347,6 +1347,83 @@ class TestPrinter(BaseTest):
             f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_left_join_team_id_in_on_clause(self):
+        # LEFT JOINs should have team_id in ON clause, not WHERE, to preserve LEFT JOIN semantics
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="LEFT JOIN",
+                    table=ast.Field(chain=["events"]),
+                    alias="e2",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["events", "event"]),
+                            right=ast.Field(chain=["e2", "event"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[])
+
+        # The main events table should have its team_id filter in WHERE
+        where_start = result.find("WHERE")
+        where_clause = result[where_start:] if where_start != -1 else ""
+        self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
+
+        # The LEFT JOINed table (alias 'e2') should have team_id in ON clause, NOT in WHERE
+        on_start = result.find("ON")
+        on_clause = result[on_start:where_start] if on_start != -1 and where_start != -1 else ""
+        self.assertIn(f"equals(e2.team_id, {self.team.pk})", on_clause)
+        self.assertNotIn("e2.team_id", where_clause)
+
+    def test_inner_join_team_id_in_where_clause(self):
+        # INNER JOINs should still have team_id in WHERE clause (current behavior)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="JOIN",
+                    table=ast.Field(chain=["events"]),
+                    alias="e2",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["events", "event"]),
+                            right=ast.Field(chain=["e2", "event"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[])
+
+        # Both tables should have team_id filters in the WHERE clause for INNER JOIN
+        where_start = result.find("WHERE")
+        where_clause = result[where_start:] if where_start != -1 else ""
+        self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
+        self.assertIn(f"equals(e2.team_id, {self.team.pk})", where_clause)
+
     def test_select_array_join(self):
         self.assertEqual(
             self._select("select 1, a from events array join [1,2,3] as a"),
