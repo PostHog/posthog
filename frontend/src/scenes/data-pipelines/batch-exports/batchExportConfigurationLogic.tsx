@@ -1012,7 +1012,12 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         'use_variant_type',
                     ]
                 } else if (service === 'AzureBlob') {
-                    return [...generalRequiredFields, 'integration_id', 'container_name']
+                    return [
+                        ...generalRequiredFields,
+                        'integration_id',
+                        'container_name',
+                        ...(isNew ? ['file_format'] : []),
+                    ]
                 }
                 return generalRequiredFields
             },

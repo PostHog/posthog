@@ -27,7 +27,11 @@ export const azureBlobSetupModalLogic = kea<azureBlobSetupModalLogicType>([
                 connectionString: '',
             },
             errors: ({ connectionString }) => ({
-                connectionString: connectionString.trim() ? undefined : 'Connection string is required',
+                connectionString: !connectionString.trim()
+                    ? 'Connection string is required'
+                    : !connectionString.includes('AccountName=')
+                      ? 'Connection string must contain AccountName'
+                      : undefined,
             }),
             submit: async () => {
                 try {
