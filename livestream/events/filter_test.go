@@ -199,3 +199,79 @@ func TestResponsePostHogEvent_MarshalJSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"uuid":"123","timestamp":"2023-01-01T00:00:00Z","distinct_id":"user1","person_id":"person1","event":"pageview","properties":{"url":"https://example.com"}}`, string(json))
 }
+
+func TestIncludeProperties_NilIncludesAllProperties(t *testing.T) {
+	properties := map[string]interface{}{
+		"url":          "https://example.com",
+		"$device_type": "Desktop",
+		"$browser":     "Chrome",
+	}
+
+	event := PostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2026-01-01T00:00:00Z",
+		DistinctId: "user1",
+		Event:      "pageview",
+		Properties: properties,
+	}
+
+	result := convertToResponsePostHogEvent(event, 1, nil)
+
+	assert.Equal(t, properties, result.Properties)
+}
+
+func TestIncludeProperties_EmptySliceIncludesNoProperties(t *testing.T) {
+	event := PostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2026-01-01T00:00:00Z",
+		DistinctId: "user1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{
+			"url":          "https://example.com",
+			"$device_type": "Desktop",
+		},
+	}
+
+	result := convertToResponsePostHogEvent(event, 1, &[]string{})
+
+	assert.Equal(t, map[string]interface{}{}, result.Properties)
+}
+
+func TestIncludeProperties_SpecificPropertiesFiltersCorrectly(t *testing.T) {
+	event := PostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2026-01-01T00:00:00Z",
+		DistinctId: "user1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{
+			"url":          "https://example.com",
+			"$device_type": "Desktop",
+			"$browser":     "Chrome",
+		},
+	}
+
+	result := convertToResponsePostHogEvent(event, 1, &[]string{"url", "$device_type"})
+
+	assert.Equal(t, map[string]interface{}{
+		"url":          "https://example.com",
+		"$device_type": "Desktop",
+	}, result.Properties)
+}
+
+func TestIncludeProperties_NonExistentPropertiesAreIgnored(t *testing.T) {
+	event := PostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2026-01-01T00:00:00Z",
+		DistinctId: "user1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{
+			"url": "https://example.com",
+		},
+	}
+
+	result := convertToResponsePostHogEvent(event, 1, &[]string{"url", "nonexistent"})
+
+	assert.Equal(t, map[string]interface{}{
+		"url": "https://example.com",
+	}, result.Properties)
+}

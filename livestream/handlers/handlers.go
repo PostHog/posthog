@@ -91,20 +91,31 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 			geoOnly = true
 		}
 
+		var includeProperties *[]string
+		if _, hasIncludeProperties := c.QueryParams()["includeProperties"]; hasIncludeProperties {
+			includeProps := c.QueryParam("includeProperties")
+			var props []string
+			if includeProps != "" {
+				props = strings.Split(includeProps, ",")
+			}
+			includeProperties = &props
+		}
+
 		var eventTypes []string
 		if eventType != "" {
 			eventTypes = strings.Split(eventType, ",")
 		}
 
 		subscription := events.Subscription{
-			SubID:       atomic.AddUint64(&subID, 1),
-			TeamId:      teamID,
-			Token:       token,
-			DistinctId:  distinctId,
-			Geo:         geoOnly,
-			EventTypes:  eventTypes,
-			EventChan:   make(chan interface{}, 100),
-			ShouldClose: &atomic.Bool{},
+			SubID:             atomic.AddUint64(&subID, 1),
+			TeamId:            teamID,
+			Token:             token,
+			DistinctId:        distinctId,
+			Geo:               geoOnly,
+			IncludeProperties: includeProperties,
+			EventTypes:        eventTypes,
+			EventChan:         make(chan interface{}, 100),
+			ShouldClose:       &atomic.Bool{},
 		}
 
 		subChan <- subscription

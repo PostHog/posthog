@@ -19,7 +19,8 @@ type Subscription struct {
 	DistinctId string
 	EventTypes []string
 
-	Geo bool
+	Geo               bool
+	IncludeProperties *[]string
 
 	// Channels
 	EventChan   chan interface{}
@@ -62,14 +63,26 @@ func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 	}
 }
 
-func convertToResponsePostHogEvent(event PostHogEvent, teamId int) *ResponsePostHogEvent {
+func convertToResponsePostHogEvent(event PostHogEvent, teamId int, includeProperties *[]string) *ResponsePostHogEvent {
+	var properties map[string]interface{}
+	if includeProperties == nil {
+		properties = event.Properties
+	} else {
+		properties = make(map[string]interface{})
+		for _, key := range *includeProperties {
+			if val, ok := event.Properties[key]; ok {
+				properties[key] = val
+			}
+		}
+	}
+
 	return &ResponsePostHogEvent{
 		Uuid:       event.Uuid,
 		Timestamp:  event.Timestamp,
 		DistinctId: event.DistinctId,
 		PersonId:   uuidFromDistinctId(teamId, event.DistinctId),
 		Event:      event.Event,
-		Properties: event.Properties,
+		Properties: properties,
 	}
 }
 
@@ -137,9 +150,17 @@ func (c *Filter) Run() {
 							// Don't block
 						}
 					}
+				} else if sub.IncludeProperties != nil {
+					filteredEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.IncludeProperties)
+
+					select {
+					case sub.EventChan <- *filteredEvent:
+					default:
+						// Don't block
+					}
 				} else {
 					if responseEvent == nil {
-						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
+						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId, nil)
 					}
 
 					select {
