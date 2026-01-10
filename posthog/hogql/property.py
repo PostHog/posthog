@@ -342,22 +342,25 @@ def _expr_to_compare_op(
             if len(parts) < 1:
                 raise ValueError("Invalid semver format")
 
-            major = int(parts[0])
-            minor = int(parts[1]) if len(parts) > 1 else 0
-            patch = int(parts[2]) if len(parts) > 2 else 0
+            major = parts[0]
+            minor = parts[1] if len(parts) > 1 else "0"
+            patch = parts[2] if len(parts) > 2 else "0"
 
             lower_bound = value
 
             # Determine upper bound based on leftmost non-zero component
-            if major > 0:
+            if int(major) > 0:
                 # ^1.2.3 -> <2.0.0
-                upper_bound = f"{major + 1}.0.0"
-            elif minor > 0:
+                next_major = str(int(major) + 1)
+                upper_bound = f"{next_major}.0.0"
+            elif int(minor) > 0:
                 # ^0.2.3 -> <0.3.0
-                upper_bound = f"0.{minor + 1}.0"
+                next_minor = str(int(minor) + 1)
+                upper_bound = f"0.{next_minor}.0"
             else:
                 # ^0.0.3 -> <0.0.4
-                upper_bound = f"0.0.{patch + 1}"
+                next_patch = str(int(patch) + 1)
+                upper_bound = f"0.0.{next_patch}"
         except (ValueError, IndexError):
             raise QueryError("Caret operator requires a valid semver string (e.g., '1.2.3')")
 
