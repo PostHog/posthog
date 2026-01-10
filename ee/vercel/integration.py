@@ -127,6 +127,7 @@ class VercelIntegration:
         "billing": "/organization/billing/overview",
         "usage": "/organization/billing/usage",
         "support": "/#panel=support",
+        "secrets": "/settings/project#variables",
     }
     SSO_DEFAULT_REDIRECT = "/"
 

@@ -36,6 +36,9 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     bug_window_start: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS" (assumed UTC)
     team_ids: list[int] | None = None  # Optional: filter to specific teams
     bug_window_end: str | None = None  # Optional: required if team_ids not supplied
+    min_team_id: int | None = None  # Optional: only process teams with id >= this value
+    max_team_id: int | None = None  # Optional: only process teams with id <= this value
+    exclude_team_ids: list[int] | None = None  # Optional: exclude specific team_ids
     dry_run: bool = False  # Log changes without applying
     backup_enabled: bool = True  # Store before/after state in backup table
     batch_size: int = 100  # Commit Postgres transaction every N persons (0 = single commit at end)
@@ -54,6 +57,7 @@ class PersonPropertyDiffs:
     """Property diffs for a single person, organized by operation type."""
 
     person_id: str
+    person_version: int  # Version from CH person table (baseline for conflict detection)
     set_updates: dict[str, PropertyValue]  # key -> PropertyValue
     set_once_updates: dict[str, PropertyValue]  # key -> PropertyValue
     unset_updates: dict[str, PropertyValue]  # key -> PropertyValue (value is always None)
@@ -66,6 +70,51 @@ class SkipReason:
     NO_CHANGES = "no_changes"  # No changes needed after reconciliation
     NOT_FOUND = "not_found"  # Person not found in Postgres
     VERSION_CONFLICT = "version_conflict"  # Version mismatch after max retries
+
+
+# Properties that should NOT trigger a person update on their own.
+# These change frequently but aren't valuable enough to update the person record for.
+# Keep in sync with: nodejs/src/worker/ingestion/persons/person-property-utils.ts
+FILTERED_PERSON_UPDATE_PROPERTIES = frozenset(
+    [
+        # URL/navigation properties - change on every page view
+        "$current_url",
+        "$pathname",
+        "$referring_domain",
+        "$referrer",
+        # Screen/viewport dimensions - can change on window resize
+        "$screen_height",
+        "$screen_width",
+        "$viewport_height",
+        "$viewport_width",
+        # Browser/device properties - change less frequently but still filtered
+        "$browser",
+        "$browser_version",
+        "$device_type",
+        "$raw_user_agent",
+        "$os",
+        "$os_name",
+        "$os_version",
+        # GeoIP properties - filtered because they change frequently
+        # Note: $geoip_country_name and $geoip_city_name DO trigger updates (not listed here)
+        "$geoip_postal_code",
+        "$geoip_time_zone",
+        "$geoip_latitude",
+        "$geoip_longitude",
+        "$geoip_accuracy_radius",
+        "$geoip_subdivision_1_code",
+        "$geoip_subdivision_1_name",
+        "$geoip_subdivision_2_code",
+        "$geoip_subdivision_2_name",
+        "$geoip_subdivision_3_code",
+        "$geoip_subdivision_3_name",
+        "$geoip_city_confidence",
+        "$geoip_country_confidence",
+        "$geoip_postal_code_confidence",
+        "$geoip_subdivision_1_confidence",
+        "$geoip_subdivision_2_confidence",
+    ]
+)
 
 
 def ensure_utc_datetime(ts: datetime) -> datetime:
@@ -94,119 +143,126 @@ def get_person_property_updates_from_clickhouse(
         List of PersonPropertyDiffs, each containing 3 maps (set, set_once, unset) keyed by property key
     """
     query = """
+    -- CTE 1: Get all overrides for the team (no filtering)
+    WITH overrides AS (
+        SELECT
+            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+    ),
+    -- CTE 2: Extract properties from events, grouped by RESOLVED person_id (after overrides)
+    -- This ensures argMax/argMin aggregates across ALL distinct_ids for the same person
+    event_properties_raw AS (
+        SELECT
+            person_id,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_keys,
+            arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_values,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_timestamps,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_keys,
+            arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_values,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_timestamps,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_keys,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_timestamps
+        FROM (
+            SELECT
+                person_id,
+                groupArray(tuple(key, value, kv_timestamp, prop_type)) AS grouped_props
+            FROM (
+                SELECT
+                    -- Apply overrides to get resolved person_id
+                    if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id,
+                    kv_tuple.2 AS key,
+                    kv_tuple.1 AS prop_type,
+                    -- $set: newest event wins, $set_once: first event wins, $unset: newest event wins
+                    if(kv_tuple.1 = 'set',
+                        argMaxIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != ''),
+                        argMinIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != '')
+                    ) AS value,
+                    if(kv_tuple.1 = 'set_once', min(e.timestamp), max(e.timestamp)) AS kv_timestamp
+                FROM events e
+                LEFT JOIN overrides o ON e.distinct_id = o.distinct_id
+                ARRAY JOIN
+                    arrayConcat(
+                        arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('set', x.1, toString(x.2)),
+                                arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set'))
+                            )
+                        ),
+                        arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('set_once', x.1, toString(x.2)),
+                                arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set_once'))
+                            )
+                        ),
+                        arrayFilter(x -> x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('unset', JSON_VALUE(x, '$'), ''),
+                                JSONExtractArrayRaw(e.properties, '$unset')
+                            )
+                        )
+                    ) AS kv_tuple
+                WHERE e.team_id = %(team_id)s
+                  AND e.timestamp > %(bug_window_start)s
+                  AND e.timestamp < now()
+                  AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
+                -- Group by resolved person_id (not distinct_id) so argMax works across all distinct_ids
+                GROUP BY if(notEmpty(o.distinct_id), o.person_id, e.person_id), kv_tuple.2, kv_tuple.1
+            )
+            GROUP BY person_id
+        )
+    ),
+    -- CTE 3: Filter to only persons with non-empty property sets
+    event_properties_flat AS (
+        SELECT *
+        FROM event_properties_raw
+        WHERE length(set_keys) > 0 OR length(set_once_keys) > 0 OR length(unset_keys) > 0
+    ),
+    -- CTE 4: Get person properties and version only for affected persons
+    person_props AS (
+        SELECT
+            id,
+            argMax(properties, version) as person_properties,
+            argMax(version, version) as person_version
+        FROM person
+        WHERE team_id = %(team_id)s
+          AND id IN (SELECT person_id FROM event_properties_flat)
+        GROUP BY id
+        HAVING argMax(is_deleted, version) = 0
+    )
     SELECT
-        with_person_props.person_id,
+        ep.person_id,
+        p.person_version,
         -- For $set: only include properties where the key exists in person properties AND the value differs
-        arrayMap(i -> (set_keys[i], set_values[i], set_timestamps[i]), arrayFilter(
+        arrayMap(i -> (ep.set_keys[i], ep.set_values[i], ep.set_timestamps[i]), arrayFilter(
             i -> (
-                indexOf(keys2, set_keys[i]) > 0
-                AND set_values[i] != vals2[indexOf(keys2, set_keys[i])]
+                indexOf(keys2, ep.set_keys[i]) > 0
+                AND ep.set_values[i] != vals2[indexOf(keys2, ep.set_keys[i])]
             ),
-            arrayEnumerate(set_keys)
+            arrayEnumerate(ep.set_keys)
         )) AS set_diff,
         -- For $set_once: only include properties where the key does NOT exist in person properties
         arrayFilter(
             kv -> indexOf(keys2, kv.1) = 0,
-            arrayMap(i -> (set_once_keys[i], set_once_values[i], set_once_timestamps[i]), arrayEnumerate(set_once_keys))
+            arrayMap(i -> (ep.set_once_keys[i], ep.set_once_values[i], ep.set_once_timestamps[i]), arrayEnumerate(ep.set_once_keys))
         ) AS set_once_diff,
         -- For $unset: only include keys that EXIST in person properties (need removal)
         arrayFilter(
             kv -> indexOf(keys2, kv.1) > 0,
-            arrayMap(i -> (unset_keys[i], unset_timestamps[i]), arrayEnumerate(unset_keys))
+            arrayMap(i -> (ep.unset_keys[i], ep.unset_timestamps[i]), arrayEnumerate(ep.unset_keys))
         ) AS unset_diff
-    FROM (
+    FROM event_properties_flat ep
+    INNER JOIN (
         SELECT
-            merged.person_id,
-            merged.set_keys,
-            merged.set_values,
-            merged.set_timestamps,
-            merged.set_once_keys,
-            merged.set_once_values,
-            merged.set_once_timestamps,
-            merged.unset_keys,
-            merged.unset_timestamps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(p.person_properties)) AS keys2,
-            arrayMap(x -> toString(x.2), JSONExtractKeysAndValuesRaw(p.person_properties)) AS vals2
-        FROM (
-            -- Extract separate arrays from grouped tuples, split by prop_type
-            -- We group into tuples first to ensure array alignment
-            SELECT
-                person_id,
-                arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_keys,
-                arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_values,
-                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_timestamps,
-                arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_keys,
-                arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_values,
-                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_timestamps,
-                arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_keys,
-                arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_timestamps
-            FROM (
-                SELECT
-                    person_id,
-                    groupArray(tuple(key, value, kv_timestamp, prop_type)) AS grouped_props
-                FROM (
-                    SELECT
-                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
-                        kv_tuple.2 AS key,
-                        kv_tuple.1 AS prop_type,
-                        -- $set: newest event wins, $set_once: first event wins, $unset: newest event wins
-                        -- Filter out null/empty values with argMaxIf/argMinIf
-                        if(kv_tuple.1 = 'set',
-                            argMaxIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != ''),
-                            argMinIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != '')
-                        ) AS value,
-                        if(kv_tuple.1 = 'set_once', min(e.timestamp), max(e.timestamp)) AS kv_timestamp
-                    FROM events e
-                    LEFT OUTER JOIN (
-                        SELECT
-                            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                            person_distinct_id_overrides.distinct_id AS distinct_id
-                        FROM person_distinct_id_overrides
-                        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
-                        GROUP BY person_distinct_id_overrides.distinct_id
-                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
-                    ) AS overrides ON e.distinct_id = overrides.distinct_id
-                    -- Extract $set, $set_once, and $unset properties, filtering out null/empty values
-                    ARRAY JOIN
-                        arrayConcat(
-                            arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null',
-                                arrayMap(x -> tuple('set', x.1, toString(x.2)),
-                                    arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set'))
-                                )
-                            ),
-                            arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null',
-                                arrayMap(x -> tuple('set_once', x.1, toString(x.2)),
-                                    arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set_once'))
-                                )
-                            ),
-                            -- $unset is an array of keys, not key-value pairs
-                            -- Parse keys with JSON_VALUE to get plain strings (consistent with $set/$set_once)
-                            arrayMap(x -> tuple('unset', JSON_VALUE(x, '$'), ''),
-                                JSONExtractArrayRaw(e.properties, '$unset')
-                            )
-                        ) AS kv_tuple
-                    WHERE e.team_id = %(team_id)s
-                      AND e.timestamp > %(bug_window_start)s
-                      AND e.timestamp < now()
-                      AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
-                    GROUP BY person_id, kv_tuple.2, kv_tuple.1
-                )
-                GROUP BY person_id
-            )
-        ) AS merged
-        INNER JOIN (
-            SELECT
-                id,
-                argMax(properties, version) as person_properties
-            FROM person
-            WHERE team_id = %(team_id)s
-            GROUP BY id
-            -- Filter out deleted persons (latest version has is_deleted=1)
-            HAVING argMax(is_deleted, version) = 0
-        ) AS p ON p.id = merged.person_id
-    ) AS with_person_props
+            id,
+            person_version,
+            person_properties,
+            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(person_properties)) AS keys2,
+            arrayMap(x -> toString(x.2), JSONExtractKeysAndValuesRaw(person_properties)) AS vals2
+        FROM person_props
+    ) AS p ON p.id = ep.person_id
     WHERE length(set_diff) > 0 OR length(set_once_diff) > 0 OR length(unset_diff) > 0
-    ORDER BY with_person_props.person_id
+    ORDER BY ep.person_id
     SETTINGS
         readonly=2,
         max_execution_time=1200,
@@ -214,7 +270,6 @@ def get_person_property_updates_from_clickhouse(
         format_csv_allow_double_quotes=0,
         max_ast_elements=4000000,
         max_expanded_ast_elements=4000000,
-        max_bytes_before_external_group_by=0,
         allow_experimental_analyzer=1,
         transform_null_in=1,
         optimize_min_equality_disjunction_chain_length=4294967295,
@@ -225,13 +280,14 @@ def get_person_property_updates_from_clickhouse(
     params = {
         "team_id": team_id,
         "bug_window_start": bug_window_start,
+        "filtered_properties": tuple(FILTERED_PERSON_UPDATE_PROPERTIES),
     }
 
     rows = sync_execute(query, params)
 
     results: list[PersonPropertyDiffs] = []
     for row in rows:
-        person_id, set_diff, set_once_diff, unset_diff = row
+        person_id, person_version, set_diff, set_once_diff, unset_diff = row
 
         set_updates: dict[str, PropertyValue] = {}
         for key, value, timestamp in set_diff:
@@ -258,6 +314,7 @@ def get_person_property_updates_from_clickhouse(
             results.append(
                 PersonPropertyDiffs(
                     person_id=str(person_id),
+                    person_version=int(person_version),
                     set_updates=set_updates,
                     set_once_updates=set_once_updates,
                     unset_updates=unset_updates,
@@ -319,6 +376,7 @@ def filter_event_person_properties(
         results.append(
             PersonPropertyDiffs(
                 person_id=diffs.person_id,
+                person_version=diffs.person_version,
                 set_updates=set_updates,
                 set_once_updates=set_once_updates,
                 unset_updates=unset_updates,
@@ -381,6 +439,96 @@ def reconcile_person_properties(
     if changed:
         return {
             "properties": properties,
+            "properties_last_updated_at": properties_last_updated_at,
+            "properties_last_operation": properties_last_operation,
+        }
+    return None
+
+
+def fetch_person_properties_from_clickhouse(team_id: int, person_uuid: str, min_version: int) -> dict | None:
+    """
+    Fetch person properties from ClickHouse for conflict resolution.
+
+    Fetches the oldest available version >= min_version. This handles the case where
+    the exact version we computed diffs against may have been merged away by
+    ReplacingMergeTree background merges.
+
+    Returns the properties at the oldest available version >= min_version, or None if not found.
+    """
+    query = """
+    SELECT argMin(properties, version) as properties
+    FROM person
+    WHERE team_id = %(team_id)s AND id = %(person_id)s AND version >= %(min_version)s
+    GROUP BY id
+    """
+    rows = sync_execute(query, {"team_id": team_id, "person_id": person_uuid, "min_version": min_version})
+    if not rows:
+        return None
+    properties_str = rows[0][0]
+    if not properties_str:
+        return {}
+    return json.loads(properties_str) if isinstance(properties_str, str) else properties_str
+
+
+def reconcile_with_concurrent_changes(
+    ch_properties: dict,
+    postgres_person: dict,
+    person_property_diffs: PersonPropertyDiffs,
+) -> dict | None:
+    """
+    3-way merge: apply event changes while respecting concurrent Postgres changes.
+
+    - Base: ch_properties (the state when event diffs were computed)
+    - Theirs: postgres_person properties (current state, may have concurrent changes)
+    - Ours: event_diffs (changes from events)
+
+    Conflict resolution: Postgres wins (concurrent changes take precedence).
+    This is conservative - we don't overwrite changes made by other processes.
+    """
+    postgres_properties = dict(postgres_person["properties"] or {})
+    properties_last_updated_at = dict(postgres_person["properties_last_updated_at"] or {})
+    properties_last_operation = dict(postgres_person["properties_last_operation"] or {})
+
+    # Identify what changed in Postgres since CH (concurrent changes)
+    concurrent_changed_keys: set[str] = set()
+    all_keys = set(ch_properties.keys()) | set(postgres_properties.keys())
+    for key in all_keys:
+        ch_val = ch_properties.get(key)
+        pg_val = postgres_properties.get(key)
+        if ch_val != pg_val:
+            concurrent_changed_keys.add(key)
+
+    changed = False
+
+    # 1. set_once: only update if key not in properties AND not concurrently changed
+    for key, pv in person_property_diffs.set_once_updates.items():
+        if key not in postgres_properties and key not in concurrent_changed_keys:
+            postgres_properties[key] = pv.value
+            properties_last_updated_at[key] = pv.timestamp.isoformat()
+            properties_last_operation[key] = "set_once"
+            changed = True
+
+    # 2. set: only update if not concurrently changed
+    for key, pv in person_property_diffs.set_updates.items():
+        if key not in concurrent_changed_keys:
+            postgres_properties[key] = pv.value
+            properties_last_updated_at[key] = pv.timestamp.isoformat()
+            properties_last_operation[key] = "set"
+            changed = True
+
+    # 3. unset: only delete if not concurrently changed
+    for key in person_property_diffs.unset_updates.keys():
+        if key in postgres_properties and key not in concurrent_changed_keys:
+            del postgres_properties[key]
+            if key in properties_last_updated_at:
+                del properties_last_updated_at[key]
+            if key in properties_last_operation:
+                del properties_last_operation[key]
+            changed = True
+
+    if changed:
+        return {
+            "properties": postgres_properties,
             "properties_last_updated_at": properties_last_updated_at,
             "properties_last_operation": properties_last_operation,
         }
@@ -533,7 +681,7 @@ def backup_person_with_computed_state(
             new_version,
         ),
     )
-    return True
+    return cursor.rowcount > 0
 
 
 def update_person_with_version_check(
@@ -547,18 +695,20 @@ def update_person_with_version_check(
     max_retries: int = 3,
 ) -> tuple[bool, dict | None, bool, str]:
     """
-    Update a person's properties with optimistic locking.
+    Update a person's properties with optimistic locking and conflict resolution.
 
-    Fetches the person, computes updates, and writes with version check.
-    If version changed (concurrent modification), re-fetches and retries.
-    Optionally backs up the before/after state for audit purposes.
+    Flow:
+    1. Fetch person from Postgres
+    2. If Postgres version == CH version: apply diffs normally, UPDATE WHERE version = ch_version
+    3. If versions differ (conflict): fetch CH properties, do 3-way merge, UPDATE WHERE version = postgres_version
+    4. On UPDATE failure, retry
 
     Args:
         cursor: Database cursor
         job_id: Dagster run ID for backup tracking
         team_id: Team ID
         person_uuid: Person UUID
-        person_property_diffs: Property diffs from ClickHouse
+        person_property_diffs: Property diffs from ClickHouse (includes person_version)
         dry_run: If True, don't actually write the UPDATE
         backup_enabled: If True, store before/after state in backup table
         max_retries: Maximum retry attempts on version mismatch
@@ -569,27 +719,43 @@ def update_person_with_version_check(
         backup_created indicates if a backup row was inserted
         skip_reason indicates why the person was skipped (see SkipReason class)
     """
+    ch_version = person_property_diffs.person_version
+
     for _attempt in range(max_retries):
-        # Fetch current person state
+        # Fetch current person state from Postgres
         person = fetch_person_from_postgres(cursor, team_id, person_uuid)
         if not person:
             return False, None, False, SkipReason.NOT_FOUND
 
-        current_version = person.get("version") or 0
+        postgres_version = person.get("version") or 0
 
-        # Compute updates
-        update = reconcile_person_properties(person, person_property_diffs)
+        # Check if Postgres and CH are in sync
+        if postgres_version == ch_version:
+            # Simple case: no concurrent changes, apply diffs directly
+            update = reconcile_person_properties(person, person_property_diffs)
+            target_version = ch_version
+        else:
+            # Conflict: Postgres has different version than CH
+            # Fetch CH properties at the version we computed diffs against for 3-way merge
+            ch_properties = fetch_person_properties_from_clickhouse(team_id, person_uuid, ch_version)
+            if ch_properties is None:
+                # Person version doesn't exist in CH anymore, skip
+                return False, None, False, SkipReason.NOT_FOUND
+
+            # 3-way merge: apply our changes while respecting concurrent Postgres changes
+            update = reconcile_with_concurrent_changes(ch_properties, person, person_property_diffs)
+            target_version = postgres_version
+
         if not update:
-            # No changes needed
+            # No changes needed (either no diffs or all conflicts resolved to Postgres values)
             return True, None, False, SkipReason.NO_CHANGES
 
         # Backup before and after state for audit/rollback
         backup_created = False
         if backup_enabled:
-            backup_person_with_computed_state(
-                cursor, job_id, team_id, person, person_property_diffs, update, current_version + 1
+            backup_created = backup_person_with_computed_state(
+                cursor, job_id, team_id, person, person_property_diffs, update, target_version + 1
             )
-            backup_created = True
 
         if dry_run:
             return True, None, backup_created, SkipReason.SUCCESS
@@ -609,10 +775,10 @@ def update_person_with_version_check(
                 json.dumps(update["properties"]),
                 json.dumps(update["properties_last_updated_at"]),
                 json.dumps(update["properties_last_operation"]),
-                current_version + 1,
+                target_version + 1,
                 team_id,
                 person_uuid,
-                current_version,
+                target_version,
             ),
         )
 
@@ -627,13 +793,13 @@ def update_person_with_version_check(
                     "is_identified": person.get("is_identified", False),
                     "is_deleted": 0,
                     "created_at": person.get("created_at"),
-                    "version": current_version + 1,
+                    "version": target_version + 1,
                 },
                 backup_created,
                 SkipReason.SUCCESS,
             )
 
-        # Version mismatch - retry with fresh data
+        # Version mismatch during UPDATE - retry with fresh data
         # (loop will re-fetch person)
 
     # Exhausted retries
@@ -771,6 +937,71 @@ def process_persons_in_batches(
     )
 
 
+def query_team_ids_from_clickhouse(
+    bug_window_start: str,
+    bug_window_end: str,
+    min_team_id: int | None = None,
+    max_team_id: int | None = None,
+    exclude_team_ids: list[int] | None = None,
+) -> list[int]:
+    """
+    Query ClickHouse for distinct team_ids with property-setting events in the bug window.
+
+    Args:
+        bug_window_start: Start of bug window (CH format: "YYYY-MM-DD HH:MM:SS")
+        bug_window_end: End of bug window (CH format: "YYYY-MM-DD HH:MM:SS")
+        min_team_id: Optional minimum team_id (inclusive)
+        max_team_id: Optional maximum team_id (inclusive)
+        exclude_team_ids: Optional list of team_ids to exclude
+
+    Returns:
+        List of team_ids sorted ascending
+
+    Raises:
+        ValueError: If min_team_id > max_team_id
+    """
+    if min_team_id is not None and max_team_id is not None and min_team_id > max_team_id:
+        raise ValueError(
+            f"Invalid team_id range: min_team_id ({min_team_id}) cannot be greater than max_team_id ({max_team_id})"
+        )
+
+    team_id_filters = []
+    params: dict[str, Any] = {
+        "bug_window_start": bug_window_start,
+        "bug_window_end": bug_window_end,
+    }
+
+    if min_team_id is not None:
+        team_id_filters.append("team_id >= %(min_team_id)s")
+        params["min_team_id"] = min_team_id
+
+    if max_team_id is not None:
+        team_id_filters.append("team_id <= %(max_team_id)s")
+        params["max_team_id"] = max_team_id
+
+    if exclude_team_ids:
+        team_id_filters.append("team_id NOT IN %(exclude_team_ids)s")
+        params["exclude_team_ids"] = tuple(exclude_team_ids)
+
+    team_id_filter_clause = (" AND " + " AND ".join(team_id_filters)) if team_id_filters else ""
+
+    query = f"""
+        SELECT DISTINCT team_id
+        FROM events
+        WHERE timestamp >= %(bug_window_start)s
+          AND timestamp < %(bug_window_end)s
+          AND (
+            JSONHas(properties, '$set') = 1
+            OR JSONHas(properties, '$set_once') = 1
+            OR JSONHas(properties, '$unset') = 1
+          ){team_id_filter_clause}
+        ORDER BY team_id
+    """
+
+    results = sync_execute(query, params)
+    return [int(row[0]) for row in results]
+
+
 @dagster.op
 def get_team_ids_to_reconcile(
     context: dagster.OpExecutionContext,
@@ -792,32 +1023,24 @@ def get_team_ids_to_reconcile(
             },
         )
 
-    query = """
-        SELECT DISTINCT team_id
-        FROM events
-        WHERE timestamp >= %(bug_window_start)s
-          AND timestamp < %(bug_window_end)s
-          AND (
-            JSONHas(properties, '$set') = 1
-            OR JSONHas(properties, '$set_once') = 1
-            OR JSONHas(properties, '$unset') = 1
-          )
-        ORDER BY team_id
-    """
+    filter_info_parts = []
+    if config.min_team_id is not None or config.max_team_id is not None:
+        filter_info_parts.append(f"range: {config.min_team_id or 'any'} to {config.max_team_id or 'any'}")
+    if config.exclude_team_ids:
+        filter_info_parts.append(f"excluding: {config.exclude_team_ids}")
+    filter_info = f" ({', '.join(filter_info_parts)})" if filter_info_parts else ""
 
     context.log.info(
-        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}"
+        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}{filter_info}"
     )
 
-    results = sync_execute(
-        query,
-        {
-            "bug_window_start": config.bug_window_start,
-            "bug_window_end": config.bug_window_end,
-        },
+    team_ids = query_team_ids_from_clickhouse(
+        bug_window_start=config.bug_window_start,
+        bug_window_end=config.bug_window_end,
+        min_team_id=config.min_team_id,
+        max_team_id=config.max_team_id,
+        exclude_team_ids=config.exclude_team_ids,
     )
-
-    team_ids = [int(row[0]) for row in results]
 
     if not team_ids:
         context.log.info("No team IDs found with property events in bug window")

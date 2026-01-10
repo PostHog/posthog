@@ -3823,6 +3823,8 @@ interface InstancePreferencesInterface {
     debug_queries: boolean
     /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
     disable_paid_fs: boolean
+    /** Whether Cloudflare proxy is enabled for managed reverse proxies. */
+    cloudflare_proxy_enabled?: boolean
 }
 
 export interface PreflightStatus {
@@ -6134,6 +6136,7 @@ export interface ProjectTreeRef {
 export type OAuthApplicationPublicMetadata = {
     name: string
     client_id: string
+    is_verified: boolean
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
