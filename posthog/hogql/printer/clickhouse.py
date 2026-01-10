@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal, Union, cast
 from uuid import UUID
 
-from posthog.schema import MaterializedColumnsOptimizationMode, PropertyGroupsMode
+from posthog.schema import PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
@@ -14,7 +14,7 @@ from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryEr
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
-from posthog.hogql.utils import ilike_matches, like_matches
+from posthog.hogql.utils import like_matches
 from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
@@ -332,19 +332,15 @@ class ClickHousePrinter(HogQLPrinter):
         """
         Returns an optimized printed expression for ILIKE comparisons involving materialized columns.
 
-        This optimization is gated by the materializedColumnsOptimizationMode modifier because
-        unlike equality comparisons, ILIKE patterns could potentially match the sentinel values
-        '' and 'null' that are stored in materialized columns.
+        For non-nullable columns with patterns that could match sentinel values ('', 'null'),
+        we bail out and let the normal code path handle it with proper nullif wrapping.
 
-        The optimization is only applied when the pattern provably cannot match these sentinels.
+        For patterns that cannot match sentinels, we use the raw materialized column directly,
+        enabling skip index optimization.
         """
-        if self.context.modifiers.materializedColumnsOptimizationMode != MaterializedColumnsOptimizationMode.OPTIMIZED:
-            return None
-
         if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):
             return None
 
-        # For ilike, the property is always on the left and pattern on the right
         property_type: ast.PropertyType | None = None
         pattern_expr: ast.Constant | None = None
 
@@ -364,45 +360,47 @@ class ClickHousePrinter(HogQLPrinter):
         if not isinstance(pattern_expr.value, str):
             return None
 
-        # Materialized columns can store the empty string or "null" to mean NULL, if the needle matches either of these
-        # strings then the optimization is not valid
-        for s in ["", "null", '"null"']:
-            if ilike_matches(pattern_expr.value, s):
-                return None
-
         # Check if this property uses an individually materialized column (not a property group)
         property_source = self._get_materialized_property_source_for_property_type(property_type)
         if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
-        # Build the optimized comparison using the raw materialized column
         materialized_column_sql = str(property_source)
         pattern_sql = self.visit(pattern_expr)
 
-        if node.op == ast.CompareOperationOp.ILike:
-            return f"ilike({materialized_column_sql}, {pattern_sql})"
-        else:  # NotILike
-            return f"notILike({materialized_column_sql}, {pattern_sql})"
+        if property_source.is_nullable:
+            if node.op == ast.CompareOperationOp.ILike:
+                # We include IS NOT NULL because we want to return FALSE rather than NULL if the column is NULL,
+                # and prefer this to wrapping in ifNull because it allows skip index usage.
+                return f"and(ilike({materialized_column_sql}, {pattern_sql}), {materialized_column_sql} IS NOT NULL)"
+            else:
+                # For NOT ILIKE, we need ifNull wrapper because NULL NOT ILIKE pattern should be TRUE
+                return f"ifNull(notILike({materialized_column_sql}, {pattern_sql}), 1)"
+        else:
+            # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
+            # regular code path handle it, which handles this case
+            if any(like_matches(pattern_expr.value, s) for s in ["", "null", '"null"']):
+                return None
+
+            if node.op == ast.CompareOperationOp.ILike:
+                return f"ilike({materialized_column_sql}, {pattern_sql})"
+            else:
+                return f"notILike({materialized_column_sql}, {pattern_sql})"
 
     def _get_optimized_materialized_column_like_operation(self, node: ast.CompareOperation) -> str | None:
         """
         Returns an optimized printed expression for LIKE comparisons involving materialized columns.
 
-        This optimization is gated by the materializedColumnsOptimizationMode modifier because
-        LIKE patterns could potentially match the sentinel values '' and 'null' that are stored
-        in materialized columns.
+        For non-nullable columns with patterns that could match sentinel values ('', 'null'),
+        we bail out and let the normal code path handle it with proper nullif wrapping.
 
-        The optimization is only applied when the pattern provably cannot match these sentinels.
-
-        Unlike ILIKE, LIKE is case-sensitive which allows ClickHouse to use ngrambf_v1 skip indexes.
+        For patterns that cannot match sentinels, we use the raw materialized column directly,
+        enabling skip index optimization. Unlike ILIKE, LIKE is case-sensitive which allows
+        ClickHouse to use ngrambf_v1 skip indexes.
         """
-        if self.context.modifiers.materializedColumnsOptimizationMode != MaterializedColumnsOptimizationMode.OPTIMIZED:
-            return None
-
         if node.op not in (ast.CompareOperationOp.Like, ast.CompareOperationOp.NotLike):
             return None
 
-        # For like, the property is always on the left and pattern on the right
         property_type: ast.PropertyType | None = None
         pattern_expr: ast.Constant | None = None
 
@@ -422,25 +420,32 @@ class ClickHousePrinter(HogQLPrinter):
         if not isinstance(pattern_expr.value, str):
             return None
 
-        # Materialized columns can store the empty string or "null" to mean NULL, if the needle matches either of these
-        # strings then the optimization is not valid. Note: LIKE is case-sensitive, so we use like_matches.
-        for s in ["", "null", '"null"']:
-            if like_matches(pattern_expr.value, s):
-                return None
-
-        # Check if this property uses an individually materialized column (not a property group)
         property_source = self._get_materialized_property_source_for_property_type(property_type)
         if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
-        # Build the optimized comparison using the raw materialized column
         materialized_column_sql = str(property_source)
         pattern_sql = self.visit(pattern_expr)
 
-        if node.op == ast.CompareOperationOp.Like:
-            return f"like({materialized_column_sql}, {pattern_sql})"
-        else:  # NotLike
-            return f"notLike({materialized_column_sql}, {pattern_sql})"
+        if property_source.is_nullable:
+            if node.op == ast.CompareOperationOp.Like:
+                # We include IS NOT NULL because we want to return FALSE rather than NULL if the column is NULL,
+                # and prefer this to wrapping in ifNull because it allows skip index usage.
+                return f"and(like({materialized_column_sql}, {pattern_sql}), {materialized_column_sql} IS NOT NULL)"
+            else:  # NotLike
+                # For NOT LIKE, we need ifNull wrapper because NULL NOT LIKE pattern should be TRUE
+                return f"ifNull(notLike({materialized_column_sql}, {pattern_sql}), 1)"
+        else:
+            # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
+            # regular code path handle it, which handles this case
+            if any(like_matches(pattern_expr.value, s) for s in ["", "null", '"null"']):
+                return None
+
+            # For non-nullable columns with non-sentinel patterns, use raw column for performance
+            if node.op == ast.CompareOperationOp.Like:
+                return f"like({materialized_column_sql}, {pattern_sql})"
+            else:  # NotLike
+                return f"notLike({materialized_column_sql}, {pattern_sql})"
 
     def _optimize_in_with_string_values(
         self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
