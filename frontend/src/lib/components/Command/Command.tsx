@@ -1,10 +1,8 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { Dialog } from '@base-ui/react/dialog'
-import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -42,6 +40,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
     const typeDisplayNames: Record<string, string> = {
         // Dashboards & Insights
         dashboard: 'Dashboard',
+        insight: 'Insight',
         'insight/funnels': 'Funnel',
         'insight/trends': 'Trend',
         'insight/retention': 'Retention',
@@ -49,6 +48,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         'insight/lifecycle': 'Lifecycle',
         'insight/stickiness': 'Stickiness',
         'insight/hog': 'SQL insight',
+        query: 'SQL query',
 
         // Analytics products
         product_analytics: 'Product analytics',
@@ -57,6 +57,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         revenue_analytics: 'Revenue analytics',
         marketing_analytics: 'Marketing analytics',
         session_replay: 'Session replay',
+        session_recording_playlist: 'Session recording playlist',
         error_tracking: 'Error tracking',
         feature_flag: 'Feature flag',
         experiment: 'Experiment',
@@ -91,27 +92,6 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
     }
     return typeDisplayNames[type] || null
 }
-
-type CategoryFilter =
-    | 'all'
-    | 'create-new'
-    | 'apps'
-    | 'data-management'
-    | 'recents'
-    | 'persons'
-    | 'groups'
-    | 'eventDefinitions'
-    | 'propertyDefinitions'
-    | 'askAI'
-
-const CATEGORY_FILTERS: { value: CategoryFilter; label: string }[] = [
-    { value: 'all', label: 'All' },
-    { value: 'recents', label: 'Recents' },
-    { value: 'create-new', label: 'Create' },
-    { value: 'apps', label: 'Apps' },
-    { value: 'persons', label: 'Persons' },
-    { value: 'askAI', label: 'AI' },
-]
 
 const mapToCommandItems = (items: NewTabTreeDataItem[]): CommandItem[] => {
     return items.map((item) => {
@@ -152,16 +132,16 @@ export function Command(): JSX.Element {
     const { isCommandOpen } = useValues(commandLogic)
     const { closeCommand } = useActions(commandLogic)
 
-    const tabId = 'command-palette'
+    const tabId = 'command'
+    const recentsLimit = 20
     const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [])
     useMountedLogic(projectTreeLogic(projectTreeLogicProps))
 
-    const { allCategories, isSearching } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch } = useActions(newTabSceneLogic({ tabId }))
+    const { allCategories, isSearching } = useValues(newTabSceneLogic({ tabId, recentsLimit }))
+    const { setSearch } = useActions(newTabSceneLogic({ tabId, recentsLimit }))
 
     const [searchValue, setSearchValue] = useState('')
     const [filteredItems, setFilteredItems] = useState<CommandItem[]>([])
-    const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all')
     const inputRef = useRef<HTMLInputElement>(null)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
 
@@ -191,22 +171,21 @@ export function Command(): JSX.Element {
         }
     }, [searchValue, setSearch, isCommandOpen])
 
-    // Update filtered items when allItems, search, or category changes
+    // Update filtered items when allItems or search changes
+    // No search = show recents only, with search = search all categories
     useEffect(() => {
         let filtered = allItems
 
-        // Filter by category if not 'all'
-        if (selectedCategory !== 'all') {
-            filtered = filtered.filter((item) => item.category === selectedCategory)
-        }
-
-        // Filter by search term
         if (searchValue.trim()) {
+            // When searching, search across all categories
             filtered = filtered.filter((item) => contains(item.name, searchValue))
+        } else {
+            // No search term - show only recents
+            filtered = filtered.filter((item) => item.category === 'recents')
         }
 
         setFilteredItems(filtered)
-    }, [allItems, searchValue, selectedCategory, contains])
+    }, [allItems, searchValue, contains])
 
     // Focus input when dialog opens
     useEffect(() => {
@@ -217,12 +196,11 @@ export function Command(): JSX.Element {
         }
     }, [isCommandOpen])
 
-    // Reset search and category when dialog closes
+    // Reset search when dialog closes
     useEffect(() => {
         if (!isCommandOpen) {
             setSearchValue('')
             setSearch('')
-            setSelectedCategory('all')
         }
     }, [isCommandOpen, setSearch])
 
@@ -239,21 +217,6 @@ export function Command(): JSX.Element {
     const handleInputChange = useCallback((value: string) => {
         setSearchValue(value)
     }, [])
-
-    const handleCategorySelect = useCallback((category: CategoryFilter) => {
-        setSelectedCategory(category)
-        inputRef.current?.focus()
-    }, [])
-
-    const handleCategoryKeyDown = useCallback(
-        (e: ReactKeyboardEvent<HTMLButtonElement>, category: CategoryFilter) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                handleCategorySelect(category)
-            }
-        },
-        [handleCategorySelect]
-    )
 
     // Group items by category for rendering
     const groupedItems = useMemo(() => {
@@ -278,42 +241,81 @@ export function Command(): JSX.Element {
 
     const getCategoryDisplayName = (category: string): string => {
         const displayNames: Record<string, string> = {
-            'create-new': 'Create new',
-            apps: 'Apps',
-            'data-management': 'Data management',
-            recents: 'Recents',
-            folders: 'Folders',
-            persons: 'Persons',
-            groups: 'Groups',
-            eventDefinitions: 'Events',
-            propertyDefinitions: 'Properties',
-            askAI: 'Posthog AI',
+            // Dashboards & Insights
+            dashboard: 'Dashboard',
+            insight: 'Insight',
+            'insight/funnels': 'Funnel',
+            'insight/trends': 'Trend',
+            'insight/retention': 'Retention',
+            'insight/paths': 'Paths',
+            'insight/lifecycle': 'Lifecycle',
+            'insight/stickiness': 'Stickiness',
+            'insight/hog': 'SQL insight',
+
+            // Analytics products
+            product_analytics: 'Product analytics',
+            web_analytics: 'Web analytics',
+            llm_analytics: 'LLM analytics',
+            revenue_analytics: 'Revenue analytics',
+            marketing_analytics: 'Marketing analytics',
+            session_replay: 'Session replay',
+            session_recording_playlist: 'Session recording playlist',
+            error_tracking: 'Error tracking',
+            feature_flag: 'Feature flag',
+            experiment: 'Experiment',
+            early_access_feature: 'Early access feature',
+            survey: 'Survey',
+            product_tour: 'Product tour',
+            user_interview: 'User interview',
+
+            // Data
+            notebook: 'Notebook',
+            cohort: 'Cohort',
+            action: 'Action',
+            annotation: 'Annotation',
+            event_definition: 'Event',
+            property_definition: 'Property',
+            data_warehouse: 'Data warehouse',
+            data_pipeline: 'Data pipeline',
+
+            // People
+            persons: 'Person',
+            user: 'User',
+            group: 'Group',
+
+            // Other
+            heatmap: 'Heatmap',
+            link: 'Link',
+            workflows: 'Workflow',
+            sql_editor: 'SQL query',
+            logs: 'Logs',
+            alert: 'Alert',
+            folder: 'Folder',
         }
         return displayNames[category] || category
     }
 
     // Build status message
     const statusMessage = useMemo(() => {
-        const categoryLabel =
-            selectedCategory !== 'all' ? CATEGORY_FILTERS.find((f) => f.value === selectedCategory)?.label : null
-
         if (isSearching) {
             return (
                 <span className="flex items-center gap-2">
                     <Spinner className="size-3" />
-                    <span>Searching{categoryLabel ? ` in ${categoryLabel}` : ''}...</span>
+                    <span>Searching...</span>
                 </span>
             )
         }
-        if ((searchValue || selectedCategory !== 'all') && filteredItems.length === 0) {
-            return `No results found${categoryLabel ? ` in ${categoryLabel}` : ''}`
+        if (searchValue && filteredItems.length === 0) {
+            return 'No results found'
         }
         if (filteredItems.length > 0) {
-            const suffix = categoryLabel ? ` in ${categoryLabel}` : ''
-            return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}${suffix}`
+            if (!searchValue.trim()) {
+                return 'Recent items'
+            }
+            return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
         }
         return 'Type to search...'
-    }, [isSearching, searchValue, filteredItems.length, selectedCategory])
+    }, [isSearching, searchValue, filteredItems.length])
 
     return (
         <Dialog.Root open={isCommandOpen} onOpenChange={(open) => !open && closeCommand()}>
@@ -330,13 +332,13 @@ export function Command(): JSX.Element {
                         openOnInputClick={false}
                         defaultOpen
                     >
-                        <div className="p-2 border-b border-primary space-y-2 bg-surface-primary">
+                        <div className="p-2 border-b border-primary space-y-2">
                             <div className="input-like relative">
                                 <Autocomplete.Input
                                     ref={inputRef}
                                     value={searchValue}
                                     onChange={(e) => handleInputChange(e.target.value)}
-                                    placeholder="Search or ask an AI question..."
+                                    placeholder="Search for anything, or ask an AI question..."
                                     className="w-full px-3 py-2 text-sm bg-fill-input border border-primary rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent placeholder:text-muted"
                                     aria-label="Command palette search"
                                 />
@@ -353,29 +355,6 @@ export function Command(): JSX.Element {
                                         </ButtonPrimitive>
                                     }
                                 />
-                            </div>
-                            <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter by category">
-                                {CATEGORY_FILTERS.map((filter) => (
-                                    <ButtonPrimitive
-                                        key={filter.value}
-                                        type="button"
-                                        role="tab"
-                                        size="sm"
-                                        aria-selected={selectedCategory === filter.value}
-                                        tabIndex={0}
-                                        aria-label={`Filter by ${filter.label}`}
-                                        onClick={() => handleCategorySelect(filter.value)}
-                                        onKeyDown={(e) => handleCategoryKeyDown(e, filter.value)}
-                                        className={clsx(
-                                            'px-2',
-                                            selectedCategory === filter.value
-                                                ? 'bg-fill-highlight-100 text-primary'
-                                                : 'text-muted hover:text-primary hover:bg-fill-highlight-50'
-                                        )}
-                                    >
-                                        {filter.label}
-                                    </ButtonPrimitive>
-                                ))}
                             </div>
                         </div>
 
@@ -397,22 +376,18 @@ export function Command(): JSX.Element {
 
                             <Autocomplete.List className="pt-3 pb-1">
                                 {groupedItems.map((group) => {
-                                    const itemType = group.items[0].itemType
-
                                     return (
                                         <Autocomplete.Group key={group.category} items={group.items} className="mb-4">
-                                            {selectedCategory === 'all' && (
-                                                <Autocomplete.GroupLabel
-                                                    render={
-                                                        <Label
-                                                            className="px-3 sticky top-0 bg-surface-secondary"
-                                                            intent="menu"
-                                                        >
-                                                            {getCategoryDisplayName(group.category)}
-                                                        </Label>
-                                                    }
-                                                />
-                                            )}
+                                            <Autocomplete.GroupLabel
+                                                render={
+                                                    <Label
+                                                        className="px-3 sticky top-0 bg-surface-secondary"
+                                                        intent="menu"
+                                                    >
+                                                        {getCategoryDisplayName(group.category)}
+                                                    </Label>
+                                                }
+                                            />
                                             <Autocomplete.Collection>
                                                 {(item: CommandItem) => {
                                                     const typeLabel = getItemTypeDisplayName(item.itemType)

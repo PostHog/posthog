@@ -214,7 +214,7 @@ export function matchesFolderSearch(entry: FileSystemEntry, normalizedSearchTerm
 
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
-    props({} as { tabId?: string }),
+    props({} as { tabId?: string; recentsLimit?: number }),
     connect((props: { tabId?: string }) => ({
         values: [
             featureFlagLogic,
@@ -268,7 +268,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             expandedFolders,
         }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         sceneLogViews: [
             [] as FileSystemViewLogEntry[],
             {
@@ -330,7 +330,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         }
                     }
 
-                    const pageLimit = effectiveOffset === 0 ? INITIAL_RECENTS_LIMIT : PAGINATION_LIMIT
+                    const recentsLimit = props.recentsLimit ?? INITIAL_RECENTS_LIMIT
+                    const pageLimit = effectiveOffset === 0 ? recentsLimit : PAGINATION_LIMIT
 
                     const response = await api.fileSystem.list({
                         search: searchTerm,
@@ -751,7 +752,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors(({ actions, props }) => ({
+        recentsLimitFromProps: [() => [], (): number => props.recentsLimit ?? INITIAL_RECENTS_LIMIT],
         explorerExpandedFolders: [
             (s) => [s.activeExplorerFolderPath, s.explorerExpandedFoldersByFolder],
             (activeExplorerFolderPath, explorerExpandedFoldersByFolder): Record<string, boolean> => {
@@ -1062,8 +1064,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         getSectionItemLimit: [
-            (s) => [s.sectionItemLimits, s.newTabSceneDataInclude],
-            (sectionItemLimits: Record<string, number>, newTabSceneDataInclude: NEW_TAB_COMMANDS[]) => {
+            (s) => [s.sectionItemLimits, s.newTabSceneDataInclude, s.recentsLimitFromProps],
+            (
+                sectionItemLimits: Record<string, number>,
+                newTabSceneDataInclude: NEW_TAB_COMMANDS[],
+                recentsLimitFromProps: number
+            ) => {
                 const singleSelectedCategory: NEW_TAB_COMMANDS | null =
                     newTabSceneDataInclude.length === 1 && newTabSceneDataInclude[0] !== 'all'
                         ? newTabSceneDataInclude[0]
@@ -1077,6 +1083,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     if (singleSelectedCategory && section === singleSelectedCategory) {
                         return SINGLE_CATEGORY_SECTION_LIMIT
+                    }
+
+                    // Use the recentsLimit from props for recents section
+                    if (section === 'recents') {
+                        return recentsLimitFromProps
                     }
 
                     return INITIAL_SECTION_LIMIT
