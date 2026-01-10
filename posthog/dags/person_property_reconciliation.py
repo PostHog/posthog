@@ -1355,7 +1355,7 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
     - range_start/range_end: Team ID range to process (inclusive)
     - chunk_size: Number of team IDs per job (default 1000)
     - max_concurrent_jobs: Max reconciliation jobs sensor can schedule at once (default 5, cap 50)
-    - max_concurrent_tasks: Max k8s pods per job / executor concurrency (default 20, cap 100)
+    - max_concurrent_tasks: Max k8s pods per job / executor concurrency (default 10, cap 100)
     - bug_window_start/end: Time window for the reconciliation
     - dry_run, backup_enabled, batch_size: Passed to each job
     """
@@ -1366,7 +1366,7 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
     if not sensor_config_raw:
         return dagster.SkipReason(
             "No cursor set. Initialize by setting cursor to JSON: "
-            '{"range_start": 1, "range_end": 10000, "chunk_size": 1000, "max_concurrent": 20, '
+            '{"range_start": 1, "range_end": 10000, "chunk_size": 1000, "max_concurrent_jobs": 5, "max_concurrent_tasks": 10, '
             '"bug_window_start": "...", "bug_window_end": "...", "dry_run": false, '
             '"backup_enabled": true, "batch_size": 100}'
         )
