@@ -145,8 +145,9 @@ export const productToursLogic = kea<productToursLogicType>([
             content: JSONContent | null,
             selector?: string,
             survey?: ProductTourSurveyQuestion,
-            progressionTrigger?: ProductTourProgressionTriggerType
-        ) => ({ content, selector, survey, progressionTrigger }),
+            progressionTrigger?: ProductTourProgressionTriggerType,
+            maxWidth?: number
+        ) => ({ content, selector, survey, progressionTrigger, maxWidth }),
         cancelEditing: true,
         removeStep: (index: number) => ({ index }),
 
@@ -517,7 +518,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
             }
         },
-        confirmStep: ({ content, selector: selectorOverride, survey, progressionTrigger }) => {
+        confirmStep: ({ content, selector: selectorOverride, survey, progressionTrigger, maxWidth }) => {
             const { editorState, tourForm, selectedElement } = values
             if (editorState.mode !== 'editing' || !tourForm) {
                 return
@@ -539,6 +540,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 element: selectedElement ?? existingStep?.element,
                 ...(survey ? { survey } : {}),
                 ...(progressionTrigger ? { progressionTrigger } : {}),
+                ...(maxWidth ? { maxWidth } : {}),
             }
 
             if (stepIndex < steps.length) {
