@@ -55,6 +55,8 @@ class EAVResolver(TraversingVisitor):
         if eav_column is not None:
             events_alias = _get_events_table_alias(node.field_type.table_type)
             self._current_eav_properties.add((events_alias, property_name, eav_column))
+            node.eav_join_alias = f"eav_{events_alias}_{property_name}"
+            node.eav_column = eav_column
 
     def visit_select_query(self, node: ast.SelectQuery):
         # Save current set and create new one for this SELECT's scope
@@ -79,25 +81,18 @@ class EAVResolver(TraversingVisitor):
                 property_name=property_name,
                 events_alias=events_alias,
             )
-            # Resolve types on the new JoinExpr so the printer can handle it
             join_expr = cast(
                 ast.JoinExpr,
                 resolve_types(join_expr, self.context, dialect="clickhouse", scopes=[node.type] if node.type else None),
             )
             self._append_join(node, join_expr)
 
-        # Now update PropertyType nodes to reference the EAV aliases
-        PropertyTypeUpdater(
-            context=self.context,
-            eav_properties=eav_properties,
-        ).visit(node)
-
     def _create_eav_join(self, eav_alias: str, property_name: str, events_alias: str) -> ast.JoinExpr:
         """
         Create a JoinExpr for an EAV property.
 
         Generates:
-        ANY LEFT JOIN event_properties AS {eav_alias}
+        LEFT ANY JOIN event_properties AS {eav_alias}
             ON {events_alias}.team_id = {eav_alias}.team_id
             AND toDate({events_alias}.timestamp) = toDate({eav_alias}.timestamp)
             AND {events_alias}.event = {eav_alias}.event
@@ -105,45 +100,43 @@ class EAVResolver(TraversingVisitor):
             AND cityHash64({events_alias}.uuid) = cityHash64({eav_alias}.uuid)
             AND {eav_alias}.key = '{property_name}'
         """
-        e = events_alias
-        a = eav_alias
 
         constraint_expr = ast.And(
             exprs=[
                 # team_id = team_id
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[e, "team_id"]),
-                    right=ast.Field(chain=[a, "team_id"]),
+                    left=ast.Field(chain=[events_alias, "team_id"]),
+                    right=ast.Field(chain=[eav_alias, "team_id"]),
                 ),
                 # toDate(timestamp) = toDate(timestamp)
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Call(name="toDate", args=[ast.Field(chain=[e, "timestamp"])]),
-                    right=ast.Call(name="toDate", args=[ast.Field(chain=[a, "timestamp"])]),
+                    left=ast.Call(name="toDate", args=[ast.Field(chain=[events_alias, "timestamp"])]),
+                    right=ast.Call(name="toDate", args=[ast.Field(chain=[eav_alias, "timestamp"])]),
                 ),
                 # event = event
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[e, "event"]),
-                    right=ast.Field(chain=[a, "event"]),
+                    left=ast.Field(chain=[events_alias, "event"]),
+                    right=ast.Field(chain=[eav_alias, "event"]),
                 ),
                 # cityHash64(distinct_id) = cityHash64(distinct_id)
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Call(name="cityHash64", args=[ast.Field(chain=[e, "distinct_id"])]),
-                    right=ast.Call(name="cityHash64", args=[ast.Field(chain=[a, "distinct_id"])]),
+                    left=ast.Call(name="cityHash64", args=[ast.Field(chain=[events_alias, "distinct_id"])]),
+                    right=ast.Call(name="cityHash64", args=[ast.Field(chain=[eav_alias, "distinct_id"])]),
                 ),
                 # cityHash64(uuid) = cityHash64(uuid)
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Call(name="cityHash64", args=[ast.Field(chain=[e, "uuid"])]),
-                    right=ast.Call(name="cityHash64", args=[ast.Field(chain=[a, "uuid"])]),
+                    left=ast.Call(name="cityHash64", args=[ast.Field(chain=[events_alias, "uuid"])]),
+                    right=ast.Call(name="cityHash64", args=[ast.Field(chain=[eav_alias, "uuid"])]),
                 ),
                 # key = property_name
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[a, "key"]),
+                    left=ast.Field(chain=[eav_alias, "key"]),
                     right=ast.Constant(value=property_name),
                 ),
             ]
@@ -161,65 +154,10 @@ class EAVResolver(TraversingVisitor):
 
     def _append_join(self, node: ast.SelectQuery, join_expr: ast.JoinExpr) -> None:
         """Append a JoinExpr to the end of the select_from chain."""
-        if node.select_from is None:
-            node.select_from = join_expr
-            return
+        assert node.select_from is not None
 
-        # Walk to the end of the join chain
         current = node.select_from
         while current.next_join is not None:
             current = current.next_join
 
         current.next_join = join_expr
-
-
-class PropertyTypeUpdater(TraversingVisitor):
-    """
-    Update PropertyType nodes to reference EAV aliases.
-
-    After EAV JOINs are added, this updates the PropertyType nodes
-    to set eav_join_alias and eav_column so the printer outputs alias.column.
-    """
-
-    def __init__(self, context: HogQLContext, eav_properties: set[tuple[str, str, str]]):
-        super().__init__()
-        self.context = context
-        # Map (events_alias, property_name) -> (eav_alias, eav_column)
-        self.eav_map: dict[tuple[str, str], tuple[str, str]] = {}
-        for events_alias, property_name, eav_column in eav_properties:
-            eav_alias = f"eav_{events_alias}_{property_name}"
-            self.eav_map[(events_alias, property_name)] = (eav_alias, eav_column)
-        self._in_target_select = False
-
-    def visit_select_query(self, node: ast.SelectQuery):
-        if self._in_target_select:
-            # Don't descend into nested subqueries - they have their own EAV joins
-            pass
-        else:
-            # Visit the target SELECT's expressions
-            self._in_target_select = True
-            super().visit_select_query(node)
-            self._in_target_select = False
-
-    def visit_select_set_query(self, node: ast.SelectSetQuery):
-        # Don't descend into union queries
-        pass
-
-    def visit_property_type(self, node: ast.PropertyType):
-        if node.field_type.name != "properties" or len(node.chain) != 1:
-            return
-
-        if not isinstance(node.field_type.table_type, ast.BaseTableType):
-            return
-
-        resolved_table = node.field_type.table_type.resolve_database_table(self.context)
-        if not isinstance(resolved_table, EventsTable):
-            return
-
-        property_name = str(node.chain[0])
-        events_alias = _get_events_table_alias(node.field_type.table_type)
-
-        if (events_alias, property_name) in self.eav_map:
-            eav_alias, eav_column = self.eav_map[(events_alias, property_name)]
-            node.eav_join_alias = eav_alias
-            node.eav_column = eav_column
