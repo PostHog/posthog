@@ -11,7 +11,6 @@ from temporalio.common import RetryPolicy
 from posthog.models.materialized_column_slots import MaterializedColumnSlotState
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.eav_backfill.activities import (
-    DEFAULT_BACKFILL_DAYS,
     BackfillEAVPropertyInputs,
     UpdateEAVSlotStateInputs,
     backfill_eav_property,
@@ -27,8 +26,6 @@ class BackfillEAVPropertyWorkflowInputs:
     slot_id: str
     property_name: str
     property_type: str
-    # Number of days of historical data to backfill (default 90)
-    backfill_days: int = DEFAULT_BACKFILL_DAYS
     # Wait time for ingestion cache refresh (default 180s, can be 0 for tests)
     cache_refresh_wait_seconds: int = 180
     # Retry interval for state updates (default 10s, can be shorter for tests)
@@ -59,11 +56,8 @@ class BackfillEAVPropertyWorkflow(PostHogWorkflow):
         logger = structlog.get_logger("backfill_eav_property")
 
         try:
-            # Wait for plugin-server TeamManager cache to refresh
-            # IMPORTANT: plugin-server/src/utils/team-manager.ts has refreshAgeMs=2min + refreshJitterMs=30s
-            # We wait 3 minutes to account for max refresh time (2.5min) + buffer
-            # This prevents a gap where new events come in after backfill completes
-            # but before the ingestion server knows about the new EAV property
+            # Wait for plugin-server cache to refresh before backfilling, to prevent
+            # a gap where events arrive after backfill but before ingestion knows the property has been materialized.
             if inputs.cache_refresh_wait_seconds > 0:
                 logger.info(
                     "Waiting for ingestion cache refresh",
@@ -79,7 +73,6 @@ class BackfillEAVPropertyWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 property_name=inputs.property_name,
                 property_type=inputs.property_type,
-                backfill_days=inputs.backfill_days,
             )
             await workflow.execute_activity(
                 backfill_eav_property,
@@ -87,7 +80,6 @@ class BackfillEAVPropertyWorkflow(PostHogWorkflow):
                     team_id=inputs.team_id,
                     property_name=inputs.property_name,
                     property_type=inputs.property_type,
-                    backfill_days=inputs.backfill_days,
                 ),
                 start_to_close_timeout=dt.timedelta(hours=4),  # Longer timeout for large datasets
                 retry_policy=RetryPolicy(

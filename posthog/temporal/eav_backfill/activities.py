@@ -22,16 +22,12 @@ PROPERTY_TYPE_TO_EAV_COLUMN: dict[str, str] = {
     str(PropertyType.Datetime): "value_datetime",
 }
 
-# Default backfill period (90 days)
-DEFAULT_BACKFILL_DAYS = 90
-
 
 @dataclasses.dataclass
 class BackfillEAVPropertyInputs:
     team_id: int
     property_name: str
     property_type: str
-    backfill_days: int = DEFAULT_BACKFILL_DAYS
 
 
 @dataclasses.dataclass
@@ -116,7 +112,6 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> int:
         FROM events
         WHERE
             team_id = %(team_id)s
-            AND timestamp >= now() - INTERVAL %(backfill_days)s DAY
             AND JSONHas(properties, %(property_name)s)
             AND NOT isNull({value_extraction})
     """
@@ -124,7 +119,6 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> int:
     params = {
         "team_id": inputs.team_id,
         "property_name": inputs.property_name,
-        "backfill_days": inputs.backfill_days,
     }
 
     logger.info(
@@ -133,7 +127,6 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> int:
         property_name=inputs.property_name,
         property_type=inputs.property_type,
         value_column=value_column,
-        backfill_days=inputs.backfill_days,
     )
 
     try:
