@@ -192,6 +192,13 @@ class HyperCacheManagementConfig:
     # The expected cache value for teams that don't need full verification (e.g., {"flags": []})
     empty_cache_value: dict | None = None
 
+    # Optional batch function to determine which teams should skip fixes.
+    # Used to implement grace periods for recently updated data, avoiding race
+    # conditions between async cache updates and verification.
+    # Takes a list of team IDs, returns a set of team IDs that should skip fixes.
+    # Called once per batch for efficiency (avoids N+1 queries).
+    get_team_ids_to_skip_fix_fn: Callable[[list[int]], set[int]] | None = None
+
     def __post_init__(self) -> None:
         """Validate that optimization fields are set together."""
         has_team_ids_fn = self.get_team_ids_needing_full_verification_fn is not None

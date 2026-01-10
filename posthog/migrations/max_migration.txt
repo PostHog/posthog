@@ -1,1 +1,1 @@
-0954_sdkpolicyconfig_sdkpolicyconfigassignment
+0969_add_oauth_is_verified

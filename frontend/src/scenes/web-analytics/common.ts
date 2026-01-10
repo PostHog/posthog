@@ -86,11 +86,16 @@ export enum ProductTab {
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
     MARKETING = 'marketing',
     HEALTH = 'health',
+    LIVE = 'live',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
 
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+
+export const tabSplitIndexMap: Partial<Record<TileId, number>> = {
+    [TileId.SOURCES]: 2, // Show Channel + Referring Domain as buttons, rest in dropdown
+}
 
 export const loadPriorityMap: Record<TileId, number> = {
     [TileId.OVERVIEW]: 1,
@@ -276,6 +281,8 @@ export enum GraphsTab {
     UNIQUE_USERS = 'UNIQUE_USERS',
     PAGE_VIEWS = 'PAGE_VIEWS',
     NUM_SESSION = 'NUM_SESSION',
+    SESSION_DURATION = 'SESSION_DURATION',
+    BOUNCE_RATE = 'BOUNCE_RATE',
     UNIQUE_CONVERSIONS = 'UNIQUE_CONVERSIONS',
     TOTAL_CONVERSIONS = 'TOTAL_CONVERSIONS',
     CONVERSION_RATE = 'CONVERSION_RATE',

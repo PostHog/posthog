@@ -61,7 +61,7 @@
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
-                "CLOUD_DEPLOYMENT": "dev"
+                "CLOUD_DEPLOYMENT": "local"
             },
             "envFile": "${workspaceFolder}/.env",
             "console": "integratedTerminal",
@@ -88,7 +88,7 @@
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",
                 "BILLING_SERVICE_URL": "http://localhost:8100/",
-                "CLOUD_DEPLOYMENT": "dev"
+                "CLOUD_DEPLOYMENT": "local"
             },
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
@@ -145,8 +145,8 @@
             }
         },
         {
-            "name": "Plugin Server",
-            "command": "bin/turbo --env-mode=loose --filter=@posthog/plugin-server start",
+            "name": "Nodejs Services",
+            "command": "bin/turbo --env-mode=loose --filter=@posthog/nodejs start",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}",
@@ -271,7 +271,7 @@
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",
                 "BILLING_SERVICE_URL": "http://localhost:8100/",
-                "CLOUD_DEPLOYMENT": "dev"
+                "CLOUD_DEPLOYMENT": "local"
             },
             "autoStartBrowser": false,
             "program": "${workspaceFolder}/manage.py"
@@ -314,7 +314,7 @@
                 "Celery Threaded Pool",
                 "Celery Beat",
                 "Frontend",
-                "Plugin Server",
+                "Nodejs Services",
                 "Temporal Worker"
             ],
             "stopAll": true,
@@ -329,7 +329,7 @@
                 "Celery Threaded Pool",
                 "Celery Beat",
                 "Frontend (no typegen)",
-                "Plugin Server",
+                "Nodejs Services",
                 "Temporal Worker"
             ],
             "stopAll": true,
@@ -344,7 +344,7 @@
                 "Celery Threaded Pool",
                 "Celery Beat",
                 "Frontend (https)",
-                "Plugin Server",
+                "Nodejs Services",
                 "Temporal Worker"
             ],
             "stopAll": true,
@@ -358,7 +358,7 @@
                 "Backend (with local billing)",
                 "Celery Threaded Pool",
                 "Frontend",
-                "Plugin Server",
+                "Nodejs Services",
                 "Temporal Worker"
             ],
             "stopAll": true,

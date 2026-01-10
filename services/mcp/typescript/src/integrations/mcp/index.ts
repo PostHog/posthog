@@ -7,7 +7,12 @@ import { getPostHogClient } from '@/integrations/mcp/utils/client'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
-import { CUSTOM_BASE_URL, MCP_DOCS_URL } from '@/lib/constants'
+import {
+    CUSTOM_BASE_URL,
+    MCP_DOCS_URL,
+    OAUTH_AUTHORIZATION_SERVER_URL,
+    OAUTH_SCOPES_SUPPORTED,
+} from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
@@ -285,6 +290,29 @@ export default {
                 {
                     headers: {
                         'content-type': 'text/html',
+                    },
+                }
+            )
+        }
+
+        // OAuth Protected Resource Metadata (RFC 9728)
+        // Tells MCP clients where to authenticate to get tokens
+        if (url.pathname === '/.well-known/oauth-protected-resource') {
+            const resourceUrl = new URL(request.url)
+            resourceUrl.pathname = '/'
+            resourceUrl.search = ''
+
+            return new Response(
+                JSON.stringify({
+                    resource: resourceUrl.toString().replace(/\/$/, ''),
+                    authorization_servers: [OAUTH_AUTHORIZATION_SERVER_URL],
+                    scopes_supported: OAUTH_SCOPES_SUPPORTED,
+                    bearer_methods_supported: ['header'],
+                }),
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'public, max-age=3600',
                     },
                 }
             )

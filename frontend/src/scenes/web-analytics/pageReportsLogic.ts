@@ -193,7 +193,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         isInitialLoad: [
             true,
             {
-                loadPagesSuccess: () => false,
+                loadPagesUrlsSuccess: () => false,
             },
         ],
         tileVisualizations: [

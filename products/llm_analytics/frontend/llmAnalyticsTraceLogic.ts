@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -367,6 +368,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         traceId: (traceId: string) => {
             if (traceId) {
                 actions.loadCommentCount()
+
+                // Mark both tasks as completed - viewing a trace implies AI events were sent
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.IngestFirstLLMEvent)
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.ViewFirstTrace)
             }
         },
     })),

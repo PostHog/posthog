@@ -41,7 +41,7 @@ PROVIDER_ERRORS = Counter(
 ACTIVE_STREAMS = Gauge(
     "llm_gateway_active_streams",
     "Currently active streaming connections",
-    labelnames=["provider"],
+    labelnames=["provider", "model"],
 )
 
 DB_POOL_SIZE = Gauge(
@@ -83,7 +83,7 @@ REDIS_FALLBACK = Counter(
 STREAMING_CLIENT_DISCONNECT = Counter(
     "llm_gateway_streaming_client_disconnect_total",
     "Client disconnected during streaming",
-    labelnames=["provider"],
+    labelnames=["provider", "model"],
 )
 
 TIME_TO_FIRST_CHUNK = Histogram(
@@ -96,6 +96,7 @@ TIME_TO_FIRST_CHUNK = Histogram(
 CONCURRENT_REQUESTS = Gauge(
     "llm_gateway_concurrent_requests",
     "Current in-flight requests",
+    labelnames=["provider", "model"],
 )
 
 DB_POOL_EXHAUSTED = Counter(

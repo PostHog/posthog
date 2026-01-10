@@ -17,6 +17,9 @@ from posthog.schema import (
     ChartDisplayType,
     DashboardFilter,
     DateRange,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
@@ -181,6 +184,9 @@ RunnableQueryNode = Union[
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
 ]
 
 
@@ -787,6 +793,39 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "EndpointsUsageOverviewQuery":
+        from .endpoints.endpoints_usage_overview import EndpointsUsageOverviewQueryRunner
+
+        return EndpointsUsageOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "EndpointsUsageTableQuery":
+        from .endpoints.endpoints_usage_table import EndpointsUsageTableQueryRunner
+
+        return EndpointsUsageTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "EndpointsUsageTrendsQuery":
+        from .endpoints.endpoints_usage_trends import EndpointsUsageTrendsQueryRunner
+
+        return EndpointsUsageTrendsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
@@ -979,6 +1018,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
         if isinstance(cached_response, CachedResponse):
+            # Apply current query's custom_name values to cached response
+            # (custom_name is excluded from cache key, so cached values may be stale)
+            cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
+
+            if custom_names_modified:
+                # Update cache with patched response so subsequent requests get the updated names
+                cache_manager.set_cache_data(
+                    response=cached_response.model_dump(),
+                    target_age=cached_response.cache_target_age,
+                )
+
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
@@ -1309,6 +1359,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_cache_payload(self) -> dict:
         # remove the tags key, these are used in the query log comment but shouldn't break caching
+        # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
 
@@ -1330,6 +1381,104 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_cache_key(self) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
+
+    def apply_series_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
+        """
+        Apply custom_name values from the current query's series to a cached response.
+
+        Since custom_name is excluded from cache keys (it's presentation metadata),
+        cached responses may have stale custom_name values. This method patches
+        the response with the current query's custom_name values.
+
+        Returns:
+            Tuple of (patched_response, was_modified) - was_modified is True if any
+            custom_name values were actually changed.
+        """
+        if isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
+            return self._apply_trends_custom_names(cached_response)
+        elif isinstance(self.query, FunnelsQuery):
+            return self._apply_funnels_custom_names(cached_response)
+        return cached_response, False
+
+    def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
+        """Apply custom_name values to TrendsQuery results (nested under action)."""
+        series = getattr(self.query, "series", None)
+        if not series:
+            return cached_response, False
+
+        results = getattr(cached_response, "results", None)
+        if not results or not isinstance(results, list):
+            return cached_response, False
+
+        custom_names_by_order: dict[int, str | None] = {}
+        for i, s in enumerate(series):
+            custom_name = getattr(s, "custom_name", None)
+            custom_names_by_order[i] = custom_name
+
+        was_modified = False
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            action = result.get("action")
+            if not isinstance(action, dict):
+                continue
+            order = action.get("order")
+            if order is not None and order in custom_names_by_order:
+                new_name = custom_names_by_order[order]
+                if action.get("custom_name") != new_name:
+                    action["custom_name"] = new_name
+                    was_modified = True
+
+        return cached_response, was_modified
+
+    def _apply_funnels_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
+        """
+        Apply custom_name values to FunnelsQuery results (top-level of step dict).
+
+        Funnel results have two structures:
+        - Without breakdown: flat list of steps [step1, step2, ...]
+        - With breakdown: list of lists [[step1, step2], [step1, step2], ...]
+        """
+        series = getattr(self.query, "series", None)
+        if not series:
+            return cached_response, False
+
+        results = getattr(cached_response, "results", None)
+        if not results or not isinstance(results, list):
+            return cached_response, False
+
+        custom_names_by_order: dict[int, str | None] = {}
+        for i, s in enumerate(series):
+            custom_name = getattr(s, "custom_name", None)
+            custom_names_by_order[i] = custom_name
+
+        was_modified = False
+
+        if results and len(results) > 0 and isinstance(results[0], list):
+            # Breakdown case: iterate through each breakdown group
+            for breakdown_group in results:
+                for step in breakdown_group:
+                    if not isinstance(step, dict):
+                        continue
+                    order = step.get("order")
+                    if order is not None and order in custom_names_by_order:
+                        new_name = custom_names_by_order[order]
+                        if step.get("custom_name") != new_name:
+                            step["custom_name"] = new_name
+                            was_modified = True
+        else:
+            # Non-breakdown case: flat list of steps
+            for step in results:
+                if not isinstance(step, dict):
+                    continue
+                order = step.get("order")
+                if order is not None and order in custom_names_by_order:
+                    new_name = custom_names_by_order[order]
+                    if step.get("custom_name") != new_name:
+                        step["custom_name"] = new_name
+                        was_modified = True
+
+        return cached_response, was_modified
 
     def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
         """

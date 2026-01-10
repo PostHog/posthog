@@ -78,4 +78,18 @@ var (
 		Name: "livestream_session_recording_dropped_messages_total",
 		Help: "The total number of session recording messages dropped due to missing headers",
 	})
+
+	// Session stats LRU metrics
+	SessionRecordingLRUSize = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_session_recording_lru_size",
+		Help: "Current number of unique sessions in the LRU cache",
+	})
+	SessionRecordingLRUEvictions = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_session_recording_lru_evictions_total",
+		Help: "Total number of sessions evicted from LRU (by TTL or capacity)",
+	})
+	SessionRecordingTokenCount = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_session_recording_token_count",
+		Help: "Number of unique tokens being tracked",
+	})
 )

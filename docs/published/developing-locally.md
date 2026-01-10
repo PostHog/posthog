@@ -15,7 +15,7 @@ The app itself is made up of 4 main components that run simultaneously:
 
 - Celery worker (handles execution of background tasks)
 - Django server
-- Node.js plugin server (handles event ingestion and apps/plugins)
+- Node.js services (handles event ingestion and apps/plugins)
 - React frontend built with Node.js
 
 We also have a growing collection of Rust services that handle performance-critical operations:
@@ -172,13 +172,13 @@ This happens on first startup. Wait for the frontend to finish compiling and try
 Kafka is an x86 container and may segfault randomly on ARM machines. Simply restart it when that happens.
 
 **Apple Silicon OpenSSL issues**
-On Apple Silicon Macs, you may get build errors related to OpenSSL. For plugin-server: set `CPPFLAGS=-I/opt/homebrew/opt/openssl/include` and `LDFLAGS=-L/opt/homebrew/opt/openssl/lib` before installing. For Python packages, you may need custom OpenSSL headers – consult the [xmlsec issue](https://github.com/xmlsec/python-xmlsec/issues/254) for details.
+On Apple Silicon Macs, you may get build errors related to OpenSSL. For nodejs: set `CPPFLAGS=-I/opt/homebrew/opt/openssl/include` and `LDFLAGS=-L/opt/homebrew/opt/openssl/lib` before installing. For Python packages, you may need custom OpenSSL headers – consult the [xmlsec issue](https://github.com/xmlsec/python-xmlsec/issues/254) for details.
 
-**Plugin server rebuild**
-If the plugin server won't start, try `cd plugin-server && pnpm rebuild && pnpm i`.
+**Nodejs services rebuild**
+If the nodejs won't start, try `cd nodejs && pnpm rebuild && pnpm i`.
 
 **Python setuptools error**
-If you see `import gyp  # noqa: E402` during plugin-server install, run `brew install python-setuptools`.
+If you see `import gyp  # noqa: E402` during nodejs install, run `brew install python-setuptools`.
 
 **OpenSSL certificate verification error**
 If you get `Configuration property "enable.ssl.certificate.verification" not supported in this build: OpenSSL not available at build time` when running `./bin/start`, set the right OpenSSL environment variables as described in [this issue](https://github.com/xmlsec/python-xmlsec/issues/261#issuecomment-1630889826) and try again.
@@ -323,7 +323,7 @@ With PyCharm's built in support for Django, it's fairly easy to setup debugging 
    - "PostHog" and click on debug
    - "Celery" and click on debug (optional)
    - "Frontend" and click on run
-   - "Plugin server" and click on run
+   - "Nodejs services" and click on run
 
 ## Extra: Accessing Postgres
 
@@ -447,6 +447,16 @@ If you need to start fresh with a clean database (for example, if your local dat
 4. Once PostHog is running, click the **generate-demo-data** button in the UI, then type `r` to generate test data.
 
 > **Note:** This process will completely wipe your local database. Make sure you don't have any important local data before proceeding.
+
+## Extra: API types
+
+When modifying Django serializers or views, you may need to regenerate TypeScript types:
+
+```bash
+hogli build:openapi
+```
+
+See the [Type system guide](type-system) for details on how type generation works and best practices for documenting your API.
 
 ## Extra: Working with the data warehouse
 

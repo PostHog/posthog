@@ -21,14 +21,14 @@ jobs:
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
                   filter: blob:none
 
             - name: Check if common/hogql_parser/ has changed
               id: changed-files
-              uses: step-security/changed-files@3dbe17c78367e7d60f00d78ae6781a35be47b4a1 # v45
+              uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
               with:
                   since_last_remote_commit: true
                   files_yaml: |
@@ -82,9 +82,9 @@ jobs:
                       MACOSX_DEPLOYMENT_TARGET: ''
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
-            - uses: actions/setup-python@v5
+            - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: '3.12.10' # There is no 3.12.11/3.12.12 binary for mac/darwin architectures yet
 
@@ -105,7 +105,7 @@ jobs:
                   MACOSX_DEPLOYMENT_TARGET: ${{ matrix.MACOSX_DEPLOYMENT_TARGET }}
 
             - name: Upload wheels artifact
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: wheels-${{ matrix.os }}
                   path: |
@@ -122,53 +122,53 @@ jobs:
         runs-on: ubuntu-22.04
         steps:
             - name: Download wheels from ubuntu-22.04
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: wheels-ubuntu-22.04
                   path: dist
 
             - name: Download wheels from buildjet-2vcpu-ubuntu-2204-arm
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: wheels-buildjet-2vcpu-ubuntu-2204-arm
                   path: dist
 
             - name: Download wheels from macos-13
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: wheels-macos-13
                   path: dist
 
             - name: Download wheels from macos-14
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: wheels-macos-14
                   path: dist
 
             - name: Publish package to PyPI
-              uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
+              uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
 
             # Use GitHub app token so Actions run after commiting changes
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
               with:
                   app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: 3.12.12
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -190,7 +190,7 @@ jobs:
                       sleep 0.5
                   done
 
-            - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
+            - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
               with:
                   add: '["pyproject.toml", "uv.lock"]'
                   message: 'Use new hogql-parser version'

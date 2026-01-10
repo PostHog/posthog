@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
@@ -75,6 +74,7 @@ import {
     ConversationDetail,
     CoreMemory,
     CreateGroupParams,
+    CustomerProfileConfigType,
     CyclotronJobFiltersType,
     CyclotronJobTestInvocationResult,
     DashboardTemplateEditorType,
@@ -158,8 +158,6 @@ import {
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
-    PropertyFilterType,
-    PropertyOperator,
     QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
@@ -173,6 +171,7 @@ import {
     SchemaIncrementalFieldsResponse,
     SearchListParams,
     SearchResponse,
+    SessionRecordingExternalReference,
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
@@ -189,6 +188,7 @@ import {
     UserBasicType,
     UserInterviewType,
     UserType,
+    WebAnalyticsFilterPresetType,
 } from '~/types'
 
 import {
@@ -196,6 +196,7 @@ import {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
@@ -306,6 +307,13 @@ export class ApiError extends Error {
             return `in ${humanFriendlyDuration(secondsLeft, { maxUnits: 2 })}`
         }
         return 'later'
+    }
+}
+
+export class RateLimitError extends Error {
+    constructor(public retryAfterSeconds: number) {
+        super('Rate limit exceeded')
+        this.name = 'RateLimitError'
     }
 }
 
@@ -471,6 +479,12 @@ export class ApiRequest {
 
     public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
+    }
+
+    // # Onboarding
+
+    public onboardingRecommendProducts(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('onboarding').addPathComponent('recommend_products')
     }
 
     // # LLM Analytics
@@ -679,6 +693,10 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('has_logs')
     }
 
+    public logsExplainWithAI(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('explainLogWithAI')
+    }
+
     // # Data management
     public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions')
@@ -759,12 +777,17 @@ export class ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('remove_person_from_static_cohort')
     }
 
-    public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
-    }
-
     public cohortsCalculationHistory(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohortsDetail(cohortId, teamId).addPathComponent('calculation_history')
+    }
+
+    // # Customer Profile Configs
+    public customerProfileConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('customer_profile_configs')
+    }
+
+    public customerProfileConfigsDetail(id: CustomerProfileConfigType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.customerProfileConfigs(teamId).addPathComponent(id)
     }
 
     // Recordings
@@ -774,6 +797,10 @@ export class ApiRequest {
 
     public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.recordings(teamId).addPathComponent(recordingId)
+    }
+
+    public sessionRecordingsExternalReferences(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('session_recording_external_references')
     }
 
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
@@ -1191,6 +1218,15 @@ export class ApiRequest {
         return this.quickFilters(teamId).addPathComponent(id)
     }
 
+    // # Web Analytics Filter Presets
+    public webAnalyticsFilterPresets(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('web_analytics_filter_presets')
+    }
+
+    public webAnalyticsFilterPreset(shortId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.webAnalyticsFilterPresets(teamId).addPathComponent(shortId)
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
@@ -1439,13 +1475,22 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
-    // Conversations
+    // Conversations (Max AI)
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
     }
 
     public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
+    }
+
+    // Conversations (Support product)
+    public conversationsTickets(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('conversations').addPathComponent('tickets')
+    }
+
+    public conversationsTicket(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.conversationsTickets(teamId).addPathComponent(id)
     }
 
     // Notebooks
@@ -1784,6 +1829,22 @@ const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
+        },
+    },
+    onboarding: {
+        recommendProducts(
+            params: {
+                description?: string
+                browsingHistory?: string[]
+            },
+            teamId?: TeamType['id']
+        ): Promise<{ products: string[]; reasoning: string }> {
+            return new ApiRequest().onboardingRecommendProducts(teamId).create({
+                data: {
+                    description: params.description,
+                    browsing_history: params.browsingHistory,
+                },
+            })
         },
     },
     llmAnalytics: {
@@ -2314,6 +2375,9 @@ const api = {
                 .get()
                 .then((response) => Boolean(response.hasLogs))
         },
+        async explain(uuid: string, timestamp: string): Promise<LogExplanation> {
+            return new ApiRequest().logsExplainWithAI().create({ data: { uuid, timestamp } })
+        },
     },
 
     exports: {
@@ -2599,9 +2663,6 @@ const api = {
                 .withQueryString(filterParams)
                 .update({ data: cohortData })
         },
-        async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
-            return await new ApiRequest().cohortsDuplicate(cohortId).get()
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
@@ -2632,6 +2693,27 @@ const api = {
         },
         async getCalculationHistory(cohortId: CohortType['id']): Promise<CohortCalculationHistoryResponse> {
             return await new ApiRequest().cohortsCalculationHistory(cohortId).get()
+        },
+    },
+
+    customerProfileConfigs: {
+        async list(params: { scope?: string } = {}): Promise<CountedPaginatedResponse<CustomerProfileConfigType>> {
+            return await new ApiRequest().customerProfileConfigs().withQueryString(toParams(params)).get()
+        },
+        async get(id: CustomerProfileConfigType['id']): Promise<CustomerProfileConfigType> {
+            return await new ApiRequest().customerProfileConfigsDetail(id).get()
+        },
+        async create(configData: Partial<CustomerProfileConfigType>): Promise<CustomerProfileConfigType> {
+            return await new ApiRequest().customerProfileConfigs().create({ data: configData })
+        },
+        async update(
+            id: CustomerProfileConfigType['id'],
+            configData: Partial<CustomerProfileConfigType>
+        ): Promise<CustomerProfileConfigType> {
+            return await new ApiRequest().customerProfileConfigsDetail(id).update({ data: configData })
+        },
+        async delete(id: CustomerProfileConfigType['id']): Promise<void> {
+            return await new ApiRequest().customerProfileConfigsDetail(id).delete()
         },
     },
 
@@ -3060,11 +3142,13 @@ const api = {
             search,
             types,
             limit,
+            full,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
             search?: string
             types?: HogFunctionTypeType[]
             limit?: number
+            full?: boolean
         }): Promise<CountedPaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -3074,6 +3158,7 @@ const api = {
                     ...(types ? { type: types.join(',') } : {}),
                     ...(search ? { search } : {}),
                     ...(limit ? { limit } : {}),
+                    ...(full ? { full: 'true' } : {}),
                 })
                 .get()
         },
@@ -3141,33 +3226,6 @@ const api = {
         },
         async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
             return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
-        },
-        async listForAlert(alertId: string): Promise<CountedPaginatedResponse<HogFunctionType>> {
-            return await new ApiRequest()
-                .hogFunctions()
-                .withQueryString({
-                    filter_groups: [
-                        {
-                            properties: [
-                                {
-                                    key: 'alert_id',
-                                    value: alertId,
-                                    operator: PropertyOperator.Exact,
-                                    type: PropertyFilterType.Event,
-                                },
-                            ],
-                            events: [
-                                {
-                                    id: INSIGHT_ALERT_FIRING_EVENT_ID,
-                                    type: 'events',
-                                },
-                            ],
-                        },
-                    ],
-                    type: 'internal_destination',
-                    full: 'true',
-                })
-                .get()
         },
         async enableBackfills(id: HogFunctionType['id']): Promise<{ batch_export_id: string }> {
             return await new ApiRequest().hogFunction(id).withAction('enable_backfills').create()
@@ -3484,6 +3542,16 @@ const api = {
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
+        },
+
+        async createExternalReference(
+            sessionRecordingId: SessionRecordingType['id'],
+            integrationId: number,
+            config: Record<string, any>
+        ): Promise<SessionRecordingExternalReference> {
+            return await new ApiRequest()
+                .sessionRecordingsExternalReferences()
+                .create({ data: { session_recording_id: sessionRecordingId, integration_id: integrationId, config } })
         },
 
         async listSnapshotSources(
@@ -3935,8 +4003,15 @@ const api = {
         async summarize_responses(
             surveyId: Survey['id'],
             questionIndex: number | undefined,
-            questionId: string | undefined
-        ): Promise<any> {
+            questionId: string | undefined,
+            forceRefresh: boolean = false
+        ): Promise<{
+            content: string
+            response_count: number
+            generated_at: string
+            cached: boolean
+            trace_id: string
+        }> {
             const apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
             const queryParams: Record<string, string> = {}
 
@@ -3946,7 +4021,7 @@ const api = {
             if (questionId !== undefined) {
                 queryParams['question_id'] = questionId
             }
-            return await apiRequest.withQueryString(queryParams).create()
+            return await apiRequest.withQueryString(queryParams).create({ data: { force_refresh: forceRefresh } })
         },
         async getSummaryHeadline(
             surveyId: Survey['id'],
@@ -4095,6 +4170,9 @@ const api = {
         },
         async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
+        },
+        async materialize(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('materialize').create()
         },
         async revertMaterialization(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('revert_materialization').create()
@@ -4664,6 +4742,14 @@ const api = {
         }> {
             return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },
+        async createHogFlowBatchJob(
+            hogFlowId: HogFlow['id'],
+            data: {
+                variables: Record<string, HogQLVariable>
+            }
+        ): Promise<void> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
+        },
     },
     hogFlowTemplates: {
         async getHogFlowTemplates(): Promise<PaginatedResponse<HogFlowTemplate>> {
@@ -4683,6 +4769,29 @@ const api = {
         },
         async deleteHogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): Promise<void> {
             return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).delete()
+        },
+    },
+
+    webAnalyticsFilterPresets: {
+        async list(params?: string): Promise<PaginatedResponse<WebAnalyticsFilterPresetType>> {
+            return await new ApiRequest().webAnalyticsFilterPresets().withQueryString(params).get()
+        },
+        async get(shortId: string): Promise<WebAnalyticsFilterPresetType> {
+            return await new ApiRequest().webAnalyticsFilterPreset(shortId).get()
+        },
+        async create(
+            data: Pick<WebAnalyticsFilterPresetType, 'name' | 'description' | 'filters'>
+        ): Promise<WebAnalyticsFilterPresetType> {
+            return await new ApiRequest().webAnalyticsFilterPresets().create({ data })
+        },
+        async update(
+            shortId: string,
+            data: Partial<Pick<WebAnalyticsFilterPresetType, 'name' | 'description' | 'filters' | 'pinned' | 'deleted'>>
+        ): Promise<WebAnalyticsFilterPresetType> {
+            return await new ApiRequest().webAnalyticsFilterPreset(shortId).update({ data })
+        },
+        async delete(shortId: string): Promise<void> {
+            await new ApiRequest().webAnalyticsFilterPreset(shortId).update({ data: { deleted: true } })
         },
     },
 
@@ -4859,6 +4968,46 @@ const api = {
         },
     },
 
+    conversationsTickets: {
+        async list(
+            params: {
+                status?: string
+                distinct_id?: string
+                search?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<any>> {
+            return await new ApiRequest().conversationsTickets().withQueryString(params).get()
+        },
+
+        async get(ticketId: string): Promise<any> {
+            return await new ApiRequest().conversationsTicket(ticketId).get()
+        },
+
+        async create(data: {
+            distinct_id: string
+            anonymous_traits?: Record<string, any>
+            channel_source?: string
+        }): Promise<any> {
+            return await new ApiRequest().conversationsTickets().create({ data })
+        },
+
+        async update(
+            ticketId: string,
+            data: Partial<{
+                status: string
+                escalation_reason: string
+            }>
+        ): Promise<any> {
+            return await new ApiRequest().conversationsTicket(ticketId).update({ data })
+        },
+
+        async delete(ticketId: string): Promise<void> {
+            return await new ApiRequest().conversationsTicket(ticketId).delete()
+        },
+    },
+
     llmPrompts: {
         list(params?: {
             search?: string
@@ -5017,6 +5166,10 @@ const api = {
                   signal?: AbortSignal
               }
     ): Promise<void> {
+        const abortController = new AbortController()
+        // If an external signal is provided, forward its abort to our controller
+        signal?.addEventListener('abort', () => abortController.abort())
+
         await fetchEventSource(url, {
             method,
             headers: {
@@ -5026,7 +5179,16 @@ const api = {
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
-            signal,
+            signal: abortController.signal,
+            onopen: async (response) => {
+                if (response.status === 429) {
+                    const retryAfter = response.headers.get('Retry-After')
+                    if (retryAfter) {
+                        onError(new RateLimitError(parseInt(retryAfter, 10)))
+                        abortController.abort()
+                    }
+                }
+            },
             onmessage: onMessage,
             onerror: onError,
             // By default fetch-event-source stops connection when document is no longer focused, but that is not how
@@ -5133,6 +5295,15 @@ const api = {
             kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    projects: {
+        async generateConversationsPublicToken(teamId?: TeamType['id']): Promise<TeamType> {
+            return await new ApiRequest()
+                .environmentsDetail(teamId)
+                .withAction('generate_conversations_public_token')
+                .create()
         },
     },
 }
