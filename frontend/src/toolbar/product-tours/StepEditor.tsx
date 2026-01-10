@@ -176,7 +176,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
                 setEditorWidth(PRODUCT_TOUR_STEP_WIDTHS.default)
             }
         }
-    }, [editingStep?.id, editingStep?.maxWidth])
+    }, [editingStep?.id, editingStep?.maxWidth, editingStep])
 
     // Initialize selector and progressionTrigger from selectedElement or editingStep
     useEffect(() => {
@@ -200,7 +200,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     // Initialize survey config from existing step
     useEffect(() => {
         setSurveyConfig(editingStep?.survey)
-    }, [editingStep?.id])
+    }, [editingStep?.id, editingStep.survey])
 
     // Render survey preview using product tour's native survey rendering
     useEffect(() => {
@@ -261,7 +261,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     // Update content state when editing a different step
     useEffect(() => {
         setStepContent(editingStep?.content ?? DEFAULT_STEP_CONTENT)
-    }, [editingStep?.id])
+    }, [editingStep?.id, editingStep.content])
 
     const style: React.CSSProperties = {
         position: 'fixed',
