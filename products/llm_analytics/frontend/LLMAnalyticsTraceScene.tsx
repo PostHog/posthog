@@ -99,7 +99,6 @@ function TraceSceneWrapper(): JSX.Element {
         effectiveEventId,
     } = useValues(llmAnalyticsTraceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
 
@@ -126,23 +125,20 @@ function TraceSceneWrapper(): JSX.Element {
                         />
                         <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
-                            {(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={
-                                        <IconWithCount count={commentCount} showZero={false}>
-                                            <IconComment />
-                                        </IconWithCount>
-                                    }
-                                    onClick={() => openSidePanel(SidePanelTab.Discussion)}
-                                    tooltip="Add comments on this trace"
-                                    data-attr="open-trace-discussion"
-                                >
-                                    Discussion
-                                </LemonButton>
-                            )}
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                icon={
+                                    <IconWithCount count={commentCount} showZero={false}>
+                                        <IconComment />
+                                    </IconWithCount>
+                                }
+                                onClick={() => openSidePanel(SidePanelTab.Discussion)}
+                                tooltip="Add comments on this trace"
+                                data-attr="open-trace-discussion"
+                            >
+                                Discussion
+                            </LemonButton>
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
                         </div>
                     </div>

@@ -1,12 +1,10 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -64,10 +62,6 @@ export function getDataNodeLogicProps({
 
 export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
-
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
 
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
@@ -206,13 +200,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             0,
             {
                 loadCommentCount: async (_, breakpoint) => {
-                    if (
-                        !values.traceId ||
-                        !(
-                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-                        )
-                    ) {
+                    if (!values.traceId) {
                         return 0
                     }
 
@@ -291,16 +279,13 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 },
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.traceId, s.featureFlags],
-            (traceId, featureFlags): SidePanelSceneContext => {
+            (s) => [s.traceId],
+            (traceId): SidePanelSceneContext => {
                 // Discussions are always at the trace level, accessible from anywhere in the trace
                 return {
                     activity_scope: ActivityScope.LLM_TRACE,
                     activity_item_id: traceId || '',
-                    discussions_disabled: !(
-                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-                    ),
+                    discussions_disabled: false,
                     activity_item_context: { trace_id: traceId || '' },
                 }
             },
