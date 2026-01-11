@@ -280,7 +280,7 @@ jobs:
                   clean: false
 
             - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+              uses: cargo-bins/cargo-binstall@80aaafe04903087c333980fa2686259ddd34b2d9 # main
 
             - name: Install cargo-shear
               run: cargo binstall --no-confirm cargo-shear@1.1.12
