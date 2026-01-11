@@ -8,6 +8,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.sync import database_sync_to_async
 
+from products.posthog_ai.backend.models import AgentMemory
+
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
 
@@ -15,6 +17,8 @@ EMBEDDING_MODEL = "text-embedding-3-small-1536"
 
 MANAGE_MEMORIES_TOOL_PROMPT = """
 Manage persistent memories to remember facts about the user's company, product, and preferences.
+
+A memory is a chunk of text that is searched via semantic embedding, plus metadata allowing you to build up a taxonomy of types or tags for memories over time.
 
 Actions:
 - **create**: Store a new memory with content and optional metadata
@@ -94,8 +98,6 @@ class ManageMemoriesTool(MaxTool):
     async def _create_memory(self, contents: str | None, metadata: dict | None) -> tuple[str, dict[str, Any]]:
         if not contents:
             raise MaxToolRetryableError("contents is required for create action")
-
-        from products.posthog_ai.backend.models import AgentMemory
 
         @database_sync_to_async
         def create():
@@ -196,8 +198,6 @@ class ManageMemoriesTool(MaxTool):
         if contents is None and metadata is None:
             raise MaxToolRetryableError("At least one of contents or metadata must be provided for update action")
 
-        from products.posthog_ai.backend.models import AgentMemory
-
         @database_sync_to_async
         def update():
             try:
@@ -223,8 +223,6 @@ class ManageMemoriesTool(MaxTool):
         )
 
     async def _list_metadata_keys(self) -> tuple[str, dict[str, Any]]:
-        from products.posthog_ai.backend.models import AgentMemory
-
         @database_sync_to_async
         def get_keys():
             memories = AgentMemory.objects.filter(team=self._team).values_list("metadata", flat=True)
