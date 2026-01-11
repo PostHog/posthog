@@ -46,6 +46,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingStackFrameViewSet,
     ErrorTrackingSuppressionRuleViewSet,
     ErrorTrackingSymbolSetViewSet,
@@ -889,6 +890,13 @@ environments_router.register(
     r"error_tracking/stack_frames",
     ErrorTrackingStackFrameViewSet,
     "environment_error_tracking_stack_frames",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/spike_detection_config",
+    ErrorTrackingSpikeDetectionConfigViewSet,
+    "environment_error_tracking_spike_detection_config",
     ["team_id"],
 )
 
