@@ -30,6 +30,11 @@ class AgentMemory(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "id"]),
+        ]
+
     def embed(self, model_name: str) -> "FutureRecordMetadata":
         enc = tiktoken.get_encoding("cl100k_base")
         token_count = len(enc.encode(self.contents))

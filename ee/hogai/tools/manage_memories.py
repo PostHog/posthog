@@ -118,8 +118,6 @@ class ManageMemoriesTool(MaxTool):
         if not query_text:
             raise MaxToolRetryableError("query_text is required for query action")
 
-        from products.posthog_ai.backend.models import AgentMemory
-
         query = """
             SELECT
                 document_id,
@@ -158,8 +156,6 @@ class ManageMemoriesTool(MaxTool):
         result = await run_query()
 
         memories: list[MemoryResult] = []
-        memory_ids_to_check: list[str] = []
-
         for row in result.results or []:
             document_id, content, metadata_str, distance = row
             try:
@@ -175,22 +171,6 @@ class ManageMemoriesTool(MaxTool):
                     distance=distance,
                 )
             )
-            memory_ids_to_check.append(document_id)
-
-        if memory_ids_to_check:
-
-            @database_sync_to_async
-            def check_and_sync():
-                db_memories = {str(m.id): m for m in AgentMemory.objects.filter(id__in=memory_ids_to_check)}
-                for mem in memories:
-                    if mem.memory_id in db_memories:
-                        db_mem = db_memories[mem.memory_id]
-                        if db_mem.contents != mem.contents:
-                            db_mem.embed(EMBEDDING_MODEL)
-                            mem.contents = db_mem.contents
-                            mem.metadata = db_mem.metadata
-
-            await check_and_sync()
 
         if not memories:
             return "No memories found matching your query.", {"results": [], "count": 0}
