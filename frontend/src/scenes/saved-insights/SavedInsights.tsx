@@ -782,7 +782,7 @@ export function SavedInsights(): JSX.Element {
                     </>
                 )
             },
-            sorter: (a, b) => a.name.localeCompare(b.name),
+            sorter: (a, b) => (a.name || summarizeInsight(a.query)).localeCompare(b.name || summarizeInsight(b.query)),
         },
         ...(hasTagging
             ? [
