@@ -166,9 +166,8 @@ export function Command(): JSX.Element {
         isCommandOpen && !searchValue
     )
 
-    const { contains } = Autocomplete.useFilter({ sensitivity: 'base' })
-
     // Flatten all category items into a single list
+    // Server already returns filtered results, no need for client-side filtering
     const allItems = useMemo(() => {
         const items: CommandSearchItem[] = []
         for (const category of allCategories) {
@@ -177,36 +176,25 @@ export function Command(): JSX.Element {
         return items
     }, [allCategories])
 
-    // Debounced search effect
+    // Trigger search when value changes (commandSearchLogic handles debouncing)
     useEffect(() => {
         if (!isCommandOpen) {
             return
         }
-
-        const timeoutId = setTimeout(() => {
-            setSearch(searchValue)
-        }, 150)
-
-        return () => {
-            clearTimeout(timeoutId)
-        }
+        setSearch(searchValue)
     }, [searchValue, setSearch, isCommandOpen])
 
-    // Update filtered items when allItems or search changes
-    // No search = show recents only, with search = search all categories
+    // Update filtered items when allItems changes
+    // Server already returns filtered results, only need to filter recents when no search term
     useEffect(() => {
-        let filtered = allItems
-
         if (searchValue.trim()) {
-            // When searching, search across all categories
-            filtered = filtered.filter((item) => contains(item.name, searchValue))
+            // Server returns filtered results
+            setFilteredItems(allItems)
         } else {
             // No search term - show only recents
-            filtered = filtered.filter((item) => item.category === 'recents')
+            setFilteredItems(allItems.filter((item) => item.category === 'recents'))
         }
-
-        setFilteredItems(filtered)
-    }, [allItems, searchValue, contains])
+    }, [allItems, searchValue])
 
     // Focus input when dialog opens
     useEffect(() => {
