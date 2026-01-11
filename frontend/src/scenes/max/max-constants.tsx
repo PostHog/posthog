@@ -861,7 +861,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     manage_memories: {
         name: 'Manage memories',
-        description: 'Store and retrieve persistent memories',
+        description: 'Manage memories to store and retrieve persistent information',
         icon: <IconMemory />,
     },
 }
