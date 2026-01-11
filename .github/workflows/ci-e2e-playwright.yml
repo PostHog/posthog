@@ -332,7 +332,7 @@ jobs:
               run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
 
             - name: Wait for PostHog to be ready
-              uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
+              uses: iFaxity/wait-on-action@b15f5c3f2670005c3418378b2e68047b00aaf330 # v1.2.1
               with:
                   resource: http://localhost:8000
                   timeout: 180000
