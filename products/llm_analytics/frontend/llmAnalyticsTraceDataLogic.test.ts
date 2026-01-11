@@ -1,6 +1,6 @@
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { TraceTreeNode, getEffectiveEventId, getInitialFocusEventId, restoreTree } from './llmAnalyticsTraceDataLogic'
+import { getEffectiveEventId, getInitialFocusEventId, restoreTree } from './llmAnalyticsTraceDataLogic'
 
 describe('llmAnalyticsTraceDataLogic: restoreTree', () => {
     it('should group a basic trace into a tree', () => {
@@ -218,12 +218,10 @@ describe('getInitialFocusEventId', () => {
             },
         ]
 
-        const tree: TraceTreeNode[] = [{ event: events[0] }]
-
-        expect(getInitialFocusEventId(events, tree)).toBe('trace-event-1')
+        expect(getInitialFocusEventId(events)).toBe('trace-event-1')
     })
 
-    it('returns first tree event id when no $ai_trace event exists', () => {
+    it('returns null when no $ai_trace event exists (pseudo-trace)', () => {
         const events: LLMTraceEvent[] = [
             {
                 id: 'span-1',
@@ -239,36 +237,11 @@ describe('getInitialFocusEventId', () => {
             },
         ]
 
-        const tree: TraceTreeNode[] = [{ event: events[0] }, { event: events[1] }]
-
-        expect(getInitialFocusEventId(events, tree)).toBe('span-1')
+        expect(getInitialFocusEventId(events)).toBeNull()
     })
 
     it('returns null when no events exist', () => {
-        expect(getInitialFocusEventId([], [])).toBeNull()
-    })
-
-    it('prioritizes $ai_trace over tree order', () => {
-        const spanEvent: LLMTraceEvent = {
-            id: 'span-1',
-            event: '$ai_span',
-            properties: {},
-            createdAt: '2024-01-01T00:00:00Z',
-        }
-
-        const traceEvent: LLMTraceEvent = {
-            id: 'trace-event-1',
-            event: '$ai_trace',
-            properties: {},
-            createdAt: '2024-01-01T00:00:00Z',
-        }
-
-        const events: LLMTraceEvent[] = [spanEvent, traceEvent]
-
-        // Tree has span first, but $ai_trace should still be selected
-        const tree: TraceTreeNode[] = [{ event: spanEvent }]
-
-        expect(getInitialFocusEventId(events, tree)).toBe('trace-event-1')
+        expect(getInitialFocusEventId([])).toBeNull()
     })
 })
 

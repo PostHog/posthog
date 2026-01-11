@@ -233,9 +233,8 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 })),
         ],
         initialFocusEventId: [
-            (s) => [s.showableEvents, s.filteredTree],
-            (showableEvents: LLMTraceEvent[], filteredTree: TraceTreeNode[]): string | null =>
-                getInitialFocusEventId(showableEvents, filteredTree),
+            (s) => [s.showableEvents],
+            (showableEvents: LLMTraceEvent[]): string | null => getInitialFocusEventId(showableEvents),
         ],
         effectiveEventId: [
             (s) => [s.eventId, s.initialFocusEventId],
@@ -394,20 +393,11 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
 // Export functions for testing
 export { findEventWithParents }
 
-export function getInitialFocusEventId(showableEvents: LLMTraceEvent[], filteredTree: TraceTreeNode[]): string | null {
-    // First, look for an $ai_trace event
+export function getInitialFocusEventId(showableEvents: LLMTraceEvent[]): string | null {
+    // Look for an $ai_trace event - if found, focus on it
+    // If no $ai_trace event (pseudo-trace), return null to show trace-level view
     const aiTraceEvent = showableEvents.find((event) => event.event === '$ai_trace')
-
-    if (aiTraceEvent) {
-        return aiTraceEvent.id
-    }
-
-    // If no $ai_trace event, use the first event in the tree
-    if (filteredTree.length > 0) {
-        return filteredTree[0].event.id
-    }
-
-    return null
+    return aiTraceEvent?.id ?? null
 }
 
 export function getEffectiveEventId(eventId: string | null, initialFocusEventId: string | null): string | null {
