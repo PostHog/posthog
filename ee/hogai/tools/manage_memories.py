@@ -1,6 +1,8 @@
 import json
 from typing import Any, Literal
 
+from django.db import transaction
+
 from pydantic import BaseModel, Field
 
 from posthog.hogql import ast
@@ -101,13 +103,14 @@ class ManageMemoriesTool(MaxTool):
 
         @database_sync_to_async
         def create():
-            memory = AgentMemory.objects.create(
-                team=self._team,
-                user=self._user,
-                contents=contents,
-                metadata=metadata or {},
-            )
-            memory.embed(EMBEDDING_MODEL)
+            with transaction.atomic():
+                memory = AgentMemory.objects.create(
+                    team=self._team,
+                    user=self._user,
+                    contents=contents,
+                    metadata=metadata or {},
+                )
+                memory.embed(EMBEDDING_MODEL)
             return memory
 
         memory = await create()
@@ -209,8 +212,11 @@ class ManageMemoriesTool(MaxTool):
                 memory.contents = contents
             if metadata is not None:
                 memory.metadata = metadata
-            memory.save()
-            memory.embed(EMBEDDING_MODEL)
+            memory.user = self._user
+
+            with transaction.atomic():
+                memory.save()
+                memory.embed(EMBEDDING_MODEL)
             return memory
 
         memory = await update()

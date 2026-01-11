@@ -4,7 +4,7 @@ from django.db import models
 
 import tiktoken
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
     from kafka.producer.kafka import FutureRecordMetadata
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 EMBEDDING_MODEL_TOKEN_LIMIT = 8192
 
 
-class AgentMemory(UUIDTModel):
+class AgentMemory(UUIDModel):
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
