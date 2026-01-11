@@ -842,9 +842,7 @@ const EventContent = React.memo(
                                                         </>
                                                     }
                                                 />
-                                            ) : displayOption === DisplayOption.TextView &&
-                                              (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
-                                                  featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) ? (
+                                            ) : displayOption === DisplayOption.TextView ? (
                                                 isLLMEvent(event) &&
                                                 (event.event === '$ai_generation' ||
                                                     event.event === '$ai_span' ||
@@ -1046,7 +1044,6 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
 function DisplayOptionsSelect(): JSX.Element {
     const { displayOption } = useValues(llmAnalyticsTraceLogic)
     const { setDisplayOption } = useActions(llmAnalyticsTraceLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const displayOptions = [
         {
@@ -1061,17 +1058,12 @@ function DisplayOptionsSelect(): JSX.Element {
             tooltip: 'Focus on the most recent input and final output',
             'data-attr': 'llma-trace-display-expand-last',
         },
-        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-            ? [
-                  {
-                      value: DisplayOption.TextView,
-                      label: 'Text view',
-                      tooltip: 'Simple human readable text view, for humans',
-                      'data-attr': 'llma-trace-display-text-view',
-                  },
-              ]
-            : []),
+        {
+            value: DisplayOption.TextView,
+            label: 'Text view',
+            tooltip: 'Simple human readable text view, for humans',
+            'data-attr': 'llma-trace-display-text-view',
+        },
     ]
 
     return (
