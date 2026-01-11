@@ -43,6 +43,15 @@ export const getCategoryDisplayName = (category: string): string => {
         eventDefinitions: 'Events',
         propertyDefinitions: 'Properties',
         askAI: 'Posthog AI',
+        insight: 'Insights',
+        dashboard: 'Dashboards',
+        feature_flag: 'Feature flags',
+        experiment: 'Experiments',
+        survey: 'Surveys',
+        notebook: 'Notebooks',
+        cohort: 'Cohorts',
+        action: 'Actions',
+        session_recording_playlist: 'Session recording filter',
     }
     return displayNames[category] || category
 }

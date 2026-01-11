@@ -12,6 +12,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { formatRelativeTimeShort, getCategoryDisplayName } from 'scenes/new-tab/components/Results'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -119,51 +120,6 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         folder: 'Folder',
     }
     return typeDisplayNames[type] || null
-}
-
-const getCategoryDisplayName = (category: string): string => {
-    const displayNames: Record<string, string> = {
-        // Category names
-        recents: 'Recents',
-        insight: 'Insights',
-        dashboard: 'Dashboards',
-        feature_flag: 'Feature flags',
-        experiment: 'Experiments',
-        survey: 'Surveys',
-        notebook: 'Notebooks',
-        cohort: 'Cohorts',
-        action: 'Actions',
-        session_recording_playlist: 'Session recording filter',
-        persons: 'Persons',
-        groups: 'Groups',
-    }
-    return displayNames[category] || category
-}
-
-const formatRelativeTimeShort = (dateString: string): string => {
-    const date = new Date(dateString)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMs / 3600000)
-    const diffDays = Math.floor(diffMs / 86400000)
-
-    if (diffMins < 1) {
-        return 'now'
-    }
-    if (diffMins < 60) {
-        return `${diffMins}m`
-    }
-    if (diffHours < 24) {
-        return `${diffHours}h`
-    }
-    if (diffDays < 7) {
-        return `${diffDays}d`
-    }
-    if (diffDays < 30) {
-        return `${Math.floor(diffDays / 7)}w`
-    }
-    return `${Math.floor(diffDays / 30)}mo`
 }
 
 const getIconForItem = (item: CommandSearchItem): React.ReactNode => {
