@@ -22,12 +22,10 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
     key((props) => props.person.id ?? 'new'),
     path((key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key]),
     connect(() => ({
-        actions: [
-            personsLogic({ syncWithUrl: true }),
-            ['setListFilters', 'loadPersons', 'setPerson', 'setSplitMergeModalShown'],
-        ],
-        values: [personsLogic({ syncWithUrl: true }), ['persons']],
-    })),
+        connect({
+        actions: [personsLogic, ['setListFilters', 'loadPersons', 'setPerson', 'setSplitMergeModalShown']],
+        values: [personsLogic, ['persons']],
+    }),
     actions({
         setSelectedPersonToAssignSplit: (id: string) => ({ id }),
         cancel: true,
