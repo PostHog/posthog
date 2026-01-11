@@ -8091,6 +8091,76 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["users_affected"], 2)
         self.assertEqual(response_json["total_users"], 3)
 
+    def test_user_blast_radius_with_group_key_not_regex(self):
+        """Test $group_key with not_regex operator"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-prod-001", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-staging-002", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="workspace-test-003", properties={})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "^org-(prod|staging)-\\d+$",
+                            "operator": "not_regex",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match workspace- group but not org- groups
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_group_key_not_icontains(self):
+        """Test $group_key with not_icontains operator"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-prod-001", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-staging-002", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="workspace-test-003", properties={})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "ORG",
+                            "operator": "not_icontains",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match workspace- group but not org- groups (case-insensitive)
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 3)
+
     def test_user_blast_radius_with_group_key_and_regular_properties(self):
         """Test combining $group_key with regular group properties"""
         GroupTypeMapping.objects.create(
@@ -8359,6 +8429,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("does not support list values", response.json()["detail"].lower())
 
+<<<<<<< HEAD
     def test_user_blast_radius_with_semver_operators(self):
         """Test all semver comparison operators"""
         versions = ["0.9.0", "1.0.0", "1.2.0", "1.2.3", "1.2.5", "1.3.0", "2.0.0", "2.1.0"]
@@ -8669,6 +8740,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["users_affected"], 3)  # 2.0.0, 2.5.0, 3.0.0
         self.assertEqual(response_json["total_users"], 5)
 
+=======
+>>>>>>> master
 
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):

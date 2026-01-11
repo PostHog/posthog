@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
-import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
@@ -624,12 +623,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 hasBrowsingHistory?: boolean
             }
         ) => ({ path, properties }),
-        // command bar
-        reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
-        reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
-        reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
-        reportCommandBarActionSearch: (query: string) => ({ query }),
-        reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),

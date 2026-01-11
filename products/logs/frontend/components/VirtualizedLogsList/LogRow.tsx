@@ -1,18 +1,15 @@
-import { IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
 import { LogRowFAB } from 'products/logs/frontend/components/LogsViewer/LogRowFAB/LogRowFAB'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
 import { MessageCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/MessageCell'
 import {
     CHECKBOX_WIDTH,
-    EXPAND_WIDTH,
     RESIZER_HANDLE_WIDTH,
     ROW_GAP,
     SEVERITY_WIDTH,
@@ -36,15 +33,13 @@ export interface LogRowProps {
     log: ParsedLogMessage
     logIndex: number
     isAtCursor: boolean
-    isExpanded: boolean
     pinned: boolean
     showPinnedWithOpacity: boolean
     wrapBody: boolean
     prettifyJson: boolean
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     onTogglePin: (log: ParsedLogMessage) => void
-    onToggleExpand: () => void
-    onSetCursor?: () => void
+    onClick?: () => void
     rowWidth?: number
     attributeColumns?: string[]
     attributeColumnWidths?: Record<string, number>
@@ -62,15 +57,13 @@ export function LogRow({
     log,
     logIndex,
     isAtCursor,
-    isExpanded,
     pinned,
     showPinnedWithOpacity,
     wrapBody,
     prettifyJson,
     tzLabelFormat,
     onTogglePin,
-    onToggleExpand,
-    onSetCursor,
+    onClick,
     rowWidth,
     attributeColumns = [],
     attributeColumnWidths = {},
@@ -91,11 +84,21 @@ export function LogRow({
     const severityColor = SEVERITY_BAR_COLORS[log.severity_text] ?? 'bg-muted-3000'
 
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
+        // Only handle shift+click here to prevent text selection during range select
         if (e.shiftKey && onShiftClick) {
             e.preventDefault()
             onShiftClick(logIndex)
-        } else {
-            onSetCursor?.()
+        }
+    }
+
+    const handleClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+        // Don't trigger if user selected text
+        const selection = window.getSelection()
+        if (selection && selection.toString().length > 0) {
+            return
+        }
+        if (!e.shiftKey) {
+            onClick?.()
         }
     }
 
@@ -113,6 +116,7 @@ export function LogRow({
                     pinned && showPinnedWithOpacity && 'bg-warning-highlight opacity-50'
                 )}
                 onMouseDown={handleMouseDown}
+                onClick={handleClick}
             >
                 <div className="flex items-center self-stretch">
                     <Tooltip title={log.severity_text.toUpperCase()}>
@@ -129,21 +133,6 @@ export function LogRow({
                             onChange={() => onToggleSelect?.()}
                             stopPropagation
                             size="small"
-                        />
-                    </div>
-                    <div
-                        className="flex items-stretch self-stretch justify-center"
-                        style={{ width: EXPAND_WIDTH, flexShrink: 0 }}
-                    >
-                        <LemonButton
-                            size="xsmall"
-                            icon={
-                                <IconChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
-                            }
-                            onMouseDown={(e) => {
-                                e.stopPropagation()
-                                onToggleExpand()
-                            }}
                         />
                     </div>
                 </div>
@@ -187,7 +176,6 @@ export function LogRow({
                     showScrollButtons={!wrapBody}
                 />
             </div>
-            {isExpanded && <ExpandedLogContent log={log} logIndex={logIndex} />}
         </div>
     )
 }

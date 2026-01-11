@@ -336,7 +336,7 @@ export const billingLogic = kea<billingLogicType>([
 
                     actions.resetUnsubscribeError()
                     try {
-                        const response = await api.getResponse('api/billing/deactivate?products=' + key)
+                        const response = await api.createResponse('api/billing/deactivate', { products: key })
                         const jsonRes = await getJSONOrNull(response)
 
                         lemonToast.success(

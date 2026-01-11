@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
+import { Experiment, FeatureFlagType, ProgressStatus } from '~/types'
 
 import { experimentsLogic, getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
 
@@ -250,16 +250,13 @@ describe('experimentsLogic', () => {
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('search=test%20experiment'))
         })
 
-        it('handles tab switching', async () => {
+        it('filters archived experiments', async () => {
             api.get.mockClear()
 
             await expectLogic(logic, () => {
-                logic.actions.setExperimentsTab(ExperimentsTabs.Archived)
-                logic.actions.loadExperiments()
+                logic.actions.setExperimentsFilters({ archived: true })
             })
-                .toMatchValues({
-                    tab: ExperimentsTabs.Archived,
-                })
+                .delay(350)
                 .toFinishAllListeners()
 
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('archived=true'))

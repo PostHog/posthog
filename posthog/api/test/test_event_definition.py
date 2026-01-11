@@ -65,6 +65,16 @@ class TestEventDefinitionAPI(APIBaseTest):
             )
             assert abs((dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds()) < 1
 
+    def test_list_event_definitions_with_excluded_properties(self):
+        response = self.client.get(
+            '/api/projects/@current/event_definitions/?excluded_properties=["installed_app", "purchase"]'
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS) - 2
+        result_names = [r["name"] for r in response.json()["results"]]
+        assert "installed_app" not in result_names
+        assert "purchase" not in result_names
+
     @parameterized.expand(
         [
             (

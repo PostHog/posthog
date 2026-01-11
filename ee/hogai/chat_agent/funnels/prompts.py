@@ -43,7 +43,7 @@ Sequence:
 
 Output:
 ```
-{"aggregation_group_type_index":0,"dateRange":{"date_from":"-6m"},"filterTestAccounts":true,"funnelsFilter":{"breakdownAttributionType":"first_touch","funnelOrderType":"ordered","funnelVizType":"trends","funnelWindowInterval":14,"funnelWindowIntervalUnit":"day"},"interval":"month","kind":"FunnelsQuery","series":[{"event":"first team event ingested","kind":"EventsNode"},{"event":"insight saved","kind":"EventsNode"}]}
+{"query":{"aggregation_group_type_index":0,"dateRange":{"date_from":"-6m"},"filterTestAccounts":true,"funnelsFilter":{"breakdownAttributionType":"first_touch","funnelOrderType":"ordered","funnelVizType":"trends","funnelWindowInterval":14,"funnelWindowIntervalUnit":"day"},"interval":"month","kind":"FunnelsQuery","series":[{"event":"first team event ingested","kind":"EventsNode"},{"event":"insight saved","kind":"EventsNode"}]}}
 ```
 
 ### Question: What percentage of users have clicked the CTA on the signup page within one hour on different platforms in the last six months without leaving the page?
@@ -72,7 +72,7 @@ Breakdown:
 
 Output:
 ```
-{"kind":"FunnelsQuery","series":[{"kind":"EventsNode","event":"$pageview","properties":[{"key":"$current_url","type":"event","value":"signup","operator":"icontains"}]},{"kind":"EventsNode","event":"click subscribe button","properties":[{"key":"$current_url","type":"event","value":"signup","operator":"icontains"}]}],"interval":"week","dateRange":{"date_from":"-180d"},"funnelsFilter":{"funnelWindowInterval":1,"funnelWindowIntervalUnit":"hour","funnelOrderType":"ordered","exclusions":[{"kind":"EventsNode","event":"$pageleave","funnelFromStep":0,"funnelToStep":1}]},"filterTestAccounts":true,"breakdownFilter":{"breakdown_type":"event","breakdown":"$os"}}
+{"query":{"kind":"FunnelsQuery","series":[{"kind":"EventsNode","event":"$pageview","properties":[{"key":"$current_url","type":"event","value":"signup","operator":"icontains"}]},{"kind":"EventsNode","event":"click subscribe button","properties":[{"key":"$current_url","type":"event","value":"signup","operator":"icontains"}]}],"interval":"week","dateRange":{"date_from":"-180d"},"funnelsFilter":{"funnelWindowInterval":1,"funnelWindowIntervalUnit":"hour","funnelOrderType":"ordered","exclusions":[{"kind":"EventsNode","event":"$pageleave","funnelFromStep":0,"funnelToStep":1}]},"filterTestAccounts":true,"breakdownFilter":{"breakdown_type":"event","breakdown":"$os"}}}
 ```
 
 ### Question: rate of credit card purchases from viewing the product without any events in between
@@ -92,7 +92,7 @@ Sequence:
 
 Output:
 ```
-{"dateRange":{"date_from":"-30d"},"filterTestAccounts":true,"funnelsFilter":{"funnelOrderType":"strict","funnelWindowInterval":14,"funnelWindowIntervalUnit":"day"},"interval":"month","kind":"FunnelsQuery","series":[{"event":"view product","kind":"EventsNode"},{"event":"purchase","kind":"EventsNode","properties":[{"key":"paymentMethod","type":"event","value":"credit_card","operator":"exact"}]}]}
+{"query":{"dateRange":{"date_from":"-30d"},"filterTestAccounts":true,"funnelsFilter":{"funnelOrderType":"strict","funnelWindowInterval":14,"funnelWindowIntervalUnit":"day"},"interval":"month","kind":"FunnelsQuery","series":[{"event":"view product","kind":"EventsNode"},{"event":"purchase","kind":"EventsNode","properties":[{"key":"paymentMethod","type":"event","value":"credit_card","operator":"exact"}]}]}}
 ```
 
 ### Question: What is the conversion rate of people viewed the product, clicked the buy button, and completed the purchase selected the express shipping option?
@@ -115,7 +115,7 @@ Sequence:
 
 Output:
 ```
-{"kind":"FunnelsQuery","series":[{"kind":"ActionsNode","id":8882,"name":"view product"},{"kind":"EventsNode","event":"click buy button","name":"click buy button"},{"kind":"ActionsNode","id":573,"name":"purchase","properties":[{"key":"shipping_method","value":"express_delivery","operator":"contains","type":"event"}]}],"funnelsFilter":{"funnelVizType":"steps"},"filterTestAccounts":true}
+{"query":{"kind":"FunnelsQuery","series":[{"kind":"ActionsNode","id":8882,"name":"view product"},{"kind":"EventsNode","event":"click buy button","name":"click buy button"},{"kind":"ActionsNode","id":573,"name":"purchase","properties":[{"key":"shipping_method","value":"express_delivery","operator":"contains","type":"event"}]}],"funnelsFilter":{"funnelVizType":"steps"},"filterTestAccounts":true}}
 ```
 
 ---
