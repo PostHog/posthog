@@ -1,6 +1,6 @@
 from typing import cast
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from django_scim import constants
 from django_scim.filters import GroupFilterQuery, UserFilterQuery
@@ -184,7 +184,11 @@ class SCIMUsersView(SCIMBaseView):
 class SCIMUserDetailView(SCIMBaseView):
     def get_object(self, user_id: int) -> PostHogSCIMUser:
         organization_domain = cast(OrganizationDomain, self.request.auth)
-        user = User.objects.filter(id=user_id).first()
+        user = User.objects.filter(
+            Q(organization_membership__organization=organization_domain.organization)
+            | Q(scim_provisions__organization_domain=organization_domain),
+            id=user_id,
+        ).first()
         if not user:
             raise User.DoesNotExist()
         return PostHogSCIMUser(user, organization_domain)

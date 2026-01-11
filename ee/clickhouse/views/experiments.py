@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -87,6 +88,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "scheduling_config",
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
@@ -447,6 +449,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "scheduling_config",
             "conclusion",
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
@@ -769,6 +772,7 @@ class ExperimentStatus(str, Enum):
     ALL = "all"
 
 
+@extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
 ):
@@ -921,6 +925,7 @@ class EnterpriseExperimentsViewSet(
             "metrics": source_experiment.metrics,
             "metrics_secondary": source_experiment.metrics_secondary,
             "stats_config": source_experiment.stats_config,
+            "scheduling_config": source_experiment.scheduling_config,
             "exposure_criteria": source_experiment.exposure_criteria,
             "saved_metrics_ids": saved_metrics_data,
             "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
@@ -1060,6 +1065,7 @@ class EnterpriseExperimentsViewSet(
         queryset = FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
 
         # Filter for multivariate flags with at least 2 variants and first variant is "control"
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
         queryset = queryset.extra(
             where=[
                 """

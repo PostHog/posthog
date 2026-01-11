@@ -354,7 +354,12 @@ class SnowflakeField(Field):
         else:
             snowflake_type = SnowflakeType(name=field.type, repeated=False)
 
-        return cls(field.name, snowflake_type, snowflake_type_to_data_type(snowflake_type), field.is_nullable)
+        return cls(
+            field.name,
+            snowflake_type,
+            snowflake_type_to_data_type(snowflake_type),
+            field.is_nullable,
+        )
 
     @property
     def snowflake_type_name(self) -> SnowflakeTypeName:
@@ -456,7 +461,7 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
     except (ValueError, TypeError) as e:
         msg = "Invalid private key"
 
-        if passphrase is not None and "Incorrect password?" in str(e):
+        if passphrase is not None and "Incorrect password" in str(e):
             msg = "Could not load private key: incorrect passphrase?"
         elif "Password was not given but private key is encrypted" in str(e):
             msg = "Could not load private key: passphrase was not given but private key is encrypted"
@@ -599,7 +604,10 @@ class SnowflakeClient:
         # Call this again in case level was reset.
         self.ensure_snowflake_logger_level("INFO")
 
-        await self.execute_async_query("ALTER SESSION SET QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE", fetch_results=False)
+        await self.execute_async_query(
+            "ALTER SESSION SET QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE",
+            fetch_results=False,
+        )
 
         if use_namespace:
             await self.use_namespace()
@@ -731,7 +739,10 @@ class SnowflakeClient:
 
         query_execution_time = time.monotonic() - query_start_time
         self.logger.debug(
-            "Async query finished with status '%s' in %.2fs", query_status, query_execution_time, query_id=query_id
+            "Async query finished with status '%s' in %.2fs",
+            query_status,
+            query_execution_time,
+            query_id=query_id,
         )
 
         if fetch_results is False:
@@ -789,7 +800,11 @@ class SnowflakeClient:
 
         record_batch_field_names = [field.name.lower() for field in table.fields]
         fields = (
-            SnowflakeDestinationField(metadata.name, FIELD_ID_TO_NAME[metadata.type_code], metadata.is_nullable)  # type: ignore[arg-type]
+            SnowflakeDestinationField(
+                metadata.name,
+                FIELD_ID_TO_NAME[metadata.type_code],  # type: ignore[arg-type]
+                metadata.is_nullable,
+            )
             for metadata in metadata
             # Only include fields that are present in the record batch schema
             if metadata.name.lower() in record_batch_field_names
@@ -944,7 +959,7 @@ class SnowflakeClient:
             SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
         """
         select_fields = ", ".join(
-            f'PARSE_JSON($1:"{field.name}")'
+            f"PARSE_JSON($1:\"{field.name}\", 'd')"
             if field.data_type == JsonType() and field.name.lower() != "elements"
             else f'$1:"{field.name}"'
             for field in table
@@ -1140,7 +1155,10 @@ def _get_merge_settings(
     if isinstance(model, BatchExportModel):
         if model.name == "persons":
             primary_key: collections.abc.Sequence[str] = ("team_id", "distinct_id")
-            version_key: collections.abc.Sequence[str] = ("person_version", "person_distinct_id_version")
+            version_key: collections.abc.Sequence[str] = (
+                "person_version",
+                "person_distinct_id_version",
+            )
 
         elif model.name == "sessions":
             primary_key = ("team_id", "session_id")
@@ -1172,7 +1190,8 @@ class SnowflakeConsumer(Consumer):
         # Simple file management - no concurrent uploads for now
         self.current_file_index = 0
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst"
+            b"",
+            name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst",
         )
 
     async def consume_chunk(self, data: bytes):
@@ -1187,7 +1206,8 @@ class SnowflakeConsumer(Consumer):
         """Start a new file (reset state for file splitting)."""
         self.current_file_index += 1
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst"
+            b"",
+            name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst",
         )
 
     async def _upload_current_buffer(self):
@@ -1226,7 +1246,9 @@ class SnowflakeConsumer(Consumer):
 
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInputs) -> BatchExportResult:
+async def insert_into_snowflake_activity_from_stage(
+    inputs: SnowflakeInsertInputs,
+) -> BatchExportResult:
     """Activity to batch export data from internal S3 stage to Snowflake.
 
     This activity reads data from our internal S3 stage instead of ClickHouse directly, and uses concurrent uploads to
@@ -1287,7 +1309,12 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
         )
 
         # TODO: Figure out which fields are JSON without hard-coding them here.
-        json_fields = {"properties", "people_set", "people_set_once", "person_properties"}
+        json_fields = {
+            "properties",
+            "people_set",
+            "people_set_once",
+            "person_properties",
+        }
         record_batch_schema = pa.schema(
             field.with_type(JsonType()) if field.name in json_fields else field for field in record_batch_schema
         )
@@ -1427,7 +1454,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
+                    non_retryable_error_types=[
+                        "NotNullViolation",
+                        "IntegrityError",
+                        "OverBillingLimitError",
+                    ],
                 ),
             )
         except OverBillingLimitError:

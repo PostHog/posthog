@@ -18,9 +18,9 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
             - name: Ensure SHA pinned actions
-              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@9e9574ef04ea69da568d6249bd69539ccc704e74 # v4.0.0
+              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@6124774845927d14c601359ab8138699fa5b70c3 # v4.0.1
               with:
                   allowlist: |
                       actions/
@@ -38,15 +38,18 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Run Semgrep
               run: |
                   semgrep \
                     --config "p/python" \
                     --config "p/owasp-top-ten" \
+                    --config "p/security-audit" \
                     --config "p/trailofbits" \
                     --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                    --exclude-rule "python.django.security.audit.csrf-exempt.no-csrf-exempt" \
+                    --exclude-rule "generic.html-templates.security.var-in-href.var-in-href" \
                     --error \
                     --metrics=off \
                     --verbose \
@@ -59,7 +62,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Run Semgrep
               run: |
@@ -82,7 +85,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Run Semgrep
               run: |
@@ -107,7 +110,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Run Semgrep
               run: |
@@ -119,7 +122,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    frontend/ plugin-server/
+                    frontend/ nodejs/
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
@@ -129,7 +132,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             # exclude all directories already scanned by other jobs
             - name: Run Semgrep
@@ -150,7 +153,7 @@ jobs:
                     --exclude ./ee/ \
                     --exclude ./frontend/ \
                     --exclude ./livestream/ \
-                    --exclude ./plugin-server/ \
+                    --exclude ./nodejs/ \
                     --exclude ./posthog/ \
                     --exclude ./products/ \
                     --exclude ./rust/ \

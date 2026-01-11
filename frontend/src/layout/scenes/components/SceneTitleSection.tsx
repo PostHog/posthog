@@ -11,6 +11,7 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor } from '~/types'
@@ -147,6 +148,7 @@ export function SceneTitleSection({
     className,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
 
@@ -176,6 +178,11 @@ export function SceneTitleSection({
     ) : (
         iconForType(resourceType.type ? (resourceType.type as FileSystemIconType) : undefined)
     )
+
+    if (zenMode) {
+        return null
+    }
+
     return (
         <>
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}

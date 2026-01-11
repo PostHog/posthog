@@ -66,10 +66,10 @@ metadata:
             name: Celery
             about: Distributed task queue for running background jobs like async exports,
                 scheduled tasks, and email sending.
-        plugin-server:
-            name: Plugin server
-            about: Event ingestion pipeline that processes incoming events, runs plugins,
-                and writes to ClickHouse.
+        nodejs:
+            name: Node.js
+            about: Event ingestion pipeline that processes incoming events, runs CDP workflows,
+                and writes to Kafka (then ClickHouse).
         django:
             name: Django
             about: Python web framework powering PostHog's backend API, admin interface,
@@ -175,7 +175,7 @@ start:
             - django
             - frontend
             - celery
-            - plugin-server
+            - nodejs
             - postgresql
             - redis
             - kafka
@@ -210,10 +210,10 @@ start:
         hidden: true
     start:worker:
         bin_script: start-worker
-        description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
+        description: Launch all background workers (Celery worker, beat scheduler, nodejs)
         services:
             - celery
-            - plugin-server
+            - nodejs
             - kafka
             - temporal
             - redis
@@ -276,6 +276,26 @@ build:
             - build:schema-python
             - build:schema-latest-versions
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
+    build:openapi-schema:
+        cmd: 'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py
+            spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI
+            schema written to frontend/tmp/openapi.json"
+
+            '
+        description: Generate OpenAPI schema from Django backend (writes to gitignored
+            temp location)
+        services:
+            - postgresql
+            - clickhouse
+            - django
+    build:openapi-types:
+        cmd: pnpm --filter=@posthog/frontend run openapi:types
+        description: Generate TypeScript API types from the backend OpenAPI schema
+    build:openapi:
+        steps:
+            - build:openapi-schema
+            - build:openapi-types
+        description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (Python and C++)
@@ -402,6 +422,33 @@ db:
         services:
             - postgresql
             - docker
+    db:download-schema:
+        cmd: |
+            set -e
+            mkdir -p .postgres-backups
+            echo "Downloading pre-migrated schema from CI..."
+            gh run download --name migrated-schema -R PostHog/posthog -D /tmp/migrated-schema-dl
+            mv /tmp/migrated-schema-dl/schema.sql.gz .postgres-backups/schema-latest.sql.gz
+            rm -rf /tmp/migrated-schema-dl
+            echo "✅ Downloaded to .postgres-backups/schema-latest.sql.gz"
+        description: Download pre-migrated schema artifact from CI (requires gh CLI)
+    db:restore-schema:
+        steps:
+            - db:download-schema
+            - db:dump
+            - name: restore-schema
+              cmd: |
+                  set -e
+                  set -o pipefail
+                  echo "Restoring schema to database..."
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog
+                  echo "✅ Schema restored"
+            - db:migrate
+        description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
+        destructive: true
+        services:
+            - postgresql
+            - docker
 tests:
     test:python:
         cmd: pytest
@@ -418,7 +465,7 @@ tests:
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
-        description: Run code quality checks for Python and JavaScript
+        description: Run Python and JS/TS linting
     format:
         cmd: pnpm format
         description: Format both backend and frontend code
@@ -432,10 +479,10 @@ quality:
         cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm prettier --write
             "$@"
         description: Format JavaScript/TypeScript files (frontend)
-    format:plugin-server:
-        cmd: pnpm --dir plugin-server exec eslint --fix "$@" && pnpm --dir plugin-server
-            exec prettier --write "$@"
-        description: Format plugin-server JavaScript files
+    format:nodejs:
+        cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
+            --write "$@"
+        description: Format nodejs JavaScript files
     format:rust:
         cmd: rustfmt
         description: Format Rust files
@@ -447,14 +494,15 @@ quality:
         description: Fix Python code quality issues
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
+            "$@" && pnpm exec prettier --write "$@"
         description: Format Markdown files
 tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
-    tool:plugin-server:
-        bin_script: plugin-server
-        description: Start plugin-server with optional restart loop
+    tool:nodejs:
+        bin_script: nodejs
+        description: Start nodejs with optional restart loop
     tool:download-mmdb:
         bin_script: download-mmdb
         description: Download and cache GeoLite2 MaxMind database with retry logic
@@ -508,7 +556,37 @@ tools:
         hidden: true
     start:llm:gateway:
         bin_script: start-llm-gateway
-        description: 'TODO: add description for start-llm-gateway'
+        description: Start the LLM gateway service
+        hidden: true
+    posthog:node:
+        bin_script: posthog-node
+        description: Start the posthog-node service (old plugin-server)
+        hidden: true
+    posthog:hobby-installer:
+        bin_script: hobby-installer
+        description: Run the hobby-installer installation script for Linux, don't use
+            it on your MacOS development environment
+        hidden: true
+    posthog:hobby-installer:darwin:
+        bin_script: hobby-installer-darwin
+        description: Run the hobby-installer installation script for MacOS
+        hidden: true
+    posthog:hobby-installer:demo:
+        bin_script: hobby-installer-demo
+        description: Run a demo check for the PostHog hobby installation, useful while
+            developing the installation script
+        hidden: true
+    posthog:hobby-installer:development:
+        bin_script: hobby-installer-development
+        description: Run the development version for the hobby-installer deployment
+        hidden: true
+    start:mcp:server:
+        bin_script: start-mcp-server
+        description: Start the MCP server
+        hidden: true
+    posthog:hobby:
+        bin_script: posthog-hobby
+        description: 'TODO: add description for posthog-hobby'
         hidden: true
 utilities:
     nuke:

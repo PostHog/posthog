@@ -1,5 +1,5 @@
 import re
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -50,7 +50,9 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             + [resource for resource, endpoint_url, data_key, cursor_paginated in SUPPORT_ENDPOINTS]
         ]
 
-    def validate_credentials(self, config: ZendeskSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: ZendeskSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z0-9-]+$")
         if not subdomain_regex.match(config.subdomain):
             return False, "Zendesk subdomain is incorrect"
