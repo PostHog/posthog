@@ -194,7 +194,7 @@ function MainPanel({ tabId }: { tabId: string }): JSX.Element {
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
-                <div className="SessionRecordingPlaylistHeightWrapper">
+                <div className="SessionRecordingPlaylistHeightWrapper grow">
                     <SessionRecordingsPlaylist {...playlistLogicProps} />
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
