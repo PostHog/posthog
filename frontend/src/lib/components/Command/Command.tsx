@@ -438,14 +438,14 @@ export function Command(): JSX.Element {
                                                                     {(group.category === 'recents' ||
                                                                         group.category === 'groups') &&
                                                                         (item.groupNoun || typeLabel) && (
-                                                                            <span className="text-xs text-tertiary shrink-0">
+                                                                            <span className="text-xs text-tertiary shrink-0 mt-[2px]">
                                                                                 {capitalizeFirstLetter(
                                                                                     item.groupNoun || typeLabel || ''
                                                                                 )}
                                                                             </span>
                                                                         )}
                                                                     {item.lastViewedAt && (
-                                                                        <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0">
+                                                                        <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
                                                                             {formatRelativeTimeShort(item.lastViewedAt)}
                                                                         </span>
                                                                     )}
