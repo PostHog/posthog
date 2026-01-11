@@ -728,29 +728,24 @@ export function LLMAnalyticsScene(): JSX.Element {
         },
     ]
 
-    if (
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_ERRORS_TAB] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    ) {
-        tabs.push({
-            key: 'errors',
-            label: (
-                <>
-                    Errors{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            content: (
-                <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsErrors />
-                </LLMAnalyticsSetupPrompt>
-            ),
-            link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
-            'data-attr': 'errors-tab',
-        })
-    }
+    tabs.push({
+        key: 'errors',
+        label: (
+            <>
+                Errors{' '}
+                <LemonTag className="ml-1" type="warning">
+                    Beta
+                </LemonTag>
+            </>
+        ),
+        content: (
+            <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsErrors />
+            </LLMAnalyticsSetupPrompt>
+        ),
+        link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
+        'data-attr': 'errors-tab',
+    })
 
     // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (
