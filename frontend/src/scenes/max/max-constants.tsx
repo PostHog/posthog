@@ -859,6 +859,11 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         },
         flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
+    manage_memories: {
+        name: 'Manage memories',
+        description: 'Store and retrieve persistent memories',
+        icon: <IconMemory />,
+    },
 }
 
 export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
