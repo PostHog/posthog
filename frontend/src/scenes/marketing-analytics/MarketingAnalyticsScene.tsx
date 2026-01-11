@@ -23,7 +23,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import { marketingAnalyticsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
-import { marketingAnalyticsSettingsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
@@ -70,16 +69,10 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { validExternalTables, validNativeSources, loading } = useValues(marketingAnalyticsLogic)
-    const { conversion_goals: legacyConversionGoals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
 
     const feedbackBanner = (
-        <LemonBanner
-            type="info"
-            dismissKey="marketing-analytics-beta-banner"
-            className="mb-2 mt-4"
-            action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
-        >
+        <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
             Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
             directly to us!
         </LemonBanner>
@@ -124,12 +117,6 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     return (
         <>
             {feedbackBanner}
-            {legacyConversionGoals.length > 0 && (
-                <LemonBanner type="warning" className="mb-2 mt-2">
-                    Legacy conversion goals are deprecated. Migrate to Core Events to manage your goals centrally.{' '}
-                    <Link to={urls.coreEvents()}>Migrate to Core Events</Link>
-                </LemonBanner>
-            )}
             <MarketingAnalyticsSourceStatusBanner />
             {component}
         </>

@@ -1,6 +1,6 @@
 import time
 import datetime
-from typing import Any, Optional, cast
+from typing import Any, Optional, TypedDict, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -67,6 +67,12 @@ USER_AUTH_METHOD_MISMATCH = Counter(
     "A user successfully authenticated with a different method than the one they're required to use",
     labelnames=["login_method", "sso_enforced_method", "user_uuid"],
 )
+
+
+class WebauthnCredentialPrecheck(TypedDict):
+    id: str
+    type: str
+    transports: list[str]
 
 
 @receiver(user_logged_in)
@@ -291,15 +297,31 @@ class LoginSerializer(serializers.Serializer):
 class LoginPrecheckSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
-    def to_representation(self, instance: dict[str, str]) -> dict[str, Any]:
+    def to_representation(self, instance: dict[str, str | list[WebauthnCredentialPrecheck]]) -> dict[str, Any]:
         return instance
 
     def create(self, validated_data: dict[str, str]) -> Any:
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.models.webauthn_credential import WebauthnCredential
+
         email = validated_data.get("email", "")
         # TODO: Refactor methods below to remove duplicate queries
+
+        credentials = WebauthnCredential.objects.get_verified_for_email(email)
+        webauthn_credentials = [
+            {
+                "id": bytes_to_base64url(cred.credential_id),
+                "type": "public-key",
+                "transports": cred.transports or [],
+            }
+            for cred in credentials
+        ]
+
         return {
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
             "saml_available": OrganizationDomain.objects.get_is_saml_available_for_email(email),
+            "webauthn_credentials": webauthn_credentials,
         }
 
 

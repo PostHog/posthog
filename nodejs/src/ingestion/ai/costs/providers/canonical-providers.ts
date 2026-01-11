@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-01-07 20:01:48 UTC
+// Generated at: 2026-01-09 20:01:50 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -32,6 +32,7 @@ export type CanonicalProvider =
     | 'cohere'
     | 'crusoe-bf16'
     | 'crusoe-fp8'
+    | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
