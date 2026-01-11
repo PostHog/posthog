@@ -3,20 +3,26 @@ import './Navigation.scss'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useRef } from 'react'
 
+import { IconX } from '@posthog/icons'
+
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { navigationLogic } from '../navigation/navigationLogic'
-import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { SceneTabs } from '../scenes/SceneTabs'
+import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
@@ -29,16 +35,21 @@ export function Navigation({
     children: ReactNode
     sceneConfig: SceneConfig | null
 }): JSX.Element {
+    const { isDev } = useValues(preflightLogic)
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
     const mainRef = useRef<HTMLElement>(null)
-    const { mainContentRect, sidePanelWidth, isLayoutNavCollapsed } = useValues(panelLayoutLogic)
+    const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { setTabScrollDepth } = useActions(sceneLogic)
     const { activeTabId } = useValues(sceneLogic)
     const simplerAppLayout = useFeatureFlag('SIMPLER_APP_LAYOUT')
-
+    const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative } =
+        useActions(sceneLayoutLogic)
+    // const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
+    const { sidePanelWidth } = useValues(panelLayoutLogic)
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
         if (mainRef.current) {
@@ -102,18 +113,19 @@ export function Navigation({
                         <SceneTabs />
                     </div>
 
-                    <div className="main-content-container overflow-hidden lg:rounded-lg border-t lg:border border-primary lg:mb-2">
+                    <div className="@container/main-content-container main-content-container flex overflow-hidden lg:rounded-lg border-t lg:border border-primary lg:mb-2">
                         <main
                             ref={mainRef}
                             role="main"
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden lg:rounded-lg show-scrollbar-on-hover p-4 h-full',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden lg:rounded-lg show-scrollbar-on-hover p-4 h-full flex-1 transition-[width] duration-300',
                                 {
                                     'p-0':
                                         sceneConfig?.layout === 'app-raw-no-header' ||
                                         sceneConfig?.layout === 'app-raw',
+                                    'lg:rounded-r-none': scenePanelIsPresent,
                                 }
                             )}
                             onScroll={(e) => {
@@ -123,7 +135,7 @@ export function Navigation({
                             }}
                         >
                             <SceneLayout sceneConfig={sceneConfig}>
-                                {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                                {!isDev && (!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
                                     <div
                                         className={cn({
                                             'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
@@ -136,6 +148,70 @@ export function Navigation({
                                 {children}
                             </SceneLayout>
                         </main>
+
+                        {scenePanelIsPresent && (
+                            <>
+                                <div
+                                    className={cn(
+                                        'scene-layout__content-panel starting:w-0 bg-surface-secondary flex flex-col overflow-hidden h-[calc(100vh-var(--scene-layout-header-height))] min-w-0',
+                                        {
+                                            hidden: !scenePanelOpen,
+                                            // '':
+                                            //     scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
+                                            'z-1': isLayoutPanelVisible,
+                                        }
+                                    )}
+                                >
+                                    <div className="h-[var(--scene-layout-header-height)] flex items-center justify-end gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
+                                        {scenePanelOpen && (
+                                            <ButtonPrimitive
+                                                iconOnly
+                                                onClick={() =>
+                                                    scenePanelIsRelative
+                                                        ? setForceScenePanelClosedWhenRelative(true)
+                                                        : setScenePanelOpen(false)
+                                                }
+                                                // tooltip={
+                                                //     !scenePanelOpen
+                                                //         ? 'Open Info & actions panel'
+                                                //         : scenePanelIsRelative
+                                                //             ? 'Force close Info & actions panel'
+                                                //             : 'Close Info & actions panel'
+                                                // }
+                                                // aria-label={
+                                                //     !scenePanelOpen
+                                                //         ? 'Open Info & actions panel'
+                                                //         : scenePanelIsRelative
+                                                //             ? 'Force close Info & actions panel'
+                                                //             : 'Close Info & actions panel'
+                                                // }
+                                                data-attr="info-actions-panel"
+                                            >
+                                                <IconX className="size-4" />
+                                            </ButtonPrimitive>
+                                        )}
+                                    </div>
+                                    <ScrollableShadows
+                                        direction="vertical"
+                                        className="h-full flex-1"
+                                        innerClassName="px-2 py-2 bg-primary"
+                                        styledScrollbars
+                                    >
+                                        <div ref={registerScenePanelElement} />
+                                    </ScrollableShadows>
+                                </div>
+                                {/* 
+                                {scenePanelOpen && !scenePanelIsRelative && (
+                                    <div
+                                        onClick={() => {
+                                            setScenePanelOpen(false)
+                                        }}
+                                        aria-hidden="true"
+                                        className="z-[var(--z-scene-layout-content-panel-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
+                                    />
+                                )} */}
+                            </>
+                        )}
                     </div>
 
                     <SidePanel className={simplerAppLayout ? 'right-nav' : ''} />
