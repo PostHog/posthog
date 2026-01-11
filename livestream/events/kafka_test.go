@@ -222,3 +222,25 @@ func TestParse_NumericDistinctId(t *testing.T) {
 	assert.Equal(t, "$pageview", got.Event)
 	assert.Equal(t, "test-token", got.Token)
 }
+
+func TestParse_WrapperTimestampFallback(t *testing.T) {
+	mockGeoLocator := new(mocks.GeoLocator)
+
+	input := `{"distinct_id":"user-123","uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{}}","token":"test-token","timestamp":"2026-01-09T21:00:00.000Z"}`
+
+	got := parse(mockGeoLocator, []byte(input))
+
+	assert.Equal(t, "2026-01-09T21:00:00.000Z", got.Timestamp)
+	assert.Equal(t, "$pageview", got.Event)
+}
+
+func TestParse_InnerTimestampOverridesWrapper(t *testing.T) {
+	mockGeoLocator := new(mocks.GeoLocator)
+
+	input := `{"distinct_id":"user-123","uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{},\"timestamp\":\"2026-01-09T02:00:00.000Z\"}","token":"test-token","timestamp":"2026-01-10T21:00:00.000Z"}`
+
+	got := parse(mockGeoLocator, []byte(input))
+
+	assert.Equal(t, "2026-01-09T02:00:00.000Z", got.Timestamp)
+	assert.Equal(t, "$pageview", got.Event)
+}

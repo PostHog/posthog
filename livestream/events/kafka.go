@@ -96,6 +96,7 @@ type PostHogEventWrapper struct {
 	Ip         string         `json:"ip"`
 	Data       string         `json:"data"`
 	Token      string         `json:"token"`
+	Timestamp  string         `json:"timestamp"`
 }
 
 //easyjson:json
@@ -209,7 +210,7 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 	}
 
 	phEvent := PostHogEvent{
-		Timestamp:  time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		Timestamp:  wrapperMessage.Timestamp,
 		Token:      "",
 		Event:      "",
 		Properties: make(map[string]interface{}),
