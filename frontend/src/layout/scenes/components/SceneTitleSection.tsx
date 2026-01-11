@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
+import { IconEllipsis, IconPencil } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -23,37 +23,26 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
 function SceneTitlePanelButton(): JSX.Element | null {
-    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
-        useValues(sceneLayoutLogic)
-    const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
+    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative } = useValues(sceneLayoutLogic)
+    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
-    if (!scenePanelIsPresent) {
+    if (!scenePanelIsPresent || scenePanelOpen) {
         return null
     }
 
     return (
         <LemonButton
+            className="-mr-2.5"
             onClick={() =>
-                scenePanelIsRelative
-                    ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
-                    : setScenePanelOpen(!scenePanelOpen)
+                // scenePanelIsRelative
+                //     ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
+                //     : setScenePanelOpen(!scenePanelOpen)
+                scenePanelIsRelative ? setScenePanelOpen(!scenePanelOpen) : setScenePanelOpen(!scenePanelOpen)
             }
-            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
-            tooltip={
-                !scenePanelOpen
-                    ? 'Open Info & actions panel'
-                    : scenePanelIsRelative
-                      ? 'Force close Info & actions panel'
-                      : 'Close Info & actions panel'
-            }
+            icon={<IconEllipsis className="text-primary" />}
+            tooltip="Open Info & actions panel"
             data-attr="info-actions-panel"
-            aria-label={
-                !scenePanelOpen
-                    ? 'Open Info & actions panel'
-                    : scenePanelIsRelative
-                      ? 'Force close Info & actions panel'
-                      : 'Close Info & actions panel'
-            }
+            aria-label="Open Info & actions panel"
             active={scenePanelOpen}
             size="small"
         />
