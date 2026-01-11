@@ -1933,7 +1933,8 @@
                 "create_insight",
                 "create_form",
                 "task",
-                "upsert_dashboard"
+                "upsert_dashboard",
+                "manage_memories"
             ],
             "type": "string"
         },
