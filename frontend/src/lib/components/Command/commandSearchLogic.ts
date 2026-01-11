@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -9,6 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
+import { commandLogic } from './commandLogic'
 import type { commandSearchLogicType } from './commandSearchLogicType'
 
 // Types for command search results
@@ -48,7 +49,7 @@ function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[
 export const commandSearchLogic = kea<commandSearchLogicType>([
     path(['lib', 'components', 'Command', 'commandSearchLogic']),
     connect({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], commandLogic, ['isCommandOpen']],
     }),
     actions({
         setSearch: (search: string) => ({ search }),
@@ -473,7 +474,7 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(150)
 
@@ -486,8 +487,11 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                 actions.loadPlaylistSearchResults({ searchTerm: search })
             }
         },
+        [commandLogic.actionTypes.openCommand]: () => {
+            // Load recents only when modal opens, not on mount
+            if (values.recents.results.length === 0) {
+                actions.loadRecents({ search: '' })
+            }
+        },
     })),
-    afterMount(({ actions }) => {
-        actions.loadRecents({ search: '' })
-    }),
 ])
