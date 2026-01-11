@@ -271,24 +271,26 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
         personItems: [
             (s) => [s.personSearchResults],
             (personSearchResults): CommandSearchItem[] => {
-                return personSearchResults.map((person) => {
-                    const personId = person.distinct_ids?.[0] || person.uuid || 'unknown'
-                    const displayName = person.properties?.email || person.properties?.name || personId
+                return personSearchResults
+                    .filter((person) => person.uuid) // Skip persons without uuid to avoid invalid URLs
+                    .map((person) => {
+                        const personId = person.distinct_ids?.[0] || person.uuid
+                        const displayName = person.properties?.email || person.properties?.name || personId
 
-                    return {
-                        id: `person-${person.uuid}`,
-                        name: displayName,
-                        displayName,
-                        category: 'persons',
-                        href: urls.personByUUID(person.uuid || ''),
-                        itemType: 'person',
-                        record: {
-                            type: 'person',
-                            uuid: person.uuid,
-                            distinctIds: person.distinct_ids,
-                        },
-                    }
-                })
+                        return {
+                            id: `person-${person.uuid}`,
+                            name: displayName,
+                            displayName,
+                            category: 'persons',
+                            href: urls.personByUUID(person.uuid!),
+                            itemType: 'person',
+                            record: {
+                                type: 'person',
+                                uuid: person.uuid,
+                                distinctIds: person.distinct_ids,
+                            },
+                        }
+                    })
             },
         ],
         playlistItems: [
