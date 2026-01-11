@@ -691,9 +691,7 @@ const EventContent = React.memo(
 
         const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
-        const showSummaryTab =
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        const showSummaryTab = true
 
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
@@ -930,10 +928,11 @@ const EventContent = React.memo(
                                                   <>
                                                       Summary{' '}
                                                       <LemonTag className="ml-1" type="completion">
-                                                          Alpha
+                                                          Beta
                                                       </LemonTag>
                                                   </>
                                               ),
+                                              'data-attr': 'llma-trace-summary-tab',
                                               content: (
                                                   <SummaryViewDisplay
                                                       trace={!isLLMEvent(event) ? event : undefined}
