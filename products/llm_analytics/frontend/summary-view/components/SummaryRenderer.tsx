@@ -15,9 +15,10 @@ export interface SummaryRendererProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
     tree?: any[]
+    headerActions?: React.ReactNode
 }
 
-export function SummaryRenderer({ summary, trace, event, tree }: SummaryRendererProps): JSX.Element {
+export function SummaryRenderer({ summary, trace, event, tree, headerActions }: SummaryRendererProps): JSX.Element {
     const logic = summaryViewLogic({ trace, event, tree })
     const { isFlowExpanded, isSummaryExpanded, isNotesExpanded } = useValues(logic)
     const { toggleFlowExpanded, toggleSummaryExpanded, toggleNotesExpanded } = useActions(logic)
@@ -31,8 +32,11 @@ export function SummaryRenderer({ summary, trace, event, tree }: SummaryRenderer
 
     return (
         <div className="space-y-4">
-            {/* Title */}
-            <h3 className="text-lg font-semibold">{summary.title}</h3>
+            {/* Title with optional actions */}
+            <div className="flex items-center justify-between gap-4">
+                <h3 className="text-lg font-semibold m-0">{summary.title}</h3>
+                {headerActions}
+            </div>
 
             {/* Flow Diagram - Collapsible ASCII */}
             <div className="border border-border rounded">

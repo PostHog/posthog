@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -59,6 +60,7 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
         toggleSummaryExpanded: true,
         toggleNotesExpanded: true,
         loadCachedSummary: true,
+        reportFeedback: (isPositive: boolean) => ({ isPositive }),
     }),
     reducers({
         summaryMode: [
@@ -83,6 +85,13 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
             true,
             {
                 toggleNotesExpanded: (state) => !state,
+            },
+        ],
+        feedbackGiven: [
+            null as boolean | null,
+            {
+                reportFeedback: (_, { isPositive }) => isPositive,
+                generateSummary: () => null,
             },
         ],
     }),
@@ -147,7 +156,15 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        reportFeedback: ({ isPositive }) => {
+            posthog.capture('llma summarization feedback', {
+                entity_type: props.trace ? 'trace' : 'event',
+                entity_id: values.entityId,
+                mode: values.summaryMode,
+                rating: isPositive ? 'good' : 'bad',
+            })
+        },
         loadCachedSummary: async () => {
             // Try to load cached summary - requires consent since we're hitting the summarization API
             // which will return cached data if available (forceRefresh: false)
