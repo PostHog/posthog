@@ -16,7 +16,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { elementIsVisible, trimElement } from '~/toolbar/utils'
+import { elementIsVisible, findContainerElement, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
@@ -579,9 +579,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         pickClickmapContainer: ({ element }) => {
-            const selector = elementToSelector(element, toolbarConfigLogic.values.dataAttributes)
-            if (selector) {
-                actions.setClickmapContainerSelector(selector)
+            // Find the best container element by walking up the DOM
+            const containerElement = findContainerElement(element)
+            if (containerElement) {
+                const selector = elementToSelector(containerElement, toolbarConfigLogic.values.dataAttributes)
+                if (selector) {
+                    actions.setClickmapContainerSelector(selector)
+                }
             }
         },
 
