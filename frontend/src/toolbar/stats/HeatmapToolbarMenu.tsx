@@ -292,8 +292,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             </div>
 
                             <div className="flex items-center gap-2 mt-2">
-                                <LemonLabel info="Only show clicks within a specific container element. Useful for focusing on a particular section of the page.">
-                                    Container
+                                <LemonLabel info="Only show clicks within elements matching a CSS selector. Useful for focusing on a particular section of the page.">
+                                    Filter
                                 </LemonLabel>
                                 {clickmapContainerSelector ? (
                                     <div className="flex-1 flex items-center gap-1">
@@ -304,7 +304,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                             icon={<IconX />}
                                             size="xsmall"
                                             onClick={() => setClickmapContainerSelector(null)}
-                                            tooltip="Clear container filter"
+                                            tooltip="Clear CSS selector filter"
                                         />
                                     </div>
                                 ) : (
@@ -313,7 +313,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                         size="small"
                                         onClick={() => setPickingClickmapContainer(!pickingClickmapContainer)}
                                     >
-                                        {pickingClickmapContainer ? 'Click to select...' : 'Select container'}
+                                        {pickingClickmapContainer ? 'Click to select...' : 'Select element'}
                                     </LemonButton>
                                 )}
                             </div>
@@ -321,7 +321,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             <div className="my-2">
                                 Found: {countedElements.length} elements / {clickCount} clicks
                                 {clickmapContainerSelector && (
-                                    <span className="text-muted"> (filtered by container)</span>
+                                    <span className="text-muted"> (filtered)</span>
                                 )}
                                 {processingProgress ? (
                                     <span className="text-muted">
