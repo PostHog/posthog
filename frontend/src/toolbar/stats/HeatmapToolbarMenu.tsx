@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { IconMagicWand } from '@posthog/icons'
+import { IconMagicWand, IconX } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -92,6 +92,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         samplingFactor,
         elementsLoading,
         processingProgress,
+        clickmapContainerSelector,
+        pickingClickmapContainer,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -102,6 +104,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         setHeatmapFixedPositionMode,
         setHeatmapColorPalette,
         setSamplingFactor,
+        setClickmapContainerSelector,
+        setPickingClickmapContainer,
     } = useActions(heatmapToolbarMenuLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -287,8 +291,38 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 </Tooltip>
                             </div>
 
+                            <div className="flex items-center gap-2 mt-2">
+                                <LemonLabel info="Only show clicks within a specific container element. Useful for focusing on a particular section of the page.">
+                                    Container
+                                </LemonLabel>
+                                {clickmapContainerSelector ? (
+                                    <div className="flex-1 flex items-center gap-1">
+                                        <code className="flex-1 text-xs bg-surface-primary border rounded px-2 py-1 truncate">
+                                            {clickmapContainerSelector}
+                                        </code>
+                                        <LemonButton
+                                            icon={<IconX />}
+                                            size="xsmall"
+                                            onClick={() => setClickmapContainerSelector(null)}
+                                            tooltip="Clear container filter"
+                                        />
+                                    </div>
+                                ) : (
+                                    <LemonButton
+                                        type={pickingClickmapContainer ? 'primary' : 'secondary'}
+                                        size="small"
+                                        onClick={() => setPickingClickmapContainer(!pickingClickmapContainer)}
+                                    >
+                                        {pickingClickmapContainer ? 'Click to select...' : 'Select container'}
+                                    </LemonButton>
+                                )}
+                            </div>
+
                             <div className="my-2">
                                 Found: {countedElements.length} elements / {clickCount} clicks
+                                {clickmapContainerSelector && (
+                                    <span className="text-muted"> (filtered by container)</span>
+                                )}
                                 {processingProgress ? (
                                     <span className="text-muted">
                                         {' '}

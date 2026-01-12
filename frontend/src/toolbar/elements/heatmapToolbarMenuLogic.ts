@@ -136,6 +136,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setProcessedElements: (elements: CountedHTMLElement[]) => ({ elements }),
         setElementsLoading: (loading: boolean) => ({ loading }),
         setProcessingProgress: (processed: number, total: number) => ({ processed, total }),
+        setClickmapContainerSelector: (selector: string | null) => ({ selector }),
+        setPickingClickmapContainer: (picking: boolean) => ({ picking }),
+        pickClickmapContainer: (element: HTMLElement) => ({ element }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -218,6 +221,21 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             false,
             {
                 setIsRefreshing: (_, { isRefreshing }) => isRefreshing,
+            },
+        ],
+        clickmapContainerSelector: [
+            null as string | null,
+            {
+                setClickmapContainerSelector: (_, { selector }) => selector,
+                toggleClickmapsEnabled: (state, { enabled }) => (enabled ? state : null),
+            },
+        ],
+        pickingClickmapContainer: [
+            false,
+            {
+                setPickingClickmapContainer: (_, { picking }) => picking,
+                pickClickmapContainer: () => false,
+                toggleClickmapsEnabled: () => false,
             },
         ],
     }),
@@ -341,13 +359,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 s.href,
                 s.matchLinksByHref,
                 s.clickmapsEnabled,
+                s.clickmapContainerSelector,
             ],
-            (elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled) => ({
+            (elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled, clickmapContainerSelector) => ({
                 elementStats,
                 dataAttributes,
                 href,
                 matchLinksByHref,
                 clickmapsEnabled,
+                clickmapContainerSelector,
             }),
         ],
     })),
@@ -364,7 +384,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             const BATCH_SIZE = 200
             const INITIAL_BATCH_SIZE = 50
 
-            const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled } = values.processingInputs
+            const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled, clickmapContainerSelector } =
+                values.processingInputs
 
             if (!clickmapsEnabled || !elementStats?.results?.length) {
                 actions.setProcessedElements([])
@@ -377,6 +398,16 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             const domIndex = buildDOMIndex(pageElements)
             const eventsToProcess = elementStats.results
             const totalEvents = eventsToProcess.length
+
+            // Resolve container element if selector is set
+            let containerElement: HTMLElement | null = null
+            if (clickmapContainerSelector) {
+                try {
+                    containerElement = document.querySelector(clickmapContainerSelector) as HTMLElement | null
+                } catch {
+                    // Invalid selector, ignore
+                }
+            }
 
             const allTrimmedElements: CountedHTMLElement[] = []
             let processedCount = 0
@@ -403,6 +434,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             trimmed &&
                             elementIsVisible(trimmed, cache.visibilityCache as WeakMap<HTMLElement, boolean>)
                         ) {
+                            // Filter by container if set
+                            if (containerElement && !containerElement.contains(trimmed)) {
+                                continue
+                            }
                             allTrimmedElements.push({ ...matched, element: trimmed })
                         }
                     }
@@ -530,6 +565,17 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         setMatchLinksByHref: () => {
             actions.processElements()
+        },
+
+        setClickmapContainerSelector: () => {
+            actions.processElements()
+        },
+
+        pickClickmapContainer: ({ element }) => {
+            const selector = elementToSelector(element, toolbarConfigLogic.values.dataAttributes)
+            if (selector) {
+                actions.setClickmapContainerSelector(selector)
+            }
         },
 
         refreshClickmap: () => {

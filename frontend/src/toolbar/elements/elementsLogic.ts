@@ -158,17 +158,20 @@ export const elementsLogic = kea<elementsLogicType>([
                 actionsTabLogic.selectors.inspectingElement,
                 actionsTabLogic.selectors.buttonActionsVisible,
                 experimentsTabLogic.selectors.inspectingElement,
+                heatmapToolbarMenuLogic.selectors.pickingClickmapContainer,
             ],
             (
                 inspectEnabledRaw,
                 actionsInspectingElement,
                 actionsButtonActionsVisible,
-                experimentsInspectingElement
+                experimentsInspectingElement,
+                pickingClickmapContainer
             ) => {
                 return (
                     inspectEnabledRaw ||
                     (actionsButtonActionsVisible && actionsInspectingElement !== null) ||
-                    experimentsInspectingElement !== null
+                    experimentsInspectingElement !== null ||
+                    pickingClickmapContainer
                 )
             },
         ],
@@ -451,6 +454,16 @@ export const elementsLogic = kea<elementsLogicType>([
             const inspectForExperiment =
                 experimentsTabLogic.values.buttonExperimentsVisible &&
                 experimentsTabLogic.values.inspectingElement !== null
+
+            const inspectForClickmapContainer = heatmapToolbarMenuLogic.values.pickingClickmapContainer
+
+            if (inspectForClickmapContainer) {
+                actions.setHoverElement(null)
+                if (element) {
+                    heatmapToolbarMenuLogic.actions.pickClickmapContainer(element)
+                }
+                return
+            }
 
             if (inspectForAction) {
                 actions.setHoverElement(null)
