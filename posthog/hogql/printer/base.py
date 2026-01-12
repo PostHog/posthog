@@ -1005,9 +1005,9 @@ class HogQLPrinter(Visitor[str]):
                     self.visit(field_type.table_type),
                     self._print_identifier(dmat_column),
                     is_nullable=True,
-                    has_minmax_index=materialized_column.has_minmax_index,
-                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
-                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
+                    has_minmax_index=False,
+                    has_ngram_lower_index=False,
+                    has_bloom_filter_index=False,
                 )
 
             if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
