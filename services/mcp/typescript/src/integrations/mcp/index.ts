@@ -7,12 +7,7 @@ import { getPostHogClient } from '@/integrations/mcp/utils/client'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
-import {
-    CUSTOM_BASE_URL,
-    MCP_DOCS_URL,
-    OAUTH_AUTHORIZATION_SERVER_URL,
-    OAUTH_SCOPES_SUPPORTED,
-} from '@/lib/constants'
+import { CUSTOM_BASE_URL, MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
@@ -302,10 +297,25 @@ export default {
             resourceUrl.pathname = '/'
             resourceUrl.search = ''
 
+            // Determine authorization server based on region param or CUSTOM_BASE_URL
+            // Users can specify region via query param: ?region=eu or ?region=us
+            // CUSTOM_BASE_URL is used for self-hosted instances
+            const regionParam = url.searchParams.get('region')?.toLowerCase()
+            let authorizationServer: string
+
+            if (CUSTOM_BASE_URL) {
+                authorizationServer = CUSTOM_BASE_URL
+            } else if (regionParam === 'eu') {
+                authorizationServer = 'https://eu.posthog.com'
+            } else {
+                // Default to US region
+                authorizationServer = 'https://us.posthog.com'
+            }
+
             return new Response(
                 JSON.stringify({
                     resource: resourceUrl.toString().replace(/\/$/, ''),
-                    authorization_servers: [OAUTH_AUTHORIZATION_SERVER_URL],
+                    authorization_servers: [authorizationServer],
                     scopes_supported: OAUTH_SCOPES_SUPPORTED,
                     bearer_methods_supported: ['header'],
                 }),
@@ -323,10 +333,21 @@ export default {
         const sessionId = url.searchParams.get('sessionId')
 
         if (!token) {
+            // Build resource metadata URL with region param if specified
+            // This tells OAuth clients where to find the protected resource metadata
+            const regionParam = url.searchParams.get('region')
+            const metadataUrl = new URL('/.well-known/oauth-protected-resource', request.url)
+            if (regionParam) {
+                metadataUrl.searchParams.set('region', regionParam)
+            }
+
             return new Response(
                 `No token provided, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
                 {
                     status: 401,
+                    headers: {
+                        'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl.toString()}"`,
+                    },
                 }
             )
         }
