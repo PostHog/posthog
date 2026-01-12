@@ -24,8 +24,12 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
     ): Promise<PipelineResult<ExtractHeatmapDataStepResult<TInput>>> {
         const { preparedEvent } = input
 
-        // Early return if there's no heatmap data to process
-        if (!preparedEvent.properties?.['$heatmap_data']) {
+        // Early return if there's no heatmap data AND no scroll depth data to process
+        const hasHeatmapData = preparedEvent.properties?.['$heatmap_data']
+        const hasScrollDepthData =
+            preparedEvent.properties?.['$prev_pageview_pathname'] && preparedEvent.properties?.['$current_url']
+
+        if (!hasHeatmapData && !hasScrollDepthData) {
             return Promise.resolve(ok({ ...input, preparedEvent }))
         }
 

@@ -199,6 +199,30 @@ describe('createExtractHeatmapDataStep', () => {
                 pointer_target_fixed: false,
             })
         })
+        it('extracts scroll depth data when $heatmap_data is absent', async () => {
+            const event = createTestEvent()
+            delete event.properties.$heatmap_data
+            event.properties.$prev_pageview_pathname = '/test'
+            event.properties.$prev_pageview_max_scroll = 225
+
+            const result = await step({ preparedEvent: event })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+
+            const topicMessages = mockProducer.queueMessages.mock.calls[0][0]
+            const queuedMessages = Array.isArray(topicMessages) ? topicMessages[0].messages : topicMessages.messages
+            expect(queuedMessages).toHaveLength(1) // Only scroll depth
+
+            const scrollData = parseJSON(queuedMessages[0].value as string)
+            expect(scrollData).toMatchObject({
+                type: 'scrolldepth',
+                x: 0,
+                y: 14, // 225 / 16
+                current_url: 'http://localhost:3000/test',
+                pointer_target_fixed: false,
+            })
+        })
     })
 
     describe('validation', () => {
