@@ -320,6 +320,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=False),
                 is_nullable=False,
+                has_minmax_index=True,
             )
 
         # disable them and ensure updates apply as needed
@@ -331,6 +332,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=True),
                 is_nullable=False,
+                has_minmax_index=True,
             )
 
         # re-enable them and ensure updates apply as needed
@@ -342,6 +344,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=False),
                 is_nullable=False,
+                has_minmax_index=True,
             )
 
         # drop them and ensure updates apply as needed
