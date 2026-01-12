@@ -7,7 +7,13 @@ import { getPostHogClient } from '@/integrations/mcp/utils/client'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
-import { CUSTOM_BASE_URL, MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
+import {
+    CUSTOM_BASE_URL,
+    MCP_DOCS_URL,
+    OAUTH_SCOPES_SUPPORTED,
+    POSTHOG_EU_BASE_URL,
+    POSTHOG_US_BASE_URL,
+} from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
@@ -80,12 +86,12 @@ export class MyMCP extends McpAgent<Env> {
     async detectRegion(): Promise<CloudRegion | undefined> {
         const usClient = new ApiClient({
             apiToken: this.requestProperties.apiToken,
-            baseUrl: 'https://us.posthog.com',
+            baseUrl: POSTHOG_US_BASE_URL,
         })
 
         const euClient = new ApiClient({
             apiToken: this.requestProperties.apiToken,
-            baseUrl: 'https://eu.posthog.com',
+            baseUrl: POSTHOG_EU_BASE_URL,
         })
 
         const [usResult, euResult] = await Promise.all([usClient.users().me(), euClient.users().me()])
@@ -111,10 +117,10 @@ export class MyMCP extends McpAgent<Env> {
         const region = (await this.cache.get('region')) || (await this.detectRegion())
 
         if (region === 'eu') {
-            return 'https://eu.posthog.com'
+            return POSTHOG_EU_BASE_URL
         }
 
-        return 'https://us.posthog.com'
+        return POSTHOG_US_BASE_URL
     }
 
     async api(): Promise<ApiClient> {
@@ -314,10 +320,10 @@ export default {
                 // Self-hosted instances use CUSTOM_BASE_URL
                 authorizationServer = CUSTOM_BASE_URL
             } else if (regionParam === 'eu') {
-                authorizationServer = 'https://eu.posthog.com'
+                authorizationServer = POSTHOG_EU_BASE_URL
             } else {
                 // Default to US for 'us', missing, or invalid region values
-                authorizationServer = 'https://us.posthog.com'
+                authorizationServer = POSTHOG_US_BASE_URL
             }
 
             return new Response(

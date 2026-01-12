@@ -1,5 +1,9 @@
 import { env } from 'cloudflare:workers'
 
+// Region-specific PostHog API base URLs
+export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
+export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
+
 export const CUSTOM_BASE_URL = env.POSTHOG_BASE_URL
 
 // OAuth Authorization Server URL (where clients get tokens)
