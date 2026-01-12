@@ -84,7 +84,7 @@ jobs:
 
             - name: Download timing artifacts
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   gh run download ${{ steps.find-run.outputs.run_id }} --pattern "timing_data-*" --dir timing_artifacts
 
