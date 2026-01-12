@@ -109,7 +109,7 @@ export const SvelteInstallation = (): JSX.Element => {
                     blocks={[
                         {
                             language: 'javascript',
-                            file: 'routes/+page.server.js',
+                            file: 'src/routes/+page.server.js',
                             code: dedent`
                                 import { PostHog } from 'posthog-node'
 
