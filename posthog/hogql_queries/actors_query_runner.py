@@ -3,6 +3,8 @@ import itertools
 from collections.abc import Iterator, Sequence
 from typing import Any, Optional
 
+from posthoganalytics import feature_enabled
+
 from posthog.schema import (
     ActorsQuery,
     ActorsQueryResponse,
@@ -25,7 +27,8 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy,
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner, get_query_runner
+from posthog.models import User
 
 
 class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
@@ -56,6 +59,19 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         self.strategy = self.determine_strategy()
         self.calculating = False
+        self.user = None
+
+    def run(
+        self,
+        execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user: Optional[User] = None,
+        query_id: Optional[str] = None,
+        insight_id: Optional[int] = None,
+        dashboard_id: Optional[int] = None,
+        cache_age_seconds: Optional[int] = None,
+    ):
+        self.user = user
+        return super().run(execution_mode, user, query_id, insight_id, dashboard_id, cache_age_seconds)
 
     @property
     def group_type_index(self) -> int | None:
@@ -285,6 +301,10 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
                     # we look up valid session ids and match them against the session ids in matching events
                     column = ast.Field(chain=["matching_events"])
+                elif expr == "last_seen" and isinstance(self.strategy, PersonStrategy) and not self.query.source:
+                    # For direct person queries (no source), we'll handle this by adding a LEFT JOIN in the query
+                    # The column will be resolved later when we modify the FROM clause
+                    column = ast.Field(chain=["last_seen_data", "max_timestamp"])
 
                 columns.append(column)
                 if has_aggregation(column):
@@ -335,7 +355,20 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             elif len(aggregations) > 0:
                 order_by = [ast.OrderExpr(expr=self._remove_aliases(aggregations[0]), order="DESC")]
             elif "created_at" in self.input_columns():
-                order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
+                if (
+                    self.strategy.field == "person"
+                    and self.user
+                    and feature_enabled(
+                        "drop-person-list-order-by",
+                        distinct_id=str(self.user.distinct_id),
+                        groups={"organization": str(self.user.organization.id)}
+                        if self.user.organization and self.user.organization.id
+                        else None,
+                    )
+                ):
+                    order_by = []
+                else:
+                    order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
             elif len(columns) > 0:
                 order_by = [ast.OrderExpr(expr=self._remove_aliases(columns[0]), order="ASC")]
             else:
@@ -351,7 +384,41 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 settings=HogQLQuerySettings(join_algorithm="auto", optimize_aggregation_in_order=True),
             )
             if not self.query.source:
-                select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+                base_join = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+
+                # Add LEFT JOIN for last_seen if selected
+                if "last_seen" in self.input_columns() and isinstance(self.strategy, PersonStrategy):
+                    # Create subquery for last_seen data
+                    last_seen_subquery = ast.SelectQuery(
+                        select=[
+                            ast.Field(chain=["person_id"]),
+                            ast.Alias(alias="max_timestamp", expr=parse_expr("max(timestamp)")),
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                        where=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["team_id"]),
+                            right=ast.Constant(value=self.team.id),
+                        ),
+                        group_by=[ast.Field(chain=["person_id"])],
+                    )
+
+                    # Add LEFT JOIN with the subquery
+                    base_join.next_join = ast.JoinExpr(
+                        table=last_seen_subquery,
+                        alias="last_seen_data",
+                        join_type="LEFT JOIN",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=[self.strategy.origin, "id"]),
+                                right=ast.Field(chain=["last_seen_data", "person_id"]),
+                            ),
+                            constraint_type="ON",
+                        ),
+                    )
+
+                select_query.select_from = base_join
             else:
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()

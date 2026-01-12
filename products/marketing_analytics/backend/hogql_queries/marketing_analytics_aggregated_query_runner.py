@@ -92,6 +92,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 MarketingAnalyticsBaseColumns.SOURCE,
                 MarketingAnalyticsBaseColumns.CPC,
                 MarketingAnalyticsBaseColumns.CTR,
+                MarketingAnalyticsBaseColumns.REPORTED_ROAS,
             )
         }
 
@@ -109,7 +110,10 @@ class MarketingAnalyticsAggregatedQueryRunner(
         return all_columns
 
     def _build_basic_summed_columns(self, basic_summed_columns: dict[str, ast.Expr]) -> dict[str, ast.Expr]:
-        """Convert columns to aggregated versions - wrap numeric columns in SUM(), skip rate metrics and cost per conversion"""
+        """Convert columns to aggregated versions.
+
+        Wraps numeric columns in SUM(), skips rate metrics and cost per conversion.
+        """
         summed_columns: dict[str, ast.Expr] = {}
 
         for column_name, column_expr in basic_summed_columns.items():
@@ -369,6 +373,40 @@ class MarketingAnalyticsAggregatedQueryRunner(
                     has_comparison=has_comparison,
                 )
             results_dict[MarketingAnalyticsBaseColumns.CTR.value] = ctr_item
+
+        # Calculate Reported ROAS (Return on Ad Spend = Reported Conversion Value / Cost)
+        total_reported_conversion_value_item = results_dict.get(
+            MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE.value
+        )
+        if total_reported_conversion_value_item and total_cost_item:
+            if (
+                has_comparison
+                and total_reported_conversion_value_item.previous is not None
+                and total_cost_item.previous is not None
+            ):
+                # Current period ROAS
+                current_roas = self._calculate_rate(total_reported_conversion_value_item.value, total_cost_item.value)
+                # Previous period ROAS
+                previous_roas = self._calculate_rate(
+                    total_reported_conversion_value_item.previous, total_cost_item.previous
+                )
+
+                roas_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.REPORTED_ROAS.value,
+                    value=current_roas,
+                    previous=previous_roas,
+                    has_comparison=has_comparison,
+                )
+            else:
+                # No comparison data
+                roas_value = self._calculate_rate(total_reported_conversion_value_item.value, total_cost_item.value)
+                roas_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.REPORTED_ROAS.value,
+                    value=roas_value,
+                    previous=None,
+                    has_comparison=has_comparison,
+                )
+            results_dict[MarketingAnalyticsBaseColumns.REPORTED_ROAS.value] = roas_item
 
     def _calculate_rate(self, numerator, denominator, multiply_by_100: bool = False) -> float | None:
         """Calculate a rate (numerator/denominator), handling division by zero"""

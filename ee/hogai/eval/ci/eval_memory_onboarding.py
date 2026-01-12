@@ -18,7 +18,7 @@ from ee.hogai.chat_agent.memory.prompts import (
     SCRAPING_SUCCESS_KEY_PHRASE,
     SCRAPING_TERMINATION_MESSAGE,
 )
-from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT
+from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
@@ -225,7 +225,7 @@ def call_memory_onboarding():
             .compile(checkpointer=DjangoCheckpointer())
         )
         raw_state = await graph.ainvoke(
-            AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)]),
+            AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)]),
             # Mock the _retrieve_context method to return our input data via `configurable`
             # Because evals run concurrently and everything's async, patch() just doesn't work
             {"configurable": {"thread_id": conversation.id, "_mock_memory_onboarding_context": taxonomy_item}},

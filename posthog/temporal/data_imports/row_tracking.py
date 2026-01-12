@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.db.models import Sum
+from django.db.models import F, Q, Sum
 
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
@@ -183,6 +183,7 @@ def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", logger: F
 
         # Get all completed rows for all teams in org
         rows_synced_in_billing_period_dict = ExternalDataJob.objects.filter(
+            Q(finished_at__gte=F("pipeline__created_at") + timedelta(days=7)),
             team_id__in=all_teams_in_org,
             finished_at__gte=current_billing_cycle_start_dt,
             billable=True,

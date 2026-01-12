@@ -12,6 +12,7 @@ from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
 
 from posthog.models.team.team import Team
+from posthog.redis import get_client
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -92,6 +93,7 @@ class HyperCache:
         cache_alias: Optional[str] = None,
         batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
         enable_etag: bool = False,
+        expiry_sorted_set_key: Optional[str] = None,
     ):
         self.namespace = namespace
         self.value = value
@@ -101,6 +103,7 @@ class HyperCache:
         self.cache_miss_ttl = cache_miss_ttl
         self.batch_load_fn = batch_load_fn
         self.enable_etag = enable_etag
+        self.expiry_sorted_set_key = expiry_sorted_set_key
 
         # Derive cache_client and redis_url from cache_alias (single source of truth)
         if cache_alias:
@@ -118,6 +121,15 @@ class HyperCache:
             return Team.objects.get(api_token=key)
         else:
             return Team.objects.get(id=key)
+
+    def get_cache_identifier(self, team: Team) -> str | int:
+        """
+        Get the identifier used for cache keys and expiry tracking.
+
+        For token-based caches, returns api_token. For ID-based caches, returns team.id.
+        This ensures consistency between cache keys and expiry tracking entries.
+        """
+        return team.api_token if self.token_based else team.id
 
     def get_cache_key(self, key: KeyType) -> str:
         if self.token_based:
@@ -172,6 +184,60 @@ class HyperCache:
         self._set_cache_value_redis(key, data)
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
+
+    def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str]]:
+        """
+        Batch get cached values for multiple teams using MGET.
+
+        Only reads from Redis (no S3 or DB fallback). This is optimized for
+        verification where we want to check what's in cache without side effects.
+
+        Args:
+            teams: List of Team objects to get cached values for
+
+        Returns:
+            Dict mapping team_id to (cached_data, source) tuples.
+            source is "redis" for hits, "miss" for cache misses.
+            Teams not in the result had no cache entry.
+        """
+        if not teams:
+            return {}
+
+        # Build cache keys for all teams
+        cache_keys = [self.get_cache_key(team) for team in teams]
+
+        # Batch get from Redis using get_many (Django cache's MGET wrapper)
+        cached_values = self.cache_client.get_many(cache_keys)
+
+        # Map results back to team IDs, counting hits and misses for batch metrics
+        results: dict[int, tuple[dict | None, str]] = {}
+        hit_count = 0
+        miss_count = 0
+
+        for team, cache_key in zip(teams, cache_keys):
+            data = cached_values.get(cache_key)
+            if data is not None:
+                hit_count += 1
+                if data == _HYPER_CACHE_EMPTY_VALUE:
+                    results[team.id] = (None, "redis")
+                else:
+                    results[team.id] = (json.loads(data), "redis")
+            else:
+                # Cache miss - no S3/DB fallback in batch mode
+                miss_count += 1
+                results[team.id] = (None, "miss")
+
+        # Batch increment Prometheus counters once per batch (avoids O(n) labels() overhead)
+        if hit_count:
+            HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc(
+                hit_count
+            )
+        if miss_count:
+            HYPERCACHE_CACHE_COUNTER.labels(result="batch_miss", namespace=self.namespace, value=self.value).inc(
+                miss_count
+            )
+
+        return results
 
     def get_etag(self, key: KeyType) -> str | None:
         """Get just the ETag for a cached value without loading the full response."""
@@ -250,6 +316,9 @@ class HyperCache:
     ) -> None:
         self._set_cache_value_redis(key, data, ttl=ttl)
         self._set_cache_value_s3(key, data, ttl=ttl)
+        # Only track expiry when we have a Team object (avoids DB lookup)
+        if isinstance(key, Team):
+            self._track_expiry(key, data, ttl=ttl)
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
@@ -300,3 +369,34 @@ class HyperCache:
         else:
             # Use sort_keys for deterministic serialization (consistent ETags)
             object_storage.write(key, json.dumps(data, sort_keys=True))
+
+    def _track_expiry(self, team: Team, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None) -> None:
+        """
+        Track cache expiration in Redis sorted set for efficient expiry queries.
+
+        Only tracks if expiry_sorted_set_key is configured. Stores the cache identifier
+        (token or team ID based on token_based setting) with expiry timestamp as score.
+        """
+        if not self.expiry_sorted_set_key:
+            return
+
+        # Don't track expiry for missing values
+        if data is None or isinstance(data, HyperCacheStoreMissing):
+            return
+
+        try:
+            identifier = self.get_cache_identifier(team)
+            ttl_seconds = ttl if ttl is not None else self.cache_ttl
+            expiry_timestamp = int(time.time()) + ttl_seconds
+
+            redis_client = get_client(self.redis_url)
+            redis_client.zadd(self.expiry_sorted_set_key, {str(identifier): expiry_timestamp})
+        except Exception as e:
+            # Don't fail cache writes if expiry tracking fails
+            logger.warning(
+                "Failed to track cache expiry",
+                namespace=self.namespace,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            capture_exception(e)

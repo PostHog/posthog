@@ -17,4 +17,5 @@ cp node_modules/posthog-js/dist/customizations.full.js* dist/
 cp node_modules/posthog-js/dist/*integration.js* dist/ 2>/dev/null || true
 # there are multiple recorder files that we use, so we need to copy them all
 cp node_modules/posthog-js/dist/*recorder*.js* dist/ 2>/dev/null || true
-
+cp node_modules/posthog-js/dist/product-tours.js* dist/
+cp node_modules/posthog-js/dist/conversations.js* dist/

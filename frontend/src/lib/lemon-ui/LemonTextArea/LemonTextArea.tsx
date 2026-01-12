@@ -19,10 +19,11 @@ interface LemonTextAreaPropsBase
     minRows?: number
     maxRows?: number
     rows?: number
-    autoFocus?: boolean | 'true-without-pulse'
+    autoFocus?: boolean
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
     'data-attr'?: string
+    hideFocus?: boolean
     /**
      * An array of actions that are added to the left of the text area's footer
      * for example image upload or emoji picker
@@ -61,6 +62,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
         actions,
         rightFooter,
         autoFocus,
+        hideFocus = false,
         ...textProps
     },
     ref
@@ -76,15 +78,11 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     }, [textProps.value])
 
     return (
-        <div
-            className={cn('flex flex-col rounded', {
-                'animate-input-focus-pulse': autoFocus && autoFocus !== 'true-without-pulse',
-            })}
-        >
+        <div className={cn('flex flex-col rounded', !hideFocus && 'input-like', className)}>
             <TextareaAutosize
                 minRows={minRows}
                 ref={textRef}
-                className={cn('LemonTextArea border', hasFooter ? 'rounded-t' : 'rounded', className)}
+                className={cn('LemonTextArea border w-full', hasFooter ? 'rounded-t' : 'rounded', className)}
                 onKeyDown={(e) => {
                     if (stopPropagation) {
                         e.stopPropagation()

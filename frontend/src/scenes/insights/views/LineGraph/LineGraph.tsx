@@ -5,16 +5,15 @@ import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
 
 import {
     ActiveElement,
     Chart,
     ChartDataset,
     ChartEvent,
-    ChartItem,
     ChartOptions,
     ChartType,
     Color,
@@ -30,6 +29,7 @@ import {
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useChart } from 'lib/hooks/useChart'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -288,17 +288,14 @@ export function LineGraph_({
     const { timezone, isTrends, isFunnels, breakdownFilter, query, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor, getTrendsHidden } = useValues(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex, isShiftPressed } = useValues(
+        trendsDataLogic(insightProps)
+    )
+    const { setHoveredDatasetIndex, setIsShiftPressed } = useActions(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
-    const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
-
     const { hideTooltip, getTooltip } = useInsightTooltip()
-
-    // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
-    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -312,6 +309,35 @@ export function LineGraph_({
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
+    const isHighlightBarMode = isBar && isStacked && isShiftPressed
+
+    const handleKeyDown = (e: KeyboardEvent): void => {
+        if (e.key === 'Shift') {
+            setIsShiftPressed(true)
+        }
+    }
+    const handleKeyUp = (e: KeyboardEvent): void => {
+        if (e.key === 'Shift') {
+            setIsShiftPressed(false)
+            setHoveredDatasetIndex(null)
+        }
+    }
+
+    // Track shift key for single-bar hover mode in stacked charts
+    useEffect(() => {
+        if (!isBar || !isStacked) {
+            return
+        }
+
+        window.addEventListener('keydown', handleKeyDown)
+        window.addEventListener('keyup', handleKeyUp)
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown)
+            window.removeEventListener('keyup', handleKeyUp)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isBar, isStacked])
 
     // Add scrollend event on main element to hide tooltips when scrolling
     useEffect(() => {
@@ -384,7 +410,12 @@ export function LineGraph_({
 
         let backgroundColor: string | undefined = undefined
         if (isBackgroundBasedGraphType) {
-            backgroundColor = mainColor
+            // Dim non-hovered bars in stacked bar charts when shift is pressed
+            if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
+                backgroundColor = hexToRGBA(mainColor, 0.2)
+            } else {
+                backgroundColor = mainColor
+            }
         } else if (isArea) {
             const alpha = isPercentStackView ? 1 : 0.5
             backgroundColor = hexToRGBA(mainColor, alpha)
@@ -547,506 +578,535 @@ export function LineGraph_({
         return axes
     }
 
-    // Build chart
-    useEffect(() => {
-        // horizontal bar charts handle hidden items one level above
-        if (!isHorizontal) {
-            datasets = datasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
-        }
+    Chart.register(ChartjsPluginStacked100)
+    Chart.register(annotationPlugin)
+    Chart.register(chartTrendline)
 
-        datasets = datasets.map(processDataset)
+    const { canvasRef, chartRef } = useChart({
+        getConfig: () => {
+            let filteredDatasets = datasets
+            if (!isHorizontal) {
+                filteredDatasets = filteredDatasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
+            }
 
-        const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
-        const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
-        const precision = seriesNonZeroMax < 2 ? 2 : seriesNonZeroMax < 5 ? 1 : 0
-        const goalLines = (_goalLines || []).filter(
-            (goalLine) => goalLine.displayIfCrossed !== false || goalLine.value >= seriesNonZeroMax
-        )
-        const goalLinesY = goalLines.map((a) => a.value)
-        const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
+            const processedDatasets = filteredDatasets.map(processDataset)
 
-        const tickOptions: Partial<TickOptions> = {
-            color: colors.axisLabel as Color,
-            font: {
-                family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
-                size: 12,
-                weight: 'normal',
-            },
-        }
-        const gridOptions: Partial<GridLineOptions> = {
-            color: (context) => {
-                if (goalLinesY.includes(context.tick?.value) || showMultipleYAxes) {
-                    return 'transparent'
-                }
+            const seriesNonZeroMax = Math.max(
+                ...processedDatasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO)
+            )
+            const seriesNonZeroMin = Math.min(
+                ...processedDatasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO)
+            )
+            const precision = seriesNonZeroMax < 2 ? 2 : seriesNonZeroMax < 5 ? 1 : 0
+            const goalLines = (_goalLines || []).filter(
+                (goalLine) => goalLine.displayIfCrossed !== false || goalLine.value >= seriesNonZeroMax
+            )
+            const goalLinesY = goalLines.map((a) => a.value)
+            const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
 
-                return colors.axisLine as Color
-            },
-            tickColor: (context) => {
-                if (goalLinesY.includes(context.tick?.value)) {
-                    return 'transparent'
-                }
-
-                return colors.axisLine as Color
-            },
-            tickBorderDash: [4, 2],
-        }
-
-        const tooltipOptions: Partial<TooltipOptions> = {
-            enabled: false, // disable builtin tooltip (use custom markup)
-            mode: 'nearest',
-            // If bar, we want to only show the tooltip for what we're hovering over
-            // to avoid confusion
-            axis: isHorizontal ? 'y' : 'x',
-            intersect: false,
-            itemSort: (a, b) => a.label.localeCompare(b.label),
-        }
-
-        const options: ChartOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            elements: {
-                line: {
-                    tension: 0,
+            const tickOptions: Partial<TickOptions> = {
+                color: colors.axisLabel as Color,
+                font: {
+                    family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                    size: 12,
+                    weight: 'normal',
                 },
-            },
-            interaction: {
-                includeInvisible: true, // Only important for log scale, where 0 values are always below the minimum
-            },
-            plugins: {
-                stacked100: { enable: isPercentStackView, precision: 1 },
-                datalabels: {
-                    color: 'white',
-                    anchor: (context) => {
-                        // the type here doesn't allow for undefined, but we see errors where things are undefined
-                        const datum = context.dataset?.data[context.dataIndex]
-                        return typeof datum !== 'number' ? 'end' : datum > 0 ? 'end' : 'start'
-                    },
-                    backgroundColor: (context) => {
-                        // the type here doesn't allow for undefined, but we see errors where things are undefined
-                        return (context.dataset?.borderColor as string) || 'black'
-                    },
-                    display: (context) => {
-                        // the type here doesn't allow for undefined, but we see errors where things are undefined
-                        const datum = context.dataset?.data[context.dataIndex]
-                        if (showValuesOnSeries && inSurveyView) {
-                            return true
-                        }
-                        return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
-                    },
-                    formatter: (value: number, context) => {
-                        // Handle survey view - show count + percentage
-                        if (value !== 0 && inSurveyView && showValuesOnSeries) {
-                            const dataset = context.dataset as any
-                            const total = dataset.data?.reduce((sum: number, val: number) => sum + val, 0) || 1
-                            const percentage = ((value / total) * 100).toFixed(1)
-                            return `${value} (${percentage}%)`
-                        }
+            }
+            const gridOptions: Partial<GridLineOptions> = {
+                color: (context) => {
+                    if (goalLinesY.includes(context.tick?.value) || showMultipleYAxes) {
+                        return 'transparent'
+                    }
 
-                        // the type here doesn't allow for undefined, but we see errors where things are undefined
-                        const data = context.chart?.data as ExtendedChartData
-                        if (!data) {
-                            return ''
-                        }
-                        const { datasetIndex, dataIndex } = context
-                        const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
-                        return formatPercentStackAxisValue(trendsFilter, percentageValue || value, isPercentStackView)
-                    },
-                    borderWidth: 2,
-                    borderRadius: 4,
-                    borderColor: 'white',
+                    return colors.axisLine as Color
                 },
-                legend: legend,
-                annotation: {
-                    annotations: goalLines.reduce((acc: Record<string, any>, annotation, idx) => {
-                        acc[`line-${idx}`] = {
-                            type: 'line',
-                            yMin: annotation.value,
-                            yMax: annotation.value,
-                            borderColor: resolveVariableColor(annotation.borderColor) || 'rgb(255, 99, 132)',
-                            label: {
-                                content: annotation.label,
-                                display: annotation.displayLabel ?? true,
-                                position: annotation.position ?? 'end',
-                            },
-                            borderWidth: 1,
-                            borderDash: [5, 8],
-                        }
+                tickColor: (context) => {
+                    if (goalLinesY.includes(context.tick?.value)) {
+                        return 'transparent'
+                    }
 
-                        return acc
-                    }, {}),
+                    return colors.axisLine as Color
                 },
-                tooltip: {
-                    ...tooltipOptions,
-                    external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
-                        if (!canvasRef.current) {
-                            return
-                        }
+                tickBorderDash: [4, 2],
+            }
 
-                        const [tooltipRoot, tooltipEl] = getTooltip()
-                        if (tooltip.opacity === 0) {
-                            // Use the new hide logic that respects mouse hover
-                            hideTooltip()
-                            return
-                        }
-
-                        // Set caret position
-                        // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
-                        tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
-                        tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                        tooltipEl.style.opacity = '1'
-
-                        if (tooltip.body) {
-                            const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
-                            const dataset = datasets[referenceDataPoint.datasetIndex]
-                            const date = dataset?.days?.[referenceDataPoint.dataIndex]
-                            const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
-                                if (tooltipConfig?.filter) {
-                                    return tooltipConfig.filter(dp)
-                                }
-
-                                const hasDotted =
-                                    datasets.some((d) => d.dotted) &&
-                                    dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
-                                        incompletenessOffsetFromEnd
-                                return (
-                                    dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
-                                    dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
-                                )
-                            })
-
-                            tooltipRoot.render(
-                                <InsightTooltip
-                                    date={date}
-                                    altTitle={() =>
-                                        typeof date === 'number'
-                                            ? dataset?.labels?.[referenceDataPoint.dataIndex]
-                                            : null
-                                    }
-                                    timezone={timezone}
-                                    seriesData={seriesData}
-                                    breakdownFilter={breakdownFilter}
-                                    interval={interval}
-                                    dateRange={insightData?.resolved_date_range}
-                                    renderSeries={(value, datum) => {
-                                        const hasBreakdown =
-                                            datum.breakdown_value !== undefined && !!datum.breakdown_value
-
-                                        return (
-                                            <div className="datum-label-column">
-                                                {!formula && (
-                                                    <SeriesLetter
-                                                        className="mr-2"
-                                                        hasBreakdown={hasBreakdown}
-                                                        seriesIndex={datum.action?.order ?? datum.id}
-                                                        seriesColor={datum.color}
-                                                    />
-                                                )}
-                                                {value}
-                                            </div>
-                                        )
-                                    }}
-                                    renderCount={
-                                        tooltipConfig?.renderCount ||
-                                        ((value: number): string => {
-                                            if (showPercentView) {
-                                                const series = seriesData.find((s) => s.count === value)
-                                                const datasetIndex = series?.datasetIndex
-                                                const dataIndex = series?.dataIndex
-                                                if (datasetIndex !== undefined && dataIndex !== undefined) {
-                                                    const originalDataset = originalDatasets[datasetIndex]
-                                                    const originalValue = originalDataset.data?.[dataIndex]
-
-                                                    if (originalValue !== undefined && originalValue !== null) {
-                                                        return `${value.toFixed(1)}% (${formatAggregationAxisValue(
-                                                            trendsFilter,
-                                                            originalValue
-                                                        )})`
-                                                    }
-                                                }
-                                            }
-
-                                            if (!isPercentStackView) {
-                                                return formatAggregationAxisValue(trendsFilter, value)
-                                            }
-
-                                            const total = seriesData.reduce((a, b) => a + b.count, 0)
-                                            const percentageLabel: number = parseFloat(
-                                                ((value / total) * 100).toFixed(1)
-                                            )
-
-                                            const isNaN = Number.isNaN(percentageLabel)
-
-                                            if (isNaN) {
-                                                return formatAggregationAxisValue(trendsFilter, value)
-                                            }
-
-                                            return `${formatAggregationAxisValue(
-                                                trendsFilter,
-                                                value
-                                            )} (${percentageLabel}%)`
-                                        })
-                                    }
-                                    hideInspectActorsSection={!onClick || !showPersonsModal}
-                                    {...tooltipConfig}
-                                    groupTypeLabel={
-                                        labelGroupType === 'people'
-                                            ? 'people'
-                                            : labelGroupType === 'none'
-                                              ? ''
-                                              : aggregationLabel(labelGroupType).plural
-                                    }
-                                />
-                            )
-                        }
-
-                        const bounds = canvasRef.current.getBoundingClientRect()
-                        const horizontalBarTopOffset = isHorizontal ? tooltip.caretY - tooltipEl.clientHeight / 2 : 0
-                        const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
-
-                        const chartClientLeft = bounds.left + window.pageXOffset
-                        const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
-                        const maxXPosition = bounds.right - tooltipEl.clientWidth
-                        const tooltipClientLeft =
-                            defaultOffsetLeft > maxXPosition
-                                ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
-                                : defaultOffsetLeft
-
-                        tooltipEl.style.top = tooltipClientTop + 'px'
-                        tooltipEl.style.left = tooltipClientLeft + 'px'
-                    },
-                },
-                ...(!isBar
-                    ? {
-                          crosshair: {
-                              snap: {
-                                  enabled: true, // Snap crosshair to data points
-                              },
-                              sync: {
-                                  enabled: false, // Sync crosshairs across multiple Chartjs instances
-                              },
-                              zoom: {
-                                  enabled: false, // Allow drag to zoom
-                              },
-                              line: {
-                                  color: colors.crosshair ?? undefined,
-                                  width: 1,
-                              },
-                          },
-                      }
-                    : {
-                          crosshair: false,
-                      }),
-            },
-            hover: {
-                mode: isBar ? 'point' : 'nearest',
+            const tooltipOptions: Partial<TooltipOptions> = {
+                enabled: false,
+                mode: isHighlightBarMode ? 'point' : 'nearest',
                 axis: isHorizontal ? 'y' : 'x',
-                intersect: false,
-            },
-            onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
-                onChartHover(event, chart, onClick)
-            },
-            onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
-                onChartClick(event, chart, datasets, onClick)
-            },
-        }
+                intersect: isHighlightBarMode,
+                itemSort: (a, b) => a.label.localeCompare(b.label),
+            }
 
-        const truncateRows = !inSurveyView && !!insightProps.dashboardId
-
-        if (type === GraphType.Bar) {
-            if (hideXAxis || hideYAxis) {
-                options.layout = { padding: 20 }
-            }
-            options.scales = {
-                x: {
-                    display: !hideXAxis,
-                    beginAtZero: true,
-                    stacked: isStacked,
-                    ticks: {
-                        ...tickOptions,
-                        precision,
-                        ...(inSurveyView
-                            ? {
-                                  padding: 10,
-                                  font: {
-                                      size: 14,
-                                      weight: 'bold',
-                                  },
-                              }
-                            : {}),
+            const options: ChartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                elements: {
+                    line: {
+                        tension: 0,
                     },
-                    grid: inSurveyView ? { display: false } : gridOptions,
                 },
-                y: {
-                    display: !hideYAxis,
-                    beginAtZero: true,
-                    stacked: isStacked,
-                    ticks: {
-                        ...tickOptions,
-                        display: !hideYAxis,
-                        precision,
-                        callback: (value) => {
-                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+                interaction: {
+                    includeInvisible: true,
+                },
+                plugins: {
+                    stacked100: { enable: isPercentStackView, precision: 1 },
+                    datalabels: {
+                        color: 'white',
+                        anchor: (context) => {
+                            const datum = context.dataset?.data[context.dataIndex]
+                            return typeof datum !== 'number' ? 'end' : datum > 0 ? 'end' : 'start'
                         },
-                    },
-                    grid: gridOptions,
-                },
-            }
-        } else if (type === GraphType.Line) {
-            if (hideXAxis || hideYAxis) {
-                options.layout = { padding: 20 }
-            }
-            options.scales = {
-                x: {
-                    display: !hideXAxis,
-                    beginAtZero: true,
-                    ticks: tickOptions,
-                    grid: {
-                        ...gridOptions,
-                        drawOnChartArea: false,
-                        tickLength: 12,
-                    },
-                },
-                ...generateYaxesForLineGraph(
-                    (showMultipleYAxes && new Set(datasets.map((d) => d.yAxisID)).size) || datasets.length,
-                    seriesNonZeroMin,
-                    goalLines,
-                    goalLinesY,
-                    goalLinesWithColor,
-                    tickOptions,
-                    precision,
-                    gridOptions
-                ),
-            }
-        } else if (isHorizontal) {
-            if (hideXAxis || hideYAxis) {
-                options.layout = { padding: inSurveyView ? { top: 20, bottom: 20, left: 20, right: 60 } : 20 }
-            } else if (inSurveyView) {
-                options.layout = { padding: { right: 60 } }
-            }
-            options.scales = {
-                x: {
-                    display: !hideXAxis,
-                    beginAtZero: true,
-                    ticks: {
-                        display: !hideXAxis,
-                        ...tickOptions,
-                        precision,
-                        callback: (value) => {
-                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+                        backgroundColor: (context) => {
+                            return (context.dataset?.borderColor as string) || 'black'
                         },
-                    },
-                    grid: gridOptions,
-                },
-                y: {
-                    display: true,
-                    beforeFit: (scale) => {
-                        scale.ticks = scale.ticks.map((tick) => {
-                            if (typeof tick.label === 'string') {
-                                return { ...tick, label: truncateString(tick.label, 50) }
+                        display: (context) => {
+                            const datum = context.dataset?.data[context.dataIndex]
+                            if (showValuesOnSeries && inSurveyView) {
+                                return true
                             }
-                            return tick
-                        })
+                            return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0
+                                ? 'auto'
+                                : false
+                        },
+                        formatter: (value: number, context) => {
+                            if (value !== 0 && inSurveyView && showValuesOnSeries) {
+                                const dataset = context.dataset as any
+                                // Use totalResponses if provided (for per-respondent %), otherwise sum of values
+                                const total =
+                                    dataset.totalResponses ??
+                                    dataset.data?.reduce((sum: number, val: number) => sum + val, 0) ??
+                                    1
+                                const percentage = ((value / total) * 100).toFixed(1)
+                                return `${value} (${percentage}%)`
+                            }
 
-                        const ROW_HEIGHT = inSurveyView ? (isHorizontal ? 48 : 30) : 20
-                        const height = scale.ticks.length * ROW_HEIGHT
-                        const parentNode: any = scale.chart?.canvas?.parentNode
-                        parentNode.style.height = `${height}px`
-
-                        if (truncateRows) {
-                            // Display only as many bars, as we can fit labels
-                            // Important: Make sure the query result does not deliver more data than we can display
-                            // See apply_dashboard_filters function in query runners
-                            scale.max = scale.ticks.length
-                        }
-                    },
-                    beginAtZero: true,
-                    ticks: {
-                        ...tickOptions,
-                        precision,
-                        stepSize: !truncateRows ? 1 : undefined,
-                        autoSkip: !truncateRows ? false : undefined,
-                        ...(inSurveyView
-                            ? {
-                                  padding: 10,
-                                  font: {
-                                      size: 14,
-                                  },
-                              }
-                            : {}),
-                        callback: function _renderYLabel(_, i) {
-                            const d = datasets?.[0]
-                            if (!d) {
+                            const data = context.chart?.data as ExtendedChartData
+                            if (!data) {
                                 return ''
                             }
-                            // prefer custom name, then label, then action name
-                            let labelDescriptors: (string | number | undefined | null)[]
-                            if (d.actions?.[i]?.custom_name) {
-                                labelDescriptors = [
-                                    d.actions?.[i]?.custom_name,
-                                    d.breakdownLabels?.[i],
-                                    d.compareLabels?.[i],
-                                ]
-                            } else if (d.breakdownLabels?.[i]) {
-                                labelDescriptors = [
-                                    ignoreActionsInSeriesLabels ? null : d.actions?.[i]?.name,
-                                    d.breakdownLabels[i],
-                                    d.compareLabels?.[i],
-                                ]
-                            } else if (d.labels?.[i]) {
-                                labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
-                            } else {
-                                labelDescriptors = [
-                                    ignoreActionsInSeriesLabels ? null : d.actions?.[i]?.name,
-                                    d.breakdownLabels?.[i],
-                                    d.compareLabels?.[i],
-                                ]
+                            const { datasetIndex, dataIndex } = context
+                            const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
+                            return formatPercentStackAxisValue(
+                                trendsFilter,
+                                percentageValue || value,
+                                isPercentStackView
+                            )
+                        },
+                        borderWidth: 2,
+                        borderRadius: 4,
+                        borderColor: 'white',
+                    },
+                    legend: legend,
+                    annotation: {
+                        annotations: goalLines.reduce((acc: Record<string, any>, annotation, idx) => {
+                            acc[`line-${idx}`] = {
+                                type: 'line',
+                                yMin: annotation.value,
+                                yMax: annotation.value,
+                                borderColor: resolveVariableColor(annotation.borderColor) || 'rgb(255, 99, 132)',
+                                label: {
+                                    content: annotation.label,
+                                    display: annotation.displayLabel ?? true,
+                                    position: annotation.position ?? 'end',
+                                },
+                                borderWidth: 1,
+                                borderDash: [5, 8],
                             }
-                            return labelDescriptors.filter((l) => !!l).join(' - ')
+
+                            return acc
+                        }, {}),
+                    },
+                    tooltip: {
+                        ...tooltipOptions,
+                        external({ chart, tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
+                            const canvas = chart.canvas
+                            if (!canvas) {
+                                return
+                            }
+
+                            const [tooltipRoot, tooltipEl] = getTooltip()
+                            if (tooltip.opacity === 0) {
+                                hideTooltip()
+                                return
+                            }
+
+                            tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
+                            tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
+                            tooltipEl.style.opacity = '1'
+
+                            if (tooltip.body) {
+                                const referenceDataPoint = tooltip.dataPoints[0]
+                                const dataset = processedDatasets[referenceDataPoint.datasetIndex]
+                                const date = dataset?.days?.[referenceDataPoint.dataIndex]
+                                const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
+                                    // For stacked bar charts when shift is pressed, show only the hovered bar
+                                    if (isHighlightBarMode) {
+                                        return dp.datasetIndex === referenceDataPoint.datasetIndex
+                                    }
+
+                                    if (tooltipConfig?.filter) {
+                                        return tooltipConfig.filter(dp)
+                                    }
+
+                                    const hasDotted =
+                                        processedDatasets.some((d) => d.dotted) &&
+                                        dp.dataIndex - processedDatasets?.[dp.datasetIndex]?.data?.length >=
+                                            incompletenessOffsetFromEnd
+                                    return (
+                                        dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
+                                        dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
+                                    )
+                                })
+
+                                tooltipRoot.render(
+                                    <InsightTooltip
+                                        date={date}
+                                        altTitle={() =>
+                                            typeof date === 'number'
+                                                ? dataset?.labels?.[referenceDataPoint.dataIndex]
+                                                : null
+                                        }
+                                        timezone={timezone}
+                                        seriesData={seriesData}
+                                        breakdownFilter={breakdownFilter}
+                                        interval={interval}
+                                        dateRange={insightData?.resolved_date_range}
+                                        showShiftKeyHint={isBar && isStacked && !isHighlightBarMode}
+                                        renderSeries={(value, datum) => {
+                                            const hasBreakdown =
+                                                datum.breakdown_value !== undefined && !!datum.breakdown_value
+
+                                            return (
+                                                <div className="datum-label-column">
+                                                    {!formula && (
+                                                        <SeriesLetter
+                                                            className="mr-2"
+                                                            hasBreakdown={hasBreakdown}
+                                                            seriesIndex={datum.action?.order ?? datum.id}
+                                                            seriesColor={datum.color}
+                                                        />
+                                                    )}
+                                                    {value}
+                                                </div>
+                                            )
+                                        }}
+                                        renderCount={
+                                            tooltipConfig?.renderCount ||
+                                            ((value: number): string => {
+                                                if (showPercentView) {
+                                                    const series = seriesData.find((s) => s.count === value)
+                                                    const datasetIndex = series?.datasetIndex
+                                                    const dataIndex = series?.dataIndex
+                                                    if (datasetIndex !== undefined && dataIndex !== undefined) {
+                                                        const originalDataset = originalDatasets[datasetIndex]
+                                                        const originalValue = originalDataset.data?.[dataIndex]
+
+                                                        if (originalValue !== undefined && originalValue !== null) {
+                                                            return `${value.toFixed(1)}% (${formatAggregationAxisValue(
+                                                                trendsFilter,
+                                                                originalValue
+                                                            )})`
+                                                        }
+                                                    }
+                                                }
+
+                                                if (!isPercentStackView) {
+                                                    return formatAggregationAxisValue(trendsFilter, value)
+                                                }
+
+                                                const total = seriesData.reduce((a, b) => a + b.count, 0)
+                                                const percentageLabel: number = parseFloat(
+                                                    ((value / total) * 100).toFixed(1)
+                                                )
+
+                                                const isNaN = Number.isNaN(percentageLabel)
+
+                                                if (isNaN) {
+                                                    return formatAggregationAxisValue(trendsFilter, value)
+                                                }
+
+                                                return `${formatAggregationAxisValue(
+                                                    trendsFilter,
+                                                    value
+                                                )} (${percentageLabel}%)`
+                                            })
+                                        }
+                                        hideInspectActorsSection={!onClick || !showPersonsModal}
+                                        {...tooltipConfig}
+                                        groupTypeLabel={
+                                            labelGroupType === 'people'
+                                                ? 'people'
+                                                : labelGroupType === 'none'
+                                                  ? ''
+                                                  : aggregationLabel(labelGroupType).plural
+                                        }
+                                    />
+                                )
+                            }
+
+                            const bounds = canvas.getBoundingClientRect()
+                            const verticalBarTopOffset =
+                                isHighlightBarMode && !isHorizontal ? tooltip.caretY - tooltipEl.clientHeight / 2 : 0
+                            const horizontalBarTopOffset = isHorizontal
+                                ? tooltip.caretY - tooltipEl.clientHeight / 2
+                                : 0
+                            const tooltipClientTop =
+                                bounds.top + window.pageYOffset + horizontalBarTopOffset + verticalBarTopOffset
+
+                            const chartClientLeft = bounds.left + window.pageXOffset
+                            const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
+                            const maxXPosition = bounds.right - tooltipEl.clientWidth
+                            const tooltipClientLeft =
+                                defaultOffsetLeft > maxXPosition
+                                    ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8
+                                    : defaultOffsetLeft
+
+                            tooltipEl.style.top = tooltipClientTop + 'px'
+                            tooltipEl.style.left = tooltipClientLeft + 'px'
                         },
                     },
-                    grid: {
-                        ...gridOptions,
-                        display: !inSurveyView,
-                    },
+                    ...(!isBar
+                        ? {
+                              crosshair: {
+                                  snap: {
+                                      enabled: true,
+                                  },
+                                  sync: {
+                                      enabled: false,
+                                  },
+                                  zoom: {
+                                      enabled: false,
+                                  },
+                                  line: {
+                                      color: colors.crosshair ?? undefined,
+                                      width: 1,
+                                  },
+                              },
+                          }
+                        : {
+                              crosshair: false,
+                          }),
+                },
+                hover: {
+                    mode: isBar ? 'point' : 'nearest',
+                    axis: isHorizontal ? 'y' : 'x',
+                    intersect: false,
+                },
+                onHover(event: ChartEvent, elements: ActiveElement[], chart: Chart) {
+                    onChartHover(event, chart, onClick)
+
+                    // For stacked bar charts when shift is pressed, track hovered dataset to highlight only that bar
+                    if (isHighlightBarMode) {
+                        const newHoveredIdx = elements.length > 0 ? elements[0].datasetIndex : null
+                        if (hoveredDatasetIndex !== newHoveredIdx) {
+                            setHoveredDatasetIndex(newHoveredIdx)
+                        }
+                    }
+                },
+                onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
+                    onChartClick(event, chart, processedDatasets, onClick)
                 },
             }
-            options.indexAxis = 'y'
-        }
-        Chart.register(ChartjsPluginStacked100)
-        Chart.register(annotationPlugin)
-        Chart.register(chartTrendline)
 
-        const chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
-            type: (isBar ? GraphType.Bar : type) as ChartType,
-            data: { labels, datasets },
-            options,
-            plugins: [ChartDataLabels, ...(showTrendLines ? [chartTrendline as any] : [])],
-        })
+            const truncateRows = !inSurveyView && !!insightProps.dashboardId
 
-        setLineChart(chart)
+            if (type === GraphType.Bar) {
+                if (hideXAxis || hideYAxis) {
+                    options.layout = { padding: 20 }
+                }
+                options.scales = {
+                    x: {
+                        display: !hideXAxis,
+                        beginAtZero: true,
+                        stacked: isStacked,
+                        ticks: {
+                            ...tickOptions,
+                            precision,
+                            ...(inSurveyView
+                                ? {
+                                      padding: 10,
+                                      font: {
+                                          size: 14,
+                                          weight: 'bold',
+                                      },
+                                  }
+                                : {}),
+                        },
+                        grid: inSurveyView ? { display: false } : gridOptions,
+                    },
+                    y: {
+                        display: !hideYAxis,
+                        beginAtZero: true,
+                        stacked: isStacked,
+                        ticks: {
+                            ...tickOptions,
+                            display: !hideYAxis,
+                            precision,
+                            callback: (value) => {
+                                return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+                            },
+                        },
+                        grid: gridOptions,
+                    },
+                }
+            } else if (type === GraphType.Line) {
+                if (hideXAxis || hideYAxis) {
+                    options.layout = { padding: 20 }
+                }
+                options.scales = {
+                    x: {
+                        display: !hideXAxis,
+                        beginAtZero: true,
+                        ticks: tickOptions,
+                        grid: {
+                            ...gridOptions,
+                            drawOnChartArea: false,
+                            tickLength: 12,
+                        },
+                    },
+                    ...generateYaxesForLineGraph(
+                        (showMultipleYAxes && new Set(processedDatasets.map((d) => d.yAxisID)).size) ||
+                            processedDatasets.length,
+                        seriesNonZeroMin,
+                        goalLines,
+                        goalLinesY,
+                        goalLinesWithColor,
+                        tickOptions,
+                        precision,
+                        gridOptions
+                    ),
+                }
+            } else if (isHorizontal) {
+                if (hideXAxis || hideYAxis) {
+                    options.layout = { padding: inSurveyView ? { top: 20, bottom: 20, left: 20, right: 60 } : 20 }
+                } else if (inSurveyView) {
+                    options.layout = { padding: { right: 60 } }
+                }
+                options.scales = {
+                    x: {
+                        display: !hideXAxis,
+                        beginAtZero: true,
+                        ticks: {
+                            display: !hideXAxis,
+                            ...tickOptions,
+                            precision,
+                            callback: (value) => {
+                                return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+                            },
+                        },
+                        grid: gridOptions,
+                    },
+                    y: {
+                        display: true,
+                        beforeFit: (scale) => {
+                            scale.ticks = scale.ticks.map((tick) => {
+                                if (typeof tick.label === 'string') {
+                                    return { ...tick, label: truncateString(tick.label, 50) }
+                                }
+                                return tick
+                            })
 
-        return () => chart.destroy()
-    }, [
-        datasets,
-        isDarkModeOn,
-        trendsFilter,
-        formula,
-        showValuesOnSeries,
-        showPercentStackView,
-        showMultipleYAxes,
-        _goalLines,
-        theme,
-        type,
-        isArea,
-        showTrendLines,
-    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+                            const ROW_HEIGHT = inSurveyView ? (isHorizontal ? 48 : 30) : 20
+                            const height = scale.ticks.length * ROW_HEIGHT
+                            const parentNode: any = scale.chart?.canvas?.parentNode
+                            parentNode.style.height = `${height}px`
+
+                            if (truncateRows) {
+                                scale.max = scale.ticks.length
+                            }
+                        },
+                        beginAtZero: true,
+                        ticks: {
+                            ...tickOptions,
+                            precision,
+                            stepSize: !truncateRows ? 1 : undefined,
+                            autoSkip: !truncateRows ? false : undefined,
+                            ...(inSurveyView
+                                ? {
+                                      padding: 10,
+                                      font: {
+                                          size: 14,
+                                      },
+                                  }
+                                : {}),
+                            callback: function _renderYLabel(_, i) {
+                                const d = processedDatasets?.[0]
+                                if (!d) {
+                                    return ''
+                                }
+                                let labelDescriptors: (string | number | undefined | null)[]
+                                if (d.actions?.[i]?.custom_name) {
+                                    labelDescriptors = [
+                                        d.actions?.[i]?.custom_name,
+                                        d.breakdownLabels?.[i],
+                                        d.compareLabels?.[i],
+                                    ]
+                                } else if (d.breakdownLabels?.[i]) {
+                                    labelDescriptors = [
+                                        ignoreActionsInSeriesLabels ? null : d.actions?.[i]?.name,
+                                        d.breakdownLabels[i],
+                                        d.compareLabels?.[i],
+                                    ]
+                                } else if (d.labels?.[i]) {
+                                    labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
+                                } else {
+                                    labelDescriptors = [
+                                        ignoreActionsInSeriesLabels ? null : d.actions?.[i]?.name,
+                                        d.breakdownLabels?.[i],
+                                        d.compareLabels?.[i],
+                                    ]
+                                }
+                                return labelDescriptors.filter((l) => !!l).join(' - ')
+                            },
+                        },
+                        grid: {
+                            ...gridOptions,
+                            display: !inSurveyView,
+                        },
+                    },
+                }
+                options.indexAxis = 'y'
+            }
+
+            return {
+                type: (isBar ? GraphType.Bar : type) as ChartType,
+                data: { labels, datasets: processedDatasets },
+                options,
+                plugins: [ChartDataLabels, ...(showTrendLines ? [chartTrendline as any] : [])],
+            }
+        },
+        deps: [
+            datasets,
+            isDarkModeOn,
+            trendsFilter,
+            formula,
+            showValuesOnSeries,
+            showPercentStackView,
+            showMultipleYAxes,
+            _goalLines,
+            theme,
+            type,
+            isArea,
+            showTrendLines,
+            labels,
+            hideTooltip,
+            getTooltip,
+            hoveredDatasetIndex,
+            setHoveredDatasetIndex,
+            isHighlightBarMode,
+        ],
+    })
+
+    // Use canvasRef directly from useChart for resize observer - avoids sync issues with separate ref
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
             <canvas ref={canvasRef} />
-            {showAnnotations && lineChart && chartWidth && chartHeight ? (
+            {showAnnotations && chartRef.current && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
-                    chart={lineChart}
+                    chart={chartRef.current}
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}

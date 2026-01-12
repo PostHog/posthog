@@ -1,10 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { IconChat } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { EventType } from '~/types'
 
@@ -22,11 +19,11 @@ export interface ConversationDisplayProps {
 
 export function ConversationDisplay({ eventProperties, eventId }: ConversationDisplayProps): JSX.Element {
     const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
-        properties: eventProperties,
+        input: eventProperties.$ai_input,
+        output: eventProperties.$ai_output_choices,
     })
 
     const handleTryInPlayground = (): void => {
@@ -36,8 +33,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
         })
     }
 
-    const showPlaygroundButton =
-        eventProperties.$ai_model && input && featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
+    const showPlaygroundButton = eventProperties.$ai_model && input
 
     return (
         <>

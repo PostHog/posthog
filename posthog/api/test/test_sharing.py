@@ -1,5 +1,7 @@
+import json
 from datetime import timedelta
 from functools import wraps
+from urllib.parse import quote
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -1112,3 +1114,94 @@ class TestSharePasswordLogging(APIBaseTest):
         assert change_data["success"] is False
         assert change_data["resource_type"] == "dashboard"
         assert "password_id" not in change_data  # No password_id for failed attempts
+
+
+class TestExportCacheKeyFlow(APIBaseTest):
+    """Test that cache_keys parameter is correctly parsed and passed to InsightSerializer."""
+
+    insight: Insight
+    sharing_config: SharingConfiguration
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        cls.insight = Insight.objects.create(
+            team=cls.team,
+            name="Test Insight",
+            query={"kind": "TrendsQuery", "series": [{"event": "$pageview"}]},
+        )
+        cls.sharing_config = SharingConfiguration.objects.create(
+            team=cls.team,
+            insight=cls.insight,
+            enabled=True,
+        )
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @mock_exporter_template
+    def test_cache_keys_parameter_triggers_direct_cache_lookup(self, mock_fetch_cached, mock_calculate):
+        """Test that cache_keys param causes InsightSerializer to use direct cache lookup and skip calculation."""
+        cached_response = {
+            "results": [{"count": 42}],
+            "cache_key": "expected_cache_key_abc123",
+            "last_refresh": "2024-01-01T00:00:00Z",
+            "timezone": "UTC",
+        }
+        mock_fetch_cached.return_value = cached_response
+
+        cache_keys = {str(self.insight.id): "expected_cache_key_abc123"}
+        cache_keys_param = quote(json.dumps(cache_keys))
+
+        response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys={cache_keys_param}")
+
+        assert response.status_code == 200
+        mock_fetch_cached.assert_called_once_with("expected_cache_key_abc123")
+        mock_calculate.assert_not_called()
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @mock_exporter_template
+    def test_cache_miss_falls_back_to_normal_calculation(self, mock_fetch_cached, mock_calculate):
+        """Test that cache miss on expected key falls back to normal calculation."""
+        from posthog.caching.fetch_from_cache import InsightResult
+
+        mock_fetch_cached.return_value = None  # Cache miss
+        mock_calculate.return_value = InsightResult(
+            result=[{"count": 50}],
+            cache_key="calculated_cache_key",
+            is_cached=False,
+            last_refresh=None,
+            timezone="UTC",
+        )
+
+        cache_keys = {str(self.insight.id): "missing_cache_key"}
+        cache_keys_param = quote(json.dumps(cache_keys))
+
+        response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys={cache_keys_param}")
+
+        assert response.status_code == 200
+        mock_fetch_cached.assert_called_once_with("missing_cache_key")
+        mock_calculate.assert_called_once()
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @mock_exporter_template
+    def test_invalid_cache_keys_param_continues_without_it(self, mock_fetch_cached, mock_calculate):
+        """Test that invalid cache_keys parameter is ignored and normal flow continues."""
+        from posthog.caching.fetch_from_cache import InsightResult
+
+        mock_calculate.return_value = InsightResult(
+            result=[{"count": 25}],
+            cache_key="normal_cache_key",
+            is_cached=False,
+            last_refresh=None,
+            timezone="UTC",
+        )
+
+        # Pass invalid JSON as cache_keys
+        response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys=not_valid_json")
+
+        assert response.status_code == 200
+        # fetch_cached_response_by_key should not be called since cache_keys parsing failed
+        mock_fetch_cached.assert_not_called()
+        mock_calculate.assert_called_once()

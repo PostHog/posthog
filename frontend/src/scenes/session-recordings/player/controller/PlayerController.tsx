@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { isChristmas, isHalloween } from 'lib/holidays'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen, IconGhost, IconSanta } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -32,15 +33,13 @@ function PlayPauseButton(): JSX.Element {
     const showPause = playingState === SessionPlayerState.PLAY
 
     const getPlayIcon = (): JSX.Element => {
-        const localTime = new Date()
-
         // If between October 28th and October 31st
-        if (localTime.getMonth() == 9 && localTime.getDate() >= 28) {
+        if (isHalloween()) {
             return <IconGhost className="text-3xl" />
         }
 
         // If between December 1st and December 28th
-        if (localTime.getMonth() == 11 && localTime.getDate() <= 28) {
+        if (isChristmas()) {
             return <IconSanta className="text-3xl" />
         }
 
@@ -142,7 +141,7 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
 }
 
 export function PlayerController(): JSX.Element {
-    const { playlistLogic, logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
@@ -181,9 +180,8 @@ export function PlayerController(): JSX.Element {
                             <ClipRecording />
                         </>
                     )}
-                    {playlistLogic && ModesWithInteractions.includes(playerMode) ? (
-                        <PlayerUpNext playlistLogic={playlistLogic} />
-                    ) : undefined}
+                    {(ModesWithInteractions.includes(playerMode) ||
+                        playerMode === SessionRecordingPlayerMode.Kiosk) && <PlayerUpNext />}
                     {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
                     <FullScreen />
                 </div>

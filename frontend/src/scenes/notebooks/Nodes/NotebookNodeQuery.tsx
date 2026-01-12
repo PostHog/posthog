@@ -60,7 +60,9 @@ const Component = ({
         let title = 'Query'
 
         if (query.kind === NodeKind.DataTableNode) {
-            if (query.source.kind) {
+            if (query.source.kind === 'HogQLQuery') {
+                title = 'SQL'
+            } else if (query.source.kind) {
                 title = query.source.kind.replace('Node', '').replace('Query', '')
             } else {
                 title = 'Data exploration'
@@ -196,7 +198,7 @@ export const Settings = ({
         }
 
         return modifiedQuery
-    }, [query, canvasFiltersOverride])
+    }, [query, canvasFiltersOverride, isDefaultFilterApplied, attributes, updateAttributes])
 
     const detachSavedInsight = (): void => {
         if (isSavedInsightNode(attributes.query)) {

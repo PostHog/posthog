@@ -3,7 +3,6 @@ import typing
 import asyncio
 import datetime as dt
 import dataclasses
-from itertools import groupby
 
 from django.conf import settings
 
@@ -17,11 +16,11 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
+from ee.tasks.subscriptions import deliver_subscription_report_async
 
 LOGGER = get_logger(__name__)
 
-# Changed 28-Nov-2025
+# Changed 20260109-01
 
 
 @dataclasses.dataclass
@@ -47,42 +46,18 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     await logger.ainfo(f"Looking for subscriptions due before {now_with_buffer}")
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_subscription_ids() -> list[Subscription]:
+    def get_subscription_ids() -> list[int]:
         return list(
             Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
             .exclude(dashboard__deleted=True)
             .exclude(insight__deleted=True)
-            .select_related("team")
-            .order_by("team_id")
-            .all()
+            .values_list("id", flat=True)
         )
 
     await logger.ainfo("Starting database query for subscriptions")
-    subscriptions = await get_subscription_ids()
-    await logger.ainfo(f"Database query completed, found {len(subscriptions)} total subscriptions")
+    subscription_ids = await get_subscription_ids()
+    await logger.ainfo(f"Database query completed, found {len(subscription_ids)} subscriptions")
 
-    subscription_ids: list[int] = []
-    team_count = 0
-    processed_teams = 0
-
-    await logger.ainfo("Starting team processing and feature flag checks")
-
-    for team, group_subscriptions in groupby(subscriptions, key=lambda x: x.team):
-        team_count += 1
-        if team_count % 10 == 0:
-            await logger.ainfo(f"Processed {team_count} teams so far, {len(subscription_ids)} subscriptions collected")
-
-        if team_use_temporal_flag(team):
-            processed_teams += 1
-            for subscription in group_subscriptions:
-                subscription_ids.append(subscription.id)
-
-    await logger.ainfo(
-        "Completed subscription fetch",
-        total_teams=team_count,
-        teams_using_temporal=processed_teams,
-        subscription_count=len(subscription_ids),
-    )
     return subscription_ids
 
 

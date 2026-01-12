@@ -82,7 +82,14 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                 return (
                     <LemonTableLink
                         to={urls.endpoint(record.name)}
-                        title={record.name}
+                        title={
+                            <>
+                                {record.name}
+                                <LemonTag type="option" size="small" className="mr-1">
+                                    {record.query?.kind && humanizeQueryKind(record.query.kind)}
+                                </LemonTag>
+                            </>
+                        }
                         description={record.description}
                     />
                 )
@@ -91,19 +98,15 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
         },
         createdAtColumn<EndpointType>() as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         createdByColumn<EndpointType>() as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
-        {
-            title: 'Query type',
-            key: 'query_type',
-            align: 'center',
-            render: function Render(_, record) {
-                return <LemonTag type="option">{record.query?.kind && humanizeQueryKind(record.query.kind)}</LemonTag>
-            },
-            sorter: (a: EndpointType, b: EndpointType) => a.query?.kind.localeCompare(b.query?.kind),
-        },
         atColumn<EndpointType>('last_executed_at', 'Last executed at') as LemonTableColumn<
             EndpointType,
             keyof EndpointType | undefined
         >,
+        atColumn<EndpointType>(
+            'materialization' as any,
+            'Last materialized at',
+            (record) => record.materialization?.last_materialized_at
+        ) as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         {
             title: 'Endpoint path',
             key: 'endpoint_path',
@@ -147,7 +150,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                         <>
                             <LemonButton
                                 onClick={() => {
-                                    router.actions.push(urls.endpointsUsage({ requestNameFilter: [record.name] }))
+                                    router.actions.push(urls.endpointsUsage({ endpointFilter: [record.name] }))
                                 }}
                                 fullWidth
                             >

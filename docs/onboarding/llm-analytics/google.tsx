@@ -71,7 +71,7 @@ export const GoogleInstallation = (): JSX.Element => {
                     <Markdown>
                         These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the background to send the data.
 
-                        You can also use LLM analytics with other SDKs or our API, but you will need to capture the data in the right format. See the schema in the [manual capture section](/docs/llm-analytics/installation/manual-capture) for more details.
+                        You can also use LLM analytics with other SDKs or our API, but you will need to capture the data in the right format. See the schema in the [manual capture section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more details.
                     </Markdown>
                 </CalloutBox>
             </Step>
@@ -249,7 +249,7 @@ export const GoogleInstallation = (): JSX.Element => {
 
                 <Blockquote>
                     <Markdown>
-                        **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request. See our docs on [anonymous vs identified events](/docs/data/anonymous-vs-identified-events) to learn more.
+                        **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                     </Markdown>
                 </Blockquote>
 
@@ -259,25 +259,7 @@ export const GoogleInstallation = (): JSX.Element => {
                     `}
                 </Markdown>
 
-                {NotableGenerationProperties ? (
-                    <NotableGenerationProperties />
-                ) : (
-                    <Markdown>
-                        {dedent`
-                            | Property  | Description |
-                            |---------- | -------------|
-                            | \`$ai_model\` | The specific model, like \`gpt-5-mini\` or \`claude-4-sonnet\` |
-                            | \`$ai_latency\` | The latency of the LLM call in seconds |
-                            | \`$ai_tools\` | Tools and functions available to the LLM |
-                            | \`$ai_input\` | List of messages sent to the LLM |
-                            | \`$ai_input_tokens\` | The number of tokens in the input (often found in response.usage) |
-                            | \`$ai_output_choices\` | List of response choices from the LLM |
-                            | \`$ai_output_tokens\` | The number of tokens in the output (often found in \`response.usage\`) |
-                            | \`$ai_total_cost_usd\` | The total cost in USD (input + output) |
-                            | [[...]](/docs/llm-analytics/generations#event-properties) | See [full list](/docs/llm-analytics/generations#event-properties) of properties|
-                        `}
-                    </Markdown>
-                )}
+                {NotableGenerationProperties && <NotableGenerationProperties />}
             </Step>
 
             <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog" docsOnly>

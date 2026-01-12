@@ -15,6 +15,7 @@ export const ServiceFilter = (): JSX.Element => {
 
     const endpoint = combineUrl(`api/environments/${currentProjectId}/logs/values`, {
         key: 'service.name',
+        attribute_type: 'resource',
         dateRange,
     }).url
 

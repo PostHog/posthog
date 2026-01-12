@@ -7,10 +7,10 @@ packages:
     - common/tailwind
     - frontend
     - playwright
-    - plugin-server
+    - nodejs
     - products/*
     - docs/onboarding
-    - products/mcp/typescript
+    - services/mcp/typescript
     - rust/cyclotron-node
 
 # posthog-js needs to be excluded because we only update our CDN
@@ -18,4 +18,6 @@ packages:
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
     - posthog-js
-    - node-forge
+    - posthog-js-lite
+    - node-forge@1.3.2
+    - '@posthog/*'

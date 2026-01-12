@@ -29,9 +29,12 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { SurveyOpportunityButton } from 'scenes/surveys/components/SurveyOpportunityButton'
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { isSurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -134,8 +137,6 @@ export function InsightMeta({
           )
         : true
 
-    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
-
     const summary = useSummarizeInsight()(insight.query)
 
     // Feedback buttons for Customer Analytics
@@ -160,10 +161,15 @@ export function InsightMeta({
         ) : null
 
     const surveyOpportunityButton =
-        surveyOpportunity && featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] ? (
-            <div className="flex">
-                <SurveyOpportunityButton insight={insight} disableAutoPromptSubmit={true} />
-            </div>
+        surveyOpportunity &&
+        featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] &&
+        isSurveyableFunnelInsight(insight) ? (
+            <SurveyOpportunityButton
+                insight={insight}
+                disableAutoPromptSubmit={true}
+                source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
+                fromProduct={ProductKey.PRODUCT_ANALYTICS}
+            />
         ) : null
 
     // If user can't view the insight, show minimal interface
@@ -257,7 +263,7 @@ export function InsightMeta({
                             <LemonButton onClick={rename} fullWidth>
                                 Rename
                             </LemonButton>
-                            {canAccessTileOverrides && tile && (
+                            {tile && (
                                 <LemonButton onClick={setOverride} fullWidth>
                                     Set override
                                 </LemonButton>

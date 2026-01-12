@@ -1,5 +1,29 @@
 # posthog-cli
 
+# 0.5.23
+
+- feat: add experimental commands for endpoints management
+
+# 0.5.22
+
+- feat: add `--project` and `--version` to upload command to define release
+
+# 0.5.20
+
+- chore: add global `--rate-limit` option for Posthog client
+
+# 0.5.19
+
+- chore: upgrade cargo-dist to 0.30.3
+
+# 0.5.18
+
+- fix: fix git info parsing in vercel environment
+
+# 0.5.17
+
+- feat: add --file option to target built files directly
+
 # 0.5.16
 
 - fix: cut a new version for fixing compromised package

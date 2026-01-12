@@ -1,27 +1,55 @@
-{% extends "loginas/change_form.html" %}
+{% extends "admin/change_form.html" %}
+{% load loginas_javascript %}
 
 {% block extrahead %}
   {{ block.super }}
 
+  <style nonce="{{ request.csp_nonce }}">
+    .loginas-disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+  </style>
+
   <script nonce="{{ request.csp_nonce }}">
-    window.addEventListener("DOMContentLoaded", () => {
+    document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("send_verification_email_button")?.addEventListener("click", (event) => {
             // prevent anchor tag from navigating
             event.preventDefault();
-
             if (window.confirm("Send verification email?"))
                 document.getElementById("send_verification").submit();
         });
 
-        document.getElementById("revoke_sessions_button").addEventListener("click", (event) => {
+        document.getElementById("revoke_sessions_button")?.addEventListener("click", (event) => {
             // prevent anchor tag from navigating
             event.preventDefault();
-
             if (window.confirm("Revoke all sessions? This will log out the user from all devices."))
                 document.getElementById("revoke_sessions").submit();
         });
+
+        // Add read-only toggle to loginas modal
+        const reasonField = document.getElementById("loginas-reason");
+        if (reasonField) {
+            const div = document.createElement("div");
+            div.style.marginTop = "10px";
+            div.innerHTML = '<label><input type="checkbox" id="loginas-read-only" checked> Read-only mode (recommended)</label>';
+            reasonField.after(div);
+
+            document.getElementById("loginas-read-only").addEventListener("change", (e) => {
+                document.getElementById("loginas-read-only-input").value = e.target.checked;
+            });
+        }
     });
   </script>
+{% endblock %}
+
+{% block object-tools-items %}
+    {{ block.super }}
+    {% if original.allow_impersonation == False %}
+        <li><a id="loginas-link" href="#" class="loginas-disabled" title="Disallowed by user">Log in as user</a></li>
+    {% else %}
+        <li><a id="loginas-link" href="#">Log in as user</a></li>
+    {% endif %}
 {% endblock %}
 
 {% block content %}
@@ -36,4 +64,19 @@
         {% csrf_token %}
         <input type="hidden" name="revoke_sessions" value="1" />
     </form>
+{% endblock %}
+
+{% block footer %}
+    {{ block.super }}
+
+    {% if original.allow_impersonation != False %}
+        <form method="POST" id="loginas-form" action="{% url 'loginas-user-login' object_id %}" style="display: none">
+            {% csrf_token %}
+            <input type="hidden" name="reason" id="loginas-reason-input" value="">
+            <input type="hidden" name="read_only" id="loginas-read-only-input" value="true">
+        </form>
+
+        {% modal %}
+        {% javascript %}
+    {% endif %}
 {% endblock %}

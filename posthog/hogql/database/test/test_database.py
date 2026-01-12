@@ -1123,6 +1123,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "static_cohort_people",
             "cohort_membership",
             "precalculated_events",
+            "precalculated_person_properties",
             "log_entries",
             "query_log",
             "app_metrics",
@@ -1134,6 +1135,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "document_embeddings",
             "pg_embeddings",
             "logs",
+            "log_attributes",
             "logs_kafka_metrics",
             "web_stats_daily",
             "web_bounces_daily",
@@ -1143,6 +1145,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "web_bounces_combined",
             "web_pre_aggregated_stats",
             "web_pre_aggregated_bounces",
+            "preaggregation_results",
             "persons_revenue_analytics",
             "groups_revenue_analytics",
             "raw_session_replay_events",
@@ -1156,6 +1159,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "raw_sessions_v3",
             "raw_query_log",
             "raw_document_embeddings",
+            "document_embeddings_text_embedding_3_small_1536",
+            "document_embeddings_text_embedding_3_large_3072",
         ]
 
         current_tables = ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys()

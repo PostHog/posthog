@@ -19,7 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -61,18 +61,21 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        limit = self.query.limit
+        if self.limit_context == LimitContext.EXPORT:
+            limit = min(limit or MAX_SELECT_TRACES_LIMIT_EXPORT, MAX_SELECT_TRACES_LIMIT_EXPORT)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY,
-            limit=self.query.limit if self.query.limit else None,
+            limit_context=self.limit_context,
+            limit=limit,
             offset=self.query.offset,
         )
 
     def _get_trace_ids(self) -> tuple[list[str], datetime | None, datetime | None]:
         """Execute a separate query to get relevant trace IDs and their time range."""
-        with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.MAX_AI):
+        with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.LLM_ANALYTICS):
             # Calculate max number of events needed with current offset and limit
-            limit_value = self.query.limit if self.query.limit else 100
-            offset_value = self.query.offset if self.query.offset else 0
+            limit_value = self.paginator.limit
+            offset_value = self.paginator.offset
             pagination_limit = limit_value + offset_value + 1
 
             # Determine ordering based on randomOrder parameter
@@ -144,7 +147,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         # Create a narrowed date range if we have timestamps
         narrowed_date_range = self._create_narrowed_date_range(min_timestamp, max_timestamp)
 
-        with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.MAX_AI):
+        with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.LLM_ANALYTICS):
             query_result = self.paginator.execute_hogql_query(
                 query=self._to_query_with_trace_ids(trace_ids),
                 placeholders={
@@ -259,7 +262,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 ) AS trace_name,
                 countIf(
                     isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true'
-                ) AS error_count
+                ) AS error_count,
+                any(properties.ai_support_impersonated) AS is_support_trace
             FROM events
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
@@ -351,6 +355,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "events": "events",
             "trace_name": "traceName",
             "error_count": "errorCount",
+            "is_support_trace": "isSupportTrace",
         }
 
         generations = []
@@ -465,6 +470,20 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             with self.timings.measure("test_account_filters"):
                 for prop in self.team.test_account_filters or []:
                     where_exprs.append(property_to_expr(prop, self.team))
+
+        if self.query.filterSupportTraces:
+            where_exprs.append(
+                ast.Or(
+                    exprs=[
+                        ast.Call(name="isNull", args=[ast.Field(chain=["properties", "ai_support_impersonated"])]),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.NotEq,
+                            left=ast.Field(chain=["properties", "ai_support_impersonated"]),
+                            right=ast.Constant(value="true"),
+                        ),
+                    ]
+                )
+            )
 
         return ast.And(exprs=where_exprs)
 

@@ -1,1 +1,1 @@
-0929_remove_legacy_batch_export_notification_setting
+0969_add_oauth_is_verified

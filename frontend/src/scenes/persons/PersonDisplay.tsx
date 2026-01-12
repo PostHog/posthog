@@ -27,6 +27,10 @@ export interface PersonDisplayProps {
     children?: React.ReactChild
     withCopyButton?: boolean
     placement?: 'top' | 'bottom' | 'left' | 'right'
+    inline?: boolean
+    className?: string
+    /** Use muted/secondary text color instead of default */
+    muted?: boolean
 }
 
 export function PersonIcon({
@@ -68,6 +72,9 @@ export function PersonDisplay({
     children,
     withCopyButton,
     placement,
+    inline,
+    className,
+    muted,
 }: PersonDisplayProps): JSX.Element {
     const display = displayName || asDisplay(person)
     const [visible, setVisible] = useState(false)
@@ -86,7 +93,7 @@ export function PersonDisplay({
     }
 
     let content = children || (
-        <span className={clsx('flex items-center', isCentered && 'justify-center')}>
+        <span className={clsx(!inline && 'flex items-center', isCentered && 'justify-center')}>
             {withIcon && (
                 <PersonIcon
                     displayName={displayName}
@@ -99,7 +106,10 @@ export function PersonDisplay({
     )
 
     content = (
-        <span className="PersonDisplay" onClick={!noPopover ? handleClick : undefined}>
+        <span
+            className={clsx('PersonDisplay', muted && 'PersonDisplay--muted', className)}
+            onClick={!noPopover ? handleClick : undefined}
+        >
             {noLink || !href || (visible && !person?.properties) ? (
                 content
             ) : (

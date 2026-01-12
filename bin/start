@@ -13,11 +13,12 @@ if ! flock -n 9; then
     exit 1
 fi
 
+export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://localhost:8333}
+
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 
 export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
-export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
 export API_QUERIES_PER_TEAM='{"1": 100}'
 
 # Dagster
@@ -57,9 +58,13 @@ if [ -f .env ]; then
 fi
 
 # Ducklake
-export DUCKLAKE_CATALOG_DSN=${DUCKLAKE_CATALOG_DSN:-"ducklake:postgres:dbname=ducklake_catalog host=localhost user=posthog password=posthog"}
-export DUCKLAKE_DATA_BUCKET=${DUCKLAKE_DATA_BUCKET:-ducklake-dev}
-export DUCKLAKE_DATA_ENDPOINT=${DUCKLAKE_DATA_ENDPOINT:-"http://localhost:19000"}
+export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-localhost}
+export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}
+export DUCKLAKE_RDS_DATABASE=${DUCKLAKE_RDS_DATABASE:-ducklake}
+export DUCKLAKE_RDS_USERNAME=${DUCKLAKE_RDS_USERNAME:-posthog}
+export DUCKLAKE_RDS_PASSWORD=${DUCKLAKE_RDS_PASSWORD:-posthog}
+export DUCKLAKE_BUCKET=${DUCKLAKE_BUCKET:-ducklake-dev}
+export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
 export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
 export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
 

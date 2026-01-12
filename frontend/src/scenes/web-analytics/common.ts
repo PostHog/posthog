@@ -66,10 +66,17 @@ export enum TileId {
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
     PAGE_REPORTS_PREVIOUS_PAGE = 'PR_PREVIOUS_PAGE',
+    PAGE_REPORTS_UTM_SOURCE = 'PR_UTM_SOURCE',
+    PAGE_REPORTS_UTM_MEDIUM = 'PR_UTM_MEDIUM',
+    PAGE_REPORTS_UTM_CAMPAIGN = 'PR_UTM_CAMPAIGN',
+    PAGE_REPORTS_UTM_CONTENT = 'PR_UTM_CONTENT',
+    PAGE_REPORTS_UTM_TERM = 'PR_UTM_TERM',
+    PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND = 'PR_AVG_TIME_ON_PAGE_TREND',
 
     // Marketing Tiles
     MARKETING = 'MARKETING',
     MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
+    MARKETING_NON_INTEGRATED_CONVERSIONS = 'MARKETING_NON_INTEGRATED_CONVERSIONS',
 }
 
 export enum ProductTab {
@@ -78,11 +85,17 @@ export enum ProductTab {
     PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
     MARKETING = 'marketing',
+    HEALTH = 'health',
+    LIVE = 'live',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
 
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+
+export const tabSplitIndexMap: Partial<Record<TileId, number>> = {
+    [TileId.SOURCES]: 2, // Show Channel + Referring Domain as buttons, rest in dropdown
+}
 
 export const loadPriorityMap: Record<TileId, number> = {
     [TileId.OVERVIEW]: 1,
@@ -125,11 +138,18 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 14,
     [TileId.PAGE_REPORTS_LANGUAGES]: 15,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 16,
+    [TileId.PAGE_REPORTS_UTM_SOURCE]: 17,
+    [TileId.PAGE_REPORTS_UTM_MEDIUM]: 18,
+    [TileId.PAGE_REPORTS_UTM_CAMPAIGN]: 19,
+    [TileId.PAGE_REPORTS_UTM_CONTENT]: 20,
+    [TileId.PAGE_REPORTS_UTM_TERM]: 21,
+    [TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND]: 22,
 
     // Marketing Tiles
     [TileId.MARKETING_OVERVIEW]: 1,
     [TileId.MARKETING]: 2,
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 3,
+    [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 4,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -186,8 +206,15 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.PAGE_REPORTS_LANGUAGES]: 'Languages',
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 'Top events',
     [TileId.PAGE_REPORTS_PREVIOUS_PAGE]: 'Previous page',
+    [TileId.PAGE_REPORTS_UTM_SOURCE]: 'UTM source',
+    [TileId.PAGE_REPORTS_UTM_MEDIUM]: 'UTM medium',
+    [TileId.PAGE_REPORTS_UTM_CAMPAIGN]: 'UTM campaign',
+    [TileId.PAGE_REPORTS_UTM_CONTENT]: 'UTM content',
+    [TileId.PAGE_REPORTS_UTM_TERM]: 'UTM term',
+    [TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND]: 'Time on page',
     [TileId.MARKETING]: 'Marketing',
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 'Campaign breakdown',
+    [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 'Non-integrated conversions',
 }
 
 export interface BaseTile {
@@ -254,6 +281,8 @@ export enum GraphsTab {
     UNIQUE_USERS = 'UNIQUE_USERS',
     PAGE_VIEWS = 'PAGE_VIEWS',
     NUM_SESSION = 'NUM_SESSION',
+    SESSION_DURATION = 'SESSION_DURATION',
+    BOUNCE_RATE = 'BOUNCE_RATE',
     UNIQUE_CONVERSIONS = 'UNIQUE_CONVERSIONS',
     TOTAL_CONVERSIONS = 'TOTAL_CONVERSIONS',
     CONVERSION_RATE = 'CONVERSION_RATE',
@@ -517,4 +546,37 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
 
     // Return base column name if no mapping found
     return baseColumn
+}
+
+export interface ParsedURL {
+    host: string | null
+    pathname: string | null
+    isValid: boolean
+}
+
+export const parseWebAnalyticsURL = (urlString: string): ParsedURL => {
+    try {
+        const trimmed = urlString.trim()
+        if (!trimmed) {
+            return { host: null, pathname: null, isValid: false }
+        }
+
+        // If no protocol, add https://
+        const urlWithProtocol = trimmed.match(/^https?:\/\//i) ? trimmed : `https://${trimmed}`
+
+        const url = new URL(urlWithProtocol)
+        const port = url.port ? `:${url.port}` : ''
+
+        return {
+            host: url.hostname + port,
+            pathname: url.pathname,
+            isValid: true,
+        }
+    } catch {
+        return {
+            host: null,
+            pathname: null,
+            isValid: false,
+        }
+    }
 }

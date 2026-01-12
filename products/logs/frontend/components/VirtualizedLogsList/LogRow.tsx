@@ -1,12 +1,23 @@
-import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
+import { LogRowFAB } from 'products/logs/frontend/components/LogsViewer/LogRowFAB/LogRowFAB'
+import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
+import { MessageCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/MessageCell'
+import {
+    CHECKBOX_WIDTH,
+    RESIZER_HANDLE_WIDTH,
+    ROW_GAP,
+    SEVERITY_WIDTH,
+    TIMESTAMP_WIDTH,
+    getAttributeColumnWidth,
+    getFixedColumnsWidth,
+    getMessageStyle,
+} from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
@@ -20,75 +31,150 @@ const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
 
 export interface LogRowProps {
     log: ParsedLogMessage
-    isHighlighted: boolean
+    logIndex: number
+    isAtCursor: boolean
     pinned: boolean
     showPinnedWithOpacity: boolean
     wrapBody: boolean
     prettifyJson: boolean
-    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
-    onTogglePin: (uuid: string) => void
-    onSetHighlighted: (uuid: string | null) => void
+    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
+    onTogglePin: (log: ParsedLogMessage) => void
+    onClick?: () => void
+    rowWidth?: number
+    attributeColumns?: string[]
+    attributeColumnWidths?: Record<string, number>
+    // Selection
+    isSelected?: boolean
+    onToggleSelect?: () => void
+    onShiftClick?: (logIndex: number) => void
+    // Per-row prettify
+    isPrettified?: boolean
+    onTogglePrettify?: (log: ParsedLogMessage) => void
+    minHeight?: number
 }
 
 export function LogRow({
     log,
-    isHighlighted,
+    logIndex,
+    isAtCursor,
     pinned,
     showPinnedWithOpacity,
     wrapBody,
     prettifyJson,
     tzLabelFormat,
     onTogglePin,
-    onSetHighlighted,
+    onClick,
+    rowWidth,
+    attributeColumns = [],
+    attributeColumnWidths = {},
+    isSelected = false,
+    onToggleSelect,
+    onShiftClick,
+    isPrettified = false,
+    onTogglePrettify,
+    minHeight = 32,
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
+    const flexWidth = rowWidth
+        ? rowWidth -
+          getFixedColumnsWidth(attributeColumns, attributeColumnWidths) -
+          attributeColumns.length * RESIZER_HANDLE_WIDTH
+        : undefined
+
+    const severityColor = SEVERITY_BAR_COLORS[log.severity_text] ?? 'bg-muted-3000'
+
+    const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
+        // Only handle shift+click here to prevent text selection during range select
+        if (e.shiftKey && onShiftClick) {
+            e.preventDefault()
+            onShiftClick(logIndex)
+        }
+    }
+
+    const handleClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+        // Don't trigger if user selected text
+        const selection = window.getSelection()
+        if (selection && selection.toString().length > 0) {
+            return
+        }
+        if (!e.shiftKey) {
+            onClick?.()
+        }
+    }
 
     return (
         <div
-            key={isNew ? `new-${log.uuid}` : log.uuid}
-            className={cn(
-                'flex items-center gap-3 py-1 border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
-                isHighlighted && 'bg-primary-highlight',
-                pinned && 'bg-warning-highlight',
-                pinned && showPinnedWithOpacity && 'opacity-50',
-                isNew && 'VirtualizedLogsList__row--new'
-            )}
-            onClick={() => onSetHighlighted(isHighlighted ? null : log.uuid)}
+            className={cn('border-b border-border', isNew && 'VirtualizedLogsList__row--new')}
+            style={{ minWidth: rowWidth, minHeight }}
         >
-            <Tooltip title={log.severity_text.toUpperCase()}>
-                <div
-                    className={cn(
-                        'w-1 self-stretch rounded-full shrink-0',
-                        SEVERITY_BAR_COLORS[log.severity_text] ?? 'bg-muted-3000'
-                    )}
-                />
-            </Tooltip>
-            <span className="w-[180px] text-xs text-muted shrink-0 font-mono">
-                <TZLabel time={log.timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
-            </span>
-            <span
+            <div
+                style={{ gap: ROW_GAP, minHeight }}
                 className={cn(
-                    'flex-1 font-mono text-xs break-all',
-                    wrapBody || (prettifyJson && log.parsedBody) ? 'whitespace-pre-wrap' : 'truncate'
+                    'relative flex items-center cursor-pointer hover:bg-fill-highlight-100 group h-full',
+                    isSelected && 'bg-fill-highlight-100',
+                    isAtCursor && 'bg-primary-highlight',
+                    pinned && showPinnedWithOpacity && 'bg-warning-highlight opacity-50'
                 )}
+                onMouseDown={handleMouseDown}
+                onClick={handleClick}
             >
-                {log.parsedBody && prettifyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody}
-            </span>
-            <div className="flex items-center gap-1 shrink-0">
-                <LemonButton
-                    size="xsmall"
-                    noPadding
-                    icon={pinned ? <IconPinFilled /> : <IconPin />}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onTogglePin(log.uuid)
-                    }}
-                    tooltip={pinned ? 'Unpin log' : 'Pin log'}
-                    className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
-                />
-                <div className="opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-                    <LogsTableRowActions log={log} />
+                <div className="flex items-center self-stretch">
+                    <Tooltip title={log.severity_text.toUpperCase()}>
+                        <div
+                            className="flex items-stretch self-stretch"
+                            style={{ width: SEVERITY_WIDTH, flexShrink: 0 }}
+                        >
+                            <div className={cn('w-1 rounded-full', severityColor)} />
+                        </div>
+                    </Tooltip>
+                    <div className="flex items-center justify-center shrink-0" style={{ width: CHECKBOX_WIDTH }}>
+                        <LemonCheckbox
+                            checked={isSelected}
+                            onChange={() => onToggleSelect?.()}
+                            stopPropagation
+                            size="small"
+                        />
+                    </div>
                 </div>
+
+                {/* Timestamp */}
+                <div className="flex items-center shrink-0" style={{ width: TIMESTAMP_WIDTH }}>
+                    <span className="text-xs text-muted font-mono">
+                        <TZLabel time={log.timestamp} {...tzLabelFormat} timestampStyle="absolute" />
+                    </span>
+                </div>
+
+                {/* Attribute columns */}
+                {attributeColumns.map((attributeKey) => {
+                    const attrValue = log.attributes[attributeKey] ?? log.resource_attributes[attributeKey]
+                    return (
+                        <AttributeCell
+                            key={attributeKey}
+                            attributeKey={attributeKey}
+                            value={attrValue != null ? String(attrValue) : '-'}
+                            width={getAttributeColumnWidth(attributeKey, attributeColumnWidths) + RESIZER_HANDLE_WIDTH}
+                        />
+                    )
+                })}
+
+                {/* Message */}
+                <MessageCell
+                    message={log.cleanBody}
+                    wrapBody={isPrettified || wrapBody}
+                    prettifyJson={isPrettified || prettifyJson}
+                    parsedBody={log.parsedBody}
+                    style={getMessageStyle(flexWidth)}
+                />
+
+                {/* Actions FAB */}
+                <LogRowFAB
+                    log={log}
+                    pinned={pinned}
+                    isPrettified={isPrettified}
+                    onTogglePin={onTogglePin}
+                    onTogglePrettify={onTogglePrettify}
+                    showScrollButtons={!wrapBody}
+                />
             </div>
         </div>
     )

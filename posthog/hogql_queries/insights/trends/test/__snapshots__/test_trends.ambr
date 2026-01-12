@@ -30,7 +30,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -197,7 +197,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -332,7 +332,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -376,7 +376,8 @@
     (SELECT actor_id AS actor_id,
             count() AS event_count,
             groupUniqArray(distinct_id) AS event_distinct_ids,
-            groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events
+            groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events,
+            max(timestamp) AS last_seen
      FROM
        (SELECT e.person_id AS actor_id,
                toTimeZone(e.timestamp, 'UTC') AS timestamp,
@@ -402,7 +403,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT source.actor_id AS actor_id
                                                     FROM
-                                                      (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events
+                                                      (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events, max(timestamp) AS last_seen
                                                        FROM
                                                          (SELECT e.person_id AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
                                                           FROM events AS e
@@ -434,9 +435,14 @@
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -469,7 +475,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -521,7 +527,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
            GROUP BY day_start,
                     breakdown_value)
@@ -565,7 +571,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
            GROUP BY day_start,
                     breakdown_value)
@@ -609,7 +615,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
            GROUP BY day_start,
                     breakdown_value_1)
@@ -653,7 +659,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
            GROUP BY day_start,
                     breakdown_value_1)
@@ -701,7 +707,7 @@
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-                 FROM events AS e SAMPLE 1
+                 FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -765,7 +771,7 @@
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(nullIf(nullIf(e.mat_key, ''), 'null')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-                 FROM events AS e SAMPLE 1
+                 FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -843,7 +849,7 @@
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-                 FROM events AS e SAMPLE 1
+                 FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1004,7 +1010,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -1065,7 +1071,7 @@
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1124,7 +1130,7 @@
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1.0
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1175,7 +1181,7 @@
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1.0
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1226,7 +1232,7 @@
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1.0
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1277,7 +1283,7 @@
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1.0
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1340,7 +1346,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1501,7 +1507,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-26 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-02 23:59:59', 'UTC'))), equals(e.event, 'event_name'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'name'), ''), 'null'), '^"|"$', ''), 'Jane'), 0))
         GROUP BY day_start)
      GROUP BY day_start
@@ -1608,7 +1614,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT JOIN
           (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
                   groups.group_type_index AS index,
@@ -1654,7 +1660,8 @@
     (SELECT actor_id AS actor_id,
             count() AS event_count,
             groupUniqArray(distinct_id) AS event_distinct_ids,
-            groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events
+            groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events,
+            max(timestamp) AS last_seen
      FROM
        (SELECT e.person_id AS actor_id,
                toTimeZone(e.timestamp, 'UTC') AS timestamp,
@@ -1688,7 +1695,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT source.actor_id AS actor_id
                                                     FROM
-                                                      (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events
+                                                      (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events, max(timestamp) AS last_seen
                                                        FROM
                                                          (SELECT e.person_id AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
                                                           FROM events AS e
@@ -1725,9 +1732,14 @@
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.2
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1752,7 +1764,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT JOIN
           (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                   groups.group_type_index AS index,
@@ -1806,7 +1818,7 @@
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(e__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-                 FROM events AS e SAMPLE 1
+                 FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1884,7 +1896,7 @@
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(e__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                 FROM events AS e SAMPLE 1
+                 FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1962,7 +1974,7 @@
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-                 FROM events AS e SAMPLE 1
+                 FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2029,7 +2041,7 @@
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                 FROM events AS e SAMPLE 1
+                 FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2080,7 +2092,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'US/Pacific'), 0) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfInterval(assumeNotNull(toDateTime('2022-10-31 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(toDateTime('2022-11-30 23:59:59', 'US/Pacific'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2128,7 +2140,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2255,7 +2267,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2364,7 +2376,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2411,7 +2423,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2458,7 +2470,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'name'), ''), 'null'), '^"|"$', ''), '1'), 0))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2488,7 +2500,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2535,8 +2547,8 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(nullIf(nullIf(e.mat_name, ''), 'null'), '1'), 0))
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), equals(e.mat_name, '1'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -2565,7 +2577,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2621,7 +2633,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-03 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-03 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2651,7 +2663,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2697,7 +2709,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2743,7 +2755,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2789,7 +2801,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2826,7 +2838,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2856,7 +2868,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2899,7 +2911,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2943,7 +2955,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2981,7 +2993,7 @@
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3024,7 +3036,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'America/Phoenix'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3054,7 +3066,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3097,7 +3109,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3141,7 +3153,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'America/Phoenix'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3179,7 +3191,7 @@
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3222,7 +3234,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3252,7 +3264,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3295,7 +3307,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3339,7 +3351,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3377,7 +3389,7 @@
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3420,7 +3432,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3457,7 +3469,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-05 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-05 10:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3487,7 +3499,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3524,7 +3536,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-05 00:00:00', 'America/Phoenix'))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-05 10:59:59', 'America/Phoenix'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3554,7 +3566,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3591,7 +3603,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo'))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-05 10:59:59', 'Asia/Tokyo'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3621,7 +3633,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3651,7 +3663,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 3) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3681,7 +3693,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 0) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'America/Phoenix')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'America/Phoenix'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3711,7 +3723,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 3) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'America/Phoenix')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'America/Phoenix'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3741,7 +3753,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 0) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3771,7 +3783,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 3) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3809,7 +3821,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__person.properties___email), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3872,7 +3884,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__person.properties___email), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3927,7 +3939,7 @@
      FROM
        (SELECT count(DISTINCT e.distinct_id) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3957,7 +3969,7 @@
      FROM
        (SELECT count(DISTINCT e.distinct_id) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4012,7 +4024,7 @@
           (SELECT count(DISTINCT e.distinct_id) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4073,7 +4085,7 @@
           (SELECT count(DISTINCT e.distinct_id) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4132,7 +4144,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      e.distinct_id AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               WHERE and(equals(e.team_id, 99999), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
@@ -4175,7 +4187,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      e.distinct_id AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               WHERE and(equals(e.team_id, 99999), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
@@ -4220,7 +4232,7 @@
           (SELECT count(DISTINCT e.distinct_id) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value)
@@ -4256,7 +4268,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
         GROUP BY day_start)
      GROUP BY day_start
@@ -4286,7 +4298,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -4329,7 +4341,7 @@
              (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                      min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4386,7 +4398,7 @@
              (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                      min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4445,7 +4457,7 @@
                      ifNull(nullIf(toString(if(empty(trim(TRAILING '/?#'
                                                           FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
                                                                                                                                                                                     FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')))), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4496,7 +4508,7 @@
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
@@ -4546,7 +4558,7 @@
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
@@ -4596,7 +4608,7 @@
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
@@ -4646,7 +4658,7 @@
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
@@ -4689,7 +4701,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -4719,7 +4731,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-21 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-28 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -4749,7 +4761,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -4775,7 +4787,7 @@
     (SELECT avg(total) AS total
      FROM
        (SELECT count() AS total
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4805,7 +4817,7 @@
     (SELECT avg(total) AS total
      FROM
        (SELECT count() AS total
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4849,7 +4861,7 @@
               FROM
                 (SELECT count() AS total,
                         ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-                 FROM events AS e SAMPLE 1.0
+                 FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4898,7 +4910,7 @@
            FROM
              (SELECT count() AS total,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4943,7 +4955,7 @@
            FROM
              (SELECT count() AS total,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -4982,7 +4994,7 @@
      FROM
        (SELECT count(DISTINCT e.`$group_0`) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-06 23:59:59', 'UTC'))), equals(e.event, 'viewed video'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
         GROUP BY day_start)
      GROUP BY day_start
@@ -5016,7 +5028,7 @@
         FROM
           (SELECT count(DISTINCT e.`$group_0`) AS total,
                   min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-06 23:59:59', 'UTC'))), equals(e.event, 'viewed video'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
            GROUP BY e.`$group_0`)
         GROUP BY day_start
@@ -5051,7 +5063,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start)
         GROUP BY day_start
@@ -5086,7 +5098,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5131,7 +5143,7 @@
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(e__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5198,7 +5210,7 @@
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(e__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5258,7 +5270,7 @@
      FROM
        (SELECT plus(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'x'), ''), 'null'), '^"|"$', ''), 'Float64')), 1000) AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -5282,7 +5294,7 @@
   SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total
   FROM
     (SELECT any(e__session.`$session_duration`) AS session_duration
-     FROM events AS e SAMPLE 1
+     FROM events AS e
      LEFT JOIN
        (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                raw_sessions.session_id_v7 AS session_id_v7
@@ -5311,7 +5323,7 @@
   SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total
   FROM
     (SELECT any(e__session.`$session_duration`) AS session_duration
-     FROM events AS e SAMPLE 1
+     FROM events AS e
      LEFT JOIN
        (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                raw_sessions.session_id_v7 AS session_id_v7
@@ -5349,7 +5361,7 @@
         FROM
           (SELECT any(e__session.`$session_duration`) AS session_duration,
                   toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT JOIN
              (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                      raw_sessions.session_id_v7 AS session_id_v7
@@ -5392,7 +5404,7 @@
         FROM
           (SELECT any(e__session.`$session_duration`) AS session_duration,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT JOIN
              (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                      raw_sessions.session_id_v7 AS session_id_v7
@@ -5444,7 +5456,7 @@
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
                      toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
@@ -5503,7 +5515,7 @@
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
@@ -5562,7 +5574,7 @@
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                      toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
@@ -5621,7 +5633,7 @@
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
@@ -5674,7 +5686,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      e.`$group_0` AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'viewed video'), notEquals(e.`$group_0`, '')), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
@@ -5717,7 +5729,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS timestamp,
                      e.`$group_0` AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'viewed video'), notEquals(e.`$group_0`, '')), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'America/Phoenix')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
@@ -5760,7 +5772,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS timestamp,
                      e.`$group_0` AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'viewed video'), notEquals(e.`$group_0`, '')), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'Asia/Tokyo')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
@@ -5795,7 +5807,7 @@
      FROM
        (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5835,7 +5847,7 @@
      FROM
        (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5875,7 +5887,7 @@
      FROM
        (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-        FROM events AS e SAMPLE 1.0
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5923,7 +5935,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5973,7 +5985,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6023,7 +6035,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6073,7 +6085,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6133,7 +6145,7 @@
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6193,7 +6205,7 @@
            FROM
              (SELECT toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-              FROM events AS e SAMPLE 1
+              FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6237,7 +6249,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6274,7 +6286,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 0) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6311,7 +6323,7 @@
      FROM
        (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 0) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id

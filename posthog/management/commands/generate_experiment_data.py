@@ -58,6 +58,7 @@ class ActionConfig(BaseModel):
     probability: float
     count: int = 1
     required_for_next: bool = False
+    time_delay: int = 1
     properties: dict[str, Union[Distribution, object]] = Field(default_factory=dict)
 
     def model_post_init(self, __context) -> None:
@@ -75,11 +76,17 @@ class VariantConfig(BaseModel):
     actions: list[ActionConfig]
 
 
+class ExposurePropertyOption(BaseModel):
+    value: Union[str, int, float, bool, None]
+    probability: float
+
+
 class ExperimentConfig(BaseModel):
     number_of_users: int
     start_timestamp: datetime
     end_timestamp: datetime
     variants: dict[str, VariantConfig]
+    exposure_properties: dict[str, list[ExposurePropertyOption]] = Field(default_factory=dict)
 
 
 def get_default_funnel_experiment_config() -> ExperimentConfig:
@@ -92,14 +99,14 @@ def get_default_funnel_experiment_config() -> ExperimentConfig:
                 weight=0.5,
                 actions=[
                     ActionConfig(event="signup started", probability=1, required_for_next=True),
-                    ActionConfig(event="signup completed", probability=0.25, required_for_next=True),
+                    ActionConfig(event="signup completed", probability=0.25, required_for_next=True, time_delay=2),
                 ],
             ),
             "test": VariantConfig(
                 weight=0.5,
                 actions=[
                     ActionConfig(event="signup started", probability=1, required_for_next=True),
-                    ActionConfig(event="signup completed", probability=0.35, required_for_next=True),
+                    ActionConfig(event="signup completed", probability=0.35, required_for_next=True, time_delay=3),
                 ],
             ),
         },
@@ -501,6 +508,13 @@ class Command(BaseCommand):
                 )
                 persons_created += 1
 
+            # Generate exposure properties based on configured probabilities
+            exposure_props: dict[str, Any] = {}
+            for prop_key, prop_options in experiment_config.exposure_properties.items():
+                values = [opt.value for opt in prop_options]
+                weights = [opt.probability for opt in prop_options]
+                exposure_props[prop_key] = random.choices(values, weights=weights)[0]
+
             posthoganalytics.capture(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
@@ -510,11 +524,12 @@ class Command(BaseCommand):
                     "$feature_flag_response": variant,
                     "$feature_flag": experiment_id,
                     "$session_id": session_id,
+                    **exposure_props,
                 },
             )
 
             should_stop = False
-            time_increment = 1
+            minutes_after_exposure = 0
             for action in experiment_config.variants[variant].actions:
                 for _ in range(action.count):
                     if random.random() < action.probability:
@@ -534,14 +549,13 @@ class Command(BaseCommand):
                                     )
                             else:
                                 properties[prop_name] = prop_value
-
+                        minutes_after_exposure += action.time_delay
                         posthoganalytics.capture(
                             distinct_id=distinct_id,
                             event=action.event,
-                            timestamp=random_timestamp + timedelta(minutes=time_increment),
+                            timestamp=random_timestamp + timedelta(minutes=minutes_after_exposure),
                             properties=properties,
                         )
-                        time_increment += 1
                     else:
                         if action.required_for_next:
                             should_stop = True

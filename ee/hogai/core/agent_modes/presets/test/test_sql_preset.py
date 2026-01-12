@@ -74,9 +74,10 @@ class TestSQLAgentNode(BaseTest):
             state_1 = AssistantState(messages=[HumanMessage(content="execute sql query")])
             next_state = await node.arun(state_1, {})
             assert isinstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 1)
-            self.assertIsInstance(next_state.messages[0], AssistantMessage)
-            assistant_message = next_state.messages[0]
+            # The state includes context messages + original message + generated message
+            self.assertGreaterEqual(len(next_state.messages), 1)
+            assistant_message = next_state.messages[-1]
+            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, content)
             self.assertIsNotNone(assistant_message.id)

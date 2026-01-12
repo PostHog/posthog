@@ -7,6 +7,7 @@
         (SELECT actor_id AS actor_id,
                 count() AS event_count,
                 groupUniqArray(distinct_id) AS event_distinct_ids,
+                max(timestamp) AS last_seen,
                 actor_id AS id
          FROM
            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -32,6 +33,7 @@
         (SELECT actor_id AS actor_id,
                 count() AS event_count,
                 groupUniqArray(distinct_id) AS event_distinct_ids,
+                max(timestamp) AS last_seen,
                 actor_id AS id
          FROM
            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -292,6 +294,129 @@
                                    join_algorithm = 'auto'
   '''
 # ---
+# name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.3
+  '''
+  
+    (SELECT cohort_people.person_id AS id
+     FROM
+       (SELECT DISTINCT cohortpeople.person_id AS person_id,
+                        cohortpeople.cohort_id AS cohort_id,
+                        cohortpeople.team_id AS team_id
+        FROM cohortpeople
+        WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
+     WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
+     LIMIT 1000000000) INTERSECT DISTINCT
+    (SELECT source.id AS id
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               actor_id AS id
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  [''] AS prop,
+                  arrayJoin(aggregate_funnel_v9(2, 691200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                             and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                             and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                            and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                            and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.5 AS steps_bitfield,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, '$new_view'), 1, 0) AS step_0,
+                     if(equals(e.event, '$new_view'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$new_view'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE bitTest(steps_bitfield, 1)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+     ORDER BY source.id ASC
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.4
+  '''
+  
+  SELECT if(funnel_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, funnel_query.person_id) AS id
+  FROM
+    (SELECT person_id,
+            max(if(event = '$new_view'
+                   AND event_0_latest_0 < event_0_latest_1
+                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 8 day, 2, 1)) = 2 AS steps_0
+     FROM
+       (SELECT person_id,
+               event,
+               properties,
+               distinct_id, timestamp, event_0_latest_0,
+                                       min(event_0_latest_1) over (PARTITION by person_id
+                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
+        FROM
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
+                  event,
+                  properties,
+                  distinct_id, timestamp, if(event = '$new_view'
+                                             AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_0_step_0,
+                                          if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                                          if(event = '$new_view'
+                                             AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_0_step_1,
+                                          if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 99999
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           WHERE team_id = 99999
+             AND event IN ['$new_view', '$new_view']
+             AND timestamp <= now()
+             AND timestamp >= now() - INTERVAL 8 day ))
+     GROUP BY person_id) funnel_query
+  FULL OUTER JOIN
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = funnel_query.person_id
+  WHERE 1 = 1
+    AND (((id IN
+             (SELECT person_id
+              FROM cohortpeople
+              WHERE cohort_id = 99999
+                AND team_id = 99999 ))
+          AND (steps_0))) SETTINGS optimize_aggregation_in_order = 1,
+                                   join_algorithm = 'auto'
+  '''
+# ---
 # name: TestCohortQuery.test_cohort_filter_with_extra
   '''
   
@@ -319,6 +444,7 @@
        (SELECT actor_id AS actor_id,
                count() AS event_count,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -374,6 +500,7 @@
                        (SELECT actor_id AS actor_id,
                                count() AS event_count,
                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                               max(timestamp) AS last_seen,
                                actor_id AS id
                         FROM
                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -468,6 +595,7 @@
                        (SELECT actor_id AS actor_id,
                                count() AS event_count,
                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                               max(timestamp) AS last_seen,
                                actor_id AS id
                         FROM
                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -536,6 +664,60 @@
     AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
           OR ((coalesce(performed_event_condition_None_level_level_0_level_1_level_0_0, false))))) SETTINGS optimize_aggregation_in_order = 1,
                                                                                                             join_algorithm = 'auto'
+  '''
+# ---
+# name: TestCohortQuery.test_cohort_filter_with_extra.14
+  '''
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
+  UNION DISTINCT (
+                    (SELECT source.id AS id
+                     FROM
+                       (SELECT actor_id AS actor_id,
+                               count() AS event_count,
+                               groupUniqArray(distinct_id) AS event_distinct_ids,
+                               actor_id AS id
+                        FROM
+                          (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
+                                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                                  e.uuid AS uuid,
+                                  e.distinct_id AS distinct_id
+                           FROM events AS e
+                           LEFT OUTER JOIN
+                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                     person_distinct_id_overrides.distinct_id AS distinct_id
+                              FROM person_distinct_id_overrides
+                              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                              GROUP BY person_distinct_id_overrides.distinct_id
+                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+                        GROUP BY actor_id) AS source
+                     ORDER BY source.id ASC
+                     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                               join_algorithm='auto')) SETTINGS readonly=2,
+                                                                                max_execution_time=600,
+                                                                                allow_experimental_object_type=1,
+                                                                                format_csv_allow_double_quotes=0,
+                                                                                max_ast_elements=4000000,
+                                                                                max_expanded_ast_elements=4000000,
+                                                                                max_bytes_before_external_group_by=0,
+                                                                                transform_null_in=1,
+                                                                                optimize_min_equality_disjunction_chain_length=4294967295,
+                                                                                allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.2
@@ -614,6 +796,7 @@
                        (SELECT actor_id AS actor_id,
                                count() AS event_count,
                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                               max(timestamp) AS last_seen,
                                actor_id AS id
                         FROM
                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -708,6 +891,7 @@
                        (SELECT actor_id AS actor_id,
                                count() AS event_count,
                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                               max(timestamp) AS last_seen,
                                actor_id AS id
                         FROM
                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -802,6 +986,7 @@
                        (SELECT actor_id AS actor_id,
                                count() AS event_count,
                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                               max(timestamp) AS last_seen,
                                actor_id AS id
                         FROM
                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -880,6 +1065,7 @@
        (SELECT actor_id AS actor_id,
                count() AS event_count,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1325,6 +1511,7 @@
        (SELECT actor_id AS actor_id,
                count() AS event_count,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1392,6 +1579,7 @@
        (SELECT actor_id AS actor_id,
                count() AS event_count,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1486,6 +1674,7 @@
        (SELECT actor_id AS actor_id,
                count() AS event_count,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1514,7 +1703,7 @@
         WHERE and(equals(person.team_id, 99999), in(id,
                                                       (SELECT where_optimization.id AS id
                                                        FROM person AS where_optimization
-                                                       WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(nullIf(nullIf(where_optimization.`pmat_$sample_field`, ''), 'null'), 'test@posthog.com'), 0)))))
+                                                       WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.`pmat_$sample_field`, 'test@posthog.com')))))
         GROUP BY person.id
         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.`properties___$sample_field`, 'test@posthog.com'), 0)
@@ -1580,6 +1769,7 @@
         (SELECT actor_id AS actor_id,
                 count() AS event_count,
                 groupUniqArray(distinct_id) AS event_distinct_ids,
+                max(timestamp) AS last_seen,
                 actor_id AS id
          FROM
            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1605,6 +1795,7 @@
         (SELECT actor_id AS actor_id,
                 count() AS event_count,
                 groupUniqArray(distinct_id) AS event_distinct_ids,
+                max(timestamp) AS last_seen,
                 actor_id AS id
          FROM
            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1962,6 +2153,69 @@
                                                                                                               join_algorithm = 'auto'
   '''
 # ---
+# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.4
+  '''
+  
+    (SELECT cohort_people.person_id AS id
+     FROM
+       (SELECT DISTINCT cohortpeople.person_id AS person_id,
+                        cohortpeople.cohort_id AS cohort_id,
+                        cohortpeople.team_id AS team_id
+        FROM cohortpeople
+        WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
+     WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
+     LIMIT 1000000000)
+  UNION DISTINCT
+    (SELECT persons.id AS id
+     FROM
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+               person.id AS id
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(id,
+                                                      (SELECT where_optimization.id AS id
+                                                       FROM person AS where_optimization
+                                                       WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test2'), 0)))))
+        GROUP BY person.id
+        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     WHERE ifNull(equals(persons.properties___name, 'test2'), 0)
+     ORDER BY persons.id ASC
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.5
+  '''
+  
+  SELECT person.person_id AS id
+  FROM
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id,
+               argMax(properties, version) as person_props
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person
+  WHERE 1 = 1
+    AND (((id IN
+             (SELECT person_id
+              FROM cohortpeople
+              WHERE cohort_id = 99999
+                AND team_id = 99999 ))
+          OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                              join_algorithm = 'auto'
+  '''
+# ---
 # name: TestCohortQuery.test_static_cohort_filter
   '''
   
@@ -2015,6 +2269,7 @@
        (SELECT actor_id AS actor_id,
                count() AS event_count,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -2101,6 +2356,7 @@
                        (SELECT actor_id AS actor_id,
                                count() AS event_count,
                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                               max(timestamp) AS last_seen,
                                actor_id AS id
                         FROM
                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -2202,6 +2458,7 @@
        (SELECT actor_id AS actor_id,
                count() AS event_count,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -2234,6 +2491,96 @@
   '''
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.2
+  '''
+  
+  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  FROM
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+            countIf(timestamp > now() - INTERVAL 1 week
+                    AND timestamp < now()
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND event IN ['$pageview']
+       AND timestamp <= now()
+       AND timestamp >= now() - INTERVAL 1 week
+     GROUP BY person_id) behavior_query
+  FULL OUTER JOIN
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
+  WHERE 1 = 1
+    AND (((id IN
+             (SELECT person_id
+              FROM cohortpeople
+              WHERE cohort_id = 99999
+                AND team_id = 99999 ))
+          OR (coalesce(performed_event_condition_None_level_level_0_level_1_0, false)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                  join_algorithm = 'auto'
+  '''
+# ---
+# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.3
+  '''
+  
+    (SELECT cohort_people.person_id AS id
+     FROM
+       (SELECT DISTINCT cohortpeople.person_id AS person_id,
+                        cohortpeople.cohort_id AS cohort_id,
+                        cohortpeople.team_id AS team_id
+        FROM cohortpeople
+        WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
+     WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
+     LIMIT 1000000000)
+  UNION DISTINCT
+    (SELECT source.id AS id
+     FROM
+       (SELECT actor_id AS actor_id,
+               count() AS event_count,
+               groupUniqArray(distinct_id) AS event_distinct_ids,
+               actor_id AS id
+        FROM
+          (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
+                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.uuid AS uuid,
+                  e.distinct_id AS distinct_id
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+        GROUP BY actor_id) AS source
+     ORDER BY source.id ASC
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.4
   '''
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id

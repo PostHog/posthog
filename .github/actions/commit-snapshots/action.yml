@@ -3,7 +3,7 @@ description: Applies snapshot patches, counts changes, commits, and posts PR com
 
 inputs:
     workflow-type:
-        description: 'Workflow type (storybook or playwright)'
+        description: 'Workflow type (storybook, playwright, or backend)'
         required: true
     patch-path:
         description: 'Path where patch artifacts are already downloaded (e.g., /tmp/snapshot-patches/)'
@@ -164,15 +164,15 @@ runs:
               .github/scripts/post-snapshot-comment.js \
                 "$WORKFLOW_TYPE" \
                 "update" \
-                '$CHANGES' \
+                "$CHANGES" \
                 "$PR_NUMBER" \
                 "$REPOSITORY" \
                 "$COMMIT_SHA" \
                 "$SNAPSHOT_SHA"
 
-        - name: Fail workflow to trigger CHECK mode
+        - name: Fail workflow to signal snapshot changes
           if: steps.commit.outputs.committed == 'true'
           shell: bash
           run: |
-              echo "::notice::Snapshots were updated. Workflow will fail to trigger CHECK mode on next run."
+              echo "::notice::Snapshots were updated and committed. Workflow fails to prevent auto-merge and signal review needed."
               exit 1

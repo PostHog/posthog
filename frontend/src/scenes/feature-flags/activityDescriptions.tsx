@@ -280,6 +280,30 @@ const featureFlagActionsMapping: Record<
             ],
         }
     },
+    bucketing_identifier: function onBucketingIdentifier(change) {
+        const identifierAfter = change?.after as string
+        const identifierBefore = change?.before as string
+
+        const getBucketingLabel = (identifier: string): string => {
+            switch (identifier) {
+                case 'distinct_id':
+                    return 'User ID'
+                case 'device_id':
+                    return 'Device ID'
+                default:
+                    return identifier || 'User ID'
+            }
+        }
+
+        return {
+            description: [
+                <>
+                    changed the bucketing identifier from <strong>{getBucketingLabel(identifierBefore)}</strong> to{' '}
+                    <strong>{getBucketingLabel(identifierAfter)}</strong>
+                </>,
+            ],
+        }
+    },
     tags: function onTags(change) {
         const tagsBefore = change?.before as string[]
         const tagsAfter = change?.after as string[]
@@ -341,11 +365,7 @@ const featureFlagActionsMapping: Record<
     experiment_set: () => null,
     features: () => null,
     usage_dashboard: () => null,
-    // TODO: handle activity
-    rollback_conditions: () => null,
-    performed_rollback: () => null,
     can_edit: () => null,
-    analytics_dashboards: () => null,
     has_enriched_analytics: () => null,
     surveys: () => null,
     user_access_level: () => null,

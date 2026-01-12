@@ -163,17 +163,19 @@ export function parseTagsFilter(raw: unknown): string[] | undefined {
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,
-    maximumFractionDigits: number = 2,
+    maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
     fixedPrecision: boolean = false
 ): string {
     if (division === Infinity) {
         return '∞%'
     }
 
+    const maxDigits = validateFractionDigits(maximumFractionDigits, DEFAULT_DECIMAL_PLACES)
+
     return division.toLocaleString('en-US', {
         style: 'percent',
-        maximumFractionDigits,
-        minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
+        maximumFractionDigits: maxDigits,
+        minimumFractionDigits: fixedPrecision ? maxDigits : undefined,
     })
 }
 
@@ -537,6 +539,79 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
     })
 }
 
+export interface RetryOptions {
+    /** Maximum number of attempts before giving up. Defaults to 3. */
+    maxAttempts?: number
+    /** Initial delay in milliseconds before the first retry. Defaults to 1000. */
+    initialDelayMs?: number
+    /** Multiplier applied to delay after each failed attempt. Defaults to 1.5. */
+    backoffMultiplier?: number
+    /** AbortSignal to cancel retries. If aborted, throws AbortError immediately. */
+    signal?: AbortSignal
+    /**
+     * Predicate to determine if an error should trigger a retry.
+     * Return true to retry, false to throw immediately.
+     * Defaults to retrying all errors except AbortError.
+     *
+     * @example
+     * // Only retry network errors and 5xx server errors
+     * shouldRetry: (error) => {
+     *     if (error instanceof Error && 'status' in error) {
+     *         const status = (error as any).status
+     *         return status >= 500 || status === 0 // 0 = network error
+     *     }
+     *     return true // retry unknown errors
+     * }
+     */
+    shouldRetry?: (error: unknown) => boolean
+}
+
+/**
+ * Retries a function with exponential backoff on failure.
+ *
+ * @param fn - The async function to retry
+ * @param options - Configuration options for retry behavior
+ * @returns The result of the function if successful
+ * @throws The last error encountered if all attempts fail, or AbortError if cancelled
+ *
+ * @example
+ * const data = await retryWithBackoff(() => api.fetchData(), {
+ *     maxAttempts: 3,
+ *     initialDelayMs: 1000,
+ *     backoffMultiplier: 1.5
+ * })
+ * // Delays: 1000ms after 1st failure, 1500ms after 2nd failure
+ */
+export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
+    const { maxAttempts = 3, initialDelayMs = 1000, backoffMultiplier = 1.5, signal, shouldRetry } = options
+
+    if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+    }
+
+    const attempts = Math.max(maxAttempts, 1)
+
+    let lastError: unknown
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+            return await fn()
+        } catch (e) {
+            if (e instanceof DOMException && e.name === 'AbortError') {
+                throw e
+            }
+            lastError = e
+            const isLastAttempt = attempt >= attempts - 1
+            const canRetry = shouldRetry ? shouldRetry(e) : true
+            if (isLastAttempt || !canRetry) {
+                throw e
+            }
+            const delayMs = initialDelayMs * Math.pow(backoffMultiplier, attempt)
+            await delay(delayMs, signal)
+        }
+    }
+    throw lastError
+}
+
 export function clearDOMTextSelection(): void {
     if (window.getSelection) {
         if (window.getSelection()?.empty) {
@@ -565,20 +640,28 @@ export function slugify(text: string): string {
 
 export const DEFAULT_DECIMAL_PLACES = 2
 
+function validateFractionDigits(maximumFractionDigits: number, fallback: number): number {
+    if (
+        isNaN(maximumFractionDigits) ||
+        !Number.isInteger(maximumFractionDigits) ||
+        maximumFractionDigits < 0 ||
+        maximumFractionDigits > 100
+    ) {
+        return fallback
+    }
+    return maximumFractionDigits
+}
+
 /** Format number with comma as the thousands separator. */
 export function humanFriendlyNumber(
     d: number,
     maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
     minimumFractionDigits: number = 0
 ): string {
-    if (isNaN(maximumFractionDigits) || maximumFractionDigits < 0) {
-        maximumFractionDigits = DEFAULT_DECIMAL_PLACES
-    }
-    if (isNaN(minimumFractionDigits) || minimumFractionDigits < 0) {
-        minimumFractionDigits = 0
-    }
-
-    return d.toLocaleString('en-US', { maximumFractionDigits, minimumFractionDigits })
+    return d.toLocaleString('en-US', {
+        maximumFractionDigits: validateFractionDigits(maximumFractionDigits, DEFAULT_DECIMAL_PLACES),
+        minimumFractionDigits: validateFractionDigits(minimumFractionDigits, 0),
+    })
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -617,7 +700,10 @@ export function humanFriendlyLargeNumber(d: number): string {
 }
 
 /** Format currency from string with commas and a number of decimal places (defaults to 2). */
-export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
+export function humanFriendlyCurrency(
+    d: string | undefined | number,
+    precision: number = DEFAULT_DECIMAL_PLACES
+): string {
     if (!d) {
         d = '0.00'
     }
@@ -629,7 +715,8 @@ export function humanFriendlyCurrency(d: string | undefined | number, precision:
         number = d
     }
 
-    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
+    const validatedPrecision = validateFractionDigits(precision, DEFAULT_DECIMAL_PLACES)
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: validatedPrecision, minimumFractionDigits: validatedPrecision })}`
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
@@ -702,31 +789,27 @@ export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
     formatTime = 'h:mm:ss A',
-    options: { showNow?: boolean; showToday?: boolean } = {}
+    options: { timestampStyle?: 'relative' | 'absolute' } = { timestampStyle: 'relative' }
 ): string {
-    const defaultOptions = {
-        showNow: true,
-        showToday: true,
-    }
-    const { showNow, showToday } = { ...defaultOptions, ...options }
     if (!date) {
         return 'Never'
     }
     const parsedDate = dayjs(date)
+
+    if (options.timestampStyle === 'absolute') {
+        return parsedDate.format(`${formatDate} ${formatTime}`)
+    }
+
     const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
-    if (showNow && parsedDate.isSame(dayjs(), 'm')) {
+    if (parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        if (showToday) {
-            formatString = `[Today] ${formatTime}`
-        } else {
-            formatString = formatTime
-        }
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = `[Yesterday] ${formatTime}`
+        formatString = `[Yesterday] ${formatTime}`
     } else {
         formatString = `${formatDate} ${formatTime}`
     }
@@ -1035,6 +1118,12 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'hour',
     },
     {
+        key: 'Last hour',
+        values: ['-1h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(1, 'h'), date),
+        defaultInterval: 'minute',
+    },
+    {
         key: 'Last 24 hours',
         values: ['-24h'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
@@ -1078,9 +1167,8 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'month',
     },
     {
-        key: 'This month',
-        values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
+        key: 'Last week',
+        values: ['-1wStart', '-1wEnd'],
         defaultInterval: 'day',
     },
     {
@@ -1088,6 +1176,12 @@ export const dateMapping: DateMappingOption[] = [
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'This month',
+        values: ['mStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
         defaultInterval: 'day',
     },
     {

@@ -10,16 +10,18 @@
         "build",
         "rust",
         "cli",
-        "plugin-server",
+        "nodejs",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
         "common/plugin_transpiler/dist",
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
         "frontend/src/queries/validators.js",
-        "products/mcp/**/generated.ts",
-        "products/mcp/schema/tool-inputs.json",
-        "products/mcp/python"
+        "frontend/src/generated/**",
+        "services/mcp/**/generated.ts",
+        "services/mcp/schema/tool-inputs.json",
+        "services/mcp/python",
+        "products/**/frontend/generated/**"
     ],
     "rules": {
         "no-constant-condition": "off",
@@ -108,7 +110,7 @@
                 "forbid": [
                     {
                         "propName": "style",
-                        "message": "style should be avoided in favor of utility CSS classes - see https://storybook.posthog.net/?path=/docs/lemon-ui-utilities--overview"
+                        "message": "style should be avoided in favor of utility CSS classes - see https://storybook.dev.posthog.dev/?path=/docs/lemon-ui-utilities--overview"
                     }
                 ]
             }

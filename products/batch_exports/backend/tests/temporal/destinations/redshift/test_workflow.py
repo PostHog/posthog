@@ -7,6 +7,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import pytest_asyncio
 from psycopg import sql
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -54,7 +55,7 @@ def mode(request) -> str:
         return "INSERT"
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def clean_up_s3_bucket(s3_client, mode, bucket_name, key_prefix):
     """Clean-up S3 bucket used in Redshift copy activity."""
     yield
@@ -65,7 +66,7 @@ async def clean_up_s3_bucket(s3_client, mode, bucket_name, key_prefix):
     await delete_all_from_s3(s3_client, bucket_name, key_prefix)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def redshift_batch_export(ateam, table_name, redshift_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Redshift",
@@ -235,7 +236,7 @@ async def test_redshift_export_workflow(
 
 
 async def test_redshift_export_workflow_handles_unexpected_insert_activity_errors(
-    event_loop, ateam, redshift_batch_export, interval, use_internal_stage
+    ateam, redshift_batch_export, interval, use_internal_stage
 ):
     """Test that Redshift Export Workflow can gracefully handle unexpected errors when inserting Redshift data.
 

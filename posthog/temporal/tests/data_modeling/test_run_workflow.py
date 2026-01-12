@@ -48,8 +48,8 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
+from posthog.temporal.ducklake.types import DuckLakeCopyModelInput
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
-from posthog.temporal.utils import DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -282,10 +282,10 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -298,7 +298,6 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -345,10 +344,10 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
     )
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -361,7 +360,6 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -390,10 +388,10 @@ async def test_materialize_model_nullable_nothing_column(ateam, bucket_name, min
     )
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -406,7 +404,6 @@ async def test_materialize_model_nullable_nothing_column(ateam, bucket_name, min
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -434,10 +431,10 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -450,7 +447,6 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -765,10 +761,10 @@ async def test_run_workflow_with_minio_bucket(
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         freeze_time(TEST_TIME),
     ):
@@ -806,10 +802,10 @@ async def test_run_workflow_with_minio_bucket(
                 delta_table = deltalake.DeltaTable(
                     table_uri=f"s3://{bucket_name}/team_{ateam.pk}_model_{query.id.hex}/modeling/{query.normalized_name}",
                     storage_options={
-                        "aws_access_key_id": str(settings.AIRBYTE_BUCKET_KEY),
-                        "aws_secret_access_key": str(settings.AIRBYTE_BUCKET_SECRET),
+                        "aws_access_key_id": str(settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY),
+                        "aws_secret_access_key": str(settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET),
                         "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-                        "region_name": str(settings.AIRBYTE_BUCKET_REGION),
+                        "region_name": str(settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION),
                         "AWS_ALLOW_HTTP": "true",
                         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
                     },
@@ -857,6 +853,7 @@ async def test_run_workflow_with_minio_bucket(
                 assert (
                     warehouse_table.size_in_s3_mib is not None and warehouse_table.size_in_s3_mib != 0
                 ), f"Table size in mib for {query.name} is not set"
+                assert warehouse_table.credential_id is None, "Table has credentials set when it shouldn't"
 
             job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
             assert job.storage_delta_mib is not None and job.storage_delta_mib != 0, f"Job storage delta is not set"
@@ -882,10 +879,10 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         freeze_time(TEST_TIME),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", mock_materialize_model),
@@ -938,10 +935,10 @@ async def test_run_workflow_revert_materialization(
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         freeze_time(TEST_TIME),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
@@ -981,13 +978,81 @@ async def test_run_workflow_revert_materialization(
         assert query.is_materialized is False
 
 
+async def test_run_workflow_timeout_exceeded(
+    minio_client,
+    ateam,
+    bucket_name,
+    pageview_events,
+    saved_queries,
+    temporal_client,
+):
+    workflow_id = str(uuid.uuid4())
+    inputs = RunWorkflowInputs(team_id=ateam.pk)
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        freeze_time(TEST_TIME),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table") as mock_hogql_table,
+        unittest.mock.patch(
+            "posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"
+        ) as mock_pause_saved_query_schedule,
+    ):
+        mock_hogql_table.side_effect = Exception(
+            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.11.66 (official build))"
+        )
+
+        async with temporalio.worker.Worker(
+            temporal_client,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
+            workflows=[RunWorkflow],
+            activities=[
+                start_run_activity,
+                build_dag_activity,
+                run_dag_activity,
+                finish_run_activity,
+                create_job_model_activity,
+                fail_jobs_activity,
+                cleanup_running_jobs_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            # Ensure the team exists in the DB context before running workflow
+            await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
+            await temporal_client.execute_workflow(
+                RunWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    # Temporal shouldn't reattempt the activity
+    assert mock_hogql_table.call_count == 1
+    mock_pause_saved_query_schedule.assert_called()
+
+    job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
+    assert job is not None
+    assert job.status == DataModelingJob.Status.FAILED
+
+    for query in saved_queries:
+        await database_sync_to_async(query.refresh_from_db)()
+        assert query.is_materialized is False
+        assert query.sync_frequency_interval is None
+
+
 async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
     model_label = "model-under-test"
     ducklake_model = DuckLakeCopyModelInput(
         model_label=model_label,
         saved_query_id=str(uuid.uuid4()),
         table_uri="s3://source/table",
-        file_uris=["s3://source/table/part-0.parquet"],
     )
 
     @temporal_activity.defn
@@ -1031,7 +1096,7 @@ async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
     monkeypatch.setattr(run_workflow_module, "finish_run_activity", finish_run_stub)
     monkeypatch.setattr(run_workflow_module, "fail_jobs_activity", fail_jobs_stub)
 
-    with override_settings(DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED=True, DATA_MODELING_TASK_QUEUE="ducklake-test"):
+    with override_settings(DUCKLAKE_TASK_QUEUE="ducklake-test"):
         child_ducklake_workflow_runs.clear()
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with temporalio.worker.Worker(
@@ -1086,10 +1151,10 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch.dict(os.environ, {"SCHEMA__NAMING": "direct"}, clear=True),
     ):
@@ -1107,7 +1172,6 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1153,10 +1217,10 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
     ):
@@ -1171,7 +1235,6 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1226,10 +1289,10 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
     ):
@@ -1244,7 +1307,6 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1359,10 +1421,10 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=6),
@@ -1381,7 +1443,6 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1406,10 +1467,10 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1422,7 +1483,6 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1455,10 +1515,10 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1471,7 +1531,6 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1504,10 +1563,10 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client, tru
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1520,7 +1579,6 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client, tru
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1553,10 +1611,10 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1569,7 +1627,6 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 

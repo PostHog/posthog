@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -15,10 +15,8 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentRatioMetric,
-    ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
-    MultipleVariantHandling,
     PropertyMathType,
 )
 
@@ -26,31 +24,14 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
-from posthog.hogql_queries.experiments.exposure_query_logic import (
-    build_common_exposure_conditions,
-    get_exposure_event_and_property,
-    get_test_accounts_filter,
-    get_variant_selection_expr,
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    build_aggregation_call,
+    extract_aggregation_and_inner_expr,
 )
-from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Experiment
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
-
-
-def get_data_warehouse_metric_source(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
-) -> ExperimentDataWarehouseNode | None:
-    if isinstance(metric, ExperimentMeanMetric) and isinstance(metric.source, ExperimentDataWarehouseNode):
-        return metric.source
-    elif isinstance(metric, ExperimentRatioMetric):
-        # For ratio metrics, return a data warehouse source if either numerator or denominator uses data warehouse
-        if isinstance(metric.numerator, ExperimentDataWarehouseNode):
-            return metric.numerator
-        elif isinstance(metric.denominator, ExperimentDataWarehouseNode):
-            return metric.denominator
-    return None
 
 
 def is_continuous(
@@ -106,7 +87,7 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             # Extract the inner expression from the HogQL expression
             math_hogql = source.math_hogql
             if math_hogql:
-                _, inner_expr = extract_aggregation_and_inner_expr(math_hogql)
+                _, inner_expr, _ = extract_aggregation_and_inner_expr(math_hogql)
                 return inner_expr
     elif isinstance(source, ExperimentDataWarehouseNode):
         metric_property = getattr(source, "math_property", None)
@@ -289,311 +270,6 @@ def get_metric_time_window(
     return get_source_time_window(date_range_query, left, metric.conversion_window, metric.conversion_window_unit)
 
 
-def get_exposure_time_window_constraints(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
-    timestamp_field: ast.Field,
-    exposure_time_field: ast.Field,
-) -> list[ast.CompareOperation]:
-    """
-    Returns time window constraints for events relative to exposure time.
-
-    This function creates constraints that ensure:
-    1. Events occurred after the user was exposed to the experiment
-    2. If a conversion window is set, events are within that window after exposure
-
-    Args:
-        metric: The experiment metric containing conversion window settings
-        timestamp_field: The field representing event timestamp (e.g., metric_events.timestamp)
-        exposure_time_field: The field representing first exposure time (e.g., exposures.first_exposure_time)
-
-    Returns:
-        List of AST compare operations to be used in WHERE or JOIN ON clauses
-    """
-    constraints = [
-        # Only include events that occurred after the user was exposed to the experiment
-        ast.CompareOperation(
-            left=timestamp_field,
-            right=exposure_time_field,
-            op=ast.CompareOperationOp.GtEq,
-        )
-    ]
-
-    # If conversion window is set, we limit events to that window
-    # Otherwise, metric events are cut off by the metric query itself,
-    # which limits events to the duration of the experiment.
-    if metric.conversion_window and metric.conversion_window_unit:
-        # Define conversion window as hours after exposure
-        constraints.append(
-            ast.CompareOperation(
-                left=timestamp_field,
-                right=ast.Call(
-                    name="plus",
-                    args=[
-                        exposure_time_field,
-                        ast.Call(
-                            name="toIntervalSecond",
-                            args=[
-                                ast.Constant(
-                                    value=conversion_window_to_seconds(
-                                        metric.conversion_window, metric.conversion_window_unit
-                                    )
-                                ),
-                            ],
-                        ),
-                    ],
-                ),
-                op=ast.CompareOperationOp.Lt,
-            )
-        )
-
-    return constraints
-
-
-def get_experiment_exposure_query(
-    experiment: Experiment,
-    feature_flag,
-    variants: list[str],
-    date_range_query: QueryDateRange,
-    team: Team,
-    entity_key: str,
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
-    multiple_variant_handling: MultipleVariantHandling,
-) -> ast.SelectQuery:
-    """
-    Returns the query for the exposure data. One row per entity. If an entity is exposed to multiple variants,
-    we place them in the $multiple variant so we can warn the user and exclude them from the analysis.
-    Columns:
-        entity_id
-        variant
-        first_exposure_time
-    """
-    _, feature_flag_variant_property = get_exposure_event_and_property(
-        feature_flag_key=feature_flag.key, exposure_criteria=experiment.exposure_criteria
-    )
-
-    # Build common exposure conditions
-    exposure_conditions = build_common_exposure_conditions(
-        feature_flag_variant_property=feature_flag_variant_property,
-        variants=variants,
-        date_range_query=date_range_query,
-        team=team,
-        exposure_criteria=experiment.exposure_criteria,
-        feature_flag_key=feature_flag.key,
-    )
-
-    exposure_query_select: list[ast.Expr] = [
-        ast.Alias(alias="entity_id", expr=ast.Field(chain=[entity_key])),
-        ast.Alias(
-            alias="variant",
-            expr=get_variant_selection_expr(feature_flag_variant_property, multiple_variant_handling),
-        ),
-        ast.Alias(
-            alias="first_exposure_time",
-            expr=ast.Call(
-                name="min",
-                args=[ast.Field(chain=["timestamp"])],
-            ),
-        ),
-        ast.Alias(
-            alias="exposure_event_uuid",
-            expr=ast.Call(
-                name="argMin",
-                args=[ast.Field(chain=["uuid"]), ast.Field(chain=["timestamp"])],
-            ),
-        ),
-        ast.Alias(
-            alias="exposure_session_id",
-            expr=ast.Call(
-                name="argMin",
-                args=[ast.Field(chain=["$session_id"]), ast.Field(chain=["timestamp"])],
-            ),
-        ),
-    ]
-    exposure_query_group_by = [ast.Field(chain=["entity_id"])]
-    if data_warehouse_metric_source := get_data_warehouse_metric_source(metric):
-        exposure_query_select = [
-            *exposure_query_select,
-            ast.Alias(
-                alias="exposure_identifier",
-                expr=ast.Field(chain=[*data_warehouse_metric_source.events_join_key.split(".")]),
-            ),
-        ]
-        exposure_query_group_by = [
-            *exposure_query_group_by,
-            ast.Field(chain=[*data_warehouse_metric_source.events_join_key.split(".")]),
-        ]
-
-    return ast.SelectQuery(
-        select=exposure_query_select,
-        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=ast.And(exprs=exposure_conditions),
-        group_by=cast(list[ast.Expr], exposure_query_group_by),
-    )
-
-
-def get_source_events_query(
-    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
-    team: Team,
-    entity_key: str,
-    date_range_query: QueryDateRange,
-    conversion_window: int | None = None,
-    conversion_window_unit=None,
-    experiment=None,
-) -> ast.SelectQuery:
-    """
-    Pure source-based function to build events query.
-    Returns the query to get events for a specific source. One row per event, so multiple rows per entity.
-    Columns: timestamp, entity_identifier, variant, value
-    """
-    match source:
-        case ExperimentDataWarehouseNode():
-            return ast.SelectQuery(
-                select=[
-                    ast.Alias(
-                        alias="timestamp",
-                        expr=ast.Field(chain=[source.timestamp_field]),
-                    ),
-                    ast.Alias(
-                        alias="entity_identifier",
-                        expr=ast.Field(
-                            chain=[
-                                source.table_name,
-                                *source.data_warehouse_join_key.split("."),
-                            ]
-                        ),
-                    ),
-                    ast.Alias(alias="value", expr=get_source_value_expr(source)),
-                ],
-                select_from=ast.JoinExpr(
-                    table=ast.Field(chain=[source.table_name]),
-                ),
-                where=ast.And(
-                    exprs=[
-                        *get_source_time_window(
-                            date_range_query,
-                            left=ast.Field(chain=[source.timestamp_field]),
-                            conversion_window=conversion_window,
-                            conversion_window_unit=conversion_window_unit,
-                        ),
-                        data_warehouse_node_to_filter(team, source),
-                    ],
-                ),
-            )
-
-        case EventsNode() | ActionsNode():
-            filters = [
-                *get_source_time_window(
-                    date_range_query,
-                    left=ast.Field(chain=["events", "timestamp"]),
-                    conversion_window=conversion_window,
-                    conversion_window_unit=conversion_window_unit,
-                ),
-                event_or_action_to_filter(team, source),
-            ]
-            # Add test accounts filter only if experiment is provided
-            if experiment:
-                filters.extend(get_test_accounts_filter(team, experiment.exposure_criteria))
-
-            return ast.SelectQuery(
-                select=[
-                    ast.Field(chain=["events", "timestamp"]),
-                    ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", entity_key])),
-                    ast.Field(chain=["events", "event"]),
-                    ast.Alias(alias="value", expr=get_source_value_expr(source)),
-                ],
-                select_from=ast.JoinExpr(
-                    table=ast.Field(chain=["events"]),
-                ),
-                where=ast.And(exprs=filters),
-            )
-
-
-def get_metric_events_query(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
-    team: Team,
-    entity_key: str,
-    experiment: Experiment,
-    date_range_query: QueryDateRange,
-    source_type: Literal["numerator", "denominator"] | None = None,
-) -> ast.SelectQuery:
-    """
-    Returns the query to get the relevant metric events. One row per event, so multiple rows per entity.
-    Columns: timestamp, entity_identifier, variant, value
-    For ratio metrics, source_type can be "numerator" or "denominator".
-    """
-
-    if isinstance(metric, ExperimentFunnelMetric):
-        assert source_type is None
-        return _get_metric_events_for_funnel_metric(metric, team, entity_key, experiment, date_range_query)
-
-    if isinstance(metric, ExperimentRetentionMetric):
-        raise NotImplementedError("Retention metrics are not yet supported in get_metric_events_query")
-
-    # For ratio metrics, determine which source to use and delegate to source-based function
-    if isinstance(metric, ExperimentRatioMetric):
-        assert source_type is not None
-        source = metric.numerator if source_type == "numerator" else metric.denominator
-    else:
-        assert source_type is None
-        source = metric.source
-
-    return get_source_events_query(
-        source,
-        team,
-        entity_key,
-        date_range_query,
-        metric.conversion_window,
-        metric.conversion_window_unit,
-        experiment,
-    )
-
-
-def _get_metric_events_for_funnel_metric(
-    metric: ExperimentFunnelMetric,
-    team: Team,
-    entity_key: str,
-    experiment: Experiment,
-    date_range_query: QueryDateRange,
-) -> ast.SelectQuery:
-    """
-    Get metric events for a funnel metric.
-    """
-
-    # Pre-calculate step conditions to avoid property resolution issues in UDF
-    # For each step in the funnel, we create a new column that is 1 if the step is true, 0 otherwise
-    step_selects = []
-    for i, funnel_step in enumerate(metric.series):
-        step_filter = event_or_action_to_filter(team, funnel_step)
-        step_selects.append(
-            ast.Alias(
-                alias=f"step_{i}",
-                expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
-            )
-        )
-
-    return ast.SelectQuery(
-        select=[
-            ast.Field(chain=["events", "timestamp"]),
-            ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", entity_key])),
-            ast.Field(chain=["events", "event"]),
-            ast.Field(chain=["events", "uuid"]),
-            ast.Field(chain=["events", "properties"]),
-            ast.Alias(alias="session_id", expr=ast.Field(chain=["events", "properties", "$session_id"])),
-            *step_selects,
-        ],
-        select_from=ast.JoinExpr(
-            table=ast.Field(chain=["events"]),
-        ),
-        where=ast.And(
-            exprs=[
-                *get_metric_time_window(metric, date_range_query, left=ast.Field(chain=["events", "timestamp"])),
-                *get_test_accounts_filter(team, experiment.exposure_criteria),
-                funnel_steps_to_filter(team, metric.series),
-            ],
-        ),
-    )
-
-
 def get_source_aggregation_expr(
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode], table_alias: str = "metric_events"
 ) -> ast.Expr:
@@ -626,104 +302,16 @@ def get_source_aggregation_expr(
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    return parse_expr(f"{aggregation_function}(coalesce(toFloat({table_alias}.value), 0))")
+                    # Build the aggregation with params if it's a parametric function
+                    inner_value_expr = parse_expr(f"coalesce(toFloat({table_alias}.value), 0)")
+                    return build_aggregation_call(aggregation_function, inner_value_expr, params=params)
             # Default to sum if no aggregation function is found
             return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
     # Default aggregation for all other cases (including data warehouse)
     return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
-
-
-def get_metric_aggregation_expr(
-    experiment: Experiment,
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
-    team: Team,
-    source_type: Literal["numerator", "denominator"] | None = None,
-) -> ast.Expr:
-    """
-    Returns the aggregation expression for the metric.
-    For ratio metrics, source_type can be "numerator" or "denominator".
-    """
-    # For ratio metrics, get the appropriate source and delegate to source-based function
-    if isinstance(metric, ExperimentRatioMetric):
-        source = metric.numerator if source_type == "numerator" else metric.denominator
-        return get_source_aggregation_expr(source)
-
-    # For mean metrics, delegate to source-based function
-    elif isinstance(metric, ExperimentMeanMetric):
-        return get_source_aggregation_expr(metric.source)
-
-    # For funnel metrics, use the existing funnel evaluation logic
-    elif isinstance(metric, ExperimentFunnelMetric):
-        return funnel_evaluation_expr(team, metric, events_alias="metric_events")
-
-    else:
-        raise ValueError(f"Unsupported metric type: {type(metric)}")
-
-
-def get_winsorized_metric_values_query(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric], metric_events_query: ast.SelectQuery
-) -> ast.SelectQuery:
-    """
-    Returns the query to winsorize metric values
-    One row per entity where the value is winsorized to the lower and upper bounds
-    Columns: variant, entity_id, value (winsorized metric values)
-    """
-    if not isinstance(metric, ExperimentMeanMetric):
-        return metric_events_query
-
-    if metric.lower_bound_percentile is not None:
-        lower_bound_expr = parse_expr(
-            "quantile({level})(value)",
-            placeholders={"level": ast.Constant(value=metric.lower_bound_percentile)},
-        )
-    else:
-        lower_bound_expr = parse_expr("min(value)")
-
-    if metric.upper_bound_percentile is not None:
-        if getattr(metric, "ignore_zeros", False):
-            upper_bound_expr = parse_expr(
-                "quantile({level})(if(value != 0, value, null))",
-                placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
-            )
-        else:
-            upper_bound_expr = parse_expr(
-                "quantile({level})(value)",
-                placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
-            )
-    else:
-        upper_bound_expr = parse_expr("max(value)")
-
-    percentiles = ast.SelectQuery(
-        select=[
-            ast.Alias(alias="lower_bound", expr=lower_bound_expr),
-            ast.Alias(alias="upper_bound", expr=upper_bound_expr),
-        ],
-        select_from=ast.JoinExpr(table=metric_events_query, alias="metric_events"),
-    )
-
-    return ast.SelectQuery(
-        select=[
-            ast.Field(chain=["metric_events", "variant"]),
-            ast.Field(chain=["metric_events", "entity_id"]),
-            ast.Alias(
-                expr=parse_expr(
-                    "least(greatest(percentiles.lower_bound, metric_events.value), percentiles.upper_bound)"
-                ),
-                alias="value",
-            ),
-        ],
-        select_from=ast.JoinExpr(
-            table=metric_events_query,
-            alias="metric_events",
-            next_join=ast.JoinExpr(table=percentiles, alias="percentiles", join_type="CROSS JOIN"),
-        ),
-    )
-
-
-# Funnel utility functions (moved from funnel_query_utils.py to avoid circular imports)
 
 
 def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:

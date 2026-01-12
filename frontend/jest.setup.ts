@@ -33,3 +33,29 @@ configure({ testIdAttribute: 'data-attr' })
 
 // Mock DecompressionWorkerManager globally to avoid import.meta.url issues in tests
 jest.mock('scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager')
+
+// Mock posthog-js surveys-preview to avoid ESM import issues in tests
+jest.mock('posthog-js/dist/surveys-preview', () => ({
+    renderFeedbackWidgetPreview: jest.fn(),
+    renderSurveysPreview: jest.fn(),
+    getNextSurveyStep: jest.fn(),
+}))
+
+// Mock posthog-js product-tours-preview to avoid ESM import issues in tests
+jest.mock('posthog-js/dist/product-tours-preview', () => ({
+    renderProductTourPreview: jest.fn(),
+}))
+
+jest.mock('@tiptap/extension-code-block-lowlight', () => {
+    const mockExtension = {
+        configure: jest.fn(() => ({})),
+        extend: jest.fn(() => ({
+            configure: jest.fn(() => ({})),
+        })),
+    }
+    return {
+        __esModule: true,
+        default: mockExtension,
+        CodeBlockLowlight: mockExtension,
+    }
+})

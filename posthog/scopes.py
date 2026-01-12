@@ -6,14 +6,19 @@ from typing import Literal, get_args
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
 # WARNING: Make sure to keep in sync with the frontend!
+# - frontend/src/lib/scopes.tsx
+# - frontend/src/types.ts (`export type APIScopeObject`)
 APIScopeObject = Literal[
     "action",
     "access_control",
     "activity_log",
+    "alert",
     "annotation",
     "batch_export",
     "batch_import",
     "cohort",
+    "conversation",
+    "customer_profile_config",
     "dashboard",
     "dashboard_template",
     "dataset",
@@ -24,6 +29,7 @@ APIScopeObject = Literal[
     "evaluation",
     "event_definition",
     "experiment",
+    "experiment_saved_metric",
     "export",
     "feature_flag",
     "file_system",
@@ -31,9 +37,13 @@ APIScopeObject = Literal[
     "group",
     "hog_function",
     "insight",
+    "insight_variable",
     "integration",
     "link",
     "live_debugger",
+    "llm_gateway",
+    "llm_prompt",
+    "llm_provider_key",
     "logs",
     "notebook",
     "organization",
@@ -41,6 +51,7 @@ APIScopeObject = Literal[
     "person",
     "persisted_folder",
     "plugin",
+    "product_tour",
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints
@@ -50,6 +61,7 @@ APIScopeObject = Literal[
     "sharing_configuration",
     "subscription",
     "survey",
+    "ticket",
     "task",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access

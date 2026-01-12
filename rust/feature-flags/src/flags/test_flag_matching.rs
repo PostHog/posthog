@@ -14,7 +14,8 @@ mod tests {
             flag_match_reason::FeatureFlagMatchReason,
             flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
             flag_matching_utils::{
-                get_fetch_calls_count, reset_fetch_calls_count, set_feature_flag_hash_key_overrides,
+                get_fetch_calls_count, get_hash_key_override_lookup_count, reset_fetch_calls_count,
+                reset_hash_key_override_lookup_count, set_feature_flag_hash_key_overrides,
             },
             flag_models::{
                 FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
@@ -22,7 +23,10 @@ mod tests {
             },
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-        utils::test_utils::{create_test_flag, TestContext},
+        utils::{
+            graph_utils::build_dependency_graph,
+            test_utils::{create_test_flag, TestContext},
+        },
     };
 
     #[tokio::test]
@@ -84,6 +88,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -104,6 +109,7 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             not_matching_distinct_id.clone(),
+            None, // device_id
             team.id,
             router2,
             cohort_cache.clone(),
@@ -124,6 +130,7 @@ mod tests {
         let router3 = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "other_distinct_id".to_string(),
+            None, // device_id
             team.id,
             router3,
             cohort_cache.clone(),
@@ -186,6 +193,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache,
@@ -197,7 +205,15 @@ mod tests {
             flags: vec![flag.clone()],
         };
         let result = matcher
-            .evaluate_all_feature_flags(flags, Some(overrides), None, None, Uuid::new_v4(), None)
+            .evaluate_all_feature_flags(
+                flags,
+                Some(overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
             .await;
         assert!(!result.errors_while_computing_flags);
         assert_eq!(
@@ -267,6 +283,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             context.create_postgres_router(),
             cohort_cache.clone(),
@@ -285,6 +302,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -349,6 +367,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache,
@@ -374,6 +393,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -397,7 +417,15 @@ mod tests {
         {
             // Leaf flag evaluates to false
             let result = matcher
-                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
+                .evaluate_all_feature_flags(
+                    flags.clone(),
+                    None,
+                    None,
+                    None,
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                )
                 .await;
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
@@ -506,6 +534,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache,
@@ -526,6 +555,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -548,6 +578,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -570,6 +601,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -661,6 +693,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user_distinct_id".to_string(),
+            None, // device_id
             team.id,
             context.create_postgres_router(),
             cohort_cache,
@@ -680,7 +713,15 @@ mod tests {
         reset_fetch_calls_count();
 
         let result = matcher
-            .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
+            .evaluate_all_feature_flags(
+                flags.clone(),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
             .await;
         // Add this assertion to check the call count
         let fetch_calls = get_fetch_calls_count();
@@ -784,6 +825,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache,
@@ -814,6 +856,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(result.errors_while_computing_flags);
@@ -837,7 +880,15 @@ mod tests {
         {
             // Leaf flag evaluates to false
             let result = matcher
-                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
+                .evaluate_all_feature_flags(
+                    flags.clone(),
+                    None,
+                    None,
+                    None,
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                )
                 .await;
             assert!(result.errors_while_computing_flags);
             assert_eq!(
@@ -936,6 +987,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache,
@@ -957,6 +1009,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -980,6 +1033,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -995,7 +1049,15 @@ mod tests {
         {
             // Leaf flag evaluates to false
             let result = matcher
-                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
+                .evaluate_all_feature_flags(
+                    flags.clone(),
+                    None,
+                    None,
+                    None,
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                )
                 .await;
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
@@ -1027,6 +1089,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache.clone(),
@@ -1062,6 +1125,7 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -1112,6 +1176,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1170,6 +1235,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1228,6 +1294,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         }
     }
 
@@ -1276,6 +1343,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -1294,6 +1362,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -1354,6 +1423,7 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 let matcher = FeatureFlagMatcher::new(
                     format!("test_user_{i}"),
+                    None, // device_id
                     team_id,
                     router,
                     cohort_cache_clone,
@@ -1435,6 +1505,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -1484,6 +1555,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "".to_string(),
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1530,6 +1602,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1583,6 +1656,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1660,6 +1734,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             context.create_postgres_router(),
             cohort_cache,
@@ -1723,6 +1798,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             context.create_postgres_router(),
             cohort_cache,
@@ -1768,6 +1844,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1847,6 +1924,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             context.create_postgres_router(),
             cohort_cache,
@@ -2079,6 +2157,7 @@ mod tests {
             let router = context.create_postgres_router();
             let mut matcher = FeatureFlagMatcher::new(
                 user_id.to_string(),
+                None, // device_id
                 team.id,
                 router,
                 cohort_cache.clone(),
@@ -2193,6 +2272,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
+            None, // device_id
             team.id,
             router.clone(),
             cohort_cache.clone(),
@@ -2202,6 +2282,7 @@ mod tests {
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
             "lil_id".to_string(),
+            None, // device_id
             team.id,
             router.clone(),
             cohort_cache.clone(),
@@ -2211,6 +2292,7 @@ mod tests {
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
             "another_id".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -2326,6 +2408,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_id".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -2436,6 +2519,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
+            None, // device_id
             team.id,
             router.clone(),
             cohort_cache.clone(),
@@ -2445,6 +2529,7 @@ mod tests {
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
             "lil_id".to_string(),
+            None, // device_id
             team.id,
             router.clone(),
             cohort_cache.clone(),
@@ -2454,6 +2539,7 @@ mod tests {
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
             "another_id".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -2580,6 +2666,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -2675,6 +2762,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -2770,6 +2858,7 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -2886,6 +2975,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -2981,6 +3071,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -3076,6 +3167,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -3163,6 +3255,7 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -3245,6 +3338,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -3342,6 +3436,7 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -3432,6 +3527,7 @@ mod tests {
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -3445,6 +3541,7 @@ mod tests {
             Some("hash_key_continuity".to_string()),
             Uuid::new_v4(),
             None,
+            false,
         )
         .await;
 
@@ -3523,13 +3620,14 @@ mod tests {
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
         )
-        .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None)
+        .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
         .await;
 
         assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
@@ -3650,6 +3748,7 @@ mod tests {
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -3663,6 +3762,7 @@ mod tests {
             Some("hash_key_mixed".to_string()),
             Uuid::new_v4(),
             None,
+            false,
         )
         .await;
 
@@ -3755,6 +3855,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -3985,6 +4086,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "example_id".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -4006,6 +4108,7 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher2 = FeatureFlagMatcher::new(
             "example_id2".to_string(),
+            None, // device_id
             team.id,
             router2,
             cohort_cache.clone(),
@@ -4112,12 +4215,14 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         // Test user "11" - should get first-variant
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "11".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -4140,6 +4245,7 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "example_id".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -4162,6 +4268,7 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "3".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -4256,6 +4363,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -4321,6 +4429,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "nonexistent_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -4338,6 +4447,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -4391,6 +4501,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher_numeric = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -4410,6 +4521,7 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher_string = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router2,
             cohort_cache.clone(),
@@ -4441,6 +4553,7 @@ mod tests {
         let router3 = context.create_postgres_router();
         let mut matcher_float = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router3,
             cohort_cache.clone(),
@@ -4461,6 +4574,7 @@ mod tests {
         let router4 = context.create_postgres_router();
         let mut matcher_bool = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
             router4,
             cohort_cache.clone(),
@@ -4545,7 +4659,7 @@ mod tests {
                 payloads: None,
                 super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
-                        key: "$feature_enrollment/artificial-hog".to_string(),
+                        key: "$feature_enrollment/my-flag".to_string(),
                         value: Some(json!(["true"])),
                         operator: Some(OperatorType::Exact),
                         prop_type: PropertyType::Person,
@@ -4569,7 +4683,7 @@ mod tests {
                 "super_user".to_string(),
                 Some(json!({
                     "email": "random@example.com",
-                    "$feature_enrollment/artificial-hog": true
+                    "$feature_enrollment/my-flag": true
                 })),
             )
             .await
@@ -4582,7 +4696,7 @@ mod tests {
                 "posthog_user".to_string(),
                 Some(json!({
                     "email": "test@posthog.com",
-                    "$feature_enrollment/artificial-hog": false
+                    "$feature_enrollment/my-flag": false
                 })),
             )
             .await
@@ -4604,6 +4718,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "super_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -4628,6 +4743,7 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "posthog_user".to_string(),
+            None, // device_id
             team.id,
             router2,
             cohort_cache.clone(),
@@ -4652,6 +4768,7 @@ mod tests {
         let router3 = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "regular_user".to_string(),
+            None, // device_id
             team.id,
             router3,
             cohort_cache.clone(),
@@ -4724,6 +4841,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -4739,6 +4857,216 @@ mod tests {
         let match_result = matcher.get_match(&flag, None, None).unwrap();
         assert!(match_result.matches);
         assert_eq!(match_result.variant, None);
+    }
+
+    fn build_device_bucketing_flag(team_id: TeamId) -> FeatureFlag {
+        FeatureFlag {
+            id: 1,
+            team_id,
+            name: Some("device flag".to_string()),
+            key: "device-flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                ..FlagFilters::default()
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: Some("device_id".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_uses_device_identifier() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = build_device_bucketing_flag(team.id);
+
+        // device-high hashes to ~0.27 (< 0.5), so rollout should match regardless of distinct_id
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "distinct-alpha".to_string(),
+            Some("device-high".to_string()),
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let high_device_result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            high_device_result.matches,
+            "device-high hash should fall inside rollout"
+        );
+
+        // Changing distinct_id with the same device_id should not change the outcome
+        let router = context.create_postgres_router();
+        let mut matcher_same_device = FeatureFlagMatcher::new(
+            "distinct-beta".to_string(),
+            Some("device-high".to_string()),
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher_same_device
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let same_device_result = matcher_same_device.get_match(&flag, None, None).unwrap();
+        assert_eq!(
+            high_device_result.matches, same_device_result.matches,
+            "device hashing should ignore distinct_id changes"
+        );
+
+        // device-low hashes to ~0.74 (> 0.5), so rollout should not match
+        let router = context.create_postgres_router();
+        let mut matcher_low = FeatureFlagMatcher::new(
+            "distinct-gamma".to_string(),
+            Some("device-low".to_string()),
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher_low
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let low_device_result = matcher_low.get_match(&flag, None, None).unwrap();
+        assert!(
+            !low_device_result.matches,
+            "device-low hash should fall outside rollout"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_falls_back_to_distinct_id_when_missing_device() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = build_device_bucketing_flag(team.id);
+
+        // Without a device_id, the matcher should fall back to the distinct_id hash.
+        // distinct-foo hashes to ~0.32 (< 0.5) so it should match.
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let match_from_distinct = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            match_from_distinct.matches,
+            "fallback distinct hash should fall inside rollout"
+        );
+
+        // distinct-high hashes to ~0.94 (> 0.5) so it should not match.
+        let router = context.create_postgres_router();
+        let mut matcher_high = FeatureFlagMatcher::new(
+            "distinct-high".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher_high
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let high_distinct_result = matcher_high.get_match(&flag, None, None).unwrap();
+        assert!(
+            !high_distinct_result.matches,
+            "fallback distinct hash should fall outside rollout"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_distinct_id_bucketing_ignores_device_id() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let mut flag = build_device_bucketing_flag(team.id);
+        flag.bucketing_identifier = Some("distinct_id".to_string());
+
+        // distinct-high hashes to > 50%, so rollout should be false even though device-high would match.
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "distinct-high".to_string(),
+            Some("device-high".to_string()),
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let high_distinct_result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            !high_distinct_result.matches,
+            "distinct-id bucketing should ignore device_id input"
+        );
+
+        // distinct-foo hashes to < 50%, so rollout should be true regardless of device_id.
+        let router = context.create_postgres_router();
+        let mut matcher_low = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            Some("device-low".to_string()),
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher_low
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let low_distinct_result = matcher_low.get_match(&flag, None, None).unwrap();
+        assert!(
+            low_distinct_result.matches,
+            "distinct-id bucketing should follow the distinct hash even when device_id exists"
+        );
     }
 
     #[tokio::test]
@@ -4843,6 +5171,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -4863,6 +5192,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -4887,6 +5217,7 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher2 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router2,
             cohort_cache.clone(),
@@ -4902,6 +5233,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -4920,6 +5252,7 @@ mod tests {
         let router3 = context.create_postgres_router();
         let mut matcher3 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router3,
             cohort_cache.clone(),
@@ -4935,6 +5268,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -4955,6 +5289,7 @@ mod tests {
         let router4 = context.create_postgres_router();
         let mut matcher4 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router4,
             cohort_cache.clone(),
@@ -4970,6 +5305,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5107,6 +5443,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -5126,6 +5463,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5150,6 +5488,7 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher2 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router2,
             cohort_cache.clone(),
@@ -5165,6 +5504,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5189,6 +5529,7 @@ mod tests {
         let router3 = context.create_postgres_router();
         let mut matcher3 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router3,
             cohort_cache.clone(),
@@ -5204,6 +5545,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5224,6 +5566,7 @@ mod tests {
         let router4 = context.create_postgres_router();
         let mut matcher4 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router4,
             cohort_cache.clone(),
@@ -5239,6 +5582,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5263,6 +5607,7 @@ mod tests {
         let router5 = context.create_postgres_router();
         let mut matcher5 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
             router5,
             cohort_cache.clone(),
@@ -5278,6 +5623,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5358,6 +5704,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         let router = context.create_postgres_router();
@@ -5365,6 +5712,7 @@ mod tests {
         // Test 1: User with email "specific@example.com" should match first condition
         let matcher = FeatureFlagMatcher::new(
             "specific_user".to_string(),
+            None, // device_id
             team.id,
             router.clone(),
             cohort_cache.clone(),
@@ -5394,6 +5742,7 @@ mod tests {
         // Test 2: Different user should match second condition (catch-all)
         let matcher2 = FeatureFlagMatcher::new(
             "other_user".to_string(),
+            None, // device_id
             team.id,
             router,
             cohort_cache.clone(),
@@ -5436,8 +5785,15 @@ mod tests {
             .expect("Failed to insert team in pg");
 
         let distinct_id = "user_distinct_id".to_string();
-        let mut matcher =
-            FeatureFlagMatcher::new(distinct_id, team.id, router, cohort_cache, None, None);
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            None, // device_id
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
 
         // Create flags: one with experience continuity enabled, one without
         let flag_with_continuity = create_test_flag(
@@ -5466,6 +5822,10 @@ mod tests {
             flags: vec![flag_with_continuity, flag_without_continuity],
         };
 
+        // Build dependency graph for the flags
+        let (dependency_graph, _) =
+            build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
+
         // Test the scenario where hash key override reading fails
         // This simulates the case where we have experience continuity flags but hash override reads fail
         let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
@@ -5476,12 +5836,7 @@ mod tests {
         };
 
         let response = matcher
-            .evaluate_flags_with_overrides(
-                flags,
-                overrides,
-                Uuid::new_v4(),
-                None, // flag_keys
-            )
+            .evaluate_flags_with_overrides(overrides, Uuid::new_v4(), dependency_graph)
             .await;
 
         // Should have errors_while_computing_flags set to true
@@ -5551,6 +5906,7 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None,
             team.id,
             router,
             cohort_cache,
@@ -5624,9 +5980,14 @@ mod tests {
             flags: vec![base_flag, dependent_flag],
         };
 
+        // Build dependency graph for the flags
+        let (dependency_graph, _) =
+            build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
+
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None,
             team.id,
             router,
             cohort_cache,
@@ -5635,7 +5996,7 @@ mod tests {
         );
 
         let result = matcher
-            .evaluate_flags_with_overrides(flags, Default::default(), Uuid::new_v4(), None)
+            .evaluate_flags_with_overrides(Default::default(), Uuid::new_v4(), dependency_graph)
             .await;
 
         // Base flag should be disabled
@@ -5658,6 +6019,910 @@ mod tests {
         assert_ne!(
             dependent_result.reason.code, "flag_disabled",
             "Dependent flag should not have flag_disabled reason"
+        );
+    }
+
+    // ======== Integration tests for experience continuity optimization ========
+
+    #[tokio::test]
+    async fn test_optimization_enabled_100_percent_rollout_evaluates_correctly() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "optimization_user_1".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "opt_user@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Create a flag with 100% rollout and experience continuity enabled
+        // This flag should NOT need a hash key override lookup
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("opt_100_percent".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity = true
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            true, // optimization enabled
+        )
+        .await;
+
+        // Verify the optimization actually skipped the hash key override lookup
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 0,
+            "100% rollout flag should skip hash key override lookup, but got {lookup_count} lookups"
+        );
+
+        // Flag should evaluate correctly even with optimization enabled
+        assert!(
+            result.flags.get("opt_100_percent").unwrap().enabled,
+            "100% rollout flag should be enabled with optimization"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optimization_enabled_partial_rollout_evaluates_correctly() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "optimization_user_2".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "opt_user2@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Create a flag with 50% rollout and experience continuity enabled
+        // This flag SHOULD need a hash key override lookup
+        let flag = create_test_flag(
+            Some(2),
+            Some(team.id),
+            None,
+            Some("opt_partial_rollout".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity = true
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            true, // optimization enabled
+        )
+        .await;
+
+        // Verify the lookup DID happen for partial rollout (optimization doesn't skip it)
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 1,
+            "Partial rollout flag should perform hash key override lookup, but got {lookup_count} lookups"
+        );
+
+        // Flag should evaluate (result depends on hash)
+        assert!(
+            result.flags.contains_key("opt_partial_rollout"),
+            "Partial rollout flag should be evaluated with optimization"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optimization_enabled_multivariate_evaluates_correctly() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "optimization_user_3".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "opt_user3@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Create a multivariate flag with experience continuity
+        // This flag SHOULD need a hash key override lookup
+        let flag = create_test_flag(
+            Some(3),
+            Some(team.id),
+            None,
+            Some("opt_multivariate".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            name: Some("Control".to_string()),
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "test".to_string(),
+                            name: Some("Test".to_string()),
+                            rollout_percentage: 50.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity = true
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            true, // optimization enabled
+        )
+        .await;
+
+        // Verify the lookup DID happen for multivariate (optimization doesn't skip it)
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 1,
+            "Multivariate flag should perform hash key override lookup, but got {lookup_count} lookups"
+        );
+
+        // Flag should evaluate with a variant
+        let flag_result = result.flags.get("opt_multivariate").unwrap();
+        assert!(
+            flag_result.enabled,
+            "Multivariate flag should be enabled with optimization"
+        );
+        assert!(
+            flag_result.variant.is_some(),
+            "Multivariate flag should have a variant assigned"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optimization_enabled_multivariate_with_100_percent_variant() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "optimization_user_4".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "opt_user4@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Create a multivariate flag where one variant is at 100%
+        // This flag should NOT need a hash key override lookup (optimization applies)
+        let flag = create_test_flag(
+            Some(4),
+            Some(team.id),
+            None,
+            Some("opt_multivariate_100".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            name: Some("Control".to_string()),
+                            rollout_percentage: 100.0, // 100% variant
+                        },
+                        MultivariateFlagVariant {
+                            key: "test".to_string(),
+                            name: Some("Test".to_string()),
+                            rollout_percentage: 0.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity = true
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            true, // optimization enabled
+        )
+        .await;
+
+        // Verify the optimization skipped the lookup (100% variant = no hashing needed)
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 0,
+            "Multivariate flag with 100% variant should skip hash key override lookup, but got {lookup_count} lookups"
+        );
+
+        // Flag should evaluate with the 100% variant
+        let flag_result = result.flags.get("opt_multivariate_100").unwrap();
+        assert!(
+            flag_result.enabled,
+            "Flag with 100% variant should be enabled"
+        );
+        assert_eq!(
+            flag_result.variant,
+            Some("control".to_string()),
+            "Should get the 100% variant"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optimization_disabled_legacy_behavior() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "legacy_user".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "legacy@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Create a flag with 100% rollout and experience continuity
+        let flag = create_test_flag(
+            Some(5),
+            Some(team.id),
+            None,
+            Some("legacy_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity = true
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            false, // optimization disabled (legacy behavior)
+        )
+        .await;
+
+        // Flag should still evaluate correctly in legacy mode
+        assert!(
+            result.flags.get("legacy_flag").unwrap().enabled,
+            "Flag should be enabled in legacy mode"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optimization_mixed_flags() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "mixed_user".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "mixed@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Flag 1: 100% rollout with continuity (can be optimized)
+        let flag_optimizable = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag_optimizable".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        // Flag 2: 50% rollout with continuity (needs lookup)
+        let flag_needs_lookup = create_test_flag(
+            Some(2),
+            Some(team.id),
+            None,
+            Some("flag_needs_lookup".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        // Flag 3: 100% rollout without continuity (no lookup needed)
+        let flag_no_continuity = create_test_flag(
+            Some(3),
+            Some(team.id),
+            None,
+            Some("flag_no_continuity".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(false),
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![
+                flag_optimizable.clone(),
+                flag_needs_lookup.clone(),
+                flag_no_continuity.clone(),
+            ],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            true, // optimization enabled
+        )
+        .await;
+
+        // Verify the lookup DID happen because flag_needs_lookup requires it.
+        // Even though flag_optimizable could be optimized, the presence of
+        // flag_needs_lookup forces a lookup for all flags with experience continuity.
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 1,
+            "Mixed flags should perform lookup when at least one flag needs it, but got {lookup_count} lookups"
+        );
+
+        // All flags should be evaluated
+        assert!(
+            result.flags.contains_key("flag_optimizable"),
+            "Optimizable flag should be evaluated"
+        );
+        assert!(
+            result.flags.contains_key("flag_needs_lookup"),
+            "Needs-lookup flag should be evaluated"
+        );
+        assert!(
+            result.flags.contains_key("flag_no_continuity"),
+            "No-continuity flag should be evaluated"
+        );
+
+        // 100% rollout flags should be enabled
+        assert!(
+            result.flags.get("flag_optimizable").unwrap().enabled,
+            "100% rollout flag should be enabled"
+        );
+        assert!(
+            result.flags.get("flag_no_continuity").unwrap().enabled,
+            "100% rollout no-continuity flag should be enabled"
+        );
+
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    /// Tests that flag_keys filtering is applied before computing optimization stats.
+    /// When only optimizable flags are requested via flag_keys, the lookup should be skipped
+    /// even if other flags (not being evaluated) would require it.
+    #[tokio::test]
+    async fn test_optimization_respects_flag_keys_filter() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "flag_keys_user".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "flag_keys@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Flag 1: 100% rollout with continuity (can be optimized)
+        let flag_optimizable = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag_optimizable".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        // Flag 2: 50% rollout with continuity (needs lookup)
+        let flag_needs_lookup = create_test_flag(
+            Some(2),
+            Some(team.id),
+            None,
+            Some("flag_needs_lookup".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag_optimizable.clone(), flag_needs_lookup.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            Some(vec!["flag_optimizable".to_string()]), // Only request the optimizable flag
+            true,                                       // optimization enabled
+        )
+        .await;
+
+        // Verify the lookup was SKIPPED because we only requested flag_optimizable,
+        // which is 100% rollout and doesn't need the hash key override lookup.
+        // The flag_needs_lookup exists but wasn't requested, so it shouldn't trigger a lookup.
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 0,
+            "Lookup should be skipped when flag_keys filters to only optimizable flags, but got {lookup_count} lookups"
+        );
+
+        // Only the requested flag should be evaluated
+        assert!(
+            result.flags.contains_key("flag_optimizable"),
+            "Optimizable flag should be evaluated"
+        );
+        assert!(
+            !result.flags.contains_key("flag_needs_lookup"),
+            "Needs-lookup flag should NOT be evaluated when not in flag_keys"
+        );
+
+        // The optimizable flag should be enabled (100% rollout)
+        assert!(
+            result.flags.get("flag_optimizable").unwrap().enabled,
+            "100% rollout flag should be enabled"
+        );
+
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    /// Tests that hash key lookup is NOT skipped when a requested flag depends on a flag that needs it.
+    /// This ensures the optimization correctly considers transitive dependencies.
+    ///
+    /// Scenario:
+    /// - Flag B: 50% rollout + experience continuity (needs hash lookup)
+    /// - Flag A: 100% rollout + experience continuity, depends on Flag B (doesn't need lookup itself)
+    /// - User requests only Flag A via flag_keys
+    /// - The lookup should happen because Flag B (a dependency) requires it
+    #[tokio::test]
+    async fn test_optimization_considers_dependencies_for_flag_keys() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "dependency_user".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "test@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Flag B: 50% rollout with experience continuity (NEEDS hash lookup)
+        // This is the dependency that requires the hash key override
+        let flag_needs_lookup = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag_needs_lookup".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0), // Partial rollout means we need consistent bucketing
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // experience continuity enabled
+        );
+
+        // Flag A: Depends on Flag B, with 100% rollout and experience continuity.
+        // This flag itself wouldn't need a hash lookup (100% rollout), but its dependency does.
+        let flag_depends_on_b = create_test_flag(
+            Some(2),
+            Some(team.id),
+            None,
+            Some("flag_depends_on_b".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "1".to_string(), // depends on flag with id=1
+                        value: Some(json!(true)),
+                        operator: Some(OperatorType::FlagEvaluatesTo),
+                        prop_type: PropertyType::Flag,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0), // 100% rollout - doesn't need lookup on its own
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // experience continuity enabled
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag_needs_lookup.clone(), flag_depends_on_b.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            Some(vec!["flag_depends_on_b".to_string()]), // Only request the dependent flag
+            true,                                        // optimization enabled
+        )
+        .await;
+
+        // The lookup SHOULD happen because flag_needs_lookup (a dependency) requires it,
+        // even though flag_depends_on_b itself wouldn't need it (100% rollout).
+        // Before the fix, this would incorrectly be 0.
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 1,
+            "Hash key lookup should happen because dependency flag_needs_lookup requires it"
+        );
+
+        // The dependent flag should be evaluated
+        assert!(
+            result.flags.contains_key("flag_depends_on_b"),
+            "Dependent flag should be evaluated"
+        );
+
+        // The dependency flag should also be in the result since it was evaluated as a dependency
+        assert!(
+            result.flags.contains_key("flag_needs_lookup"),
+            "Dependency flag should also be evaluated"
+        );
+
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
         );
     }
 }

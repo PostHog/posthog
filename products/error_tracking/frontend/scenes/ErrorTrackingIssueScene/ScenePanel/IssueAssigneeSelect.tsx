@@ -1,5 +1,5 @@
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 
@@ -24,7 +24,7 @@ export const IssueAssigneeSelect = ({
                             <AssigneeIconDisplay assignee={anyAssignee} size="small" />
                             <AssigneeLabelDisplay assignee={anyAssignee} className="ml-1" size="small" />
                         </div>
-                        {!disabled && <DropdownMenuOpenIndicator />}
+                        {!disabled && <MenuOpenIndicator className="ml-auto" />}
                     </ButtonPrimitive>
                 )}
             </AssigneeSelect>

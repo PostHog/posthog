@@ -24,7 +24,11 @@ import { Breadcrumb, Conversation, ConversationDetail, ConversationStatus, SideP
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
+import { PENDING_AI_PROMPT_KEY } from './maxThreadLogic'
 import { MaxUIContext } from './maxTypes'
+
+/** Maximum age for restored prompts (5 minutes) */
+const PENDING_PROMPT_MAX_AGE_MS = 5 * 60 * 1000
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -431,6 +435,23 @@ export const maxLogic = kea<maxLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
+        // Restore pending prompt from sessionStorage (e.g., after OAuth redirect during consent flow)
+        if (!values.question) {
+            try {
+                const stored = sessionStorage.getItem(PENDING_AI_PROMPT_KEY)
+                if (stored) {
+                    const { prompt, timestamp } = JSON.parse(stored)
+                    const isRecent = Date.now() - timestamp < PENDING_PROMPT_MAX_AGE_MS
+                    if (isRecent && prompt) {
+                        actions.setQuestion(prompt)
+                    }
+                    sessionStorage.removeItem(PENDING_AI_PROMPT_KEY)
+                }
+            } catch {
+                // sessionStorage might be unavailable or data malformed
+            }
+        }
+
         // If there is a prefill question from side panel state (from opening Max within the app), use it
         if (
             !values.question &&
@@ -483,6 +504,9 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             return [urls.ai(), {}, router.values.location.hash]
         },
+        openConversation: ({ conversationId }) => {
+            return [urls.ai(conversationId), {}, router.values.location.hash]
+        },
         setConversationId: ({ conversationId }) => {
             // Only set the URL parameter if this is a new conversation (using frontendConversationId)
             if (conversationId && conversationId === values.frontendConversationId) {
@@ -498,12 +522,17 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     if (!element) {
         return null
     }
-    const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
-    if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
-        // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
-        return scrollableEl.parentElement
+    let current = element.parentElement
+    while (current) {
+        if (current.classList.contains('SidePanel3000__content')) {
+            return current
+        }
+        if (current.tagName === 'MAIN') {
+            return current
+        }
+        current = current.parentElement
     }
-    return scrollableEl
+    return null
 }
 
 export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
@@ -582,6 +611,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Feature flags',
         icon: iconForType('feature_flag'),
+        url: urls.featureFlags(),
         suggestions: [
             {
                 content: 'Create a flag to gradually roll out…',
@@ -600,6 +630,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Experiments',
         icon: iconForType('experiment'),
+        url: urls.experiments(),
         suggestions: [
             {
                 content: 'Create an experiment to test…',

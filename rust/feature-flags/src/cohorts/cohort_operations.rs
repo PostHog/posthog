@@ -317,6 +317,7 @@ pub fn evaluate_dynamic_cohorts(
     initial_cohort_id: CohortId,
     target_properties: &HashMap<String, Value>,
     cohorts: &[Cohort],
+    static_cohort_matches: &HashMap<CohortId, bool>,
 ) -> Result<bool, FlagError> {
     // First check if this is a static cohort
     let initial_cohort = cohorts
@@ -337,6 +338,16 @@ pub fn evaluate_dynamic_cohorts(
 
     // Use for_each_dependencies_first to evaluate each cohort in the correct order
     let results = graph.for_each_dependencies_first(|cohort, results, result| {
+        // If this is a static cohort dependency, use the cached result
+        if cohort.is_static {
+            let cached_result = static_cohort_matches
+                .get(&cohort.id)
+                .copied()
+                .unwrap_or(false);
+            *result = cached_result;
+            return Ok(());
+        }
+
         *result = evaluate_single_cohort(cohort, target_properties, results)?;
         Ok(())
     })?;
@@ -668,10 +679,10 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_dynamic_cohorts_static_cohort_early_exit() {
-        // Create a static cohort
+    fn test_evaluate_dynamic_cohorts_with_static_cohort_dependency() {
+        // Create a static cohort (cohort 10)
         let static_cohort = Cohort {
-            id: 1,
+            id: 10,
             name: Some("Static Cohort".to_string()),
             description: None,
             team_id: 1,
@@ -688,14 +699,74 @@ mod tests {
             created_by_id: None,
         };
 
-        let cohorts = vec![static_cohort];
+        // Create a dynamic cohort (cohort 20) that depends on the static cohort
+        let dynamic_cohort = Cohort {
+            id: 20,
+            name: Some("Dynamic Cohort with Static Dependency".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: Some(json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "OR",
+                        "values": [{
+                            "key": "id",
+                            "type": "cohort",
+                            "value": 10,
+                            "negation": false
+                        }]
+                    }]
+                }
+            })),
+            query: None,
+            version: None,
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: false,
+            errors_calculating: 0,
+            groups: json!({}),
+            created_by_id: None,
+        };
+
+        let cohorts = vec![static_cohort, dynamic_cohort];
         let target_properties = HashMap::new();
 
-        // evaluate_dynamic_cohorts should return false early for static cohorts
-        let result = evaluate_dynamic_cohorts(1, &target_properties, &cohorts).unwrap();
+        // Test case 1: Static cohort is in cache and matches
+        let mut static_cohort_matches = HashMap::new();
+        static_cohort_matches.insert(10, true);
+
+        let result =
+            evaluate_dynamic_cohorts(20, &target_properties, &cohorts, &static_cohort_matches)
+                .unwrap();
+        assert!(
+            result,
+            "Dynamic cohort should match when its static cohort dependency matches"
+        );
+
+        // Test case 2: Static cohort is in cache but doesn't match
+        let mut static_cohort_matches = HashMap::new();
+        static_cohort_matches.insert(10, false);
+
+        let result =
+            evaluate_dynamic_cohorts(20, &target_properties, &cohorts, &static_cohort_matches)
+                .unwrap();
         assert!(
             !result,
-            "Static cohorts should return false from evaluate_dynamic_cohorts"
+            "Dynamic cohort should not match when its static cohort dependency doesn't match"
+        );
+
+        // Test case 3: Static cohort is not in cache (defaults to false)
+        let static_cohort_matches = HashMap::new();
+
+        let result =
+            evaluate_dynamic_cohorts(20, &target_properties, &cohorts, &static_cohort_matches)
+                .unwrap();
+        assert!(
+            !result,
+            "Dynamic cohort should not match when static cohort is not in cache"
         );
     }
 
@@ -746,13 +817,16 @@ mod tests {
         };
 
         let cohorts = vec![cohort_with_negation];
+        let static_cohort_matches = HashMap::new();
 
         // Test case 1: User with @example.com email but NOT excluded
         // Should match because: regex matches AND (icontains doesn't match -> negated to true)
         let mut target_properties = HashMap::new();
         target_properties.insert("email".to_string(), json!("test.user@example.com"));
 
-        let result = evaluate_dynamic_cohorts(1, &target_properties, &cohorts).unwrap();
+        let result =
+            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &static_cohort_matches)
+                .unwrap();
         assert!(
             result,
             "User with @example.com email should match when not excluded"
@@ -762,7 +836,9 @@ mod tests {
         // Should NOT match because: regex matches BUT (icontains matches -> negated to false)
         target_properties.insert("email".to_string(), json!("excluded.user@example.com"));
 
-        let result = evaluate_dynamic_cohorts(1, &target_properties, &cohorts).unwrap();
+        let result =
+            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &static_cohort_matches)
+                .unwrap();
         assert!(
             !result,
             "User with @example.com email should NOT match when excluded"
@@ -772,14 +848,18 @@ mod tests {
         // Should NOT match because: regex doesn't match (regardless of negation)
         target_properties.insert("email".to_string(), json!("test.user@other.com"));
 
-        let result = evaluate_dynamic_cohorts(1, &target_properties, &cohorts).unwrap();
+        let result =
+            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &static_cohort_matches)
+                .unwrap();
         assert!(!result, "User without @example.com email should NOT match");
 
         // Test case 4: User with excluded term but wrong domain
         // Should NOT match because: regex doesn't match (regardless of negation)
         target_properties.insert("email".to_string(), json!("excluded.user@other.com"));
 
-        let result = evaluate_dynamic_cohorts(1, &target_properties, &cohorts).unwrap();
+        let result =
+            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &static_cohort_matches)
+                .unwrap();
         assert!(
             !result,
             "User with wrong domain should NOT match regardless of exclusion"

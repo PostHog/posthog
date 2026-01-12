@@ -10,6 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -17,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
-from posthog.schema import DataWarehouseManagedViewsetKind
+from posthog.schema import DataWarehouseManagedViewsetKind, ProductKey
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -28,6 +29,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -42,6 +44,8 @@ from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
     pause_saved_query_schedule,
+    saved_query_workflow_exists,
+    sync_saved_query_workflow,
     trigger_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
@@ -60,7 +64,81 @@ from products.data_warehouse.backend.models.external_data_schema import (
 logger = structlog.get_logger(__name__)
 
 
-class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
+class DataWarehouseSavedQuerySerializerMixin:
+    """Shared methods for DataWarehouseSavedQuery serializers.
+
+    This mixin is intended to be used with serializers.ModelSerializer subclasses.
+    """
+
+    def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
+        try:
+            jobs = view.jobs  # type: ignore
+            if len(jobs) > 0:
+                return jobs[0].last_run_at
+        except Exception:
+            pass
+
+        return view.last_run_at
+
+    def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
+        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+
+    def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
+        return cast(DataWarehouseManagedViewsetKind, view.managed_viewset.kind) if view.managed_viewset else None
+
+    def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
+        team_id = self.context["team_id"]  # type: ignore[attr-defined]
+        database = self.context.get("database", None)  # type: ignore[attr-defined]
+        if not database:
+            database = Database.create_for(team_id=team_id)
+
+        context = HogQLContext(team_id=team_id, database=database)
+
+        fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
+        return [
+            SerializedField(
+                key=field.name,
+                name=field.name,
+                type=field.type,
+                schema_valid=field.schema_valid,
+                fields=field.fields,
+                table=field.table,
+                chain=field.chain,
+            )
+            for field in fields
+        ]
+
+
+class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+    """Lightweight serializer for list views - excludes large query field to reduce memory usage."""
+
+    created_by = UserBasicSerializer(read_only=True)
+    columns = serializers.SerializerMethodField(read_only=True)
+    sync_frequency = serializers.SerializerMethodField()
+    last_run_at = serializers.SerializerMethodField(read_only=True)
+    managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = DataWarehouseSavedQuery
+        fields = [
+            "id",
+            "deleted",
+            "name",
+            "created_by",
+            "created_at",
+            "sync_frequency",
+            "columns",
+            "status",
+            "last_run_at",
+            "managed_viewset_kind",
+            "latest_error",
+            "is_materialized",
+            "origin",
+        ]
+        read_only_fields = fields
+
+
+class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
@@ -89,6 +167,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_history_id",
             "soft_update",
             "is_materialized",
+            "origin",
         ]
         read_only_fields = [
             "id",
@@ -101,45 +180,11 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_error",
             "latest_history_id",
             "is_materialized",
+            "origin",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
         }
-
-    def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
-        try:
-            jobs = view.jobs  # type: ignore
-            if len(jobs) > 0:
-                return jobs[0].last_run_at
-        except:
-            pass
-
-        return view.last_run_at
-
-    def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
-        team_id = self.context["team_id"]
-        database = self.context.get("database", None)
-        if not database:
-            database = Database.create_for(team_id=team_id)
-
-        context = HogQLContext(team_id=team_id, database=database)
-
-        fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
-        return [
-            SerializedField(
-                key=field.name,
-                name=field.name,
-                type=field.type,
-                schema_valid=field.schema_valid,
-                fields=field.fields,
-                table=field.table,
-                chain=field.chain,
-            )
-            for field in fields
-        ]
-
-    def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
-        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
 
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
         # First check if we have an activity log from a recent creation/update
@@ -155,9 +200,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             return view.latest_activity_id
 
         return None
-
-    def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
-        return cast(DataWarehouseManagedViewsetKind, view.managed_viewset.kind) if view.managed_viewset else None
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
@@ -237,8 +279,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             before_update = None
 
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
-        was_sync_frequency_updated = False
-
         soft_update = validated_data.pop("soft_update", False)
 
         with transaction.atomic():
@@ -259,16 +299,12 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError("The query was modified by someone else.")
 
             if sync_frequency == "never":
-                pause_saved_query_schedule(str(locked_instance.id))
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
-                validated_data["is_materialized"] = True
             elif sync_frequency:
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
-                was_sync_frequency_updated = True
                 locked_instance.sync_frequency_interval = sync_frequency_interval
-                validated_data["is_materialized"] = True
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
@@ -301,7 +337,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             try:
                 view.setup_model_paths()
-            except Exception:
+            except Exception as e:
+                capture_exception(e)
                 logger.exception("Failed to update model path when updating view %s", view.name)
 
             team = Team.objects.get(id=view.team_id)
@@ -329,14 +366,22 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-
-            if sync_frequency and sync_frequency != "never":
-                view.setup_model_paths()
-
-        if was_sync_frequency_updated:
-            view.schedule_materialization(
-                unpause=before_update is not None and before_update.sync_frequency_interval is None
-            )
+            # update the temporal schedule if it exists
+            view_id = str(view.id)
+            temporal_schedule_exists = saved_query_workflow_exists(view_id)
+            if temporal_schedule_exists:
+                try:
+                    if sync_frequency == "never":
+                        pause_saved_query_schedule(view_id)
+                    elif sync_frequency:
+                        sync_saved_query_workflow(view, create=not temporal_schedule_exists)
+                except Exception as e:
+                    capture_exception(e)
+                    logger.exception(
+                        "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
+                        view.name,
+                        sync_frequency,
+                    )
 
         return view
 
@@ -392,6 +437,7 @@ class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
 
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -409,6 +455,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         context = super().get_serializer_context()
         context["database"] = Database.create_for(team_id=self.team_id)
         return context
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return DataWarehouseSavedQueryMinimalSerializer
+        return DataWarehouseSavedQuerySerializer
 
     def safely_get_queryset(self, queryset):
         base_queryset = (
@@ -521,6 +572,38 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             raise serializers.ValidationError("Cannot revert materialization of a query from a managed viewset.")
 
         saved_query.revert_materialization()
+
+        return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def materialize(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Enable materialization for this saved query with a 24-hour sync frequency.
+        """
+        saved_query: DataWarehouseSavedQuery = self.get_object()
+
+        if saved_query.managed_viewset is not None:
+            raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")
+
+        sync_frequency_interval = sync_frequency_to_sync_frequency_interval("24hour")
+
+        should_unpause = saved_query.sync_frequency_interval is None
+
+        saved_query.sync_frequency_interval = sync_frequency_interval
+        saved_query.is_materialized = True
+        saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
+
+        # Enable materialization - this handles model path setup and schedule creation
+        # If this fails, it will set is_materialized = False
+        saved_query.schedule_materialization(unpause=should_unpause)
+
+        # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
+        saved_query.refresh_from_db()
+        if saved_query.is_materialized is False:
+            return response.Response(
+                {"error": "Materialization failed. Please try again or contact support."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return response.Response(status=status.HTTP_200_OK)
 

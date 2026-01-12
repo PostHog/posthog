@@ -6,7 +6,9 @@ from .get_sandbox_for_repository import (
     get_sandbox_for_repository,
 )
 from .get_task_processing_context import TaskProcessingContext, get_task_processing_context
+from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
+from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 
 __all__ = [
     "CleanupSandboxInput",
@@ -14,11 +16,15 @@ __all__ = [
     "ExecuteTaskOutput",
     "GetSandboxForRepositoryInput",
     "GetSandboxForRepositoryOutput",
+    "PostSlackUpdateInput",
     "TaskProcessingContext",
     "TrackWorkflowEventInput",
+    "UpdateTaskRunStatusInput",
     "cleanup_sandbox",
     "execute_task_in_sandbox",
     "get_sandbox_for_repository",
     "get_task_processing_context",
+    "post_slack_update",
     "track_workflow_event",
+    "update_task_run_status",
 ]

@@ -8,6 +8,7 @@ def migrate_event_names_and_properties(apps, schema_editor):
     Team = apps.get_model("posthog", "Team")
     Event = apps.get_model("posthog", "Event")
 
+    # nosemgrep: python.django.security.audit.extends-custom-expression.extends-custom-expression (migration ran once in 2020, no user input)
     class JsonKeys(models.Func):
         function = "jsonb_object_keys"
 

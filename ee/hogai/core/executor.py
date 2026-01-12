@@ -46,14 +46,17 @@ class AgentExecutor:
     def __init__(
         self,
         conversation: Conversation,
+        stream_key: str | None = None,
         timeout: int = CONVERSATION_STREAM_TIMEOUT,
         max_length: int = CONVERSATION_STREAM_MAX_LENGTH,
+        reconnectable: bool = True,
     ) -> None:
         self._conversation = conversation
-        self._redis_stream = ConversationRedisStream(
-            get_conversation_stream_key(conversation.id), timeout=timeout, max_length=max_length
-        )
+        if stream_key is None:
+            stream_key = get_conversation_stream_key(conversation.id)
+        self._redis_stream = ConversationRedisStream(stream_key, timeout=timeout, max_length=max_length)
         self._workflow_id = f"conversation-{conversation.id}"
+        self._reconnectable = reconnectable
 
     async def astream(self, workflow: type[AgentBaseWorkflow], inputs: Any) -> AsyncGenerator[AssistantOutput, Any]:
         """Stream agent workflow updates from Redis stream.
@@ -66,8 +69,8 @@ class AgentExecutor:
             AssistantOutput generator
         """
         # If this is a reconnection attempt, we resume streaming
-        if self._conversation.status != Conversation.Status.IDLE:
-            if inputs.message is not None:
+        if self._conversation.status != Conversation.Status.IDLE and self._reconnectable:
+            if hasattr(inputs, "message") and inputs.message is not None:
                 raise ValueError("Cannot resume streaming with a new message")
             async for chunk in self.stream_conversation():
                 yield chunk
@@ -155,7 +158,6 @@ class AgentExecutor:
 
                 if message:
                     yield message
-
         except Exception as e:
             logger.exception("Error streaming conversation", error=e)
             yield self._failure_message()
@@ -195,6 +197,8 @@ class AgentExecutor:
     async def cancel_workflow(self) -> None:
         """Cancel the current conversation and clean up resources.
 
+        This cancels both the main conversation workflow and any running subagent workflows.
+
         Raises:
             Exception: If cancellation fails
         """
@@ -202,10 +206,48 @@ class AgentExecutor:
         await self._conversation.asave(update_fields=["status", "updated_at"])
 
         client = await async_connect()
+
+        # Cancel the main conversation workflow
         handle = client.get_workflow_handle(workflow_id=self._workflow_id)
         await handle.cancel()
+
+        # Cancel any running subagent workflows for this conversation
+        await self._cancel_subagent_workflows(client)
 
         await self._redis_stream.delete_stream()
 
         self._conversation.status = Conversation.Status.IDLE
         await self._conversation.asave(update_fields=["status", "updated_at"])
+
+    async def _cancel_subagent_workflows(self, client) -> None:
+        """Cancel all running subagent workflows for this conversation.
+
+        Subagent workflows have IDs in the format: subagent-{conversation_id}-{tool_call_id}
+
+        Args:
+            client: Temporal client
+        """
+        # Query for all running subagent workflows for this conversation
+        subagent_prefix = f"subagent-{self._conversation.id}-"
+        query = f'WorkflowId STARTS_WITH "{subagent_prefix}" AND ExecutionStatus = "Running"'
+
+        try:
+            async for workflow in client.list_workflows(query=query):
+                try:
+                    subagent_handle = client.get_workflow_handle(workflow_id=workflow.id)
+                    await subagent_handle.cancel()
+                except Exception as e:
+                    # Log but don't fail if a single subagent cancellation fails
+                    logger.warning(
+                        "Failed to cancel subagent workflow",
+                        workflow_id=workflow.id,
+                        conversation_id=str(self._conversation.id),
+                        error=str(e),
+                    )
+        except Exception as e:
+            # Log but don't fail the main cancellation if listing subagents fails
+            logger.warning(
+                "Failed to list subagent workflows for cancellation",
+                conversation_id=str(self._conversation.id),
+                error=str(e),
+            )

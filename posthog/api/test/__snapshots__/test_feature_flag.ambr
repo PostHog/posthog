@@ -2,19 +2,30 @@
 # name: TestBlastRadius.test_user_blast_radius
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT id
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
+            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
      FROM person
-     WHERE team_id = 99999
-       AND id IN
-         (SELECT id
-          FROM person
-          WHERE team_id = 99999
-            AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', ''))) )
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1)
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('0', '1', '2', '3'))))))
+     GROUP BY person.id
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+  WHERE and(ifNull(equals(persons.team_id, 99999), 0), in(persons.properties___group, tuple('0', '1', '2', '3')))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius.1
@@ -32,16 +43,27 @@
 # name: TestBlastRadius.test_user_blast_radius_with_group_key_property
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
+  SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
+    (SELECT tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            groups.group_type_index AS index,
+            groups.group_key AS key
      FROM groups
-     WHERE team_id = 99999
-       AND group_type_index = 0
-     GROUP BY group_key
-     HAVING 1=1
-     AND (group_key = 'special-workspace'))
+     WHERE equals(groups.team_id, 99999)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups
+  WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), ifNull(equals(groups.key, 'special-workspace'), 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_group_key_property.1
@@ -56,31 +78,54 @@
 # name: TestBlastRadius.test_user_blast_radius_with_group_key_property.2
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
+  SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
+    (SELECT tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            groups.group_type_index AS index,
+            groups.group_key AS key
      FROM groups
-     WHERE team_id = 99999
-       AND group_type_index = 0
-     GROUP BY group_key
-     HAVING 1=1
-     AND (group_key ILIKE '%org:%'))
+     WHERE equals(groups.team_id, 99999)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups
+  WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), ifNull(ilike(groups.key, '%org:%'), 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
+  SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+            tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            groups.group_type_index AS index,
+            groups.group_key AS key
      FROM groups
-     WHERE team_id = 99999
-       AND group_type_index = 0
-     GROUP BY group_key
-     HAVING 1=1
-     AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
+     WHERE equals(groups.team_id, 99999)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups
+  WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), in(groups.properties___industry, tuple('0', '1', '2', '3')))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups.1
@@ -95,17 +140,28 @@
 # name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
+  SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+            tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            groups.group_type_index AS index,
+            groups.group_key AS key
      FROM groups
-     WHERE team_id = 99999
-       AND group_type_index = 0
-     GROUP BY group_key
-     HAVING 1=1
-     AND ((has(['0', '1', '2', '3', '4'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-          AND (has(['2', '3', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))))
+     WHERE equals(groups.team_id, 99999)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups
+  WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), and(in(groups.properties___industry, tuple('0', '1', '2', '3', '4')), in(groups.properties___industry, tuple('2', '3', '4', '5', '6'))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.1
@@ -140,25 +196,41 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT id
+    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
      FROM person
-     WHERE team_id = 99999
-       AND id in
-         (SELECT DISTINCT person_id
-          FROM cohortpeople
-          WHERE team_id = 99999
-            AND cohort_id = 99999
-            AND version = 0 )
-       AND id in
-         (SELECT DISTINCT person_id
-          FROM cohortpeople
-          WHERE team_id = 99999
-            AND cohort_id = 99999
-            AND version = 0 )
-     GROUP BY id
-     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(where_optimization.id,
+                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+     GROUP BY person.id
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+  WHERE and(ifNull(equals(persons.team_id, 99999), 0), and(in(persons.id,
+                                                                (SELECT cohortpeople.person_id AS person_id
+                                                                 FROM cohortpeople
+                                                                 WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(persons.id,
+                                                                                                                                                                                                (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                 FROM cohortpeople
+                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
@@ -176,27 +248,36 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT id
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
+            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
      FROM person
-     WHERE team_id = 99999
-       AND id IN
-         (SELECT id
-          FROM person
-          INNER JOIN
-            (SELECT person_id
-             FROM person_static_cohort
-             WHERE team_id = 99999
-               AND cohort_id = 99999
-             GROUP BY person_id,
-                      cohort_id,
-                      team_id) cohort_persons ON cohort_persons.person_id = person.id
-          WHERE team_id = 99999
-            AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', '')))) )
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1)
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                         (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                          FROM person_static_cohort
+                                                                                                                                                          WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '4', '5', '6'))))))
+     GROUP BY person.id
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+  WHERE and(ifNull(equals(persons.team_id, 99999), 0), and(in(persons.id,
+                                                                (SELECT person_static_cohort.person_id AS person_id
+                                                                 FROM person_static_cohort
+                                                                 WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.properties___group, tuple('1', '2', '4', '5', '6'))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
@@ -224,44 +305,70 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT id
+    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
      FROM person
-     WHERE team_id = 99999
-       AND id in
-         (SELECT person_id as id
-          FROM person_static_cohort
-          WHERE cohort_id = 99999
-            AND team_id = 99999)
-       AND id in
-         (SELECT DISTINCT person_id
-          FROM cohortpeople
-          WHERE team_id = 99999
-            AND cohort_id = 99999
-            AND version = 0 )
-     GROUP BY id
-     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                         (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                          FROM person_static_cohort
+                                                                                                                                                          WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(where_optimization.id,
+                                                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                         FROM cohortpeople
+                                                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+     GROUP BY person.id
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+  WHERE and(ifNull(equals(persons.team_id, 99999), 0), and(in(persons.id,
+                                                                (SELECT person_static_cohort.person_id AS person_id
+                                                                 FROM person_static_cohort
+                                                                 WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.id,
+                                                                                                                                                                               (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                FROM cohortpeople
+                                                                                                                                                                                WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT id
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
+            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
      FROM person
-     WHERE team_id = 99999
-       AND id IN
-         (SELECT id
-          FROM person
-          WHERE team_id = 99999
-            AND (((has(['none'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', '')))
-                  OR (has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', ''))))) )
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (((has(['none'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))
-           OR (has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1)
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), 'none'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '3')))))))
+     GROUP BY person.id
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+  WHERE and(ifNull(equals(persons.team_id, 99999), 0), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
@@ -289,20 +396,35 @@
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT id
+    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
      FROM person
-     INNER JOIN
-       (SELECT DISTINCT person_id
-        FROM cohortpeople
-        WHERE team_id = 99999
-          AND cohort_id = 99999
-          AND version = 0
-        ORDER BY person_id) cohort_persons ON cohort_persons.person_id = person.id
-     WHERE team_id = 99999
-     GROUP BY id
-     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+     GROUP BY person.id
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+  WHERE and(ifNull(equals(persons.team_id, 99999), 0), in(persons.id,
+                                                            (SELECT cohortpeople.person_id AS person_id
+                                                             FROM cohortpeople
+                                                             WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator
@@ -348,6 +470,36 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.10
   '''
+  SELECT "posthog_featureflagevaluationtag"."id",
+         "posthog_featureflagevaluationtag"."feature_flag_id",
+         "posthog_featureflagevaluationtag"."tag_id",
+         "posthog_featureflagevaluationtag"."created_at",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_featureflagevaluationtag"
+  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.11
+  '''
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.12
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -373,7 +525,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.11
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.13
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -400,13 +552,19 @@
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.12
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.14
   '''
   SELECT "posthog_featureflagevaluationtag"."id",
          "posthog_featureflagevaluationtag"."feature_flag_id",
@@ -420,7 +578,7 @@
   WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.13
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.15
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -442,7 +600,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.14
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.16
   '''
   SELECT "posthog_filesystemshortcut"."id",
          "posthog_filesystemshortcut"."team_id",
@@ -461,7 +619,7 @@
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.15
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.17
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -494,8 +652,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -548,78 +709,20 @@
   LIMIT 21
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.16
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."cohort_type",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.17
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."updated_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."version",
-         "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime",
-         "posthog_featureflag"."bucketing_identifier",
-         "posthog_featureflag"."last_called_at"
-  FROM "posthog_featureflag"
-  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  '''
-# ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.18
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.19
@@ -704,13 +807,115 @@
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.21
+  '''
+  SELECT "posthog_featureflagevaluationtag"."id",
+         "posthog_featureflagevaluationtag"."feature_flag_id",
+         "posthog_featureflagevaluationtag"."tag_id",
+         "posthog_featureflagevaluationtag"."created_at",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_featureflagevaluationtag"
+  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.22
+  '''
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.23
+  '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_team"."project_id" = 99999)
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.24
+  '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."version",
+         "posthog_featureflag"."last_modified_by_id",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."bucketing_identifier",
+         "posthog_featureflag"."last_called_at"
+  FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.25
   '''
   SELECT "posthog_featureflagevaluationtag"."id",
          "posthog_featureflagevaluationtag"."feature_flag_id",
@@ -757,8 +962,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -892,8 +1100,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -948,6 +1159,22 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.7
   '''
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.8
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -973,7 +1200,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.8
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.9
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -1000,24 +1227,16 @@
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.9
-  '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too
@@ -1063,6 +1282,45 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.10
   '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."version",
+         "posthog_featureflag"."last_modified_by_id",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."bucketing_identifier",
+         "posthog_featureflag"."last_called_at"
+  FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.11
+  '''
   SELECT "posthog_featureflagevaluationtag"."id",
          "posthog_featureflagevaluationtag"."feature_flag_id",
          "posthog_featureflagevaluationtag"."tag_id",
@@ -1075,7 +1333,23 @@
   WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.11
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.12
+  '''
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.13
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -1102,7 +1376,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.12
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.14
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -1129,13 +1403,19 @@
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.13
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.15
   '''
   SELECT "posthog_featureflagevaluationtag"."id",
          "posthog_featureflagevaluationtag"."feature_flag_id",
@@ -1237,8 +1517,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -1372,8 +1655,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -1428,6 +1714,22 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.8
   '''
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.9
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -1450,39 +1752,6 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.9
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."updated_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."version",
-         "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime",
-         "posthog_featureflag"."bucketing_identifier",
-         "posthog_featureflag"."last_called_at"
-  FROM "posthog_featureflag"
-  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
@@ -1543,6 +1812,36 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.11
   '''
+  SELECT "posthog_featureflagevaluationtag"."id",
+         "posthog_featureflagevaluationtag"."feature_flag_id",
+         "posthog_featureflagevaluationtag"."tag_id",
+         "posthog_featureflagevaluationtag"."created_at",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_featureflagevaluationtag"
+  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.12
+  '''
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.13
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -1568,7 +1867,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.12
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.14
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -1595,41 +1894,47 @@
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.13
-  '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.14
-  '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.15
+  '''
+  SELECT "posthog_featureflagevaluationtag"."id",
+         "posthog_featureflagevaluationtag"."feature_flag_id",
+         "posthog_featureflagevaluationtag"."tag_id",
+         "posthog_featureflagevaluationtag"."created_at",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_featureflagevaluationtag"
+  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.16
+  '''
+  SELECT "posthog_featureflagevaluationtag"."id",
+         "posthog_featureflagevaluationtag"."feature_flag_id",
+         "posthog_featureflagevaluationtag"."tag_id",
+         "posthog_featureflagevaluationtag"."created_at",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_featureflagevaluationtag"
+  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.17
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."project_id"
@@ -1638,7 +1943,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.16
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.18
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -1670,7 +1975,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.17
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.19
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -1698,7 +2003,35 @@
   LIMIT 21
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.18
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.2
+  '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_cohort"."id" = 99999
+         AND "posthog_team"."project_id" = 99999)
+  LIMIT 21
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.20
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1731,8 +2064,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -1792,7 +2128,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.19
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.21
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -1814,35 +2150,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.2
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."cohort_type",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_cohort"."id" = 99999
-         AND "posthog_team"."project_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.20
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.22
   '''
   SELECT "posthog_filesystemshortcut"."id",
          "posthog_filesystemshortcut"."team_id",
@@ -1861,7 +2169,7 @@
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.21
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.23
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1894,8 +2202,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -1948,96 +2259,24 @@
   LIMIT 21
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.22
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."cohort_type",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.23
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."updated_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."version",
-         "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime",
-         "posthog_featureflag"."bucketing_identifier",
-         "posthog_featureflag"."last_called_at"
-  FROM "posthog_featureflag"
-  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  '''
-# ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.24
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.25
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.26
-  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -2063,7 +2302,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.27
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.26
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -2090,10 +2329,30 @@
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.27
+  '''
+  SELECT "posthog_featureflagevaluationtag"."id",
+         "posthog_featureflagevaluationtag"."feature_flag_id",
+         "posthog_featureflagevaluationtag"."tag_id",
+         "posthog_featureflagevaluationtag"."created_at",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_featureflagevaluationtag"
+  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.28
@@ -2112,16 +2371,18 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.29
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.3
@@ -2157,8 +2418,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -2216,6 +2480,100 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.30
+  '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_team"."project_id" = 99999)
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.31
+  '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."version",
+         "posthog_featureflag"."last_modified_by_id",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."bucketing_identifier",
+         "posthog_featureflag"."last_called_at"
+  FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.32
+  '''
+  SELECT "posthog_featureflagevaluationtag"."id",
+         "posthog_featureflagevaluationtag"."feature_flag_id",
+         "posthog_featureflagevaluationtag"."tag_id",
+         "posthog_featureflagevaluationtag"."created_at",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_featureflagevaluationtag"
+  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.33
+  '''
+  SELECT "posthog_featureflagevaluationtag"."id",
+         "posthog_featureflagevaluationtag"."feature_flag_id",
+         "posthog_featureflagevaluationtag"."tag_id",
+         "posthog_featureflagevaluationtag"."created_at",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_featureflagevaluationtag"
+  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.4
@@ -2292,8 +2650,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -2348,6 +2709,22 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.7
   '''
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.8
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -2373,7 +2750,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.8
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.9
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -2400,24 +2777,16 @@
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.9
-  '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag
@@ -2463,6 +2832,36 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.10
   '''
+  SELECT "posthog_featureflagevaluationtag"."id",
+         "posthog_featureflagevaluationtag"."feature_flag_id",
+         "posthog_featureflagevaluationtag"."tag_id",
+         "posthog_featureflagevaluationtag"."created_at",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_featureflagevaluationtag"
+  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.11
+  '''
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.12
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -2488,7 +2887,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.11
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.13
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -2515,13 +2914,19 @@
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.12
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.14
   '''
   SELECT "posthog_featureflagevaluationtag"."id",
          "posthog_featureflagevaluationtag"."feature_flag_id",
@@ -2596,8 +3001,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -2731,8 +3139,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -2787,6 +3198,22 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.7
   '''
+  SELECT "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id"
+  FROM "posthog_survey"
+  INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_survey"."team_id" =
+           (SELECT U0."parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_survey"."team_id" = 99999))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.8
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -2812,7 +3239,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.8
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.9
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -2839,24 +3266,16 @@
          "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."is_remote_configuration"
-              AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.9
-  '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT ("posthog_featureflag"."is_remote_configuration"
+                  AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
+         AND NOT "posthog_featureflag"."deleted")
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort
@@ -2883,9 +3302,11 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -2901,6 +3322,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -2961,8 +3384,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -3046,6 +3472,47 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.12
   '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.13
+  '''
+  SELECT "posthog_filesystemshortcut"."id",
+         "posthog_filesystemshortcut"."team_id",
+         "posthog_filesystemshortcut"."user_id",
+         "posthog_filesystemshortcut"."path",
+         "posthog_filesystemshortcut"."type",
+         "posthog_filesystemshortcut"."ref",
+         "posthog_filesystemshortcut"."href",
+         "posthog_filesystemshortcut"."created_at"
+  FROM "posthog_filesystemshortcut"
+  WHERE ("posthog_filesystemshortcut"."ref" = '0001'
+         AND "posthog_filesystemshortcut"."team_id" = 99999
+         AND "posthog_filesystemshortcut"."type" = 'cohort'
+         AND NOT ("posthog_filesystemshortcut"."path" = 'Users with feature flag some-feature enabled at 2021-01-01 00:00:00'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
+                  AND "posthog_filesystemshortcut"."href" IS NOT NULL))
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.14
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."project_id"
   FROM "posthog_team"
@@ -3053,7 +3520,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.13
+# name: TestFeatureFlag.test_creating_static_cohort.15
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -3085,7 +3552,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.14
+# name: TestFeatureFlag.test_creating_static_cohort.16
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -3113,7 +3580,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.15
+# name: TestFeatureFlag.test_creating_static_cohort.17
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -3146,8 +3613,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -3207,7 +3677,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.16
+# name: TestFeatureFlag.test_creating_static_cohort.18
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -3229,7 +3699,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.17
+# name: TestFeatureFlag.test_creating_static_cohort.19
   '''
   SELECT "posthog_filesystemshortcut"."id",
          "posthog_filesystemshortcut"."team_id",
@@ -3246,126 +3716,6 @@
          AND NOT ("posthog_filesystemshortcut"."path" = 'Users with feature flag some-feature enabled at 2021-01-01 00:00:00'
                   AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.18
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."cohort_type",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.19
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."parent_team_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."onboarding_tasks",
-         "posthog_team"."ingested_event",
-         "posthog_team"."person_processing_opt_out",
-         "posthog_team"."secret_api_token",
-         "posthog_team"."secret_api_token_backup",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_recording_masking_config",
-         "posthog_team"."session_recording_url_trigger_config",
-         "posthog_team"."session_recording_url_blocklist_config",
-         "posthog_team"."session_recording_event_trigger_config",
-         "posthog_team"."session_recording_trigger_match_type_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
-         "posthog_team"."survey_config",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."capture_dead_clicks",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_web_vitals_opt_in",
-         "posthog_team"."autocapture_web_vitals_allowed_metrics",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."receive_org_level_activity_logs",
-         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
-         "posthog_team"."web_analytics_pre_aggregated_tables_version",
-         "posthog_team"."flags_persistence_default",
-         "posthog_team"."feature_flag_confirmation_enabled",
-         "posthog_team"."feature_flag_confirmation_message",
-         "posthog_team"."default_evaluation_environments_enabled",
-         "posthog_team"."require_evaluation_environment_tags",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."human_friendly_comparison_periods",
-         "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."default_data_theme",
-         "posthog_team"."extra_settings",
-         "posthog_team"."modifiers",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
-         "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.2
@@ -3401,8 +3751,11 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -3457,6 +3810,129 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.20
   '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  WHERE "posthog_cohort"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.21
+  '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
+         "posthog_team"."ingested_event",
+         "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_masking_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
+         "posthog_team"."survey_config",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
+         "posthog_team"."web_analytics_pre_aggregated_tables_version",
+         "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
+         "posthog_team"."default_evaluation_environments_enabled",
+         "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
+         "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."plugins_opt_in",
+         "posthog_team"."opt_out_capture",
+         "posthog_team"."event_names",
+         "posthog_team"."event_names_with_usage",
+         "posthog_team"."event_properties",
+         "posthog_team"."event_properties_with_usage",
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at",
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
+         "posthog_team"."base_currency",
+         "posthog_team"."experiment_recalculation_time",
+         "posthog_team"."business_model"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.22
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -3480,9 +3956,11 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -3490,7 +3968,28 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.21
+# name: TestFeatureFlag.test_creating_static_cohort.23
+  '''
+  SELECT "posthog_cohortcalculationhistory"."id",
+         "posthog_cohortcalculationhistory"."team_id",
+         "posthog_cohortcalculationhistory"."cohort_id",
+         "posthog_cohortcalculationhistory"."filters",
+         "posthog_cohortcalculationhistory"."count",
+         "posthog_cohortcalculationhistory"."started_at",
+         "posthog_cohortcalculationhistory"."finished_at",
+         "posthog_cohortcalculationhistory"."queries",
+         "posthog_cohortcalculationhistory"."error",
+         "posthog_cohortcalculationhistory"."error_code"
+  FROM "posthog_cohortcalculationhistory"
+  WHERE ("posthog_cohortcalculationhistory"."cohort_id" = 99999
+         AND NOT ("posthog_cohortcalculationhistory"."error" IS NULL)
+         AND NOT ("posthog_cohortcalculationhistory"."error" = ''
+                  AND "posthog_cohortcalculationhistory"."error" IS NOT NULL))
+  ORDER BY "posthog_cohortcalculationhistory"."started_at" DESC
+  LIMIT 1
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.24
   '''
   SELECT "posthog_experiment"."id",
          "posthog_experiment"."name",
@@ -3517,13 +4016,14 @@
          "posthog_experiment"."primary_metrics_ordered_uuids",
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
+         "posthog_experiment"."scheduling_config",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.22
+# name: TestFeatureFlag.test_creating_static_cohort.25
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
@@ -3569,6 +4069,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -3658,6 +4160,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -3733,9 +4237,11 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T5."id",
@@ -3761,9 +4267,11 @@
          T5."theme_mode",
          T5."partial_notification_settings",
          T5."anonymize_data",
+         T5."allow_impersonation",
          T5."toolbar_mode",
          T5."hedgehog_config",
          T5."allow_sidebar_suggestions",
+         T5."shortcut_position",
          T5."events_column_config",
          T5."email_opt_in"
   FROM "posthog_featureflag"
@@ -3802,6 +4310,7 @@
          "posthog_experiment"."primary_metrics_ordered_uuids",
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
+         "posthog_experiment"."scheduling_config",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"

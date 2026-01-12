@@ -1,50 +1,71 @@
 import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
-import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import api from 'lib/api'
+import { dataColorVars } from 'lib/colors'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { humanFriendlyDetailedTime } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanFriendlyDetailedTime, parseTagsFilter } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
+import {
+    DateRange,
+    LogMessage,
+    LogSeverityLevel,
+    LogsQuery,
+    LogsSparklineBreakdownBy,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import {
+    JsonType,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
-import { ParsedLogMessage } from './types'
+import { LogsOrderBy, ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
+const VALID_SEVERITY_LEVELS: readonly LogSeverityLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
+
+const isValidSeverityLevel = (level: string): level is LogSeverityLevel =>
+    VALID_SEVERITY_LEVELS.includes(level as LogSeverityLevel)
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
-const DEFAULT_WRAP_BODY = true
-const DEFAULT_PRETTIFY_JSON = true
-const DEFAULT_LOGS_PAGE_SIZE: number = 100
+const DEFAULT_LOGS_PAGE_SIZE: number = 250
 const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
-const parseLogAttributes = (logs: LogMessage[]): void => {
-    logs.forEach((row) => {
-        Object.keys(row.attributes).forEach((key) => {
-            const value = row.attributes[key]
-            row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
-        })
-    })
+const DEFAULT_SPARKLINE_BREAKDOWN_BY: LogsSparklineBreakdownBy = 'severity'
+
+const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
+    const result: Record<string, string> = {}
+    for (const key of Object.keys(attributes)) {
+        const value = attributes[key]
+        result[key] = typeof value === 'string' ? value : JSON.stringify(value)
+    }
+    return result
 }
 
 export interface LogsLogicProps {
@@ -55,6 +76,9 @@ export const logsLogic = kea<logsLogicType>([
     props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsLogic']),
     tabAwareScene(),
+    connect(() => ({
+        actions: [teamLogic, ['addProductIntent']],
+    })),
     tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (params.dateRange) {
@@ -74,23 +98,26 @@ export const logsLogic = kea<logsLogicType>([
             if (params.searchTerm && !equal(params.searchTerm, values.searchTerm)) {
                 actions.setSearchTerm(params.searchTerm)
             }
-            if (params.severityLevels && !equal(params.severityLevels, values.severityLevels)) {
-                actions.setSeverityLevels(params.severityLevels)
+            if (params.severityLevels) {
+                const parsed = parseTagsFilter(params.severityLevels)
+                if (parsed) {
+                    const levels = parsed.filter(isValidSeverityLevel)
+                    if (levels.length > 0 && !equal(levels, values.severityLevels)) {
+                        actions.setSeverityLevels(levels)
+                    }
+                }
             }
-            if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
-                actions.setServiceNames(params.serviceNames)
+            if (params.serviceNames) {
+                const names = parseTagsFilter(params.serviceNames)
+                if (names && !equal(names, values.serviceNames)) {
+                    actions.setServiceNames(names)
+                }
             }
             if (params.highlightedLogId !== undefined && params.highlightedLogId !== values.highlightedLogId) {
                 actions.setHighlightedLogId(params.highlightedLogId)
             }
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
-            }
-            if (params.wrapBody !== undefined && params.wrapBody !== values.wrapBody) {
-                actions.setWrapBody(params.wrapBody)
-            }
-            if (params.prettifyJson !== undefined && params.prettifyJson !== values.prettifyJson) {
-                actions.setPrettifyJson(params.prettifyJson)
             }
             if (+params.logsPageSize && +params.logsPageSize !== values.logsPageSize) {
                 actions.setLogsPageSize(+params.logsPageSize)
@@ -141,21 +168,6 @@ export const logsLogic = kea<logsLogicType>([
             })
         }
 
-        const updateUrlWithDisplayPreferences = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            },
-        ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'wrapBody', values.wrapBody, DEFAULT_WRAP_BODY)
-                updateSearchParams(params, 'prettifyJson', values.prettifyJson, DEFAULT_PRETTIFY_JSON)
-                return params
-            })
-        }
-
         const updateUrlWithPageSize = (): [
             string,
             Params,
@@ -187,20 +199,16 @@ export const logsLogic = kea<logsLogicType>([
 
         return {
             fetchLogsSuccess: () => clearInitialLogsLimit(),
-            setDateRange: () => buildUrlAndRunQuery(),
-            setFilterGroup: () => buildUrlAndRunQuery(),
-            setSearchTerm: () => buildUrlAndRunQuery(),
-            setSeverityLevels: () => buildUrlAndRunQuery(),
-            setServiceNames: () => buildUrlAndRunQuery(),
-            setOrderBy: () => buildUrlAndRunQuery(),
-            setLogsPageSize: () => updateUrlWithPageSize(),
-            setHighlightedLogId: () => updateHighlightURL(),
-            setWrapBody: () => updateUrlWithDisplayPreferences(),
-            setPrettifyJson: () => updateUrlWithDisplayPreferences(),
+            syncUrlAndRunQuery: () => buildUrlAndRunQuery(),
+            syncUrlWithPageSize: () => updateUrlWithPageSize(),
+            syncUrlWithHighlight: () => updateHighlightURL(),
         }
     }),
 
     actions({
+        syncUrlAndRunQuery: true,
+        syncUrlWithPageSize: true,
+        syncUrlWithHighlight: true,
         runQuery: (debounce?: integer) => ({ debounce }),
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
@@ -217,12 +225,10 @@ export const logsLogic = kea<logsLogicType>([
             liveTailAbortController,
         }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
-        setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
+        setOrderBy: (orderBy: LogsOrderBy) => ({ orderBy }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
-        setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
-        setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
         setLiveLogsCheckpoint: (liveLogsCheckpoint: string | null) => ({ liveLogsCheckpoint }),
 
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
@@ -232,15 +238,17 @@ export const logsLogic = kea<logsLogicType>([
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         zoomDateRange: (multiplier: number) => ({ multiplier }),
-        setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
-        addFilter: (key: string, value: string, operator: PropertyOperator = PropertyOperator.Exact) => ({
+        addFilter: (
+            key: string,
+            value: string,
+            operator: PropertyOperator = PropertyOperator.Exact,
+            propertyType: PropertyFilterType = PropertyFilterType.LogAttribute
+        ) => ({
             key,
             value,
             operator,
+            propertyType,
         }),
-        togglePinLog: (logId: string) => ({ logId }),
-        pinLog: (log: LogMessage) => ({ log }),
-        unpinLog: (logId: string) => ({ logId }),
         setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
         setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
         setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
@@ -254,9 +262,11 @@ export const logsLogic = kea<logsLogicType>([
         pollForNewLogs: true,
         setLogs: (logs: LogMessage[]) => ({ logs }),
         setSparkline: (sparkline: any[]) => ({ sparkline }),
+        setNextCursor: (nextCursor: string | null) => ({ nextCursor }),
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
+        setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => ({ sparklineBreakdownBy }),
     }),
 
     reducers({
@@ -306,13 +316,8 @@ export const logsLogic = kea<logsLogicType>([
         filterGroup: [
             DEFAULT_UNIVERSAL_GROUP_FILTER,
             {
-                setFilterGroup: (_, { filterGroup }) => filterGroup,
-            },
-        ],
-        wrapBody: [
-            DEFAULT_WRAP_BODY as boolean,
-            {
-                setWrapBody: (_, { wrapBody }) => wrapBody,
+                setFilterGroup: (_, { filterGroup }) =>
+                    filterGroup && filterGroup.values ? filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
             },
         ],
         liveLogsCheckpoint: [
@@ -328,12 +333,6 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setLiveTailExpired: (_, { liveTailExpired }) => liveTailExpired,
                 fetchLogsSuccess: () => false,
-            },
-        ],
-        prettifyJson: [
-            DEFAULT_PRETTIFY_JSON as boolean,
-            {
-                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
         logsAbortController: [
@@ -393,14 +392,6 @@ export const logsLogic = kea<logsLogicType>([
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
             },
         ],
-        pinnedLogs: [
-            [] as LogMessage[],
-            { persist: true },
-            {
-                pinLog: (state, { log }) => [...state, log],
-                unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
-            },
-        ],
         liveTailRunning: [
             false as boolean,
             {
@@ -427,6 +418,13 @@ export const logsLogic = kea<logsLogicType>([
                 clearLogs: () => true,
             },
         ],
+        nextCursor: [
+            null as string | null,
+            {
+                setNextCursor: (_, { nextCursor }) => nextCursor,
+                clearLogs: () => null,
+            },
+        ],
         expandedLogIds: [
             new Set<string>(),
             {
@@ -440,6 +438,13 @@ export const logsLogic = kea<logsLogicType>([
                     return newSet
                 },
                 clearLogs: () => new Set<string>(),
+            },
+        ],
+        sparklineBreakdownBy: [
+            DEFAULT_SPARKLINE_BREAKDOWN_BY as LogsSparklineBreakdownBy,
+            { persist: true },
+            {
+                setSparklineBreakdownBy: (_, { sparklineBreakdownBy }) => sparklineBreakdownBy,
             },
         ],
     }),
@@ -469,7 +474,7 @@ export const logsLogic = kea<logsLogicType>([
                     })
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
-                    parseLogAttributes(response.results)
+                    actions.setNextCursor(response.nextCursor ?? null)
                     return response.results
                 },
                 fetchNextLogsPage: async ({ limit }, breakpoint) => {
@@ -477,41 +482,27 @@ export const logsLogic = kea<logsLogicType>([
                     const signal = logsController.signal
                     actions.cancelInProgressLogs(logsController)
 
-                    let dateRange: DateRange
-
-                    if (values.orderBy === 'earliest') {
-                        if (!values.newestLogTimestamp) {
-                            return values.logs
-                        }
-                        dateRange = {
-                            date_from: values.newestLogTimestamp,
-                            date_to: values.utcDateRange.date_to,
-                        }
-                    } else {
-                        if (!values.oldestLogTimestamp) {
-                            return values.logs
-                        }
-                        dateRange = {
-                            date_from: values.utcDateRange.date_from,
-                            date_to: values.oldestLogTimestamp,
-                        }
+                    if (!values.nextCursor) {
+                        return values.logs
                     }
+
                     await breakpoint(300)
                     const response = await api.logs.query({
                         query: {
                             limit: limit ?? values.logsPageSize,
                             orderBy: values.orderBy,
-                            dateRange,
+                            dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
                             serviceNames: values.serviceNames,
+                            after: values.nextCursor,
                         },
                         signal,
                     })
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
-                    parseLogAttributes(response.results)
+                    actions.setNextCursor(response.nextCursor ?? null)
                     return [...values.logs, ...response.results]
                 },
                 setLogs: ({ logs }) => logs,
@@ -533,6 +524,7 @@ export const logsLogic = kea<logsLogicType>([
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
                             serviceNames: values.serviceNames,
+                            sparklineBreakdownBy: values.sparklineBreakdownBy,
                         },
                         signal,
                     })
@@ -603,30 +595,17 @@ export const logsLogic = kea<logsLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    result.push({ ...log, cleanBody, parsedBody })
+                    result.push({
+                        ...log,
+                        attributes: stringifyLogAttributes(log.attributes),
+                        cleanBody,
+                        parsedBody,
+                        originalLog: log,
+                    })
                 }
 
                 return result
             },
-        ],
-        pinnedParsedLogs: [
-            (s) => [s.pinnedLogs],
-            (pinnedLogs: LogMessage[]): ParsedLogMessage[] => {
-                return pinnedLogs.map((log: LogMessage) => {
-                    const cleanBody = colors.unstyle(log.body)
-                    let parsedBody: JsonType | null = null
-                    try {
-                        parsedBody = JSON.parse(cleanBody)
-                    } catch {
-                        // Not JSON, that's fine
-                    }
-                    return { ...log, cleanBody, parsedBody }
-                })
-            },
-        ],
-        isPinned: [
-            (s) => [s.pinnedLogs],
-            (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
         ],
         visibleLogsTimeRange: [
             (s) => [s.parsedLogs, s.orderBy],
@@ -655,73 +634,62 @@ export const logsLogic = kea<logsLogicType>([
             },
         ],
         sparklineData: [
-            (s) => [s.sparkline],
-            (sparkline: any[]) => {
+            (s) => [s.sparkline, s.sparklineBreakdownBy],
+            (sparkline: any[], sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
+                const breakdownKey = sparklineBreakdownBy
+
                 let lastTime = ''
                 let i = -1
                 const labels: string[] = []
                 const dates: string[] = []
-                const data = Object.entries(
-                    sparkline.reduce((accumulator, currentItem) => {
+                const accumulated = sparkline.reduce(
+                    (accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
                             labels.push(
                                 humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
-                                    showNow: false,
+                                    timestampStyle: 'absolute',
                                 })
                             )
                             dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
                         }
-                        const key = currentItem.level
+                        const key = currentItem[breakdownKey]
+                        if (!key) {
+                            return accumulator
+                        }
                         if (!accumulator[key]) {
-                            accumulator[key] = [...Array(sparkline.length)].map(() => 0)
+                            accumulator[key] = []
+                        }
+                        while (accumulator[key].length <= i) {
+                            accumulator[key].push(0)
                         }
                         accumulator[key][i] += currentItem.count
                         return accumulator
-                    }, {})
+                    },
+                    {} as Record<string, number[]>
                 )
-                    .map(([level, data]) => ({
-                        name: level,
-                        values: data as number[],
-                        color: {
-                            fatal: 'danger-dark',
-                            error: 'danger',
-                            warn: 'warning',
-                            info: 'brand-blue',
-                            debug: 'muted',
-                            trace: 'muted-alt',
-                        }[level],
+
+                const data = Object.entries(accumulated)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([name, values], index) => ({
+                        name,
+                        values: values as number[],
+                        color:
+                            sparklineBreakdownBy === 'service'
+                                ? dataColorVars[index % dataColorVars.length]
+                                : {
+                                      fatal: 'danger-dark',
+                                      error: 'danger',
+                                      warn: 'warning',
+                                      info: 'brand-blue',
+                                      debug: 'muted',
+                                      trace: 'muted-alt',
+                                  }[name],
                     }))
                     .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
                 return { data, labels, dates }
-            },
-        ],
-        oldestLogTimestamp: [
-            (s) => [s.logs],
-            (logs): string | null => {
-                if (!logs.length) {
-                    return null
-                }
-                const oldest = logs.reduce((min, log) => {
-                    const logTime = dayjs(log.timestamp)
-                    return !min || logTime.isBefore(dayjs(min)) ? log.timestamp : min
-                }, logs[0].timestamp)
-                return oldest
-            },
-        ],
-        newestLogTimestamp: [
-            (s) => [s.logs],
-            (logs): string | null => {
-                if (!logs.length) {
-                    return null
-                }
-                const newest = logs.reduce((max, log) => {
-                    const logTime = dayjs(log.timestamp)
-                    return !max || logTime.isAfter(dayjs(max)) ? log.timestamp : max
-                }, logs[0].timestamp)
-                return newest
             },
         ],
         totalLogsMatchingFilters: [
@@ -736,18 +704,116 @@ export const logsLogic = kea<logsLogicType>([
 
     listeners(({ values, actions, cache }) => ({
         fetchLogsFailure: ({ error }) => {
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+            const errorStr = String(error).toLowerCase()
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
                 lemonToast.error(`Failed to load logs: ${error}`)
             }
         },
         fetchNextLogsPageFailure: ({ error }) => {
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+            const errorStr = String(error).toLowerCase()
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
                 lemonToast.error(`Failed to load more logs: ${error}`)
+            }
+        },
+        fetchLogsSuccess: ({ logs }) => {
+            if (logs.length === 0) {
+                posthog.capture('logs no results returned')
+            } else {
+                posthog.capture('logs results returned', { count: logs.length })
+            }
+        },
+        fetchNextLogsPage: () => {
+            posthog.capture('logs load more requested')
+        },
+        setSearchTerm: ({ searchTerm }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', {
+                    filter_type: 'search',
+                    search_term_length: searchTerm?.length ?? 0,
+                })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setFilterGroup: () => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', { filter_type: 'attributes' })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setSeverityLevels: ({ severityLevels }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', {
+                    filter_type: 'severity',
+                    severity_levels: severityLevels ?? [],
+                })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setServiceNames: ({ serviceNames }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', {
+                    filter_type: 'service',
+                    service_count: serviceNames?.length ?? 0,
+                })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setDateRange: () => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', { filter_type: 'date_range' })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setOrderBy: () => {
+            actions.syncUrlAndRunQuery()
+        },
+        setLogsPageSize: () => {
+            actions.syncUrlWithPageSize()
+        },
+        setHighlightedLogId: () => {
+            actions.syncUrlWithHighlight()
+        },
+        setLiveTailRunning: async ({ enabled }) => {
+            if (enabled) {
+                posthog.capture('logs live tail started')
+                actions.pollForNewLogs()
+            } else {
+                actions.cancelInProgressLiveTail(null)
+                actions.expireLiveTail()
             }
         },
         runQuery: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(debounce)
+            }
+            // Track query execution (skip initial page load)
+            if (values.hasRunQuery) {
+                posthog.capture('logs query executed', {
+                    has_search_term: !!values.searchTerm,
+                    has_filters: values.filterGroup.values.length > 0,
+                    severity_count: values.severityLevels?.length ?? 0,
+                    service_count: values.serviceNames?.length ?? 0,
+                })
             }
             actions.clearLogs()
             actions.fetchLogs()
@@ -766,6 +832,9 @@ export const logsLogic = kea<logsLogicType>([
             }
             actions.setSparklineAbortController(sparklineAbortController)
         },
+        setSparklineBreakdownBy: () => {
+            actions.fetchSparkline()
+        },
         cancelInProgressLiveTail: ({ liveTailAbortController }) => {
             if (values.liveTailAbortController !== null) {
                 values.liveTailAbortController.abort('live tail request cancelled')
@@ -783,22 +852,6 @@ export const logsLogic = kea<logsLogicType>([
             const newDateRange = zoomDateRange(values.dateRange, multiplier)
             actions.setDateRange(newDateRange)
         },
-        setDateRangeFromSparkline: ({ startIndex, endIndex }) => {
-            const dates = values.sparklineData.dates
-            const dateFrom = dates[startIndex]
-            const dateTo = dates[endIndex + 1]
-
-            if (!dateFrom) {
-                return
-            }
-
-            // NOTE: I don't know how accurate this really is but its a good starting point
-            const newDateRange = {
-                date_from: dateFrom,
-                date_to: dateTo,
-            }
-            actions.setDateRange(newDateRange)
-        },
         expireLiveTail: async ({}, breakpoint) => {
             await breakpoint(30000)
             if (values.liveTailRunning) {
@@ -806,7 +859,17 @@ export const logsLogic = kea<logsLogicType>([
             }
             actions.setLiveTailExpired(true)
         },
-        addFilter: ({ key, value, operator }) => {
+        addFilter: ({
+            key,
+            value,
+            operator,
+            propertyType,
+        }: {
+            key: string
+            value: string
+            operator: string
+            propertyType: PropertyFilterType
+        }) => {
             const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
 
             const newGroup: UniversalFiltersGroup = {
@@ -817,23 +880,12 @@ export const logsLogic = kea<logsLogicType>([
                         key,
                         value: [value],
                         operator,
-                        type: PropertyFilterType.Log,
-                    },
+                        type: propertyType,
+                    } as UniversalFiltersGroupValue,
                 ],
             }
 
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
-        },
-        togglePinLog: ({ logId }) => {
-            const isPinned = values.pinnedLogs.some((log) => log.uuid === logId)
-            if (isPinned) {
-                actions.unpinLog(logId)
-            } else {
-                const logToPin = values.logs.find((log) => log.uuid === logId)
-                if (logToPin) {
-                    actions.pinLog(logToPin)
-                }
-            }
         },
         applyLogsPageSize: ({ logsPageSize }) => {
             const currentCount = values.logs.length
@@ -879,14 +931,6 @@ export const logsLogic = kea<logsLogicType>([
                 actions.setHighlightedLogId(logs[currentIndex - 1].uuid)
             }
         },
-        setLiveTailRunning: async ({ enabled }) => {
-            if (enabled) {
-                actions.pollForNewLogs()
-            } else {
-                actions.cancelInProgressLiveTail(null)
-                actions.expireLiveTail()
-            }
-        },
         pollForNewLogs: async () => {
             if (!values.liveTailRunning || values.orderBy !== 'latest' || document.hidden) {
                 return
@@ -919,13 +963,6 @@ export const logsLogic = kea<logsLogicType>([
                     // it's returned from clickhouse as a value on every log row - but the value is fixed per query
                     actions.setLiveLogsCheckpoint(response.results[0].live_logs_checkpoint ?? null)
                 }
-
-                response.results.forEach((row) => {
-                    Object.keys(row.attributes).forEach((key) => {
-                        const value = row.attributes[key]
-                        row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
-                    })
-                })
 
                 const existingUuids = new Set(values.logs.map((log) => log.uuid))
                 const newLogs = response.results.filter((log) => !existingUuids.has(log.uuid))
@@ -969,8 +1006,12 @@ export const logsLogic = kea<logsLogicType>([
                 }
             }
         },
-        // insert logs into the sparkline data
+        // insert logs into the sparkline data (only works for severity breakdown)
         addLogsToSparkline: (logs: LogMessage[]) => {
+            // Only update incrementally for severity breakdown - service would need service_name from logs
+            if (values.sparklineBreakdownBy !== 'severity') {
+                return
+            }
             // if the sparkline hasn't loaded do nothing.
             if (!values.sparkline || values.sparkline.length < 2) {
                 return
@@ -982,10 +1023,10 @@ export const logsLogic = kea<logsLogicType>([
             const interval = dayjs(values.sparklineData.dates[1]).diff(first_bucket, 'seconds')
             let latest_time_bucket = dayjs(last_bucket)
 
-            const sparklineMap: Map<string, { time: string; level: string; count: number }> = new Map()
+            const sparklineMap: Map<string, { time: string; severity: string; count: number }> = new Map()
 
             for (const bucket of values.sparkline) {
-                const key = `${dayjs(bucket.time).toISOString()}_${bucket.level}`
+                const key = `${dayjs(bucket.time).toISOString()}_${bucket.severity}`
                 sparklineMap.set(key, { ...bucket })
             }
 
@@ -998,32 +1039,14 @@ export const logsLogic = kea<logsLogicType>([
                 if (sparklineMap.has(key)) {
                     sparklineMap.get(key)!.count += 1
                 } else {
-                    sparklineMap.set(key, { time: time_bucket.toISOString(), level: log.level, count: 1 })
+                    sparklineMap.set(key, { time: time_bucket.toISOString(), severity: log.level, count: 1 })
                 }
             }
             actions.setSparkline(
                 Array.from(sparklineMap.values())
-                    .sort((a, b) => dayjs(a.time).diff(dayjs(b.time)) || a.level.localeCompare(b.level))
+                    .sort((a, b) => dayjs(a.time).diff(dayjs(b.time)) || a.severity.localeCompare(b.severity))
                     .filter((item) => latest_time_bucket.diff(dayjs(item.time), 'seconds') <= sparklineTimeWindow)
             )
-        },
-        copyLinkToLog: ({ logId }: { logId: string }) => {
-            const url = new URL(window.location.href)
-            url.searchParams.set('highlightedLogId', logId)
-            if (values.visibleLogsTimeRange) {
-                url.searchParams.set(
-                    'dateRange',
-                    JSON.stringify({
-                        date_from: values.visibleLogsTimeRange.date_from,
-                        date_to: values.visibleLogsTimeRange.date_to,
-                        explicitDate: true,
-                    })
-                )
-            }
-            if (values.logs.length > 0) {
-                url.searchParams.set('initialLogsLimit', String(values.logs.length))
-            }
-            void copyToClipboard(url.toString(), 'link to log')
         },
     })),
 
@@ -1039,4 +1062,10 @@ export const logsLogic = kea<logsLogicType>([
             }
         },
     })),
+
+    afterMount(({ values, actions }) => {
+        if (values.parsedLogs.length === 0) {
+            actions.runQuery()
+        }
+    }),
 ])

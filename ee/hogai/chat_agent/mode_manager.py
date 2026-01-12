@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable
+from typing import Any
 
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -8,6 +9,16 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AgentMode
 
 from posthog.models import Team, User
+
+from products.tasks.backend.max_tools import (
+    CreateTaskTool,
+    GetTaskRunLogsTool,
+    GetTaskRunTool,
+    ListRepositoriesTool,
+    ListTaskRunsTool,
+    ListTasksTool,
+    RunTaskTool,
+)
 
 from ee.hogai.chat_agent.prompts import (
     AGENT_CORE_MEMORY_PROMPT,
@@ -29,6 +40,7 @@ from ee.hogai.chat_agent.prompts import (
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
+from ee.hogai.core.agent_modes.presets.error_tracking import error_tracking_agent
 from ee.hogai.core.agent_modes.presets.product_analytics import product_analytics_agent
 from ee.hogai.core.agent_modes.presets.session_replay import session_replay_agent
 from ee.hogai.core.agent_modes.presets.sql import sql_agent
@@ -38,20 +50,26 @@ from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
-from ee.hogai.tools import CreateFormTool, ReadDataTool, ReadTaxonomyTool, SearchTool, SwitchModeTool, TodoWriteTool
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag, has_create_form_tool_feature_flag
+from ee.hogai.tools import (
+    CreateFormTool,
+    ReadDataTool,
+    ReadTaxonomyTool,
+    SearchTool,
+    SwitchModeTool,
+    TaskTool,
+    TodoWriteTool,
+)
+from ee.hogai.utils.feature_flags import (
+    has_create_form_tool_feature_flag,
+    has_error_tracking_mode_feature_flag,
+    has_phai_tasks_feature_flag,
+    has_task_tool_feature_flag,
+    has_web_search_feature_flag,
+)
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
-# Remove with the full modes release
-LEGACY_DEFAULT_TOOLS: list[type["MaxTool"]] = [
-    ReadTaxonomyTool,
-    ReadDataTool,
-    SearchTool,
-    TodoWriteTool,
-]
-
-DEFAULT_TOOLS: list[type["MaxTool"]] = [
+DEFAULT_TOOLS: list[type[MaxTool]] = [
     ReadTaxonomyTool,
     ReadDataTool,
     SearchTool,
@@ -59,18 +77,37 @@ DEFAULT_TOOLS: list[type["MaxTool"]] = [
     SwitchModeTool,
 ]
 
+TASK_TOOLS: list[type["MaxTool"]] = [
+    CreateTaskTool,
+    RunTaskTool,
+    GetTaskRunTool,
+    GetTaskRunLogsTool,
+    ListTasksTool,
+    ListTaskRunsTool,
+    ListRepositoriesTool,
+]
+DEFAULT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
+    AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
+    AgentMode.SQL: sql_agent,
+    AgentMode.SESSION_REPLAY: session_replay_agent,
+}
+
 
 class ChatAgentToolkit(AgentToolkit):
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools = list(DEFAULT_TOOLS if has_agent_modes_feature_flag(self._team, self._user) else LEGACY_DEFAULT_TOOLS)
+        tools = list(DEFAULT_TOOLS)
         if has_create_form_tool_feature_flag(self._team, self._user):
             tools.append(CreateFormTool)
+        if has_phai_tasks_feature_flag(self._team, self._user):
+            tools.extend(TASK_TOOLS)
+        if has_task_tool_feature_flag(self._team, self._user):
+            tools.append(TaskTool)
         return tools
 
 
 class ChatAgentToolkitManager(AgentToolkitManager):
-    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
+    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list[MaxTool | dict[str, Any]]:
         available_tools = await super().get_tools(state, config)
 
         tool_names = self._context_manager.get_contextual_tools().keys()
@@ -92,10 +129,14 @@ class ChatAgentToolkitManager(AgentToolkitManager):
         contextual_tools = await asyncio.gather(*awaited_contextual_tools)
 
         # Deduplicate contextual tools
-        initialized_tool_names = {tool.get_name() for tool in available_tools}
+        initialized_tool_names = {tool.get_name() for tool in available_tools if isinstance(tool, MaxTool)}
         for tool in contextual_tools:
             if tool.get_name() not in initialized_tool_names:
                 available_tools.append(tool)
+
+        # Final tools = available contextual tools + LLM provider server tools
+        if has_web_search_feature_flag(self._team, self._user):
+            available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
 
         return available_tools
 
@@ -116,7 +157,7 @@ class ChatAgentPromptBuilder(AgentPromptBuilder, AssistantContextMixin):
             writing_style=WRITING_STYLE_PROMPT,
             proactiveness=PROACTIVENESS_PROMPT,
             basic_functionality=BASIC_FUNCTIONALITY_PROMPT,
-            switching_modes=SWITCHING_MODES_PROMPT if has_agent_modes_feature_flag(self._team, self._user) else "",
+            switching_modes=SWITCHING_MODES_PROMPT,
             task_management=TASK_MANAGEMENT_PROMPT,
             doing_tasks=DOING_TASKS_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
@@ -164,18 +205,17 @@ class ChatAgentModeManager(AgentModeManager):
         mode: AgentMode | None = None,
     ):
         super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, mode=mode)
-        if has_agent_modes_feature_flag(team, user):
-            self._mode = mode or AgentMode.PRODUCT_ANALYTICS
-        else:
-            self._mode = AgentMode.PRODUCT_ANALYTICS
+        # Validate mode is in registry, fall back to default mode if not
+        if mode and mode not in self.mode_registry:
+            mode = AgentMode.PRODUCT_ANALYTICS
+        self._mode = mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
-        return {
-            AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
-            AgentMode.SQL: sql_agent,
-            AgentMode.SESSION_REPLAY: session_replay_agent,
-        }
+        registry = dict(DEFAULT_CHAT_AGENT_MODE_REGISTRY)
+        if has_error_tracking_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
+        return registry
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:

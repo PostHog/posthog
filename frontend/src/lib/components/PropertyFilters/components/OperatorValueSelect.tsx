@@ -123,6 +123,8 @@ export function OperatorValueSelect({
             startingOperator = PropertyOperator.IsDateExact
         } else if (isCohortProperty) {
             startingOperator = PropertyOperator.In
+        } else if (propertyKey === 'message' && type === PropertyFilterType.Log) {
+            startingOperator = PropertyOperator.IContains
         }
     }
 
@@ -154,9 +156,23 @@ export function OperatorValueSelect({
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
-        const operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
+        let operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
             return !operatorAllowlist || operatorAllowlist.includes(op)
         })
+
+        // Restrict message log property to only allow exact, is_not, contains, not contains, regex, and not regex operators
+        if (propertyKey === 'message' && type === PropertyFilterType.Log) {
+            operators = operators.filter((op) =>
+                [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IsNot,
+                    PropertyOperator.IContains,
+                    PropertyOperator.NotIContains,
+                    PropertyOperator.Regex,
+                    PropertyOperator.NotRegex,
+                ].includes(op)
+            )
+        }
 
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
@@ -169,6 +185,8 @@ export function OperatorValueSelect({
                 defaultProperty = PropertyOperator.IsDateExact
             } else if (propertyType === PropertyType.Cohort) {
                 defaultProperty = PropertyOperator.In
+            } else if (propertyKey === 'message' && type === PropertyFilterType.Log) {
+                defaultProperty = PropertyOperator.IContains
             }
             setCurrentOperator(defaultProperty)
         }

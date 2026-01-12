@@ -1,7 +1,10 @@
+import csv
 import uuid
 import datetime as dt
 from dataclasses import dataclass
+from io import StringIO
 from typing import TYPE_CHECKING, Optional
+from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -44,9 +47,11 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.clickhouse.client import query_with_columns
 from posthog.constants import PAGEVIEW_EVENT
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
+from posthog.exceptions_capture import capture_exception
 from posthog.models import (
     Action,
     Cohort,
@@ -63,6 +68,10 @@ from posthog.models.event_definition import EventDefinition
 from posthog.models.oauth import OAuthApplication
 from posthog.models.property_definition import PropertyType
 from posthog.models.schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+from posthog.storage import object_storage
+
+from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
@@ -1132,8 +1141,12 @@ class HedgeboxMatrix(Matrix):
                 "metric_type": "retention",
                 "uuid": str(uuid.uuid4()),
                 "goal": "increase",
-                "retention_type": "retention_first_time",
-                "total_intervals": 7,
+                "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                "start_handling": "first_seen",
+                "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
+                "retention_window_start": 1,
+                "retention_window_end": 7,
+                "retention_window_unit": "day",
             },
             created_by=user,
         )
@@ -1186,8 +1199,12 @@ class HedgeboxMatrix(Matrix):
                     "uuid": new_experiment_metrics_ordered_uuids[3],
                     "name": "7-day user retention",
                     "goal": "increase",
-                    "retention_type": "retention_first_time",
-                    "total_intervals": 7,
+                    "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                    "start_handling": "first_seen",
+                    "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
+                    "retention_window_start": 1,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
                 },
             ],
             primary_metrics_ordered_uuids=new_experiment_metrics_ordered_uuids,
@@ -1206,7 +1223,6 @@ class HedgeboxMatrix(Matrix):
                 "recommended_sample_size": int(len(self.clusters) * 0.40),
                 "minimum_detectable_effect": 10,
             },
-            stats_config={"use_new_query_builder": True},
             start_date=self.file_engagement_experiment_start,
             end_date=None,
             created_at=file_engagement_flag.created_at,
@@ -1235,6 +1251,7 @@ class HedgeboxMatrix(Matrix):
             )
         ]
         team.revenue_analytics_config.save()
+        self._set_up_paid_bill_data_warehouse_table(team, user)
 
         # Create File Stats property group
         try:
@@ -1304,3 +1321,125 @@ class HedgeboxMatrix(Matrix):
                 )
             except (IntegrityError, ValidationError):
                 pass
+
+    def _set_up_paid_bill_data_warehouse_table(self, team: "Team", user: "User") -> None:
+        if settings.TEST or not settings.OBJECT_STORAGE_ENABLED:
+            return
+
+        access_key = settings.OBJECT_STORAGE_ACCESS_KEY_ID
+        access_secret = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
+        if not access_key or not access_secret or not settings.OBJECT_STORAGE_ENDPOINT:
+            return
+
+        try:
+            rows = self._collect_paid_bill_rows(team.pk)
+            s3_prefix = f"data-warehouse/demo_paid_bills/team_{team.pk}"
+            object_key = f"{s3_prefix}/paid_bills.csv"
+            object_storage.write(object_key, self._paid_bill_rows_to_csv(rows))
+
+            credential = get_or_create_datawarehouse_credential(
+                team_id=team.pk,
+                access_key=access_key,
+                access_secret=access_secret,
+            )
+            url_pattern = f"{self._warehouse_endpoint()}/{settings.OBJECT_STORAGE_BUCKET}/{s3_prefix}/*.csv"
+            columns = {
+                "distinct_id": "String",
+                "timestamp": "DateTime",
+                "amount_usd": "Float64",
+                "plan": "String",
+            }
+
+            table_name = "paid_bills"
+            existing_table = DataWarehouseTable.objects.filter(team=team, name=table_name).first()
+            if existing_table:
+                if existing_table.external_data_source is not None:
+                    return
+                existing_table.format = DataWarehouseTable.TableFormat.CSVWithNames
+                existing_table.url_pattern = url_pattern
+                existing_table.credential = credential
+                existing_table.columns = columns
+                existing_table.deleted = False
+                existing_table.deleted_at = None
+                if existing_table.created_by_id is None:
+                    existing_table.created_by = user
+                existing_table.save()
+            else:
+                DataWarehouseTable.objects.create(
+                    team=team,
+                    name=table_name,
+                    format=DataWarehouseTable.TableFormat.CSVWithNames,
+                    url_pattern=url_pattern,
+                    credential=credential,
+                    columns=columns,
+                    created_by=user,
+                )
+        except Exception as err:
+            capture_exception(err)
+
+    def _collect_paid_bill_rows(self, team_id: int) -> list[tuple[str, str, float, str]]:
+        if self.is_complete:
+            rows: list[tuple[str, str, float, str]] = []
+            for person in self.people:
+                for event in person.past_events:
+                    if event.event != EVENT_PAID_BILL:
+                        continue
+                    amount_usd = event.properties.get("amount_usd")
+                    rows.append(
+                        (
+                            event.distinct_id,
+                            self._format_warehouse_timestamp(event.timestamp),
+                            float(amount_usd) if amount_usd is not None else 0.0,
+                            str(event.properties.get("plan") or ""),
+                        )
+                    )
+            return rows
+
+        query = """
+            SELECT
+                distinct_id,
+                toString(timestamp) AS timestamp,
+                ifNull(JSONExtractFloat(properties, 'amount_usd'), 0) AS amount_usd,
+                ifNull(JSONExtractString(properties, 'plan'), '') AS plan
+            FROM events
+            WHERE team_id = %(team_id)s
+                AND event = %(event)s
+            ORDER BY timestamp
+        """
+        results = query_with_columns(
+            query,
+            {"team_id": team_id, "event": EVENT_PAID_BILL},
+        )
+        return [
+            (
+                row["distinct_id"],
+                row["timestamp"],
+                float(row["amount_usd"]) if row["amount_usd"] is not None else 0.0,
+                row["plan"] or "",
+            )
+            for row in results
+        ]
+
+    @staticmethod
+    def _paid_bill_rows_to_csv(rows: list[tuple[str, str, float, str]]) -> str:
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["distinct_id", "timestamp", "amount_usd", "plan"])
+        writer.writerows(rows)
+        return output.getvalue()
+
+    @staticmethod
+    def _format_warehouse_timestamp(value: dt.datetime) -> str:
+        if value.tzinfo is None:
+            return value.strftime("%Y-%m-%d %H:%M:%S")
+        return value.astimezone(dt.UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+    @staticmethod
+    def _warehouse_endpoint() -> str:
+        endpoint = settings.OBJECT_STORAGE_ENDPOINT.rstrip("/")
+        parsed = urlparse(endpoint)
+        if parsed.hostname not in {"localhost", "127.0.0.1"}:
+            return endpoint
+        host = "host.docker.internal"
+        netloc = f"{host}:{parsed.port}" if parsed.port else host
+        return urlunparse(parsed._replace(netloc=netloc))

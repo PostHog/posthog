@@ -380,6 +380,48 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert scim_user.username == "put@example.com"
         assert scim_user.active is True
 
+    def test_put_reactivate_user(self):
+        user = User.objects.create_user(
+            email="put_reactivate@example.com",
+            password=None,
+            first_name="Put",
+            last_name="Reactivate",
+            is_email_verified=True,
+        )
+        # Create then remove membership to simulate deactivated user
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="put_reactivate@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+        # Deactivate
+        OrganizationMembership.objects.filter(user=user, organization=self.organization).delete()
+        SCIMProvisionedUser.objects.filter(user=user, organization_domain=self.domain).update(active=False)
+        assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "put_reactivate@example.com",
+            "name": {"givenName": "Put", "familyName": "Reactivate"},
+            "emails": [{"value": "put_reactivate@example.com", "primary": True}],
+            "active": True,
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=put_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["active"] is True
+        assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        assert scim_user.active is True
+
     def test_put_user_not_found(self):
         put_data = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
@@ -578,6 +620,13 @@ class TestSCIMUsersAPI(APILicensedTest):
         user = User.objects.create_user(
             email="testuser@example.com", password=None, first_name="", last_name="", is_email_verified=True
         )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="testuser@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=False,
+        )
 
         patch_data = {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
@@ -630,6 +679,13 @@ class TestSCIMUsersAPI(APILicensedTest):
         user = User.objects.create_user(
             email="reactivate@example.com", password=None, first_name="Test", is_email_verified=True
         )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="reactivate@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=False,
+        )
         assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
 
         patch_data = {
@@ -643,6 +699,41 @@ class TestSCIMUsersAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+
+    def test_patch_replace_reactivate_user(self):
+        user = User.objects.create_user(
+            email="reactivate_replace@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        # Create then remove membership to simulate deactivated user
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="reactivate_replace@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+        # Deactivate
+        OrganizationMembership.objects.filter(user=user, organization=self.organization).delete()
+        SCIMProvisionedUser.objects.filter(user=user, organization_domain=self.domain).update(active=False)
+        assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "active", "value": True}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["active"] is True
+        assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        assert scim_user.active is True
 
     def test_patch_add_user_given_name_with_dotted_path(self):
         user = User.objects.create_user(

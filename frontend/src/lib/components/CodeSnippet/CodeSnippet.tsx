@@ -10,6 +10,7 @@ import dart from 'react-syntax-highlighter/dist/esm/languages/prism/dart'
 import elixir from 'react-syntax-highlighter/dist/esm/languages/prism/elixir'
 import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
 import groovy from 'react-syntax-highlighter/dist/esm/languages/prism/groovy'
+import hcl from 'react-syntax-highlighter/dist/esm/languages/prism/hcl'
 import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
 import java from 'react-syntax-highlighter/dist/esm/languages/prism/java'
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
@@ -60,6 +61,7 @@ export enum Language {
     Groovy = 'groovy',
     CSharp = 'csharp',
     TypeScript = 'typescript',
+    HCL = 'hcl',
 }
 
 export const getLanguage = (lang: string): Language => {
@@ -110,6 +112,8 @@ export const getLanguage = (lang: string): Language => {
             return Language.Kotlin
         case 'groovy':
             return Language.Groovy
+        case 'hcl':
+            return Language.HCL
         default:
             return Language.Text
     }
@@ -138,6 +142,8 @@ SyntaxHighlighter.registerLanguage(Language.SQL, sql)
 SyntaxHighlighter.registerLanguage(Language.Kotlin, kotlin)
 SyntaxHighlighter.registerLanguage(Language.TypeScript, typescript)
 SyntaxHighlighter.registerLanguage(Language.Groovy, groovy)
+SyntaxHighlighter.registerLanguage(Language.HCL, hcl)
+
 export interface CodeSnippetProps {
     children: string | undefined | null
     language?: Language

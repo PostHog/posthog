@@ -11,6 +11,7 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -36,7 +37,7 @@ from posthog.batch_exports.service import (
     BatchExportWithNoEndNotAllowedError,
     backfill_export,
     cancel_running_batch_export_run,
-    disable_and_delete_export,
+    delete_batch_export,
     fetch_earliest_backfill_start_at,
     pause_batch_export,
     sync_batch_export,
@@ -101,6 +102,7 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
+@extend_schema(tags=["batch_exports"])
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExportRun.objects.all()
@@ -467,7 +469,23 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 DatabricksIntegration(integration)
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
+        if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
 
+            if not posthoganalytics.feature_enabled(
+                "azure-blob-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Azure Blob Storage batch exports are not enabled for this team.")
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
             config = destination_attrs["config"]
             view = self.context.get("view")
@@ -503,6 +521,24 @@ class BatchExportSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError("Missing required credentials for 'COPY'")
                 elif isinstance(authorization, str) and not authorization.strip():
                     raise serializers.ValidationError("Missing required IAM role for 'COPY'")
+
+        if destination_type == BatchExportDestination.Destination.WORKFLOWS:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "backfill-workflows-destination",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
 
         return destination_attrs
 
@@ -666,11 +702,18 @@ def recursive_dict_merge(
     return merged
 
 
+@extend_schema(tags=["batch_exports"])
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer
     log_source = "batch_exports"
+
+    def safely_get_queryset(self, queryset):
+        """Filter out batch exports with Workflows destination type if action is list."""
+        if self.action == "list":
+            return queryset.exclude(destination__type="Workflows")
+        return queryset
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -744,7 +787,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         since we are deleting, we assume that we can recover from this state by finishing the delete operation by calling
         instance.save().
         """
-        disable_and_delete_export(instance)
+        delete_batch_export(instance)
 
     @action(methods=["GET"], detail=False, required_scopes=["INTERNAL"])
     def test(self, request: request.Request, *args, **kwargs) -> response.Response:

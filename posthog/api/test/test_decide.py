@@ -2,7 +2,7 @@ import json
 import time
 import base64
 import random
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
@@ -12,11 +12,10 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.db import connections
 from django.http import HttpRequest
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
 
-from inline_snapshot import snapshot
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -63,9 +62,7 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "masking": None,
         "urlTriggers": [],
         "urlBlocklist": [],
-        "scriptConfig": {
-            "script": "posthog-recorder",
-        },
+        "scriptConfig": None,
         "sampleRate": None,
         "eventTriggers": [],
         "triggerMatchType": None,
@@ -73,11 +70,14 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
     }
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestDecide(BaseTest, QueryMatchingTest):
     """
     Tests the `/decide` endpoint.
     We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
     """
+
+    snapshot: Any
 
     use_remote_config = False
 
@@ -579,86 +579,30 @@ class TestDecide(BaseTest, QueryMatchingTest):
             [
                 "defaults to none",
                 None,
-                None,
                 {"scriptConfig": None},
-                False,
             ],
             [
-                "must have allowlist",
-                "new-recorder",
-                None,
-                {"scriptConfig": None},
-                False,
-            ],
-            [
-                "ignores empty allowlist",
-                "new-recorder",
-                [],
-                {"scriptConfig": None},
-                False,
-            ],
-            [
-                "wild card works",
-                "new-recorder",
-                ["*"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                False,
-            ],
-            [
-                "can have wild card and team id",
-                "new-recorder",
-                ["*"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                True,
-            ],
-            [
-                "allow list can exclude",
-                "new-recorder",
-                ["9999", "9998"],
-                {"scriptConfig": None},
-                False,
-            ],
-            [
-                "allow list can include",
-                "new-recorder",
-                ["9999", "9998"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                True,
-            ],
-            [
-                "extra_settings overrides global setting",
-                "new-recorder",
-                ["*"],
-                {"scriptConfig": {"script": "team-recorder"}},
-                False,
+                "sdk_config with recorder_script",
                 {"recorder_script": "team-recorder"},
-            ],
-            [
-                "extra_settings bypasses allowlist",
-                "new-recorder",
-                [],
                 {"scriptConfig": {"script": "team-recorder"}},
-                False,
-                {"recorder_script": "team-recorder"},
             ],
             [
                 "extra_settings ignores additional keys",
-                "new-recorder",
-                [],
-                {"scriptConfig": None},
-                False,
                 {"something": "not-the-team-recorder"},
+                {"scriptConfig": None},
+            ],
+            [
+                "extra_settings ignores additional keys when used",
+                {"something": "not-the-team-recorder", "recorder_script": "team-recorder"},
+                {"scriptConfig": {"script": "team-recorder"}},
             ],
         ]
     )
     def test_session_recording_script_config(
         self,
         _name: str,
-        rrweb_script_name: str | None,
-        team_allow_list: list[str] | None,
+        extra_settings: dict | None,
         expected: dict,
-        include_team_in_allowlist: bool,
-        extra_settings: dict | None = None,
     ) -> None:
         from django.core.cache import cache
 
@@ -677,16 +621,32 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         set_team_in_cache(self.team.api_token, self.team)
 
-        if team_allow_list and include_team_in_allowlist:
-            team_allow_list.append(f"{self.team.id}")
+        response = self._post_decide(api_version=3)
+        assert response.status_code == 200
+        assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
 
-        with self.settings(
-            SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
-            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=team_allow_list or [],
-        ):
-            response = self._post_decide(api_version=3)
-            assert response.status_code == 200
-            assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
+    @override_settings(DEBUG=True)
+    def test_session_recording_script_config_defaults_to_posthog_recorder_in_debug(self) -> None:
+        from django.core.cache import cache
+
+        cache.clear()
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+                "extra_settings": None,
+            }
+        )
+
+        self.team.refresh_from_db()
+
+        from posthog.models.team.team_caching import set_team_in_cache
+
+        set_team_in_cache(self.team.api_token, self.team)
+
+        response = self._post_decide(api_version=3)
+        assert response.status_code == 200
+        assert response.json()["sessionRecording"]["scriptConfig"] == {"script": "posthog-recorder"}
 
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
@@ -792,6 +752,68 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide().json()
         self.assertEqual(response["captureDeadClicks"], True)
+
+    def test_conversations_disabled_by_default(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(response.get("conversations"), False)
+
+    def test_conversations_enabled_with_defaults(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_public_token_123",
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"]["enabled"], True)
+        self.assertEqual(response["conversations"]["widgetEnabled"], True)
+        self.assertEqual(response["conversations"]["greetingText"], "Hey, how can I help you today?")
+        self.assertEqual(response["conversations"]["color"], "#1d4aff")
+        self.assertEqual(response["conversations"]["token"], "test_public_token_123")
+        self.assertEqual(response["conversations"]["domains"], [])
+
+    def test_conversations_enabled_with_custom_config(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "Welcome! Need assistance?",
+            "widget_color": "#ff5733",
+            "widget_public_token": "custom_token",
+            "widget_domains": ["example.com", "test.com"],
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"]["enabled"], True)
+        self.assertEqual(response["conversations"]["widgetEnabled"], True)
+        self.assertEqual(response["conversations"]["greetingText"], "Welcome! Need assistance?")
+        self.assertEqual(response["conversations"]["color"], "#ff5733")
+        self.assertEqual(response["conversations"]["token"], "custom_token")
+        self.assertEqual(response["conversations"]["domains"], ["example.com", "test.com"])
+
+    def test_conversations_disabled_returns_false(self, *args):
+        self.team.conversations_enabled = False
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "should_not_appear",
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"], False)
+
+    def test_conversations_with_empty_greeting_uses_default(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "",
+            "widget_public_token": "test_token",
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"]["greetingText"], "Hey, how can I help you today?")
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
@@ -4081,38 +4103,12 @@ class TestDecideRemoteConfig(TestDecide):
         ) as wrapped_get_config_via_token:
             response = self._post_decide(api_version=3)
             wrapped_get_config_via_token.assert_called_once()
-            request_id = response.json()["requestId"]
 
         # NOTE: If this changes it indicates something is wrong as we should keep this exact format
         # for backwards compatibility
-        assert response.json() == snapshot(
-            {
-                "supportedCompression": ["gzip", "gzip-js"],
-                "captureDeadClicks": False,
-                "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-                "autocapture_opt_out": False,
-                "autocaptureExceptions": False,
-                "analytics": {"endpoint": "/i/v0/e/"},
-                "elementsChainAsString": True,
-                "errorTracking": {
-                    "autocaptureExceptions": False,
-                    "suppressionRules": [],
-                },
-                "sessionRecording": False,
-                "heatmaps": False,
-                "surveys": False,
-                "defaultIdentifiedOnly": True,
-                "siteApps": [],
-                "isAuthenticated": False,
-                # requestId is a UUID
-                "requestId": request_id,
-                "toolbarParams": {},
-                "config": {"enable_collect_everything": True},
-                "featureFlags": {},
-                "errorsWhileComputingFlags": False,
-                "featureFlagPayloads": {},
-            }
-        )
+        dump = response.json()
+        dump["requestId"] = "request_id"  # UUID that will change from run to run, keep it stable
+        assert dump == self.snapshot
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):

@@ -40,8 +40,8 @@ from posthog.schema import (
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF
 from posthog.models import DataWarehouseTable
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
@@ -279,6 +279,7 @@ async def _run(
         assert table is not None
         assert table.size_in_s3_mib is not None
         assert table.queryable_folder is not None
+        assert table.credential_id is None
 
         query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+$")
         assert query_folder_pattern.match(table.queryable_folder)
@@ -327,10 +328,10 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             BUCKET_PATH=BUCKET_NAME,
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
             DATA_WAREHOUSE_REDIS_HOST="localhost",
             DATA_WAREHOUSE_REDIS_PORT="6379",
         ),
@@ -2548,7 +2549,9 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
         mock.patch("ee.api.billing.requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
-        source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+        with freeze_time("2023-01-01"):
+            source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+
         # A previous job that reached the billing limit
         await sync_to_async(ExternalDataJob.objects.create)(
             team=team,
@@ -2941,5 +2944,5 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
                 ignore_assertions=True,
             )
 
-    # We should early exit on the first attempt with a non-retryable error
-    assert mock_get_rows.call_count == 1
+    # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
+    assert mock_get_rows.call_count == 4

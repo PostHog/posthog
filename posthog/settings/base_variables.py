@@ -22,8 +22,17 @@ STATIC_COLLECTION = get_from_env("STATIC_COLLECTION", False, type_cast=str_to_bo
 DEMO: bool = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
 CLOUD_DEPLOYMENT: str | None = get_from_env(
     "CLOUD_DEPLOYMENT",
-    optional=True,  # "US", "EU", "DEV", or "E2E" - unset on self-hosted
+    optional=True,
 )
+"""Deployment environment identifier.
+
+Possible values:
+- `US` or `EU` for PostHog **Cloud US** and PostHog **Cloud EU**.
+- `DEV` for the hosted **dev/staging** environment.
+- `LOCAL` or unset for the **local dev** environment.
+- `E2E` for **e2e tests**.
+- Unset for **self-hosted** environments.
+"""
 SELF_CAPTURE: bool = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 E2E_TESTING: bool = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool
@@ -32,16 +41,8 @@ OPT_OUT_CAPTURE: bool = get_from_env("OPT_OUT_CAPTURE", False, type_cast=str_to_
 BENCHMARK: bool = get_from_env("BENCHMARK", False, type_cast=str_to_bool)
 if E2E_TESTING:
     logger.warning(
-        "️WARNING! Environment variable E2E_TESTING is enabled. This is a security vulnerability unless you are running tests."
+        "WARNING! Environment variable E2E_TESTING is enabled. This is a security vulnerability unless you are running tests."
     )
-
-ducklake_data_modeling_env = get_from_env(
-    "DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED", optional=True, type_cast=str_to_bool
-)
-if ducklake_data_modeling_env is None:
-    ducklake_data_modeling_env = get_from_env("DUCKLAKE_COPY_WORKFLOW_ENABLED", False, type_cast=str_to_bool)
-
-DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED: bool = ducklake_data_modeling_env
 
 IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
 SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type_cast=str)
@@ -52,7 +53,7 @@ DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_ca
 if DEBUG and not TEST:
     logger.warning(
         [
-            "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!",
+            "Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!",
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         ]
     )

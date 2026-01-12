@@ -17,12 +17,8 @@ from posthog.models import Organization, Team
 from posthog.models.event.util import create_event
 from posthog.tasks.llm_analytics_usage_report import (
     _get_all_llm_analytics_reports,
-    get_ai_additional_cost_metrics,
-    get_ai_additional_token_metrics,
-    get_ai_cost_metrics,
-    get_ai_dimension_breakdowns,
-    get_ai_event_counts_by_type,
-    get_ai_token_metrics,
+    get_all_ai_dimension_breakdowns,
+    get_all_ai_metrics,
     get_teams_with_ai_events,
     send_llm_analytics_usage_reports,
 )
@@ -75,14 +71,14 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
 
         flush_persons_and_events()
 
-    def test_get_ai_event_counts_by_type(self) -> None:
-        """Test that we correctly count AI events by type."""
+    def test_get_all_ai_metrics(self) -> None:
+        """Test that we correctly get all AI metrics in a single combined query."""
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
         period_start, period_end = get_previous_day()
 
-        # Create different AI event types
+        # Create different AI event types with various properties
         self._create_ai_events(self.team, distinct_id, "$ai_generation", 5)
         self._create_ai_events(self.team, distinct_id, "$ai_embedding", 3)
         self._create_ai_events(self.team, distinct_id, "$ai_span", 10)
@@ -91,42 +87,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         self._create_ai_events(self.team, distinct_id, "$ai_feedback", 4)
         self._create_ai_events(self.team, distinct_id, "$ai_evaluation", 6)
 
-        # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end)
-
-        # Get event counts
-        event_counts = get_ai_event_counts_by_type(period_start, period_end, team_ids)
-
-        # Verify counts
-        generation_counts = dict(event_counts["$ai_generation"])
-        assert generation_counts.get(self.team.id) == 5
-
-        embedding_counts = dict(event_counts["$ai_embedding"])
-        assert embedding_counts.get(self.team.id) == 3
-
-        span_counts = dict(event_counts["$ai_span"])
-        assert span_counts.get(self.team.id) == 10
-
-        trace_counts = dict(event_counts["$ai_trace"])
-        assert trace_counts.get(self.team.id) == 2
-
-        metric_counts = dict(event_counts["$ai_metric"])
-        assert metric_counts.get(self.team.id) == 1
-
-        feedback_counts = dict(event_counts["$ai_feedback"])
-        assert feedback_counts.get(self.team.id) == 4
-
-        evaluation_counts = dict(event_counts["$ai_evaluation"])
-        assert evaluation_counts.get(self.team.id) == 6
-
-    def test_get_ai_cost_metrics(self) -> None:
-        """Test that we correctly aggregate AI cost metrics."""
-        distinct_id = str(uuid4())
-        _create_person(distinct_ids=[distinct_id], team=self.team)
-
-        period_start, period_end = get_previous_day()
-
-        # Create AI events with cost properties
+        # Create events with cost and token properties
         self._create_ai_events(
             self.team,
             distinct_id,
@@ -136,183 +97,53 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
                 "$ai_total_cost_usd": 0.015,
                 "$ai_input_cost_usd": 0.005,
                 "$ai_output_cost_usd": 0.010,
-            },
-        )
-
-        self._create_ai_events(
-            self.team,
-            distinct_id,
-            "$ai_generation",
-            2,
-            properties={
-                "$ai_total_cost_usd": 0.020,
-                "$ai_input_cost_usd": 0.008,
-                "$ai_output_cost_usd": 0.012,
-            },
-        )
-
-        # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end)
-
-        # Get cost metrics
-        cost_metrics = get_ai_cost_metrics(period_start, period_end, team_ids)
-
-        # Verify costs (3 * 0.015 + 2 * 0.020 = 0.085)
-        total_costs = dict(cost_metrics["total_cost"])
-        assert total_costs.get(self.team.id) == pytest.approx(0.085, rel=1e-6)
-
-        # Verify input costs (3 * 0.005 + 2 * 0.008 = 0.031)
-        input_costs = dict(cost_metrics["input_cost"])
-        assert input_costs.get(self.team.id) == pytest.approx(0.031, rel=1e-6)
-
-        # Verify output costs (3 * 0.010 + 2 * 0.012 = 0.054)
-        output_costs = dict(cost_metrics["output_cost"])
-        assert output_costs.get(self.team.id) == pytest.approx(0.054, rel=1e-6)
-
-    def test_get_ai_token_metrics(self) -> None:
-        """Test that we correctly aggregate AI token metrics."""
-        distinct_id = str(uuid4())
-        _create_person(distinct_ids=[distinct_id], team=self.team)
-
-        period_start, period_end = get_previous_day()
-
-        # Create AI events with token properties
-        self._create_ai_events(
-            self.team,
-            distinct_id,
-            "$ai_generation",
-            2,
-            properties={
+                "$ai_request_cost_usd": 0.001,
+                "$ai_web_search_cost_usd": 0.002,
                 "$ai_input_tokens": 100,
                 "$ai_output_tokens": 50,
                 "$ai_total_tokens": 150,
-            },
-        )
-
-        self._create_ai_events(
-            self.team,
-            distinct_id,
-            "$ai_embedding",
-            3,
-            properties={
-                "$ai_input_tokens": 200,  # Alternative property name
-                "$ai_output_tokens": 0,  # Alternative property name
-                "$ai_total_tokens": 200,
+                "$ai_reasoning_tokens": 25,
+                "$ai_cache_read_input_tokens": 500,
+                "$ai_cache_creation_input_tokens": 200,
             },
         )
 
         # Get team_ids first
         team_ids = get_teams_with_ai_events(period_start, period_end)
 
-        # Get token metrics
-        token_metrics = get_ai_token_metrics(period_start, period_end, team_ids)
+        # Get all metrics in one query
+        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
 
-        # Verify prompt tokens (2 * 100 + 3 * 200 = 800)
-        prompt_tokens = dict(token_metrics["prompt_tokens"])
-        assert prompt_tokens.get(self.team.id) == 800
+        # Verify team is in results
+        assert self.team.id in all_metrics
+        metrics = all_metrics[self.team.id]
 
-        # Verify completion tokens (2 * 50 + 3 * 0 = 100)
-        completion_tokens = dict(token_metrics["completion_tokens"])
-        assert completion_tokens.get(self.team.id) == 100
+        # Verify event counts
+        assert metrics.ai_generation_count == 8  # 5 + 3
+        assert metrics.ai_embedding_count == 3
+        assert metrics.ai_span_count == 10
+        assert metrics.ai_trace_count == 2
+        assert metrics.ai_metric_count == 1
+        assert metrics.ai_feedback_count == 4
+        assert metrics.ai_evaluation_count == 6
 
-        # Verify total tokens (2 * 150 + 3 * 200 = 900)
-        total_tokens = dict(token_metrics["total_tokens"])
-        assert total_tokens.get(self.team.id) == 900
+        # Verify cost metrics (3 events with costs)
+        assert metrics.total_cost == pytest.approx(0.045, rel=1e-6)  # 3 * 0.015
+        assert metrics.input_cost == pytest.approx(0.015, rel=1e-6)  # 3 * 0.005
+        assert metrics.output_cost == pytest.approx(0.030, rel=1e-6)  # 3 * 0.010
+        assert metrics.request_cost == pytest.approx(0.003, rel=1e-6)  # 3 * 0.001
+        assert metrics.web_search_cost == pytest.approx(0.006, rel=1e-6)  # 3 * 0.002
 
-    def test_get_ai_additional_cost_metrics(self) -> None:
-        """Test that we correctly aggregate additional AI cost metrics."""
-        distinct_id = str(uuid4())
-        _create_person(distinct_ids=[distinct_id], team=self.team)
+        # Verify token metrics (3 events with tokens)
+        assert metrics.prompt_tokens == 300  # 3 * 100
+        assert metrics.completion_tokens == 150  # 3 * 50
+        assert metrics.total_tokens == 450  # 3 * 150
+        assert metrics.reasoning_tokens == 75  # 3 * 25
+        assert metrics.cache_read_tokens == 1500  # 3 * 500
+        assert metrics.cache_creation_tokens == 600  # 3 * 200
 
-        period_start, period_end = get_previous_day()
-
-        # Create AI events with request and web search costs
-        self._create_ai_events(
-            self.team,
-            distinct_id,
-            "$ai_generation",
-            3,
-            properties={
-                "$ai_request_cost_usd": 0.001,
-                "$ai_web_search_cost_usd": 0.002,
-            },
-        )
-
-        self._create_ai_events(
-            self.team,
-            distinct_id,
-            "$ai_generation",
-            2,
-            properties={
-                "$ai_request_cost_usd": 0.0015,
-            },
-        )
-
-        # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end)
-
-        # Get additional cost metrics
-        additional_cost_metrics = get_ai_additional_cost_metrics(period_start, period_end, team_ids)
-
-        # Verify request costs (3 * 0.001 + 2 * 0.0015 = 0.006)
-        request_costs = dict(additional_cost_metrics["request_cost"])
-        assert request_costs.get(self.team.id) == pytest.approx(0.006, rel=1e-6)
-
-        # Verify web search costs (3 * 0.002 = 0.006)
-        web_search_costs = dict(additional_cost_metrics["web_search_cost"])
-        assert web_search_costs.get(self.team.id) == pytest.approx(0.006, rel=1e-6)
-
-    def test_get_ai_additional_token_metrics(self) -> None:
-        """Test that we correctly aggregate additional AI token metrics."""
-        distinct_id = str(uuid4())
-        _create_person(distinct_ids=[distinct_id], team=self.team)
-
-        period_start, period_end = get_previous_day()
-
-        # Create AI events with reasoning and cache tokens
-        self._create_ai_events(
-            self.team,
-            distinct_id,
-            "$ai_generation",
-            2,
-            properties={
-                "$ai_reasoning_tokens": 150,
-                "$ai_cache_read_input_tokens": 1000,
-                "$ai_cache_creation_input_tokens": 500,
-            },
-        )
-
-        self._create_ai_events(
-            self.team,
-            distinct_id,
-            "$ai_generation",
-            3,
-            properties={
-                "$ai_reasoning_tokens": 200,
-                "$ai_cache_read_input_tokens": 800,
-            },
-        )
-
-        # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end)
-
-        # Get additional token metrics
-        additional_token_metrics = get_ai_additional_token_metrics(period_start, period_end, team_ids)
-
-        # Verify reasoning tokens (2 * 150 + 3 * 200 = 900)
-        reasoning_tokens = dict(additional_token_metrics["reasoning_tokens"])
-        assert reasoning_tokens.get(self.team.id) == 900
-
-        # Verify cache read tokens (2 * 1000 + 3 * 800 = 4400)
-        cache_read_tokens = dict(additional_token_metrics["cache_read_tokens"])
-        assert cache_read_tokens.get(self.team.id) == 4400
-
-        # Verify cache creation tokens (2 * 500 = 1000)
-        cache_creation_tokens = dict(additional_token_metrics["cache_creation_tokens"])
-        assert cache_creation_tokens.get(self.team.id) == 1000
-
-    def test_get_ai_dimension_breakdowns(self) -> None:
-        """Test that we correctly get dimension breakdowns."""
+    def test_get_all_ai_dimension_breakdowns(self) -> None:
+        """Test that we correctly get dimension breakdowns using the combined Map-based query."""
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
@@ -359,31 +190,31 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         # Get team_ids first
         team_ids = get_teams_with_ai_events(period_start, period_end)
 
-        # Get dimension breakdowns
-        dimension_breakdowns = get_ai_dimension_breakdowns(period_start, period_end, team_ids)
+        # Get dimension breakdowns using the new combined function
+        all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+
+        # Verify team is in results
+        assert self.team.id in all_breakdowns
+        breakdowns = all_breakdowns[self.team.id]
 
         # Verify model breakdown
-        model_breakdown = dimension_breakdowns["model"].get(self.team.id, {})
-        assert model_breakdown.get("gpt-4o-mini") == 10
-        assert model_breakdown.get("claude-3-opus") == 5
-        assert model_breakdown.get("text-embedding-ada-002") == 3
+        assert breakdowns.model_breakdown.get("gpt-4o-mini") == 10
+        assert breakdowns.model_breakdown.get("claude-3-opus") == 5
+        assert breakdowns.model_breakdown.get("text-embedding-ada-002") == 3
 
         # Verify provider breakdown
-        provider_breakdown = dimension_breakdowns["provider"].get(self.team.id, {})
-        assert provider_breakdown.get("openai") == 13  # 10 + 3
-        assert provider_breakdown.get("anthropic") == 5
+        assert breakdowns.provider_breakdown.get("openai") == 13  # 10 + 3
+        assert breakdowns.provider_breakdown.get("anthropic") == 5
 
         # Verify framework breakdown
-        framework_breakdown = dimension_breakdowns["framework"].get(self.team.id, {})
-        assert framework_breakdown.get("langchain") == 10
-        assert framework_breakdown.get("none") == 8  # 5 + 3 (events without framework)
+        assert breakdowns.framework_breakdown.get("langchain") == 10
+        assert breakdowns.framework_breakdown.get("none") == 8  # 5 + 3 (events without framework)
 
         # Verify library breakdown
-        library_breakdown = dimension_breakdowns["library"].get(self.team.id, {})
-        assert library_breakdown.get("posthog-python") == 13  # 10 + 3
-        assert library_breakdown.get("posthog-node") == 5
+        assert breakdowns.library_breakdown.get("posthog-python") == 13  # 10 + 3
+        assert breakdowns.library_breakdown.get("posthog-node") == 5
 
-    def test_get_ai_cost_model_breakdowns(self) -> None:
+    def test_get_all_ai_cost_model_breakdowns(self) -> None:
         """Test that we correctly get cost model breakdowns."""
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
@@ -438,26 +269,27 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         # Get team_ids first
         team_ids = get_teams_with_ai_events(period_start, period_end)
 
-        # Get dimension breakdowns
-        dimension_breakdowns = get_ai_dimension_breakdowns(period_start, period_end, team_ids)
+        # Get dimension breakdowns using the new combined function
+        all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+
+        # Verify team is in results
+        assert self.team.id in all_breakdowns
+        breakdowns = all_breakdowns[self.team.id]
 
         # Verify cost_model_used breakdown
-        cost_model_used_breakdown = dimension_breakdowns["cost_model_used"].get(self.team.id, {})
-        assert cost_model_used_breakdown.get("openai/gpt-4o-mini") == 10
-        assert cost_model_used_breakdown.get("custom") == 5
-        assert cost_model_used_breakdown.get("anthropic/claude-3-opus") == 3
+        assert breakdowns.cost_model_used_breakdown.get("openai/gpt-4o-mini") == 10
+        assert breakdowns.cost_model_used_breakdown.get("custom") == 5
+        assert breakdowns.cost_model_used_breakdown.get("anthropic/claude-3-opus") == 3
 
         # Verify cost_model_source breakdown
-        cost_model_source_breakdown = dimension_breakdowns["cost_model_source"].get(self.team.id, {})
-        assert cost_model_source_breakdown.get("openrouter") == 10
-        assert cost_model_source_breakdown.get("custom") == 5
-        assert cost_model_source_breakdown.get("manual") == 3
+        assert breakdowns.cost_model_source_breakdown.get("openrouter") == 10
+        assert breakdowns.cost_model_source_breakdown.get("custom") == 5
+        assert breakdowns.cost_model_source_breakdown.get("manual") == 3
 
         # Verify cost_model_provider breakdown
-        cost_model_provider_breakdown = dimension_breakdowns["cost_model_provider"].get(self.team.id, {})
-        assert cost_model_provider_breakdown.get("openai") == 10
-        assert cost_model_provider_breakdown.get("custom") == 5
-        assert cost_model_provider_breakdown.get("anthropic") == 3
+        assert breakdowns.cost_model_provider_breakdown.get("openai") == 10
+        assert breakdowns.cost_model_provider_breakdown.get("custom") == 5
+        assert breakdowns.cost_model_provider_breakdown.get("anthropic") == 3
 
     def test_full_llm_analytics_report(self) -> None:
         """Test the full LLM Analytics report generation."""
@@ -784,36 +616,36 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         # Get team_ids first
         team_ids = get_teams_with_ai_events(period_start, period_end)
 
-        # Get dimension breakdowns
-        dimension_breakdowns = get_ai_dimension_breakdowns(period_start, period_end, team_ids)
+        # Get dimension breakdowns using the new combined function
+        all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+
+        # Verify team is in results
+        assert self.team.id in all_breakdowns
+        breakdowns = all_breakdowns[self.team.id]
 
         # Verify model breakdown - should only have valid models
-        model_breakdown = dimension_breakdowns["model"].get(self.team.id, {})
-        assert model_breakdown.get("gpt-4o-mini") == 5
-        assert model_breakdown.get("claude-3-opus") == 2
-        assert model_breakdown.get("gpt-4") == 4
-        assert "" not in model_breakdown  # Empty string should be filtered out
-        assert model_breakdown.get("") is None
+        assert breakdowns.model_breakdown.get("gpt-4o-mini") == 5
+        assert breakdowns.model_breakdown.get("claude-3-opus") == 2
+        assert breakdowns.model_breakdown.get("gpt-4") == 4
+        assert "" not in breakdowns.model_breakdown  # Empty string should be filtered out
+        assert breakdowns.model_breakdown.get("") is None
 
         # Verify provider breakdown - should only have valid providers
-        provider_breakdown = dimension_breakdowns["provider"].get(self.team.id, {})
-        assert provider_breakdown.get("openai") == 9  # 5 + 4
-        assert provider_breakdown.get("anthropic") == 3
-        assert "" not in provider_breakdown  # Empty string should be filtered out
-        assert "   " not in provider_breakdown  # Whitespace should be filtered out
-        assert provider_breakdown.get("") is None
-        assert provider_breakdown.get("   ") is None
+        assert breakdowns.provider_breakdown.get("openai") == 9  # 5 + 4
+        assert breakdowns.provider_breakdown.get("anthropic") == 3
+        assert "" not in breakdowns.provider_breakdown  # Empty string should be filtered out
+        assert "   " not in breakdowns.provider_breakdown  # Whitespace should be filtered out
+        assert breakdowns.provider_breakdown.get("") is None
+        assert breakdowns.provider_breakdown.get("   ") is None
 
         # Verify library breakdown - should only have valid libraries
-        library_breakdown = dimension_breakdowns["library"].get(self.team.id, {})
-        assert library_breakdown.get("posthog-python") == 7  # 5 + 2
-        assert library_breakdown.get("posthog-node") == 3
-        assert "" not in library_breakdown  # Empty string should be filtered out
-        assert library_breakdown.get("") is None
+        assert breakdowns.library_breakdown.get("posthog-python") == 7  # 5 + 2
+        assert breakdowns.library_breakdown.get("posthog-node") == 3
+        assert "" not in breakdowns.library_breakdown  # Empty string should be filtered out
+        assert breakdowns.library_breakdown.get("") is None
 
         # Verify framework breakdown - events without framework should count as "none"
-        framework_breakdown = dimension_breakdowns["framework"].get(self.team.id, {})
-        assert framework_breakdown.get("none") == 15  # All events (3+2+4+1+5) have no framework
+        assert breakdowns.framework_breakdown.get("none") == 15  # All events (3+2+4+1+5) have no framework
 
     def test_get_teams_with_ai_events(self) -> None:
         """Test that get_teams_with_ai_events returns correct team IDs."""

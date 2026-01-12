@@ -1,7 +1,10 @@
-from posthog.temporal.data_modeling.ducklake_copy_workflow import (
-    DuckLakeCopyDataModelingWorkflow,
-    copy_data_modeling_model_to_ducklake_activity,
-    prepare_data_modeling_ducklake_metadata_activity,
+from posthog.temporal.data_modeling.activities import (
+    create_data_modeling_job_activity,
+    fail_materialization_activity,
+    get_dag_structure_activity,
+    materialize_view_activity,
+    prepare_queryable_table_activity,
+    succeed_materialization_activity,
 )
 from posthog.temporal.data_modeling.run_workflow import (
     RunWorkflow,
@@ -14,9 +17,16 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
+from posthog.temporal.data_modeling.workflows import ExecuteDAGWorkflow, MaterializeViewWorkflow
 
-WORKFLOWS = [RunWorkflow, DuckLakeCopyDataModelingWorkflow]
+WORKFLOWS = [RunWorkflow, MaterializeViewWorkflow, ExecuteDAGWorkflow]
 ACTIVITIES = [
+    create_data_modeling_job_activity,
+    get_dag_structure_activity,
+    fail_materialization_activity,
+    materialize_view_activity,
+    prepare_queryable_table_activity,
+    succeed_materialization_activity,
     finish_run_activity,
     start_run_activity,
     build_dag_activity,
@@ -25,6 +35,4 @@ ACTIVITIES = [
     fail_jobs_activity,
     create_job_model_activity,
     cleanup_running_jobs_activity,
-    prepare_data_modeling_ducklake_metadata_activity,
-    copy_data_modeling_model_to_ducklake_activity,
 ]

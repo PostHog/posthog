@@ -458,6 +458,147 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         assert default_etag is None
 
 
+class TestHyperCacheBatchGetFromCache(BaseTest):
+    """Tests for batch_get_from_cache() method using MGET optimization."""
+
+    @property
+    def sample_data(self) -> dict:
+        return {"key": "value", "nested": {"data": "test"}}
+
+    def create_hypercache(self) -> HyperCache:
+        def load_fn(team):
+            return {"default": "data"}
+
+        return HyperCache(namespace="test_batch", value="test_value", load_fn=load_fn)
+
+    def test_batch_get_from_cache_all_hits(self):
+        """Test batch get when all teams have cached data."""
+        hc = self.create_hypercache()
+        teams = [self.team]
+
+        # Populate cache
+        hc.set_cache_value(self.team, self.sample_data)
+
+        results = hc.batch_get_from_cache(teams)
+
+        assert len(results) == 1
+        assert self.team.id in results
+        data, source = results[self.team.id]
+        assert source == "redis"
+        assert data == self.sample_data
+
+    def test_batch_get_from_cache_all_misses(self):
+        """Test batch get when all teams have cache misses."""
+        hc = self.create_hypercache()
+        teams = [self.team]
+
+        # Clear cache
+        hc.clear_cache(self.team)
+
+        results = hc.batch_get_from_cache(teams)
+
+        assert len(results) == 1
+        assert self.team.id in results
+        data, source = results[self.team.id]
+        assert source == "miss"
+        assert data is None
+
+    def test_batch_get_from_cache_partial_hits(self):
+        """Test batch get with mix of hits and misses."""
+        from posthog.models.team import Team
+
+        hc = self.create_hypercache()
+
+        # Create a second team
+        team2 = Team.objects.create(organization=self.organization, name="Test Team 2")
+        teams = [self.team, team2]
+
+        # Cache first team only
+        hc.set_cache_value(self.team, self.sample_data)
+        hc.clear_cache(team2)
+
+        results = hc.batch_get_from_cache(teams)
+
+        assert len(results) == 2
+
+        # First team: hit
+        data1, source1 = results[self.team.id]
+        assert source1 == "redis"
+        assert data1 == self.sample_data
+
+        # Second team: miss
+        data2, source2 = results[team2.id]
+        assert source2 == "miss"
+        assert data2 is None
+
+    def test_batch_get_from_cache_empty_list(self):
+        """Test batch get with empty team list."""
+        hc = self.create_hypercache()
+
+        results = hc.batch_get_from_cache([])
+
+        assert results == {}
+
+    def test_batch_get_from_cache_handles_empty_value_marker(self):
+        """Test batch get correctly handles HyperCacheStoreMissing (None) cached values."""
+        hc = self.create_hypercache()
+
+        # Store a "missing" marker (None)
+        hc.set_cache_value(self.team, HyperCacheStoreMissing())
+
+        results = hc.batch_get_from_cache([self.team])
+
+        # Should return (None, "redis") not (None, "miss")
+        # This is the cached "empty" marker, not a cache miss
+        data, source = results[self.team.id]
+        assert data is None
+        assert source == "redis"
+
+    def test_batch_get_from_cache_uses_get_many(self):
+        """Test that batch_get uses get_many (MGET) instead of individual gets."""
+        hc = self.create_hypercache()
+        teams = [self.team]
+
+        # Populate cache first so there's data to return
+        hc.set_cache_value(self.team, self.sample_data)
+
+        # Track that get_many is called with the correct keys
+        cache_key = hc.get_cache_key(self.team)
+        get_many_called_keys = []
+
+        original_get_many = hc.cache_client.get_many
+
+        def track_get_many(keys):
+            get_many_called_keys.extend(keys)
+            return original_get_many(keys)
+
+        with patch.object(hc.cache_client, "get_many", side_effect=track_get_many):
+            results = hc.batch_get_from_cache(teams)
+
+        # Verify get_many was called with the correct cache key
+        assert cache_key in get_many_called_keys
+        # Verify we got the expected result
+        assert self.team.id in results
+        data, source = results[self.team.id]
+        assert source == "redis"
+        assert data == self.sample_data
+
+    def test_batch_get_from_cache_no_s3_fallback(self):
+        """Test that batch get does NOT fall back to S3 (verification-specific optimization)."""
+        hc = self.create_hypercache()
+
+        # Set data in S3 only, not Redis
+        hc.set_cache_value(self.team, self.sample_data)
+        hc.clear_cache(self.team, kinds=["redis"])
+
+        results = hc.batch_get_from_cache([self.team])
+
+        # Should return miss, NOT load from S3
+        data, source = results[self.team.id]
+        assert source == "miss"
+        assert data is None
+
+
 class TestHyperCacheETagDisabled(HyperCacheTestBase):
     """Tests for HyperCache when ETag is disabled (default)"""
 

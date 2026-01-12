@@ -106,6 +106,7 @@ export interface SurveyAppearanceSchema {
     zIndex?: string
     placeholder?: string
     inputBackground?: string
+    inputTextColor?: string
     buttonColor?: string
     buttonTextColor?: string
     textColor?: string

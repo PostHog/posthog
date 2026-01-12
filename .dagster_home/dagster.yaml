@@ -1,4 +1,4 @@
-# Local dev only, see dags/README.md for more info
+# Local dev only, see posthog/dags/README.md for more info
 concurrency:
     runs:
         tag_concurrency_limits:

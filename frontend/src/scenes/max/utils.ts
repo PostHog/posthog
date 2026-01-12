@@ -3,36 +3,51 @@ import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
+import { VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
+    AgentMode,
     AnyAssistantGeneratedQuery,
-    AnyAssistantSupportedQuery,
     ArtifactContent,
     ArtifactContentType,
     ArtifactMessage,
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
+    AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
+    NotebookArtifactContent,
     NotebookUpdateMessage,
     RootAssistantMessage,
+    SubagentUpdateEvent,
     VisualizationArtifactContent,
+    VisualizationItem,
 } from '~/queries/schema/schema-assistant-messages'
 import {
     DashboardFilter,
-    FunnelsQuery,
-    HogQLQuery,
+    DataVisualizationNode,
     HogQLVariable,
-    RetentionQuery,
-    TrendsQuery,
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
+import { Scene } from '../sceneTypes'
 import { EnhancedToolCall } from './Thread'
+import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
-import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
+import {
+    MaxActionContext,
+    MaxContextType,
+    MaxDashboardContext,
+    MaxErrorTrackingIssueContext,
+    MaxEventContext,
+    MaxInsightContext,
+} from './maxTypes'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -48,6 +63,10 @@ export function isVisualizationArtifactContent(content: ArtifactContent): conten
     return content.content_type === ArtifactContentType.Visualization
 }
 
+export function isNotebookArtifactContent(content: ArtifactContent): content is NotebookArtifactContent {
+    return content.content_type === ArtifactContentType.Notebook
+}
+
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {
     return message?.type === AssistantMessageType.Human
 }
@@ -60,6 +79,12 @@ export function isAssistantToolCallMessage(
     message: RootAssistantMessage | undefined | null
 ): message is AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>> {
     return message?.type === AssistantMessageType.ToolCall && message.ui_payload !== undefined
+}
+
+export function isSubagentUpdateEvent(
+    message: AssistantUpdateEvent | SubagentUpdateEvent | undefined | null
+): message is SubagentUpdateEvent {
+    return message?.content instanceof Object && 'type' in message.content && message.content.type === 'tool_call'
 }
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
@@ -98,19 +123,11 @@ export function threadEndsWithMultiQuestionForm(messages: RootAssistantMessage[]
     return false
 }
 
-export function castAssistantQuery(
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
-): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
-    if (isTrendsQuery(query)) {
-        return query
-    } else if (isFunnelsQuery(query)) {
-        return query
-    } else if (isRetentionQuery(query)) {
-        return query
-    } else if (isHogQLQuery(query)) {
-        return query
+export function castAssistantQuery(query: AnyAssistantGeneratedQuery | QuerySchemaRoot | null): QuerySchemaRoot | null {
+    if (query) {
+        return query as QuerySchemaRoot
     }
-    throw new Error(`Unsupported query type: ${query?.kind}`)
+    return null
 }
 
 export function formatConversationDate(updatedAt: string | null): string {
@@ -123,6 +140,14 @@ export function formatConversationDate(updatedAt: string | null): string {
         return 'Just now'
     }
     return humanFriendlyDuration(diff, { maxUnits: 1 })
+}
+
+export function getSlackThreadUrl(slackThreadKey: string, slackWorkspaceDomain?: string | null): string {
+    const [_, channel, threadTs] = slackThreadKey.split(':')
+    // threadTs is like "1765374935.148729", URL needs "p1765374935148729"
+    const urlTs = `p${threadTs.replace('.', '')}`
+    const domain = slackWorkspaceDomain || 'slack'
+    return `https://${domain}.slack.com/archives/${channel}/${urlTs}`
 }
 
 /**
@@ -219,6 +244,17 @@ export const actionToMaxContextPayload = (action: ActionType): MaxActionContext 
     }
 }
 
+export const errorTrackingIssueToMaxContextPayload = (issue: {
+    id: string
+    name?: string | null
+}): MaxErrorTrackingIssueContext => {
+    return {
+        type: MaxContextType.ERROR_TRACKING_ISSUE,
+        id: issue.id,
+        name: issue.name,
+    }
+}
+
 export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
     return {
         label,
@@ -252,4 +288,30 @@ export function captureFeedback(
             $ai_trace_id: traceId,
         })
     }
+}
+
+/** Maps a scene ID to the agent mode that should be activated for that scene */
+export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
+    if (!sceneId) {
+        return null
+    }
+    for (const [mode, def] of Object.entries(MODE_DEFINITIONS)) {
+        if (def.scenes.has(sceneId)) {
+            return mode as AgentMode
+        }
+    }
+    return null
+}
+
+export const visualizationTypeToQuery = (
+    visualization: VisualizationItem | VisualizationArtifactContent | VisualizationBlock
+): QuerySchema | null => {
+    const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
+    if (isHogQLQuery(source)) {
+        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
+    }
+    if (isInsightQueryNode(source)) {
+        return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
+    }
+    return source
 }

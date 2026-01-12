@@ -65,6 +65,13 @@ class PostHogSCIMUser(SCIMUser):
         return scim_user.username if scim_user else self.obj.email
 
     @property
+    def identity_provider(self) -> str:
+        scim_user = SCIMProvisionedUser.objects.filter(
+            user=self.obj, organization_domain=self._organization_domain
+        ).first()
+        return scim_user.identity_provider if scim_user else SCIMProvisionedUser.IdentityProvider.OTHER
+
+    @property
     def active(self) -> bool:
         # A user is "active" in SCIM context if they have membership in this org
         if not hasattr(self, "_organization_domain"):
@@ -226,12 +233,18 @@ class PostHogSCIMUser(SCIMUser):
                 defaults={
                     "username": user_name,
                     "active": is_active,
-                    "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                    "identity_provider": self.identity_provider,
                 },
             )
 
-            # Deactivate user if active is false
-            if not is_active:
+            if is_active:
+                # Adding org membership to reactivate the user
+                OrganizationMembership.objects.get_or_create(
+                    user=self.obj,
+                    organization=self._organization_domain.organization,
+                    defaults={"level": OrganizationMembership.Level.MEMBER},
+                )
+            else:
                 self.deactivate()
 
     def deactivate(self) -> None:
@@ -277,13 +290,19 @@ class PostHogSCIMUser(SCIMUser):
                     self.deactivate()
                     return
                 else:
+                    OrganizationMembership.objects.get_or_create(
+                        user=self.obj,
+                        organization=self._organization_domain.organization,
+                        defaults={"level": OrganizationMembership.Level.MEMBER},
+                    )
+
                     SCIMProvisionedUser.objects.update_or_create(
                         user=self.obj,
                         organization_domain=self._organization_domain,
                         defaults={
                             "active": True,
-                            "username": self.obj.email,
-                            "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                            "username": self.user_name,
+                            "identity_provider": self.identity_provider,
                         },
                     )
 
@@ -315,7 +334,7 @@ class PostHogSCIMUser(SCIMUser):
                     defaults={
                         "username": value,
                         "active": True,
-                        "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                        "identity_provider": self.identity_provider,
                     },
                 )
 
@@ -342,8 +361,8 @@ class PostHogSCIMUser(SCIMUser):
                     organization_domain=self._organization_domain,
                     defaults={
                         "active": True,
-                        "username": self.obj.email,
-                        "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                        "username": self.user_name,
+                        "identity_provider": self.identity_provider,
                     },
                 )
 
@@ -377,7 +396,7 @@ class PostHogSCIMUser(SCIMUser):
                     defaults={
                         "username": value,
                         "active": True,
-                        "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                        "identity_provider": self.identity_provider,
                     },
                 )
 

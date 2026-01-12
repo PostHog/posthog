@@ -11,13 +11,10 @@ inputs:
     push-image:
         required: false
         default: 'false'
-        description: Whether to push the built image - requires aws-access-key and aws-access-secret
-    aws-access-key:
+        description: Whether to push the built image - requires aws-role-to-assume
+    aws-role-to-assume:
         required: false
-        description: AWS key to log into ECR (required when push-image is true)
-    aws-access-secret:
-        required: false
-        description: AWS secret to log into ECR (required when push-image is true)
+        description: AWS role to assume for ECR access (required when push-image is true)
     dockerhub-username:
         required: false
         description: Dockerhub username for pushing image
@@ -40,33 +37,38 @@ outputs:
     build-id:
         description: The ID of the build
         value: ${{ steps.build.outputs.build-id }}
+    digest:
+        description: The digest of the image that was built
+        value: ${{ steps.build.outputs.digest }}
+    registry:
+        description: The ECR registry URL
+        value: ${{ steps.aws-ecr.outputs.registry }}
 
 runs:
     using: 'composite'
     steps:
         - name: Checkout
-          uses: actions/checkout@v4
+          uses: actions/checkout@v6
 
         - name: Set up Docker Buildx
-          uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+          uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
         - name: Set up QEMU
-          uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+          uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
         - name: Set up Depot CLI
-          uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+          uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
 
         - name: Configure AWS credentials
           if: ${{ inputs.push-image == 'true' }}
-          uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+          uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
           with:
-              aws-access-key-id: ${{ inputs.aws-access-key }}
-              aws-secret-access-key: ${{ inputs.aws-access-secret }}
+              role-to-assume: ${{ inputs.aws-role-to-assume }}
               aws-region: us-east-1
 
         - name: Login to DockerHub
           if: ${{ inputs.push-image == 'true' }}
-          uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+          uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
           with:
               username: ${{ inputs.dockerhub-username }}
               password: ${{ inputs.dockerhub-password }}
@@ -74,7 +76,7 @@ runs:
         - name: Login to Amazon ECR
           if: ${{ inputs.push-image == 'true' }}
           id: aws-ecr
-          uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2
+          uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
         - name: Emit image tag
           id: emit
@@ -95,7 +97,7 @@ runs:
 
         - name: Build image
           id: build
-          uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
+          uses: depot/build-push-action@9785b135c3c76c33db102e45be96a25ab55cd507 # v1.16.2
           with:
               context: .
               buildx-fallback: false # buildx is so slow it's better to just fail

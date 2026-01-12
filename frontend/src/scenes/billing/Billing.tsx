@@ -10,7 +10,7 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { JudgeHog } from 'lib/components/hedgehogs'
+import { JudgeHog, StarHog } from 'lib/components/hedgehogs'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -19,6 +19,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { couponLogic } from 'scenes/coupons/couponLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -55,6 +56,7 @@ export function Billing(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
+    const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic({}))
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -78,7 +80,7 @@ export function Billing(): JSX.Element {
         router.actions.push(urls.default())
     }
 
-    if (!billing && billingLoading) {
+    if ((!billing && billingLoading) || couponsOverviewLoading) {
         return (
             <>
                 <SpinnerOverlay sceneLevel />
@@ -188,6 +190,31 @@ export function Billing(): JSX.Element {
             )}
 
             {!showBillingSummary && <StripePortalButton />}
+
+            {!couponsOverviewLoading && activeCoupons.length > 0 && (
+                <div className="mt-6 max-w-300">
+                    <LemonBanner type="info" hideIcon>
+                        <div className="flex items-center gap-4">
+                            <StarHog className="w-16 h-16 flex-shrink-0" />
+                            <div>
+                                <p className="font-semibold mb-2">You have active coupons!</p>
+                                <ul className="list-disc list-inside space-y-1">
+                                    {activeCoupons.map((coupon) => (
+                                        <li key={coupon.code} className="text-sm">
+                                            <span>{coupon.campaign_name}</span>
+                                            {coupon.expires_at && (
+                                                <span className="text-muted ml-1">
+                                                    · until {dayjs(coupon.expires_at).format('LL')}
+                                                </span>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    </LemonBanner>
+                </div>
+            )}
 
             <LemonDivider className="mt-6 mb-8" />
 

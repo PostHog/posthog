@@ -13,7 +13,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.survey import get_surveys_count, get_surveys_opt_in
 from posthog.api.utils import get_project_id, get_token, on_permitted_recording_domain
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
     RequestParsingError,
@@ -36,6 +36,7 @@ from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_
 from posthog.utils_cors import cors_response
 
 from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
+from products.product_tours.backend.models import ProductTour
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -180,8 +181,37 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     response["surveys"] = surveys_opt_in
     response["heatmaps"] = True if team.heatmaps_opt_in else False
+
+    # Conversations widget config
+    if team.conversations_enabled:
+        conv_settings = team.conversations_settings or {}
+        response["conversations"] = {
+            "enabled": True,
+            "widgetEnabled": conv_settings.get("widget_enabled", False),
+            "greetingText": conv_settings.get("widget_greeting_text") or "Hey, how can I help you today?",
+            "color": conv_settings.get("widget_color") or "#1d4aff",
+            "token": conv_settings.get("widget_public_token"),
+            "domains": conv_settings.get("widget_domains") or [],
+        }
+    else:
+        response["conversations"] = False
+
     response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
+
+    # Product tours - only query if opt-in flag is set (auto-set when a tour is created)
+    has_active_tours = False
+    if team.product_tours_opt_in and not skip_db:
+        try:
+            with execute_with_timeout(200):
+                has_active_tours = ProductTour.objects.filter(
+                    team=team,
+                    archived=False,
+                    start_date__isnull=False,
+                ).exists()
+        except Exception:
+            pass
+    response["productTours"] = has_active_tours
 
     suppression_rules = []
     # errors mean the database is unavailable, no-op in this case
@@ -553,7 +583,10 @@ def _record_feature_flag_metrics(
     ).inc()
 
     # Handle billing analytics
-    if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
+    if not all(
+        flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) or flag.startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+        for flag in feature_flags.keys()
+    ):
         if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
             count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
             increment_request_count(team.id, count)
@@ -591,16 +624,11 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
             rrweb_script_config = None
 
             recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
+            if not recorder_script and settings.DEBUG:
+                recorder_script = "posthog-recorder"
             if recorder_script:
                 rrweb_script_config = {
                     "script": recorder_script,
-                }
-            elif (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
-                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-            ):
-                rrweb_script_config = {
-                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
                 }
 
             session_recording_config_response = {

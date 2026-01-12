@@ -10,7 +10,10 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+    FunnelConversionWindowTimeUnit,
     MultipleVariantHandling,
+    StartHandling,
     StepOrderValue,
 )
 
@@ -28,7 +31,11 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_source_value_expr,
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
-from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    build_aggregation_call,
+    extract_aggregation_and_inner_expr,
+)
+from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
@@ -68,7 +75,9 @@ class ExperimentQueryBuilder:
         variants: list[str],
         date_range_query: QueryDateRange,
         entity_key: str,
-        metric: Optional[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric] = None,
+        metric: Optional[
+            ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+        ] = None,
         breakdowns: list[Breakdown] | None = None,
     ):
         self.team = team
@@ -135,9 +144,11 @@ class ExperimentQueryBuilder:
                 return self._build_mean_query()
             case ExperimentRatioMetric():
                 return self._build_ratio_query()
+            case ExperimentRetentionMetric():
+                return self._build_retention_query()
             case _:
                 raise NotImplementedError(
-                    f"Only funnel, mean, and ratio metrics are supported. Got {type(self.metric)}"
+                    f"Only funnel, mean, ratio, and retention metrics are supported. Got {type(self.metric)}"
                 )
 
     def get_exposure_timeseries_query(self) -> ast.SelectQuery:
@@ -828,6 +839,51 @@ class ExperimentQueryBuilder:
         for alias in aliases:
             query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
 
+    def _inject_retention_breakdown_columns(self, query: ast.SelectQuery) -> None:
+        """
+        Injects breakdown columns into retention query AST.
+        Modifies query in-place.
+
+        Retention breakdown injection is simpler than ratio because:
+        - Only entity_metrics CTE needs modification
+        - No JOIN conditions require breakdown columns
+        - Breakdowns come from exposures only
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+
+        # Inject into entity_metrics CTE SELECT and GROUP BY (carry breakdown from exposures)
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                # Add breakdown columns to SELECT (after entity_id and variant)
+                for i, alias in enumerate(aliases):
+                    entity_metrics_cte.expr.select.insert(
+                        2 + i,  # After entity_id (0), variant (1)
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias])),
+                    )
+
+                # Add breakdown columns to GROUP BY
+                if entity_metrics_cte.expr.group_by is None:
+                    entity_metrics_cte.expr.group_by = []
+                for alias in aliases:
+                    entity_metrics_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
+
+        # Inject into final SELECT - breakdown columns must come right after variant
+        for i, alias in enumerate(aliases):
+            query.select.insert(
+                1 + i,  # Position after variant column (index 0)
+                ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias])),
+            )
+
+        # Inject into final GROUP BY
+        if query.group_by is None:
+            query.group_by = []
+        for alias in aliases:
+            query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+
     def _build_ratio_query(self) -> ast.SelectQuery:
         """
         Builds query for ratio metrics.
@@ -1067,7 +1123,11 @@ class ExperimentQueryBuilder:
         # Data warehouse sources use different table and predicate logic
         timestamp_field_chain: list[str | int]
         if isinstance(source, ExperimentDataWarehouseNode):
-            timestamp_field_chain = [table_alias, source.timestamp_field]
+            # For DW tables, don't prefix with table name since:
+            # 1. We're in a single-table CTE context where field names are unambiguous
+            # 2. DW table names may contain dots (e.g., "bigquery.table_name") which
+            #    confuse HogQL field resolution when used as a prefix
+            timestamp_field_chain = [source.timestamp_field]
             metric_event_filter = data_warehouse_node_to_filter(self.team, source)
         else:
             timestamp_field_chain = [table_alias, "timestamp"]
@@ -1139,9 +1199,11 @@ class ExperimentQueryBuilder:
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    return parse_expr(f"{aggregation_function}(coalesce(toFloat({events_alias}.value), 0))")
+                    # Build the aggregation with params if it's a parametric function
+                    inner_value_expr = parse_expr(f"coalesce(toFloat({events_alias}.value), 0)")
+                    return build_aggregation_call(aggregation_function, inner_value_expr, params=params)
             return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
         else:
             return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
@@ -1258,15 +1320,15 @@ class ExperimentQueryBuilder:
         if self._has_breakdown():
             breakdown_exprs = self._build_breakdown_exprs(table_alias="")
 
-            # Add breakdown columns to SELECT
+            # Add breakdown columns to SELECT using argMin attribution
+            # This ensures each user is attributed to exactly one breakdown value
+            # (from their first exposure), preventing duplicate counting when users
+            # have multiple exposures with different breakdown property values
             for alias, expr in breakdown_exprs:
-                exposure_query.select.append(ast.Alias(alias=alias, expr=expr))
-
-            # Add breakdown columns to GROUP BY
-            if exposure_query.group_by is None:
-                exposure_query.group_by = []
-            for alias, _ in breakdown_exprs:
-                exposure_query.group_by.append(ast.Field(chain=[alias]))
+                # Use argMin to attribute breakdown value from first exposure
+                # This matches the variant attribution logic
+                breakdown_attributed = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
+                exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
         return exposure_query
 
@@ -1362,6 +1424,314 @@ class ExperimentQueryBuilder:
         """
         return parse_expr(
             "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0))))"
+        )
+
+    def _build_retention_query(self) -> ast.SelectQuery:
+        """
+        Builds query for retention metrics.
+
+        Retention measures the proportion of users who performed a "completion event"
+        within a specified time window after performing a "start event".
+
+        Statistical Treatment:
+        This metric is treated as a ratio metric using RatioStatistic. Each entity has:
+        - Numerator value: 1 if completed within retention window, 0 otherwise
+        - Denominator value: 1 (they performed the start event)
+
+        Unlike standard proportion tests (where sample size is fixed), retention metrics
+        have a random denominator (count of users who started). This makes retention a
+        ratio of two random variables, requiring delta method variance.
+
+        Returns 7 fields for RatioStatistic:
+        - Standard: num_users, total_sum, total_sum_of_squares
+        - Ratio-specific: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
+
+        The collected statistics are processed using RatioStatistic (not ProportionStatistic)
+        for both frequentist and Bayesian analysis.
+
+        Structure:
+        - exposures: all exposures with variant assignment
+        - start_events: when each entity performed the start_event (with start_handling logic)
+        - completion_events: when each entity performed the completion_event
+        - entity_metrics: join exposures + start_events + completion_events
+                          Calculate retention per entity (1 if retained, 0 if not)
+        - Final SELECT: aggregated statistics per variant
+
+        Key Design Decision:
+        Uses INNER JOIN between exposures and start_events, meaning only users who
+        performed the start event are included in the retention calculation. This
+        measures "Of users who did X, how many came back to do Y?" rather than
+        "Of all exposed users, how many did X and then Y?"
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        # Build the CTEs
+        common_ctes = """
+            exposures AS (
+                {exposure_select_query}
+            ),
+
+            start_events AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {start_timestamp_expr} AS start_timestamp
+                FROM events
+                WHERE {start_event_predicate}
+                GROUP BY entity_id
+            ),
+
+            completion_events AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    timestamp AS completion_timestamp
+                FROM events
+                WHERE {completion_event_predicate}
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    MAX(if(
+                        completion_events.completion_timestamp IS NOT NULL
+                        AND {truncated_completion_timestamp} >= {truncated_start_timestamp} + {retention_window_start_interval}
+                        AND {truncated_completion_timestamp} <= {truncated_start_timestamp} + {retention_window_end_interval},
+                        1,
+                        0
+                    )) AS value
+                FROM exposures
+                INNER JOIN start_events
+                    ON exposures.entity_id = start_events.entity_id
+                    AND {start_conversion_window_predicate}
+                LEFT JOIN completion_events
+                    ON exposures.entity_id = completion_events.entity_id
+                    AND {completion_retention_window_predicate}
+                GROUP BY exposures.entity_id, exposures.variant
+            )
+        """
+
+        placeholders = {
+            "exposure_select_query": self._build_exposure_select_query(),
+            "entity_key": parse_expr(self.entity_key),
+            "start_timestamp_expr": self._build_start_event_timestamp_expr(),
+            "start_event_predicate": self._build_start_event_predicate(),
+            "completion_event_predicate": self._build_completion_event_predicate(),
+            "retention_window_start_interval": self._build_retention_window_interval(
+                self.metric.retention_window_start
+            ),
+            "retention_window_end_interval": self._build_retention_window_interval(self.metric.retention_window_end),
+            "start_conversion_window_predicate": self._build_start_conversion_window_predicate(),
+            "completion_retention_window_predicate": self._build_completion_retention_window_predicate(),
+            "truncated_start_timestamp": self._get_retention_window_truncation_expr(
+                parse_expr("start_events.start_timestamp")
+            ),
+            "truncated_completion_timestamp": self._get_retention_window_truncation_expr(
+                parse_expr("completion_events.completion_timestamp")
+            ),
+        }
+
+        query = parse_select(
+            f"""
+            WITH {common_ctes}
+
+            SELECT
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                sum(entity_metrics.value) AS total_sum,
+                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+                count(entity_metrics.entity_id) AS denominator_sum,
+                count(entity_metrics.entity_id) AS denominator_sum_squares,
+                sum(entity_metrics.value) AS numerator_denominator_sum_product
+            FROM entity_metrics
+            WHERE notEmpty(variant)
+            GROUP BY entity_metrics.variant
+            """,
+            placeholders=placeholders,
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns if breakdown filter is present
+        if self._has_breakdown():
+            self._inject_retention_breakdown_columns(query)
+
+        return query
+
+    def _build_start_event_timestamp_expr(self) -> ast.Expr:
+        """
+        Returns expression to get start event timestamp based on start_handling.
+        FIRST_SEEN: Use the first occurrence of start event
+        LAST_SEEN: Use the last occurrence of start event
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        if self.metric.start_handling == StartHandling.FIRST_SEEN:
+            return parse_expr("min(timestamp)")
+        else:  # LAST_SEEN
+            return parse_expr("max(timestamp)")
+
+    def _get_retention_window_truncation_expr(self, timestamp_expr: ast.Expr) -> ast.Expr:
+        """
+        Returns truncated timestamp expression for retention window comparisons.
+
+        For DAY: returns toStartOfDay(timestamp)
+        For HOUR: returns toStartOfHour(timestamp)
+        For other units: returns timestamp unchanged
+
+        This ensures [7,7] day window means "any time on day 7" rather than
+        "exactly 7*24 hours after start event to the second".
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        # Only truncate DAY and HOUR units for intuitive behavior
+        unit_to_interval_name = {
+            FunnelConversionWindowTimeUnit.DAY: "day",
+            FunnelConversionWindowTimeUnit.HOUR: "hour",
+        }
+
+        interval_name = unit_to_interval_name.get(self.metric.retention_window_unit)
+        if interval_name is None:
+            return timestamp_expr
+
+        return get_start_of_interval_hogql(interval=interval_name, team=self.team, source=timestamp_expr)
+
+    def _build_retention_window_interval(self, window_value: int) -> ast.Expr:
+        """
+        Converts retention window value to ClickHouse interval expression.
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        unit_map = {
+            FunnelConversionWindowTimeUnit.SECOND: "Second",
+            FunnelConversionWindowTimeUnit.MINUTE: "Minute",
+            FunnelConversionWindowTimeUnit.HOUR: "Hour",
+            FunnelConversionWindowTimeUnit.DAY: "Day",
+            FunnelConversionWindowTimeUnit.WEEK: "Week",
+            FunnelConversionWindowTimeUnit.MONTH: "Month",
+        }
+        unit = unit_map[self.metric.retention_window_unit]
+        return parse_expr(
+            f"toInterval{unit}({{value}})",
+            placeholders={"value": ast.Constant(value=window_value)},
+        )
+
+    def _build_start_event_predicate(self) -> ast.Expr:
+        """
+        Builds the predicate for filtering start events.
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        if isinstance(self.metric.start_event, ExperimentDataWarehouseNode):
+            event_filter = data_warehouse_node_to_filter(self.team, self.metric.start_event)
+        else:
+            event_filter = event_or_action_to_filter(self.team, self.metric.start_event)
+        conversion_window_seconds = self._get_conversion_window_seconds()
+
+        return parse_expr(
+            """
+            timestamp >= {date_from}
+            AND timestamp < {date_to} + toIntervalSecond({conversion_window_seconds})
+            AND {event_filter}
+            """,
+            placeholders={
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                "event_filter": event_filter,
+            },
+        )
+
+    def _build_completion_event_predicate(self) -> ast.Expr:
+        """
+        Builds the predicate for filtering completion events.
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        if isinstance(self.metric.completion_event, ExperimentDataWarehouseNode):
+            event_filter = data_warehouse_node_to_filter(self.team, self.metric.completion_event)
+        else:
+            event_filter = event_or_action_to_filter(self.team, self.metric.completion_event)
+
+        # Completion events can occur within the retention window after the start event
+        # The retention window end could extend beyond the experiment end date
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        retention_window_end_seconds = conversion_window_to_seconds(
+            self.metric.retention_window_end,
+            self.metric.retention_window_unit,
+        )
+
+        return parse_expr(
+            """
+            timestamp >= {date_from}
+            AND timestamp < {date_to} + toIntervalSecond({total_window_seconds})
+            AND {event_filter}
+            """,
+            placeholders={
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "total_window_seconds": ast.Constant(value=conversion_window_seconds + retention_window_end_seconds),
+                "event_filter": event_filter,
+            },
+        )
+
+    def _build_start_conversion_window_predicate(self) -> ast.Expr:
+        """
+        Builds the predicate for the join condition limiting start events to the conversion window.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            return parse_expr(
+                """
+                start_events.start_timestamp >= exposures.first_exposure_time
+                AND start_events.start_timestamp <= exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
+                """,
+                placeholders={
+                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                },
+            )
+        else:
+            return parse_expr("start_events.start_timestamp >= exposures.first_exposure_time")
+
+    def _build_completion_retention_window_predicate(self) -> ast.Expr:
+        """
+        Builds the predicate for the join condition ensuring completion events
+        are within a reasonable timeframe relative to start events.
+
+        This is a performance optimization - we'll do the exact retention window
+        calculation in the entity_metrics CTE.
+
+        For DAY/HOUR units that use timestamp truncation, we add a buffer to account
+        for the truncation window. This ensures that same-period retention (e.g., [0,0])
+        captures all events within that period, not just events at the exact same second.
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        retention_window_end_seconds = conversion_window_to_seconds(
+            self.metric.retention_window_end,
+            self.metric.retention_window_unit,
+        )
+
+        # For DAY/HOUR units, add a buffer to account for truncation
+        # This ensures same-period retention windows work correctly
+        truncation_buffer = 0
+        if self.metric.retention_window_unit == FunnelConversionWindowTimeUnit.DAY:
+            # For DAY units, allow completions within the same day (24 hours)
+            truncation_buffer = 86400  # 1 day in seconds
+        elif self.metric.retention_window_unit == FunnelConversionWindowTimeUnit.HOUR:
+            # For HOUR units, allow completions within the same hour
+            truncation_buffer = 3600  # 1 hour in seconds
+
+        # Add buffer to retention window end
+        buffered_window_end_seconds = retention_window_end_seconds + truncation_buffer
+
+        return parse_expr(
+            """
+            completion_events.completion_timestamp >= start_events.start_timestamp
+            AND completion_events.completion_timestamp <= start_events.start_timestamp + toIntervalSecond({retention_window_end_seconds})
+            """,
+            placeholders={
+                "retention_window_end_seconds": ast.Constant(value=buffered_window_end_seconds),
+            },
         )
 
 

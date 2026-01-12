@@ -104,11 +104,7 @@ async fn apply_config_fields(
         // Disable session recording when quota limited
         Some(SessionRecordingField::Disabled(false))
     } else {
-        session_recording::session_recording_config_response(
-            team,
-            &context.headers,
-            &context.config,
-        )
+        session_recording::session_recording_config_response(team, &context.headers)
     };
 
     // Handle fields that require database access
@@ -120,6 +116,43 @@ async fn apply_config_fields(
         )
     } else {
         Some(vec![])
+    };
+
+    // Handle conversations widget config (domains returned for SDK-side filtering)
+    response.config.conversations = if team.conversations_enabled.unwrap_or(false) {
+        let settings = team
+            .conversations_settings
+            .as_ref()
+            .map(|s| s.0.clone())
+            .unwrap_or_default();
+        let widget_enabled = settings
+            .get("widget_enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let greeting_text = settings
+            .get("widget_greeting_text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Hey, how can I help you today?");
+        let color = settings
+            .get("widget_color")
+            .and_then(|v| v.as_str())
+            .unwrap_or("#1d4aff");
+        let token = settings.get("widget_public_token").and_then(|v| v.as_str());
+        let domains: Vec<&str> = settings
+            .get("widget_domains")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|d| d.as_str()).collect())
+            .unwrap_or_default();
+        Some(serde_json::json!({
+            "enabled": true,
+            "widgetEnabled": widget_enabled,
+            "greetingText": greeting_text,
+            "color": color,
+            "token": token,
+            "domains": domains
+        }))
+    } else {
+        Some(serde_json::json!(false))
     };
 
     // Handle error tracking configuration
@@ -261,6 +294,8 @@ mod tests {
             inject_web_apps: None,
             surveys_opt_in: None,
             heatmaps_opt_in: None,
+            conversations_enabled: None,
+            conversations_settings: None,
             capture_dead_clicks: None,
             flags_persistence_default: None,
             session_recording_sample_rate: None,
@@ -717,12 +752,11 @@ mod tests {
 
     #[test]
     fn test_session_recording_disabled() {
-        let config = Config::default_test_config();
         let mut team = create_base_team();
         team.session_recording_opt_in = false; // Disabled
 
         let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+        let result = session_recording::session_recording_config_response(&team, &headers);
 
         // Should return disabled=false when session recording is off
         if let Some(SessionRecordingField::Disabled(enabled)) = result {
@@ -734,12 +768,11 @@ mod tests {
 
     #[test]
     fn test_session_recording_enabled_no_rrweb_script() {
-        let config = Config::default_test_config();
         let mut team = create_base_team();
         team.session_recording_opt_in = true; // Enabled
 
         let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+        let result = session_recording::session_recording_config_response(&team, &headers);
 
         // Should return config with no script_config since rrweb script is not configured
         if let Some(SessionRecordingField::Config(config)) = result {
@@ -752,97 +785,13 @@ mod tests {
     }
 
     #[test]
-    fn test_session_recording_rrweb_script_wildcard_allowed() {
-        let mut config = Config::default_test_config();
-        config.session_replay_rrweb_script = "console.log('custom script')".to_string();
-        config.session_replay_rrweb_script_allowed_teams = "all".parse().unwrap(); // All teams allowed
-
-        let mut team = create_base_team();
-        team.session_recording_opt_in = true;
-        team.id = 123; // Any team ID should work with "all"
-
-        let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
-
-        if let Some(SessionRecordingField::Config(config)) = result {
-            assert!(config.script_config.is_some());
-            let script_config = config.script_config.unwrap();
-            assert_eq!(script_config["script"], "console.log('custom script')");
-        } else {
-            panic!("Expected SessionRecordingField::Config with script_config");
-        }
-    }
-
-    #[test]
-    fn test_session_recording_rrweb_script_specific_team_allowed() {
-        let mut config = Config::default_test_config();
-        config.session_replay_rrweb_script = "console.log('team script')".to_string();
-        config.session_replay_rrweb_script_allowed_teams = "1,5,10".parse().unwrap(); // Team 1 is allowed
-
-        let mut team = create_base_team();
-        team.session_recording_opt_in = true;
-        team.id = 1; // Team 1 is in the allowed list
-
-        let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
-
-        if let Some(SessionRecordingField::Config(config)) = result {
-            assert!(config.script_config.is_some());
-            let script_config = config.script_config.unwrap();
-            assert_eq!(script_config["script"], "console.log('team script')");
-        } else {
-            panic!("Expected SessionRecordingField::Config with script_config");
-        }
-    }
-
-    #[test]
-    fn test_session_recording_rrweb_script_team_not_allowed() {
-        let mut config = Config::default_test_config();
-        config.session_replay_rrweb_script = "console.log('restricted script')".to_string();
-        config.session_replay_rrweb_script_allowed_teams = "5,10,15".parse().unwrap(); // Team 1 is NOT in list
-
-        let mut team = create_base_team();
-        team.session_recording_opt_in = true;
-        team.id = 1; // Team 1 is not in the allowed list
-
-        let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
-
-        if let Some(SessionRecordingField::Config(config)) = result {
-            assert!(config.script_config.is_none()); // Should not have script config
-        } else {
-            panic!("Expected SessionRecordingField::Config without script_config");
-        }
-    }
-
-    #[test]
-    fn test_session_recording_rrweb_script_empty_string() {
-        let mut config = Config::default_test_config();
-        config.session_replay_rrweb_script = "".to_string(); // Empty script
-        config.session_replay_rrweb_script_allowed_teams = "all".parse().unwrap();
-
-        let mut team = create_base_team();
-        team.session_recording_opt_in = true;
-
-        let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
-
-        if let Some(SessionRecordingField::Config(config)) = result {
-            assert!(config.script_config.is_none()); // Should not have script config when script is empty
-        } else {
-            panic!("Expected SessionRecordingField::Config without script_config");
-        }
-    }
-
-    #[test]
     fn test_session_recording_empty_domains_allowed() {
-        let config = Config::default_test_config();
         let mut team = create_base_team();
         team.session_recording_opt_in = true;
         team.recording_domains = Some(vec![]); // Empty domains list
 
         let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+        let result = session_recording::session_recording_config_response(&team, &headers);
 
         // Should return config (enabled) when recording_domains is empty list
         if let Some(SessionRecordingField::Config(_)) = result {
@@ -854,13 +803,12 @@ mod tests {
 
     #[test]
     fn test_session_recording_no_domains_allowed() {
-        let config = Config::default_test_config();
         let mut team = create_base_team();
         team.session_recording_opt_in = true;
         team.recording_domains = None; // No domains list
 
         let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+        let result = session_recording::session_recording_config_response(&team, &headers);
 
         // Should return config (enabled) when recording_domains is empty list
         if let Some(SessionRecordingField::Config(_)) = result {

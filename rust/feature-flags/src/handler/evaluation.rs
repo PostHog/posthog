@@ -24,6 +24,7 @@ pub async fn evaluate_feature_flags(
 
     let mut matcher = FeatureFlagMatcher::new(
         context.distinct_id,
+        context.device_id,
         context.team_id,
         router,
         context.cohort_cache,
@@ -39,6 +40,7 @@ pub async fn evaluate_feature_flags(
             context.hash_key_override, // Aka $anon_distinct_id
             request_id,
             context.flag_keys,
+            context.optimize_experience_continuity_lookups,
         )
         .await
 }

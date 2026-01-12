@@ -4,6 +4,7 @@ import {
     ErrorEventId,
     ErrorEventProperties,
     ErrorTrackingException,
+    ErrorTrackingRelease,
     ErrorTrackingStackFrame,
     FingerprintRecordPart,
 } from 'lib/components/Errors/types'
@@ -16,10 +17,11 @@ import {
     getSessionId,
     stacktraceHasInAppFrames,
 } from 'lib/components/Errors/utils'
+import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { KeyedStackFrameRecords, stackFrameLogic } from './Frame/stackFrameLogic'
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
-import { stackFrameLogic } from './stackFrameLogic'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
@@ -32,7 +34,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
     key((props) => props.id),
 
     connect(() => ({
-        values: [preflightLogic, ['isCloudOrDev']],
+        values: [preflightLogic, ['isCloudOrDev'], stackFrameLogic, ['stackFrameRecords', 'stackFrameRecordsLoading']],
         actions: [stackFrameLogic, ['loadFromRawIds']],
     })),
 
@@ -93,6 +95,32 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             },
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
+        release: [
+            (s) => [s.frames, s.stackFrameRecords],
+            (frames: ErrorTrackingStackFrame[], stackFrameRecords: KeyedStackFrameRecords) => {
+                if (!frames.length || Object.keys(stackFrameRecords).length === 0) {
+                    return undefined
+                }
+                const rawIds = frames.map((f) => f.raw_id)
+                const relatedReleases: ErrorTrackingRelease[] = rawIds
+                    .map((id) => stackFrameRecords[id]?.release)
+                    .filter((r) => !!r) as ErrorTrackingRelease[]
+
+                const uniqueRelatedReleasesIds = [...new Set(relatedReleases.map((r) => r?.id))]
+                if (uniqueRelatedReleasesIds.length === 1) {
+                    return relatedReleases[0]
+                }
+                const kaboomFrame = frames[frames.length - 1]
+                if (stackFrameRecords[kaboomFrame?.raw_id]?.release) {
+                    return stackFrameRecords[kaboomFrame.raw_id].release
+                }
+                // get most recent release
+                const sortedReleases = relatedReleases.sort(
+                    (a, b) => dayjs(b.created_at).unix() - dayjs(a.created_at).unix()
+                )
+                return sortedReleases[0]
+            },
+        ],
     }),
 
     afterMount(({ values, actions }) => {

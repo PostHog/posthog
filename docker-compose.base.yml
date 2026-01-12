@@ -7,12 +7,13 @@ services:
         image: caddy
         entrypoint: sh
         restart: always
-        command: -c 'set -x && echo "$$CADDYFILE" > /etc/caddy/Caddyfile && exec caddy run -c /etc/caddy/Caddyfile'
+        command: -c 'set -x && echo "$$CADDYFILE" > /etc/caddy/Caddyfile && echo "$$CADDY_EXTRA_CONFIG" >> /etc/caddy/Caddyfile && exec caddy run -c /etc/caddy/Caddyfile'
         volumes:
             - /root/.caddy
         environment:
             CADDY_TLS_BLOCK: ''
             CADDY_HOST: 'http://localhost:8000'
+            CADDY_EXTRA_CONFIG: ''
             CADDYFILE: |
                 {
                 ${CADDY_TLS_BLOCK:-}
@@ -22,6 +23,12 @@ services:
                         path /s
                         path /s/
                         path /s/*
+                    }
+
+                    @capture-ai {
+                        path /i/v0/ai
+                        path /i/v0/ai/
+                        path /i/v0/ai/*
                     }
 
                     @capture {
@@ -51,6 +58,23 @@ services:
                         path /public/webhooks/*
                         path /public/m/
                         path /public/m/*
+                    }
+
+                    @livestream {
+                        path /livestream
+                        path /livestream/
+                        path /livestream/*
+                    }
+
+                    handle @livestream {
+                        uri strip_prefix /livestream
+                        reverse_proxy livestream:8080 {
+                            flush_interval -1
+                        }
+                    }
+
+                    handle @capture-ai {
+                        reverse_proxy capture-ai:3000
                     }
 
                     handle @capture {
@@ -84,7 +108,7 @@ services:
         healthcheck:
             test: ['CMD-SHELL', 'pg_isready -U posthog']
             interval: 5s
-            timeout: 5s
+            timeout: 30s
         volumes:
             - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
 
@@ -170,7 +194,7 @@ services:
             MINIO_ROOT_USER: object_storage_root_user
             MINIO_ROOT_PASSWORD: object_storage_root_password
         entrypoint: sh
-        command: -c 'mkdir -p /data/posthog /data/ducklake-dev && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' and 'ducklake-dev' buckets before starting the service
+        command: -c 'mkdir -p /data/posthog /data/ducklake-dev /data/ai-blobs && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog', 'ducklake-dev', and 'ai-blobs' buckets before starting the service
 
     maildev:
         image: maildev/maildev:2.0.5
@@ -249,6 +273,28 @@ services:
             REDIS_URL: 'redis://redis:6379/'
             CAPTURE_MODE: recordings
 
+    capture-ai:
+        image: ghcr.io/posthog/posthog/capture:master
+        build:
+            context: rust/
+            args:
+                BIN: capture
+        restart: on-failure
+        environment:
+            ADDRESS: '0.0.0.0:3000'
+            KAFKA_TOPIC: 'events_plugin_ingestion'
+            KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis:6379/'
+            CAPTURE_MODE: events
+            RUST_LOG: 'info,rdkafka=warn'
+            # AI endpoint S3 blob storage (MinIO)
+            AI_S3_BUCKET: ai-blobs
+            AI_S3_PREFIX: 'llma/'
+            AI_S3_ENDPOINT: 'http://objectstorage:19000'
+            AI_S3_REGION: us-east-1
+            AI_S3_ACCESS_KEY_ID: object_storage_root_user
+            AI_S3_SECRET_ACCESS_KEY: object_storage_root_password
+
     capture-logs:
         image: ghcr.io/posthog/posthog/capture-logs:master
         build:
@@ -294,6 +340,8 @@ services:
         environment:
             WRITE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_WRITE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
             # Shared Redis for non-critical path (analytics, billing, cookieless)
             REDIS_URL: 'redis://redis:6379/'
@@ -312,7 +360,7 @@ services:
             COOKIELESS_REDIS_PORT: 6379
 
     plugins:
-        command: ./bin/plugin-server --no-restart-loop
+        command: ./bin/posthog-node --no-restart-loop
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -328,7 +376,7 @@ services:
             COOKIELESS_REDIS_PORT: 6379
 
     livestream:
-        image: 'ghcr.io/posthog/livestream:main'
+        image: 'ghcr.io/posthog/posthog/livestream:master'
         restart: on-failure
         depends_on:
             kafka:
@@ -436,7 +484,7 @@ services:
             kafka:
                 condition: service_started
     otel-collector:
-        image: otel/opentelemetry-collector-contrib:latest
+        image: otel/opentelemetry-collector-contrib:0.142.0
         container_name: otel-collector-local
         command: [--config=/etc/otel-collector-config.yaml]
         user: '0:0' # have to run as root to read the docker logs
@@ -444,6 +492,7 @@ services:
             - ./otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml
             # mount docker containers dir so we can ship the docker logs to local posthog
             - /var/lib/docker/containers:/var/lib/docker/containers:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
         ports:
             - '4317:4317' # OTLP gRPC receiver (mapped to host)
             - '4318:4318' # OTLP HTTP receiver (mapped to host)
@@ -464,7 +513,7 @@ services:
             - ./rust/docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
 
     jaeger:
-        image: jaegertracing/all-in-one:latest
+        image: jaegertracing/all-in-one:1.76.0
         container_name: jaeger-local
         ports:
             - '16686:16686' # Jaeger UI
@@ -475,7 +524,7 @@ services:
 
     localstack:
         container_name: '${LOCALSTACK_DOCKER_NAME:-localstack-main}'
-        image: localstack/localstack
+        image: localstack/localstack:4.12.0
         ports:
             - '127.0.0.1:4566:4566' # LocalStack Gateway
             - '127.0.0.1:4510-4559:4510-4559' # external services port range
@@ -486,11 +535,32 @@ services:
 
     seaweedfs:
         container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
-        image: chrislusf/seaweedfs:latest
+        image: chrislusf/seaweedfs:4.03
         ports:
             - '127.0.0.1:8333:8333' # S3 API
             - '127.0.0.1:9333:9333' # Master server (for admin UI)
-        command: server -s3 -s3.port=8333 -dir=/data
+        entrypoint:
+            - /bin/sh
+            - -c
+            - |
+                /usr/bin/weed "$$@" &
+                WEED_PID=$$!
+                echo "Waiting for SeaweedFS to initialize..."
+                while true; do
+                    sleep 5
+                    echo "Checking if posthog bucket exists..."
+                    if echo "s3.bucket.list" | /usr/bin/weed shell -master=localhost:9333 2>&1 | grep -q "posthog"; then
+                        echo "Bucket posthog exists!"
+                        break
+                    fi
+                    echo "Bucket not found, attempting to create..."
+                    echo "s3.bucket.create -name posthog" | /usr/bin/weed shell -master=localhost:9333 2>&1 || true
+                    echo "Retrying in 5s..."
+                done
+                echo "SeaweedFS ready with posthog bucket"
+                wait $$WEED_PID
+            - --
+        command: ['server', '-s3', '-s3.port=8333', '-dir=/data']
 
 networks:
     otel_network:

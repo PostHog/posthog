@@ -9,8 +9,9 @@ import { debounce, slugify } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { urls } from 'scenes/urls'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { EndpointRequest } from '~/queries/schema/schema-general'
-import { DataWarehouseSyncInterval, EndpointType } from '~/types'
+import { EndpointType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'
 import { endpointsLogic } from './endpointsLogic'
@@ -26,7 +27,7 @@ export const endpointLogic = kea<endpointLogicType>([
     props({} as EndpointLogicProps),
     key((props) => props.tabId),
     connect(() => ({
-        actions: [endpointsLogic, ['loadEndpoints']],
+        actions: [endpointsLogic, ['loadEndpoints'], sceneLayoutLogic, ['setScenePanelOpen']],
     })),
     actions({
         setEndpointName: (endpointName: string) => ({ endpointName }),
@@ -35,14 +36,15 @@ export const endpointLogic = kea<endpointLogicType>([
         setSelectedCodeExampleVersion: (version: number | null) => ({ version }),
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
-        setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
-        setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
-        setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
         createEndpointFailure: () => ({}),
-        updateEndpoint: (name: string, request: Partial<EndpointRequest>) => ({ name, request }),
-        updateEndpointSuccess: (response: any) => ({ response }),
+        updateEndpoint: (name: string, request: Partial<EndpointRequest>, showViewButton?: boolean) => ({
+            name,
+            request,
+            showViewButton,
+        }),
+        updateEndpointSuccess: (response: any, showViewButton?: boolean) => ({ response, showViewButton }),
         updateEndpointFailure: () => ({}),
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
@@ -72,26 +74,8 @@ export const endpointLogic = kea<endpointLogicType>([
                 setSelectedEndpointName: (_, { selectedEndpointName }) => selectedEndpointName,
             },
         ],
-        cacheAge: [
-            null as number | null,
-            {
-                setCacheAge: (_, { cacheAge }) => cacheAge,
-            },
-        ],
-        syncFrequency: [
-            '24hour' as DataWarehouseSyncInterval | null,
-            {
-                setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
-            },
-        ],
-        isMaterialized: [
-            null as boolean | null,
-            {
-                setIsMaterialized: (_, { isMaterialized }) => isMaterialized,
-            },
-        ],
     }),
-    loaders(({ actions }) => ({
+    loaders(({ actions, values }) => ({
         endpoint: [
             null as EndpointType | null,
             {
@@ -111,19 +95,39 @@ export const endpointLogic = kea<endpointLogicType>([
                         console.error('Failed to fetch last execution time:', error)
                     }
 
-                    // TODO: This does not belong here. Refactor to the endpointSceneLogic?
-                    actions.setCacheAge(endpoint.cache_age_seconds ?? null)
-                    actions.setSyncFrequency(endpoint.materialization?.sync_frequency ?? null)
-                    actions.setIsMaterialized(endpoint.is_materialized ?? null)
-
                     return endpoint
+                },
+            },
+        ],
+        materializationStatus: [
+            null as EndpointType['materialization'] | null,
+            {
+                loadMaterializationStatus: async (name: string) => {
+                    if (!name) {
+                        return null
+                    }
+                    const materializationStatus = await api.endpoint.getMaterializationStatus(name)
+
+                    // Update the endpoint object with the new materialization status
+                    if (values.endpoint) {
+                        const updatedEndpoint = {
+                            ...values.endpoint,
+                            materialization: materializationStatus,
+                            is_materialized: materializationStatus?.can_materialize
+                                ? !!materializationStatus.status
+                                : false,
+                        }
+                        actions.loadEndpointSuccess(updatedEndpoint)
+                    }
+
+                    return materializationStatus
                 },
             },
         ],
     })),
     listeners(({ actions }) => {
-        const reloadEndpoint = debounce((name: string): void => {
-            actions.loadEndpoint(name)
+        const reloadMaterializationStatus = debounce((name: string): void => {
+            actions.loadMaterializationStatus(name)
         }, 2000)
         return {
             createEndpoint: async ({ request }) => {
@@ -144,26 +148,41 @@ export const endpointLogic = kea<endpointLogicType>([
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',
-                        action: () => router.actions.push(urls.endpoint(response.name)),
+                        action: () => {
+                            // Close the scene panel (info & actions panel) if endpoint was created from insight
+                            if (response.derived_from_insight) {
+                                actions.setScenePanelOpen(false)
+                            }
+                            router.actions.push(urls.endpoint(response.name))
+                        },
                     },
                 })
             },
             createEndpointFailure: () => {
                 lemonToast.error('Failed to create endpoint')
             },
-            updateEndpoint: async ({ name, request }) => {
+            updateEndpoint: async ({ name, request, showViewButton }) => {
                 try {
                     const response = await api.endpoint.update(name, request)
-                    actions.updateEndpointSuccess(response)
+                    actions.updateEndpointSuccess(response, showViewButton)
                     actions.loadEndpoints()
                 } catch (error) {
                     console.error('Failed to update endpoint:', error)
                     actions.updateEndpointFailure()
                 }
             },
-            updateEndpointSuccess: ({ response }) => {
-                lemonToast.success('Endpoint updated')
-                reloadEndpoint(response.name)
+            updateEndpointSuccess: ({ response, showViewButton }) => {
+                if (showViewButton) {
+                    lemonToast.success(<>Endpoint updated</>, {
+                        button: {
+                            label: 'View',
+                            action: () => router.actions.push(urls.endpoint(response.name)),
+                        },
+                    })
+                } else {
+                    lemonToast.success('Endpoint updated')
+                }
+                reloadMaterializationStatus(response.name)
             },
             updateEndpointFailure: () => {
                 lemonToast.error('Failed to update endpoint')
