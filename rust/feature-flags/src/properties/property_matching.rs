@@ -230,7 +230,9 @@ pub fn match_property(
         OperatorType::SemverGt
         | OperatorType::SemverGte
         | OperatorType::SemverLt
-        | OperatorType::SemverLte => {
+        | OperatorType::SemverLte
+        | OperatorType::SemverEq
+        | OperatorType::SemverNeq => {
             if match_value.is_none() {
                 return Ok(false);
             }
@@ -241,6 +243,9 @@ pub fn match_property(
                     OperatorType::SemverGte => lhs >= rhs,
                     OperatorType::SemverLt => lhs < rhs,
                     OperatorType::SemverLte => lhs <= rhs,
+                    // NB: Build metadata comparison is not currently supported (see to_semver_representation).
+                    OperatorType::SemverEq => lhs == rhs,
+                    OperatorType::SemverNeq => lhs != rhs,
                     _ => false,
                 }
             };
@@ -305,10 +310,17 @@ pub fn match_property(
                 OperatorType::SemverWildcard => {
                     // For wildcard, replace * with x for semver compatibility.
                     // Supported patterns: "1.*", "1.2.*", "1.*.*", "*"
-                    // Note: Patterns like "1.*.3" (wildcard in middle) are invalid and will
-                    // fail VersionReq parsing, which is the expected behavior.
-                    // This differs slightly from Python's rstrip(".*") approach but produces
-                    // consistent results for valid semver wildcard patterns.
+                    //
+                    // Python uses rstrip(".*") then calculates bounds manually:
+                    //   "1.2.*" -> "1.2" -> >=1.2.0 <1.3.0
+                    //   "1.*.*" -> "1"   -> >=1.0.0 <2.0.0
+                    // Rust uses VersionReq with x wildcards:
+                    //   "1.2.*" -> "1.2.x" -> >=1.2.0 <1.3.0
+                    //   "1.*.*" -> "1.x.x" -> >=1.0.0 <2.0.0
+                    // Both produce equivalent results for valid patterns.
+                    //
+                    // Invalid patterns like "1.*.3" will fail VersionReq parsing and
+                    // return a ValidationError, which is the expected behavior.
                     normalized_version.replace('*', "x")
                 }
                 _ => normalized_version.to_string(),
@@ -324,7 +336,9 @@ pub fn match_property(
                         key,
                         operator
                     );
-                    return Ok(false);
+                    return Err(FlagMatchingError::ValidationError(
+                        "filter value is not a valid semver requirement".to_string(),
+                    ));
                 }
             };
 
@@ -367,9 +381,6 @@ pub fn match_property(
         )),
         OperatorType::FlagEvaluatesTo => Err(FlagMatchingError::ValidationError(
             "FlagEvaluatesTo operator should be handled by flag dependency matching".to_string(),
-        )),
-        OperatorType::SemverEq | OperatorType::SemverNeq => Err(FlagMatchingError::ValidationError(
-            "SemverEq/SemverNeq operators are not supported; use Exact/IsNot for version equality".to_string(),
         )),
     }
 }
@@ -1973,9 +1984,55 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Note: SemverEq and SemverNeq are not supported. Build metadata is also not supported
-        // because our `sortableSemver` method doesn't support it yet.
-        // Use regular string equality operators (Exact, IsNot) for version equality checks.
+        // Test SemverEq
+        let property_eq = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.2.3")),
+            operator: Some(OperatorType::SemverEq),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_eq,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_eq,
+            &HashMap::from([("version".to_string(), json!("1.2.4"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test SemverNeq
+        let property_neq = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.2.3")),
+            operator: Some(OperatorType::SemverNeq),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_neq,
+            &HashMap::from([("version".to_string(), json!("1.2.4"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_neq,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Note: Build metadata is not supported because our `sortableSemver` method doesn't support it yet.
     }
 
     #[test]
@@ -2110,6 +2167,39 @@ mod test_match_properties {
         assert!(match_property(
             &property_invalid_filter,
             &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .is_err());
+
+        // Invalid semver in filter value for range operators should also return an error
+        let property_invalid_tilde = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("not-a-version")),
+            operator: Some(OperatorType::SemverTilde),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_invalid_tilde,
+            &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .is_err());
+
+        let property_invalid_wildcard = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.*.3")), // Invalid: wildcard in middle
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_invalid_wildcard,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
             true
         )
         .is_err());
@@ -2431,7 +2521,7 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Test invalid pattern: 1.*.3 (wildcard in middle) - should fail gracefully
+        // Test invalid pattern: 1.*.3 (wildcard in middle) - should return error
         let property_invalid = PropertyFilter {
             key: "version".to_string(),
             value: Some(json!("1.*.3")),
@@ -2441,13 +2531,13 @@ mod test_match_properties {
             negation: None,
         };
 
-        // Invalid patterns return Ok(false) since VersionReq parsing fails
-        assert!(!match_property(
+        // Invalid patterns return an error (configuration error)
+        assert!(match_property(
             &property_invalid,
             &HashMap::from([("version".to_string(), json!("1.2.3"))]),
             true
         )
-        .expect("expected match to exist"));
+        .is_err());
     }
 
     #[test]
@@ -2529,7 +2619,7 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Invalid version in filter value should return false
+        // Invalid version in filter value should return an error (configuration error)
         let property_invalid = PropertyFilter {
             key: "version".to_string(),
             value: Some(json!("invalid")),
@@ -2539,11 +2629,11 @@ mod test_match_properties {
             negation: None,
         };
 
-        assert!(!match_property(
+        assert!(match_property(
             &property_invalid,
             &HashMap::from([("version".to_string(), json!("1.0.0"))]),
             true
         )
-        .expect("expected match to exist"));
+        .is_err());
     }
 }
