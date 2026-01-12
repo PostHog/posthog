@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.analytics import get_analytics_service
@@ -27,6 +27,20 @@ from llm_gateway.observability import capture_exception
 from llm_gateway.streaming.sse import format_sse_stream
 
 logger = structlog.get_logger(__name__)
+
+
+async def adjust_output_throttles(request: Request, actual_output_tokens: int) -> None:
+    """Adjust all output throttles after response completes."""
+    throttle_context = getattr(request.state, "throttle_context", None)
+    if not throttle_context or not throttle_context.request_id:
+        return
+
+    output_throttles = getattr(request.app.state, "output_throttles", [])
+    for throttle in output_throttles:
+        try:
+            await throttle.adjust_after_response(throttle_context.request_id, actual_output_tokens)
+        except Exception:
+            logger.warning("failed_to_adjust_output_throttle", throttle=type(throttle).__name__)
 
 
 @dataclass
@@ -67,6 +81,7 @@ async def handle_llm_request(
     provider_config: ProviderConfig,
     llm_call: Callable[..., Awaitable[Any]],
     product: str = "llm_gateway",
+    http_request: Request | None = None,
 ) -> dict[str, Any] | StreamingResponse:
     settings = get_settings()
     start_time = time.monotonic()
@@ -88,6 +103,7 @@ async def handle_llm_request(
             start_time=start_time,
             timeout=settings.streaming_timeout,
             product=product,
+            http_request=http_request,
         )
 
     CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).inc()
@@ -101,6 +117,7 @@ async def handle_llm_request(
             start_time=start_time,
             timeout=settings.request_timeout,
             product=product,
+            http_request=http_request,
         )
 
     except TimeoutError:
@@ -140,6 +157,7 @@ async def _handle_streaming_request(
     start_time: float,
     timeout: float,
     product: str = "llm_gateway",
+    http_request: Request | None = None,
 ) -> StreamingResponse:
     async def stream_generator() -> AsyncGenerator[bytes, None]:
         ACTIVE_STREAMS.labels(provider=provider_config.name, model=model).inc()
@@ -226,6 +244,7 @@ async def _handle_non_streaming_request(
     start_time: float,
     timeout: float,
     product: str = "llm_gateway",
+    http_request: Request | None = None,
 ) -> dict[str, Any]:
     provider_start = time.monotonic()
     response_dict: dict[str, Any] | None = None
@@ -253,6 +272,9 @@ async def _handle_non_streaming_request(
                 TOKENS_INPUT.labels(provider=provider_config.name, model=model).inc(input_tokens)
             if 0 <= output_tokens <= 1_000_000:
                 TOKENS_OUTPUT.labels(provider=provider_config.name, model=model).inc(output_tokens)
+
+            if http_request and output_tokens is not None:
+                await adjust_output_throttles(http_request, output_tokens)
 
         REQUEST_LATENCY.labels(
             endpoint=provider_config.endpoint_name,

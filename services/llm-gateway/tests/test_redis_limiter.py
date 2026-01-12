@@ -69,17 +69,20 @@ class TestTokenRateLimiter:
 
     async def test_release_returns_tokens_redis(self) -> None:
         mock_redis: MagicMock = MagicMock()
-        mock_redis.decrby = AsyncMock()
+        mock_redis.eval = AsyncMock(return_value=50)
 
         limiter = TokenRateLimiter(redis=mock_redis, limit=1000, window_seconds=60)
 
         await limiter.release("test_key", 50)
 
-        mock_redis.decrby.assert_called_once_with("ratelimit:test_key", 50)
+        mock_redis.eval.assert_called_once()
+        call_args = mock_redis.eval.call_args
+        assert "ratelimit:test_key" in call_args[0]
+        assert 50 in call_args[0]
 
     async def test_release_falls_back_on_redis_error(self) -> None:
         mock_redis: MagicMock = MagicMock()
-        mock_redis.decrby = AsyncMock(side_effect=Exception("Redis error"))
+        mock_redis.eval = AsyncMock(side_effect=Exception("Redis error"))
 
         limiter = TokenRateLimiter(redis=mock_redis, limit=1000, window_seconds=60)
 
