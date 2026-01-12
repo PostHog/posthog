@@ -1,11 +1,13 @@
 from datetime import datetime
 from pathlib import Path
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 
-from posthog.schema import DataWarehouseNode, DateRange, EventsNode, FunnelsQuery
+from posthog.schema import DataWarehouseNode, DataWarehousePropertyFilter, DateRange, EventsNode, FunnelsQuery
 
+from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.test.test_journeys import journeys_for
 
@@ -24,11 +26,13 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             csv_path=Path(__file__).parent / "funnels_data.csv",
             table_name="test_table_1",
             table_columns={
-                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
+                "id_with_nulls": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+                "uuid": {"clickhouse": "String", "hogql": "StringDatabaseField"},
                 "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
                 "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
                 "event_name": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-                "properties": {"hogql": "StringJSONDatabaseField", "clickhouse": "Nullable(String)"},
+                "properties": {"clickhouse": "Nullable(String)", "hogql": "StringJSONDatabaseField"},
             },
             test_bucket=TEST_BUCKET,
             team=self.team,
@@ -47,14 +51,14 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                 DataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
-                    id_field="id",
+                    id_field="uuid",
                     distinct_id_field="user_id",
                     timestamp_field="created",
                 ),
                 DataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
-                    id_field="id",
+                    id_field="uuid",
                     distinct_id_field="user_id",
                     timestamp_field="created",
                 ),
@@ -102,7 +106,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     DataWarehouseNode(
                         id=table_name,
                         table_name=table_name,
-                        id_field="id",
+                        id_field="uuid",
                         distinct_id_field="user_id",
                         timestamp_field="created",
                     ),
@@ -115,3 +119,83 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             results = response.results
             assert results[0]["count"] == 2
             assert results[1]["count"] == 2
+
+    @snapshot_clickhouse_queries
+    def test_funnels_data_warehouse_non_uuid_id_column(self):
+        table_name = self.setup_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="user_id",
+                    timestamp_field="created",
+                ),
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="user_id",
+                    timestamp_field="created",
+                ),
+            ],
+        )
+
+        with freeze_time("2025-11-07"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+        results = response.results
+        assert results[0]["count"] == 5
+        assert results[1]["count"] == 1
+
+    @snapshot_clickhouse_queries
+    def test_funnels_data_warehouse_non_uuid_id_column_with_nulls(self):
+        table_name = self.setup_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id_with_nulls",
+                    distinct_id_field="user_id",
+                    timestamp_field="created",
+                ),
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id_with_nulls",
+                    distinct_id_field="user_id",
+                    timestamp_field="created",
+                ),
+            ],
+        )
+
+        # throws an error because of nulls in id field
+        with freeze_time("2025-11-07"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            with pytest.raises(InternalCHQueryError) as exc_info:
+                runner.calculate()
+
+        assert type(exc_info.value).__name__ == "CHQueryErrorFunctionThrowIfValueIsNonZero"
+        assert "posthog_test_test_table_1_id_with_nulls must not be NULL" in str(exc_info.value)
+
+        # nulls can be filtered to make the query work
+        not_null_filter = [DataWarehousePropertyFilter(key="id_with_nulls", operator="is_set", value="is_set")]
+        funnels_query.series[0].properties = not_null_filter
+        funnels_query.series[1].properties = not_null_filter
+
+        with freeze_time("2025-11-07"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+        results = response.results
+        assert results[0]["count"] == 4
+        assert results[1]["count"] == 1

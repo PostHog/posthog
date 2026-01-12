@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField, UUIDDatabaseField
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -420,10 +420,24 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             if is_data_warehouse_source(source_kind):
                 assert isinstance(node, DataWarehouseNode)
                 if field == "uuid":
-                    return ast.Alias(
-                        alias="uuid",
-                        expr=ast.Call(name="toUUID", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field])]),
-                    )
+                    resolved_field = self.get_warehouse_field(node.table_name, node.id_field)
+                    if isinstance(resolved_field, UUIDDatabaseField):
+                        return ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field])
+                    else:
+                        # Handle non-UUID fields:
+                        # 1. Throw if we're encountering a null value.
+                        # 2. Try to cast strings to UUID directly.
+                        # 3. As a last resort, create a UUID by hashing the value with a table prefix.
+                        return parse_expr(
+                            f"""tupleElement((
+                                throwIf(isNull(e.{node.id_field}), '{node.table_name}_{node.id_field} must not be NULL'),
+                                accurateCastOrDefault(
+                                    e.{node.id_field},
+                                    'UUID',
+                                    reinterpretAsUUID(md5(concat('{node.table_name}_', toString(e.{node.id_field}))))
+                                )
+                            ), 2)"""
+                        )
                 return ast.Constant(value=None)
             return ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])
 
