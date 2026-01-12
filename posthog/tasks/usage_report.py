@@ -1608,7 +1608,9 @@ def capture_report(
             organization_id=organization_id,
             properties=full_report_dict,
             timestamp=at_date,
+            set_on_organization=True,
         )
+
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",
