@@ -38,6 +38,13 @@ jobs:
                   node-version: 22.17.1
                   cache: 'pnpm'
 
+            - name: Clean up old browserslist branch
+              run: |
+                  if git ls-remote --heads origin browserslist-update | grep browserslist-update; then
+                    echo "Deleting stale browserslist-update branch"
+                    git push origin --delete browserslist-update || true
+                  fi
+
             - name: Update Browserslist database and create PR if applies
               id: update-browserlist
               uses: c2corg/browserslist-update-action@a76abb476199caea5399f9e28ff3f16e491ec566 # v2.5.0
