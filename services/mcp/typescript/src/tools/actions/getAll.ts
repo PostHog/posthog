@@ -15,7 +15,10 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to get actions: ${actionsResult.error.message}`)
     }
 
-    return actionsResult.data
+    return actionsResult.data.map((action) => ({
+        ...action,
+        url: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${action.id}`,
+    }))
 }
 
 const tool = (): ToolBase<typeof schema> => ({

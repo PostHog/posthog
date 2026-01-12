@@ -1419,7 +1419,7 @@ export class ApiClient {
             }): Promise<Result<Action>> => {
                 // Backend expects `name`; if missing, fetch current action and include it.
                 let payload: UpdateActionInput = data
-                if (typeof data.name === 'undefined') {
+                if (!('name' in data)) {
                     const currentResult = await this.fetchWithSchema(
                         `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
                         ActionSchema
@@ -1429,7 +1429,14 @@ export class ApiClient {
                         return currentResult
                     }
 
-                    payload = { name: currentResult.data.name, ...data }
+                    if (!currentResult.data.name) {
+                        return {
+                            success: false,
+                            error: new Error('Cannot update action: action has no name. Provide a name in the update.'),
+                        }
+                    }
+
+                    payload = { name: currentResult.data.name ?? undefined, ...data }
                 }
 
                 const validatedInput = UpdateActionInputSchema.parse(payload)
@@ -1450,12 +1457,29 @@ export class ApiClient {
                 actionId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
+                    // Fetch current action to get its name (backend requires it for validation)
+                    const currentResult = await this.fetchWithSchema(
+                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                        ActionSchema
+                    )
+
+                    if (!currentResult.success) {
+                        return currentResult
+                    }
+
+                    if (!currentResult.data.name) {
+                        return {
+                            success: false,
+                            error: new Error('Cannot delete action: action has no name.'),
+                        }
+                    }
+
                     const response = await fetch(
                         `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
                         {
                             method: 'PATCH',
                             headers: this.buildHeaders(),
-                            body: JSON.stringify({ deleted: true }),
+                            body: JSON.stringify({ deleted: true, name: currentResult.data.name }),
                         }
                     )
 

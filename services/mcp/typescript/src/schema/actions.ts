@@ -28,7 +28,7 @@ export const ActionSchema = z.object({
     id: z.number(),
     name: z.string().nullish(),
     description: z.string().optional(),
-    tags: z.array(z.unknown()).optional(),
+    tags: z.array(z.string()).optional(),
     post_to_slack: z.boolean().optional(),
     slack_message_format: z.string().optional(),
     steps: z.array(ActionStepJSONSchema).optional(),
