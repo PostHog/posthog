@@ -270,10 +270,16 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             date_to: values.commonFilters.date_to,
                         }
 
-                        defaultUrl = `/api/element/stats/${encodeParams(
-                            { ...params, paginate_response: true, sampling_factor: values.samplingFactor },
-                            '?'
-                        )}`
+                        const apiParams: Record<string, any> = {
+                            ...params,
+                            paginate_response: true,
+                            sampling_factor: values.samplingFactor,
+                        }
+                        // Include container selector for backend filtering if set
+                        if (values.clickmapContainerSelector) {
+                            apiParams.container_selector = values.clickmapContainerSelector
+                        }
+                        defaultUrl = `/api/element/stats/${encodeParams(apiParams, '?')}`
                     }
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
@@ -568,7 +574,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         setClickmapContainerSelector: () => {
-            actions.processElements()
+            // Re-fetch data with the new selector for backend filtering
+            actions.maybeLoadClickmap()
         },
 
         pickClickmapContainer: ({ element }) => {
