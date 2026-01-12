@@ -1,3 +1,4 @@
+import os
 import hashlib
 from typing import Any, Optional
 
@@ -30,8 +31,9 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
 
 from products.notebooks.backend.kernel_runtime import get_kernel_runtime
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.tasks.backend.services.sandbox import SandboxConfig
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
 logger = structlog.get_logger(__name__)
@@ -416,6 +418,46 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": str(err)}, status=503)
         return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
+
+    @action(methods=["GET"], url_path="kernel/status", detail=True)
+    def kernel_status(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        user = self._current_user()
+        runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+            )
+            .order_by("-last_used_at")
+            .first()
+        )
+        service = get_kernel_runtime(notebook, user).service
+        backend = (
+            runtime.backend
+            if runtime
+            else KernelRuntime.Backend.LOCAL
+            if service._should_use_local_kernel()
+            else KernelRuntime.Backend.MODAL
+        )
+        sandbox_config = SandboxConfig(name=f"notebook-kernel-{notebook.short_id}")
+        cpu_cores = sandbox_config.cpu_cores if backend == KernelRuntime.Backend.MODAL else (os.cpu_count() or 1)
+
+        return Response(
+            {
+                "backend": backend,
+                "status": runtime.status if runtime else KernelRuntime.Status.STOPPED,
+                "last_used_at": runtime.last_used_at.isoformat() if runtime else None,
+                "last_error": runtime.last_error if runtime else None,
+                "runtime_id": str(runtime.id) if runtime else None,
+                "kernel_id": runtime.kernel_id if runtime else None,
+                "kernel_pid": runtime.kernel_pid if runtime else None,
+                "sandbox_id": runtime.sandbox_id if runtime else None,
+                "cpu_cores": cpu_cores,
+                "memory_gb": sandbox_config.memory_gb if backend == KernelRuntime.Backend.MODAL else None,
+                "disk_size_gb": sandbox_config.disk_size_gb if backend == KernelRuntime.Backend.MODAL else None,
+            }
+        )
 
     @action(methods=["POST"], url_path="kernel/execute", detail=True)
     def kernel_execute(self, request: Request, **kwargs):

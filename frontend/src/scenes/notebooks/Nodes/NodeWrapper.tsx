@@ -68,7 +68,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeId, containerSize, notebook } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeIds, containerSize, notebook } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
@@ -286,7 +286,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         onClick={() => toggleEditing()}
                                                         size="small"
                                                         icon={<IconPencil />}
-                                                        active={editingNodeId === nodeId}
+                                                        active={editingNodeIds[nodeId]}
                                                     />
                                                 ) : null}
 
@@ -307,7 +307,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                         </div>
 
                                         {Settings &&
-                                        editingNodeId === nodeId &&
+                                        editingNodeIds[nodeId] &&
                                         (containerSize === 'small' || resolvedSettingsPlacement === 'inline') ? (
                                             <div className="NotebookNode__settings">
                                                 <ErrorBoundary>

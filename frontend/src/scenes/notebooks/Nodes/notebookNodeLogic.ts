@@ -327,8 +327,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
             const logic = values.notebookLogic
             logic.values.editor?.deleteRange({ from: pos, to: pos + 1 }).run()
-            if (values.notebookLogic.values.editingNodeId === values.nodeId) {
-                values.notebookLogic.actions.setEditingNodeId(null)
+            if (values.notebookLogic.values.editingNodeIds[values.nodeId]) {
+                values.notebookLogic.actions.setEditingNodeEditing(values.nodeId, false)
             }
         },
 
@@ -395,10 +395,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             props.updateAttributes(attributes)
         },
         toggleEditing: ({ visible }) => {
-            const shouldShowThis =
-                typeof visible === 'boolean' ? visible : values.notebookLogic.values.editingNodeId !== values.nodeId
+            const isEditing = values.notebookLogic.values.editingNodeIds[values.nodeId]
+            const shouldShowThis = typeof visible === 'boolean' ? visible : !isEditing
 
-            props.notebookLogic.actions.setEditingNodeId(shouldShowThis ? values.nodeId : null)
+            props.notebookLogic.actions.setEditingNodeEditing(values.nodeId, shouldShowThis)
         },
         initializeNode: () => {
             const { __init } = values.nodeAttributes

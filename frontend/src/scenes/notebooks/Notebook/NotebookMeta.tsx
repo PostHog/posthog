@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBook } from '@posthog/icons'
+import { IconBook, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -110,6 +110,21 @@ export const NotebookTableOfContentsButton = (props: Pick<LemonButtonProps, 'siz
             onClick={() => setShowTableOfContents(!showTableOfContents)}
             icon={<IconBook />}
             tooltip={showTableOfContents ? 'Hide table of contents' : 'Show table of contents'}
+            tooltipPlacement="left"
+        />
+    )
+}
+
+export const NotebookKernelInfoButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element => {
+    const { showKernelInfo } = useValues(notebookSettingsLogic)
+    const { setShowKernelInfo } = useActions(notebookSettingsLogic)
+
+    return (
+        <LemonButton
+            {...props}
+            onClick={() => setShowKernelInfo(!showKernelInfo)}
+            icon={<IconTerminal />}
+            tooltip={showKernelInfo ? 'Hide kernel info' : 'Show kernel info'}
             tooltipPlacement="left"
         />
     )
