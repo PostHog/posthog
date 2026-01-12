@@ -12,6 +12,7 @@ import { AnyPropertyFilter, CustomerProfileScope, Group, PropertyFilterType, Pro
 
 import { customerProfileLogic } from '../customerProfileLogic'
 import { CustomerProfileMenu } from './CustomerProfileMenu'
+import { FeedbackBanner } from './FeedbackBanner'
 
 interface GroupProfileCanvasProps {
     group: Group
@@ -59,6 +60,10 @@ export const GroupProfileCanvas = ({ group, tabId }: GroupProfileCanvasProps): J
         <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: groupFilter }}>
             <BindLogic logic={groupLogic} props={{ groupKey, groupTypeIndex, tabId }}>
                 <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
+                    <FeedbackBanner
+                        feedbackButtonId="group-profile"
+                        message="We're improving the groups experience. Send us your feedback!"
+                    />
                     <div className="flex items-start">
                         <CustomerProfileMenu />
                     </div>
