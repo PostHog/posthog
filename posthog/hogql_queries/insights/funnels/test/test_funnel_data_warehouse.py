@@ -7,7 +7,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, sna
 
 from posthog.schema import DataWarehouseNode, DataWarehousePropertyFilter, DateRange, EventsNode, FunnelsQuery
 
-from posthog.errors import InternalCHQueryError
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.test.test_journeys import journeys_for
 from posthog.types import AnyPropertyFilter
@@ -182,7 +182,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         # throws an error because of nulls in id field
         with freeze_time("2025-11-07"):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
-            with pytest.raises(InternalCHQueryError) as exc_info:
+            with pytest.raises(ExposedCHQueryError) as exc_info:
                 runner.calculate()
 
         assert type(exc_info.value).__name__ == "CHQueryErrorFunctionThrowIfValueIsNonZero"
