@@ -31,7 +31,7 @@ const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
 
 export function ViewportChooser(): JSX.Element {
     const { widthOverride } = useValues(heatmapLogic)
-    const { setIframeWidth } = useActions(heatmapLogic)
+    const { setWindowWidthOverride } = useActions(heatmapLogic)
 
     const options = [
         {
@@ -78,8 +78,8 @@ export function ViewportChooser(): JSX.Element {
             <span>Screen width:</span>
             <LemonSelect
                 size="small"
-                onChange={setIframeWidth}
-                value={widthOverride ? widthOverride : undefined}
+                onChange={setWindowWidthOverride}
+                value={widthOverride}
                 data-attr="viewport-chooser"
                 options={allOptions.map(({ value, icon }) => ({
                     value,

@@ -27,6 +27,7 @@ import {
 
 import { StepContentEditor } from './StepContentEditor'
 import { SurveyStepEditor } from './SurveyStepEditor'
+import { prepareStepForRender } from './generateStepHtml'
 
 export interface ProductTourStepsEditorProps {
     steps: ProductTourStep[]
@@ -79,8 +80,8 @@ const WIDTH_PRESET_OPTIONS = [
     { value: PRODUCT_TOUR_STEP_WIDTHS['extra-wide'], label: 'Extra wide' },
 ]
 
-const MIN_WIDTH = 200
-const MAX_WIDTH = 700
+export const TOUR_STEP_MIN_WIDTH = 200
+export const TOUR_STEP_MAX_WIDTH = 700
 
 export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductTourStepsEditorProps): JSX.Element {
     const [selectedStepIndex, setSelectedStepIndex] = useState<number>(0)
@@ -124,7 +125,7 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
     useEffect(() => {
         if (previewElement && selectedStep) {
             renderProductTourPreview({
-                step: selectedStep as any,
+                step: prepareStepForRender(selectedStep) as any,
                 appearance: appearance as any,
                 parentElement: previewElement,
                 stepIndex: selectedStepIndex,
@@ -137,7 +138,7 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
     useEffect(() => {
         if (surveyPreviewElement && selectedStep?.type === 'survey') {
             renderProductTourPreview({
-                step: selectedStep as any,
+                step: prepareStepForRender(selectedStep) as any,
                 appearance: appearance as any,
                 parentElement: surveyPreviewElement,
                 stepIndex: selectedStepIndex,
@@ -273,8 +274,8 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                             <LemonSlider
                                                 value={getWidthValue(selectedStep.maxWidth)}
                                                 onChange={(value) => updateStep(selectedStepIndex, { maxWidth: value })}
-                                                min={MIN_WIDTH}
-                                                max={MAX_WIDTH}
+                                                min={TOUR_STEP_MIN_WIDTH}
+                                                max={TOUR_STEP_MAX_WIDTH}
                                                 step={10}
                                                 className="flex-1"
                                             />

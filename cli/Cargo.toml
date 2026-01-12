@@ -1,6 +1,6 @@
 [package]
 name = "posthog-cli"
-version = "0.5.22"
+version = "0.5.23"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -41,7 +41,10 @@ reqwest = { version = "0.12.14", features = [
     "rustls-tls",
 ], default-features = false }
 anyhow = "1.0.97"
-serde = "1.0.219"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_yaml = "0.9"
+colored = "3.0"
+regex = "1.12"
 tracing = "0.1.41"
 uuid = { version = "1.16.0", features = ["v7"] }
 thiserror = "2.0.12"
@@ -50,6 +53,8 @@ posthog-rs = { version = "0.3.5", default-features = false }
 sha2 = "0.10.9"
 urlencoding = "2.1.3"
 rayon = "1.11.0"
+similar = "2.7"
+open = "5"
 
 [dev-dependencies]
 test-log = "0.2.17"

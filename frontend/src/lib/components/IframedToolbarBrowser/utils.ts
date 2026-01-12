@@ -18,6 +18,9 @@ export const DEFAULT_HEATMAP_FILTERS: HeatmapFilters = {
     viewportAccuracy: 0.9,
     aggregation: 'total_count',
 }
+
+export const DEFAULT_HEATMAP_WIDTH = 1024
+
 export const calculateViewportRange = (
     heatmapFilters: HeatmapFilters,
     windowWidth: number

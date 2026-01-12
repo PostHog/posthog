@@ -19,6 +19,7 @@ from posthog.dags.person_property_reconciliation import (
     fetch_person_properties_from_clickhouse,
     filter_event_person_properties,
     get_person_property_updates_from_clickhouse,
+    query_team_ids_from_clickhouse,
     reconcile_person_properties,
     reconcile_with_concurrent_changes,
     update_person_with_version_check,
@@ -4988,3 +4989,915 @@ class TestReconcileWithConcurrentChanges:
         assert "c" not in result["properties"]  # Unset applied (no conflict)
         assert result["properties"]["d"] == "pg_d"  # Postgres addition preserved
         assert result["properties"]["e"] == "event_e"  # set_once applied (new key)
+
+
+@pytest.mark.django_db
+class TestQueryTeamIdsFromClickHouse:
+    """Integration tests for query_team_ids_from_clickhouse with team_id filters."""
+
+    def test_returns_teams_with_property_events(self, cluster: ClickhouseCluster):
+        """Basic test that teams with $set/$set_once/$unset events are returned."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        # Use unique team_ids unlikely to conflict with other tests (88001-88005)
+        events = [
+            (
+                88001,
+                "d1",
+                UUID("11111111-1111-1111-1111-880000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                88002,
+                "d2",
+                UUID("11111111-1111-1111-1111-880000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set_once": {"b": 2}}),
+            ),
+            (
+                88003,
+                "d3",
+                UUID("11111111-1111-1111-1111-880000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$unset": ["c"]}),
+            ),
+            (
+                88004,
+                "d4",
+                UUID("11111111-1111-1111-1111-880000000004"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"d": 4}}),
+            ),
+            (
+                88005,
+                "d5",
+                UUID("11111111-1111-1111-1111-880000000005"),
+                now - timedelta(days=5),
+                json.dumps({"other": "no_props"}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=88001,
+            max_team_id=88005,
+        )
+
+        # 88005 has no $set/$set_once/$unset so should not be included
+        assert result == [88001, 88002, 88003, 88004]
+
+    def test_min_team_id_filter(self, cluster: ClickhouseCluster):
+        """Test that min_team_id filters out teams below the threshold."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                89001,
+                "d1",
+                UUID("11111111-1111-1111-1111-890000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                89002,
+                "d2",
+                UUID("11111111-1111-1111-1111-890000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                89003,
+                "d3",
+                UUID("11111111-1111-1111-1111-890000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=89002,
+            max_team_id=89003,
+        )
+
+        assert result == [89002, 89003]
+
+    def test_max_team_id_filter(self, cluster: ClickhouseCluster):
+        """Test that max_team_id filters out teams above the threshold."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                90001,
+                "d1",
+                UUID("11111111-1111-1111-1111-900000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                90002,
+                "d2",
+                UUID("11111111-1111-1111-1111-900000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                90003,
+                "d3",
+                UUID("11111111-1111-1111-1111-900000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=90001,
+            max_team_id=90002,
+        )
+
+        assert result == [90001, 90002]
+
+    def test_both_min_and_max_team_id_filters(self, cluster: ClickhouseCluster):
+        """Test that both min and max filters work together."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                91001,
+                "d1",
+                UUID("11111111-1111-1111-1111-910000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                91002,
+                "d2",
+                UUID("11111111-1111-1111-1111-910000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                91003,
+                "d3",
+                UUID("11111111-1111-1111-1111-910000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                91004,
+                "d4",
+                UUID("11111111-1111-1111-1111-910000000004"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"d": 4}}),
+            ),
+            (
+                91005,
+                "d5",
+                UUID("11111111-1111-1111-1111-910000000005"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"e": 5}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=91002,
+            max_team_id=91004,
+        )
+
+        assert result == [91002, 91003, 91004]
+
+    def test_team_range_returns_all_matching_teams(self, cluster: ClickhouseCluster):
+        """Test that team range filter returns all teams with property events within range."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                92001,
+                "d1",
+                UUID("11111111-1111-1111-1111-920000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                92002,
+                "d2",
+                UUID("11111111-1111-1111-1111-920000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=92001,
+            max_team_id=92002,
+        )
+
+        assert 92001 in result
+        assert 92002 in result
+
+    def test_exclude_team_ids_filters_out_specified_teams(self, cluster: ClickhouseCluster):
+        """Test that exclude_team_ids filters out specified teams from results."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                93001,
+                "d1",
+                UUID("11111111-1111-1111-1111-930000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                93002,
+                "d2",
+                UUID("11111111-1111-1111-1111-930000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                93003,
+                "d3",
+                UUID("11111111-1111-1111-1111-930000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                93004,
+                "d4",
+                UUID("11111111-1111-1111-1111-930000000004"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"d": 4}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=93001,
+            max_team_id=93004,
+            exclude_team_ids=[93002, 93004],
+        )
+
+        assert result == [93001, 93003]
+
+    def test_include_team_ids_filters_to_specified_teams(self, cluster: ClickhouseCluster):
+        """Test that include_team_ids only returns teams in the specified list."""
+        bug_window_start = datetime.now(UTC) - timedelta(hours=2)
+        bug_window_end = datetime.now(UTC) + timedelta(hours=1)
+        event_time = datetime.now(UTC) - timedelta(hours=1)
+
+        # Create events for teams 94001-94005
+        events = [
+            (
+                94001,
+                "user_a",
+                "00000000-0000-0000-0000-000000094001",
+                event_time,
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                94002,
+                "user_b",
+                "00000000-0000-0000-0000-000000094002",
+                event_time,
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                94003,
+                "user_c",
+                "00000000-0000-0000-0000-000000094003",
+                event_time,
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                94004,
+                "user_d",
+                "00000000-0000-0000-0000-000000094004",
+                event_time,
+                json.dumps({"$set": {"d": 4}}),
+            ),
+            (
+                94005,
+                "user_e",
+                "00000000-0000-0000-0000-000000094005",
+                event_time,
+                json.dumps({"$set": {"e": 5}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Only include teams 94002 and 94004 - should not return 94001, 94003, 94005
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            include_team_ids=[94002, 94004],
+        )
+
+        assert result == [94002, 94004]
+
+    def test_include_team_ids_combined_with_other_filters(self, cluster: ClickhouseCluster):
+        """Test that include_team_ids works as AND with other filters."""
+        bug_window_start = datetime.now(UTC) - timedelta(hours=2)
+        bug_window_end = datetime.now(UTC) + timedelta(hours=1)
+        event_time = datetime.now(UTC) - timedelta(hours=1)
+
+        # Create events for teams 95001-95004
+        events = [
+            (
+                95001,
+                "user_a",
+                "00000000-0000-0000-0000-000000095001",
+                event_time,
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                95002,
+                "user_b",
+                "00000000-0000-0000-0000-000000095002",
+                event_time,
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                95003,
+                "user_c",
+                "00000000-0000-0000-0000-000000095003",
+                event_time,
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                95004,
+                "user_d",
+                "00000000-0000-0000-0000-000000095004",
+                event_time,
+                json.dumps({"$set": {"d": 4}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # include_team_ids=[95001, 95002, 95003] AND exclude_team_ids=[95002] -> only 95001, 95003
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            include_team_ids=[95001, 95002, 95003],
+            exclude_team_ids=[95002],
+        )
+
+        assert result == [95001, 95003]
+
+    def test_invalid_range_raises_error(self):
+        """Test that min_team_id > max_team_id raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            query_team_ids_from_clickhouse(
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-02 00:00:00",
+                min_team_id=100,
+                max_team_id=50,
+            )
+
+        assert "min_team_id (100) cannot be greater than max_team_id (50)" in str(exc_info.value)
+
+
+class TestReconcileSingleTeamErrorHandling:
+    """Tests for error handling in reconcile_single_team and reconcile_team_chunk."""
+
+    def test_team_failure_does_not_crash_chunk(self):
+        """Test that if one team fails, the chunk continues processing other teams."""
+        from posthog.dags.person_property_reconciliation import (
+            PersonPropertyReconciliationConfig,
+            TeamReconciliationResult,
+        )
+
+        # Mock reconcile_single_team to fail for team 2 but succeed for teams 1 and 3
+        call_count = {"value": 0}
+        original_results = {
+            1: TeamReconciliationResult(team_id=1, persons_processed=10, persons_updated=5, persons_skipped=5),
+            3: TeamReconciliationResult(team_id=3, persons_processed=20, persons_updated=15, persons_skipped=5),
+        }
+
+        def mock_reconcile_single_team(team_id, **kwargs):
+            call_count["value"] += 1
+            if team_id == 2:
+                raise Exception("Simulated failure for team 2")
+            return original_results[team_id]
+
+        with patch(
+            "posthog.dags.person_property_reconciliation.reconcile_single_team",
+            side_effect=mock_reconcile_single_team,
+        ):
+            # Create mock context with run info
+            mock_context = MagicMock()
+            mock_context.run.job_name = "test_job"
+            mock_context.run.run_id = "test_run_123"
+
+            # Create real config
+            config = PersonPropertyReconciliationConfig(
+                bug_window_start="2024-01-01 00:00:00",
+                batch_size=100,
+                dry_run=False,
+                backup_enabled=False,
+            )
+
+            # Create mock resources
+            mock_db = MagicMock()
+            mock_cluster = MagicMock()
+            mock_kafka = MagicMock()
+
+            # Import the underlying function (not the op wrapper)
+            from posthog.dags.person_property_reconciliation import reconcile_team_chunk
+
+            # Call the op's underlying function directly via __wrapped__
+            result = reconcile_team_chunk.__wrapped__(  # type: ignore[attr-defined]
+                context=mock_context,
+                config=config,
+                chunk=[1, 2, 3],
+                persons_database=mock_db,
+                cluster=mock_cluster,
+                kafka_producer=mock_kafka,
+            )
+
+            # All 3 teams should have been attempted
+            assert call_count["value"] == 3
+
+            # Check overall results
+            assert result["teams_count"] == 3
+            assert result["teams_succeeded"] == 2
+            assert result["teams_failed"] == 1
+            assert result["persons_processed"] == 30  # 10 + 0 + 20
+            assert result["persons_updated"] == 20  # 5 + 0 + 15
+
+            # Check individual team results
+            teams_results = result["teams_results"]
+            assert len(teams_results) == 3
+
+            team1_result = next(r for r in teams_results if r["team_id"] == 1)
+            assert team1_result["status"] == "success"
+            assert team1_result["persons_processed"] == 10
+
+            team2_result = next(r for r in teams_results if r["team_id"] == 2)
+            assert team2_result["status"] == "failed"
+            assert "Simulated failure" in team2_result["error"]
+
+            team3_result = next(r for r in teams_results if r["team_id"] == 3)
+            assert team3_result["status"] == "success"
+            assert team3_result["persons_processed"] == 20
+
+
+class TestReconciliationSchedulerSensor:
+    """Tests for the person_property_reconciliation_scheduler sensor."""
+
+    def test_build_reconciliation_run_config(self):
+        """Test that run config is built correctly from scheduler config."""
+        from posthog.dags.person_property_reconciliation import (
+            ReconciliationSchedulerConfig,
+            build_reconciliation_run_config,
+        )
+
+        config = ReconciliationSchedulerConfig(
+            range_start=1,
+            range_end=10000,
+            chunk_size=1000,
+            max_concurrent_jobs=5,
+            max_concurrent_tasks=10,
+            bug_window_start="2024-01-06 20:01:00",
+            bug_window_end="2024-01-07 14:52:00",
+            dry_run=False,
+            backup_enabled=True,
+            batch_size=100,
+        )
+
+        run_config = build_reconciliation_run_config(config, min_team_id=1, max_team_id=1000)
+
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["min_team_id"] == 1
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["max_team_id"] == 1000
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["bug_window_start"] == "2024-01-06 20:01:00"
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["dry_run"] is False
+        assert run_config["ops"]["reconcile_team_chunk"]["config"]["backup_enabled"] is True
+        assert run_config["execution"]["config"]["max_concurrent"] == 10  # max_concurrent_tasks
+
+    def test_sensor_no_cursor_returns_skip_reason(self):
+        """Test that sensor returns SkipReason when no cursor is set."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        context = build_sensor_context(cursor=None)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "No cursor set" in result.skip_message
+
+    def test_sensor_invalid_cursor_json_returns_skip_reason(self):
+        """Test that sensor returns SkipReason for invalid JSON cursor."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        context = build_sensor_context(cursor="not valid json {")
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "Invalid cursor JSON" in result.skip_message
+
+    def test_sensor_completed_range_returns_skip_reason(self):
+        """Test that sensor returns SkipReason when range is completed."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "next_chunk_start": 1001,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "complete" in result.skip_message.lower()
+
+    def test_sensor_at_max_concurrency_returns_skip_reason(self):
+        """Test that sensor returns SkipReason when at max concurrency."""
+        from dagster import DagsterInstance, SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 10000,
+                "chunk_size": 1000,
+                "max_concurrent_jobs": 2,
+                "next_chunk_start": 1,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = [MagicMock(), MagicMock()]
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "max concurrency" in result.skip_message.lower()
+
+    def test_sensor_yields_runs_up_to_available_slots(self):
+        """Test that sensor yields correct number of runs based on available slots."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 5000,
+                "chunk_size": 1000,
+                "max_concurrent_jobs": 3,
+                "next_chunk_start": 1,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = [MagicMock()]
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 2
+        assert result.run_requests[0].run_key == "reconcile_teams_1_1000"
+        assert result.run_requests[1].run_key == "reconcile_teams_1001_2000"
+
+        assert result.cursor is not None
+        new_cursor = json.loads(result.cursor)
+        assert new_cursor["next_chunk_start"] == 2001
+
+    def test_sensor_handles_partial_final_chunk(self):
+        """Test that sensor correctly handles a final chunk smaller than chunk_size."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1500,
+                "chunk_size": 1000,
+                "max_concurrent_jobs": 5,
+                "next_chunk_start": 1001,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 1
+        assert result.run_requests[0].run_key == "reconcile_teams_1001_1500"
+
+        assert result.cursor is not None
+        new_cursor = json.loads(result.cursor)
+        assert new_cursor["next_chunk_start"] == 1501
+
+    def test_sensor_run_request_has_correct_tags(self):
+        """Test that run requests include expected tags."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 2000,
+                "chunk_size": 1000,
+                "max_concurrent_jobs": 5,
+                "next_chunk_start": 1,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 2
+        assert result.run_requests[0].tags["reconciliation_range"] == "1-1000"
+        assert result.run_requests[0].tags["owner"] == "team-ingestion"
+
+    def test_sensor_validates_range_start_less_than_range_end(self):
+        """Test that sensor rejects range_start > range_end."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1000,
+                "range_end": 500,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "range_start" in result.skip_message
+        assert "range_end" in result.skip_message
+
+    def test_sensor_validates_chunk_size_positive(self):
+        """Test that sensor rejects chunk_size <= 0."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "chunk_size": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "chunk_size" in result.skip_message
+
+    def test_sensor_validates_max_concurrent_jobs_positive(self):
+        """Test that sensor rejects max_concurrent_jobs <= 0."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent_jobs": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "max_concurrent_jobs" in result.skip_message
+
+    def test_sensor_validates_max_concurrent_jobs_cap(self):
+        """Test that sensor rejects max_concurrent_jobs exceeding the cap."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent_jobs": 100,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "exceeds cap" in result.skip_message.lower()
+
+    def test_sensor_validates_max_concurrent_tasks_positive(self):
+        """Test that sensor rejects max_concurrent_tasks <= 0."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent_tasks": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "max_concurrent_tasks" in result.skip_message
+
+    def test_sensor_validates_max_concurrent_tasks_cap(self):
+        """Test that sensor rejects max_concurrent_tasks exceeding the cap."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent_tasks": 200,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "exceeds cap" in result.skip_message.lower()
+
+    def test_sensor_validates_bug_window_start_required(self):
+        """Test that sensor rejects missing bug_window_start."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "bug_window_start" in result.skip_message
+
+    def test_sensor_validates_bug_window_end_required(self):
+        """Test that sensor rejects missing bug_window_end."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "bug_window_start": "2024-01-06 20:01:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "bug_window_end" in result.skip_message

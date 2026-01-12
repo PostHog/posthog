@@ -4,7 +4,6 @@
 !bin
 !common/hogvm
 !common/esbuilder
-!common/migration_utils
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !common/tailwind

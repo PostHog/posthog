@@ -461,7 +461,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
         if sso_enforcement:
             return Response(
-                {"error": f"You can only login with SSO for this account ({sso_enforcement})."},
+                {"error": "You can only login with SSO for this account."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return None
