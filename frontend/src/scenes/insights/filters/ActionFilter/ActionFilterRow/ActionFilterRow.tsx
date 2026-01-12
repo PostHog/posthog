@@ -707,12 +707,20 @@ export function ActionFilterRow({
                                                               },
                                                           ]
                                                         : []),
-                                                    {
-                                                        label: () => renameRowButton,
-                                                    },
-                                                    {
-                                                        label: () => duplicateRowButton,
-                                                    },
+                                                    ...(!hideRename
+                                                        ? [
+                                                              {
+                                                                  label: () => renameRowButton,
+                                                              },
+                                                          ]
+                                                        : []),
+                                                    ...(!hideDuplicate && !singleFilter
+                                                        ? [
+                                                              {
+                                                                  label: () => duplicateRowButton,
+                                                              },
+                                                          ]
+                                                        : []),
                                                     ...(showCombine
                                                         ? [
                                                               {
@@ -720,9 +728,13 @@ export function ActionFilterRow({
                                                               },
                                                           ]
                                                         : []),
-                                                    {
-                                                        label: () => deleteButton,
-                                                    },
+                                                    ...(!hideDeleteBtn && !singleFilter
+                                                        ? [
+                                                              {
+                                                                  label: () => deleteButton,
+                                                              },
+                                                          ]
+                                                        : []),
                                                 ]}
                                             >
                                                 <LemonButton
