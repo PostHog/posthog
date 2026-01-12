@@ -28,7 +28,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 'heatmapColorPalette',
                 'heatmapFixedPositionMode',
                 'commonFilters',
-                'windowWidthOverride',
+                'widthOverride',
+                'heightOverride',
             ],
         ],
         actions: [
@@ -37,7 +38,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             heatmapsSceneLogic,
             ['loadSavedHeatmaps'],
             heatmapDataLogic({ context: 'in-app' }),
-            ['loadHeatmap', 'setWindowWidthOverride'],
+            ['loadHeatmap', 'setWindowWidthOverride', 'setWindowHeightOverride'],
             exportsLogic,
             ['startHeatmapExport'],
         ],
@@ -216,11 +217,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
     })),
     selectors({
-        // Single source of truth for width: windowWidthOverride from heatmapDataLogic (persisted)
-        widthOverride: [
-            (s) => [s.windowWidthOverride],
-            (windowWidthOverride: number | null) => windowWidthOverride ?? DEFAULT_HEATMAP_WIDTH,
-        ],
         isDisplayUrlValid: [
             (s) => [s.displayUrl],
             (displayUrl: string | null) => {

@@ -10,11 +10,7 @@ import {
     authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import {
-    DEFAULT_HEATMAP_WIDTH,
-    PostHogAppToolbarEvent,
-    calculateViewportRange,
-} from 'lib/components/IframedToolbarBrowser/utils'
+import { PostHogAppToolbarEvent, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
@@ -69,7 +65,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             [
                 'heatmapEmpty',
                 'hrefMatchType',
-                'windowWidthOverride',
+                'widthOverride',
+                'heightOverride',
                 'commonFilters',
                 'heatmapFilters',
                 'heatmapFixedPositionMode',
@@ -83,6 +80,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 'setHref',
                 'setHrefMatchType',
                 'setWindowWidthOverride',
+                'setWindowHeightOverride',
                 'setCommonFilters',
                 'patchHeatmapFilters',
                 'setHeatmapFixedPositionMode',
@@ -222,12 +220,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     }),
 
     selectors({
-        // Derived width with default applied - use this in components
-        widthOverride: [
-            (s) => [s.windowWidthOverride],
-            (windowWidthOverride: number | null) => windowWidthOverride ?? DEFAULT_HEATMAP_WIDTH,
-        ],
-
         browserUrlSearchOptions: [
             (s) => [s.browserSearchResults, s.topUrls, s.browserSearchTerm],
             (browserSearchResults, topUrls, browserSearchTerm) => {
