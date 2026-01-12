@@ -89,9 +89,8 @@ class UpsertDashboardTool(MaxTool):
     def get_required_resource_access(self):
         return [("dashboard", "editor")]
 
-    def is_dangerous_operation(self, action: UpsertDashboardAction) -> bool:
+    def is_dangerous_operation(self, action: UpsertDashboardAction) -> bool:  # type: ignore[override]
         """Update operations that replace or modify existing insights are dangerous."""
-        if isinstance(action, UpdateDashboardToolArgs):
         if isinstance(action, UpdateDashboardToolArgs):
             return action.replace_insights is True or bool(action.update_insight_ids)
         return False
