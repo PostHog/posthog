@@ -63,3 +63,4 @@ once_cell = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 serde_json = { workspace = true }
+reqwest = { workspace = true }
