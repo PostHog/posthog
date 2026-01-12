@@ -65,7 +65,30 @@ class TestUrlSafety:
             ("http://172.31.255.255/x", True),
             ("http://172.15.255.255/x", False),  # not in RFC1918 range
             ("ftp://example.com", True),  # non-http(s)
+            # Internal domain patterns (SSRF protection)
+            ("http://service.svc.cluster.local/metrics", True),
+            ("http://external-dns.kube-system.svc.cluster.local:7979/metrics", True),
+            ("http://foo.internal/api", True),
+            ("http://printer.local/status", True),
+            ("http://db.consul/health", True),
+            ("http://server.home.arpa/admin", True),
+            ("http://intra.corp/dashboard", True),
+            ("http://host.localdomain/page", True),
+            ("http://device.lan/config", True),
+            ("http://nas.home/files", True),
+            ("http://server.priv/admin", True),
+            ("http://app.intranet/login", True),
         ],
     )
     def test_should_block_url(self, url, blocked):
         assert us.should_block_url(url) is blocked
+
+    def test_should_block_url_hostname_resolves_to_private_ip(self, monkeypatch):
+        def fake_resolve(host: str):
+            if host == "attacker-controlled.com":
+                return {ipaddress.ip_address("10.0.0.5")}
+            return {ipaddress.ip_address("93.184.216.34")}
+
+        monkeypatch.setattr(us, "resolve_host_ips", fake_resolve)
+        assert us.should_block_url("http://attacker-controlled.com/evil") is True
+        assert us.should_block_url("http://example.com/safe") is False
