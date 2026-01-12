@@ -135,7 +135,7 @@ describe('MaterializedColumnSlotManager', () => {
             await postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_team (id, organization_id, project_id, name, created_at, updated_at, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, api_token, test_account_filters, timezone, app_urls, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical)
-                 SELECT $1, organization_id, project_id, 'TEST TEAM 2', NOW(), NOW(), false, true, false, true, 'token2', '[]', 'UTC', '[]', '[]', '[]', '[]', '[]', '[]'
+                 SELECT $1, organization_id, project_id, 'TEST TEAM 2', NOW(), NOW(), false, true, false, true, 'token2', '[]', 'UTC', '{}', '{}', '{}', '{}', '{}', '{}'
                  FROM posthog_team WHERE id = $2`,
                 [team2Id, teamId],
                 'create-team2'
