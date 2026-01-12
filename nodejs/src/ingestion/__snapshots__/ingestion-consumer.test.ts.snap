@@ -6,7 +6,7 @@ exports[`IngestionConsumer (joined pipeline) error handling should handle explic
     "headers": {
       "distinct_id": "user-1",
       "dlq-reason": "test",
-      "dlq-step": "prefetchHogFunctionsStep",
+      "dlq-step": "prefetchSlotsStep",
       "dlq-timestamp": "2025-01-01T00:00:00.000Z",
       "event": "$pageview",
       "now": "2025-01-01T00:00:00.000Z",
