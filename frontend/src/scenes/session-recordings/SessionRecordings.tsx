@@ -193,7 +193,7 @@ function MainPanel({ tabId }: { tabId: string }): JSX.Element {
     useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic({ tabId }))
 
     return (
-        <SceneContent>
+        <SceneContent className={cn(ReplayTabs.Home === tab && 'grow')}>
             <Warnings />
 
             {!tab ? (
