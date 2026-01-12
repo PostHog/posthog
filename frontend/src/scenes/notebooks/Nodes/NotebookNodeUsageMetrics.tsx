@@ -102,7 +102,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
 }
 
 function UsageMetricsEmptyState(): JSX.Element {
-    const { toggleIsModalOpen } = useActions(usageMetricsConfigLogic)
+    const { openModal } = useActions(usageMetricsConfigLogic)
     return (
         <ProductIntroduction
             productName="Customer analytics"
@@ -111,7 +111,7 @@ function UsageMetricsEmptyState(): JSX.Element {
             isEmpty={true}
             productKey={ProductKey.CUSTOMER_ANALYTICS}
             className="border-none"
-            action={() => toggleIsModalOpen()}
+            action={() => openModal()}
         />
     )
 }

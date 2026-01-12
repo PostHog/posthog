@@ -269,7 +269,7 @@ export function UsageMetricsModal(): JSX.Element {
             title="Add usage metric"
             isOpen={isModalOpen}
             onClose={closeModal}
-            description={<UsageMetricsForm />}
+            children={<UsageMetricsForm />}
             footer={
                 <>
                     <LemonButton
