@@ -12,8 +12,8 @@ importers:
         specifier: 14.0.0
         version: 14.0.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       posthog-js:
-        specifier: ~1.318.0
-        version: 1.318.0
+        specifier: ~1.318.2
+        version: 1.318.2
       react:
         specifier: ^18
         version: 18.3.1
@@ -213,8 +213,8 @@ packages:
   '@posthog/core@1.9.1':
     resolution: {integrity: sha512-kRb1ch2dhQjsAapZmu6V66551IF2LnCbc1rnrQqnR7ArooVyJN9KOPXre16AJ3ObJz2eTfuP7x25BMyS2Y5Exw==}
 
-  '@posthog/types@1.318.0':
-    resolution: {integrity: sha512-cyJfAwEh8DELKkAVkC4pbMKfj51dtMowdxLORcS4+XB0c5FbAvYlGWULpQVHjVXhHNsPN6gIS/f66Oj5DXZ8JA==}
+  '@posthog/types@1.318.2':
+    resolution: {integrity: sha512-/4m1DStpyaZStTJJ4b7RyftnFoSM/IWmVBTiWvdm2e2I8A8W3D4+YY7YkTpPtTinRZEhDQEZFjhlHdDgNCiNuA==}
 
   '@rtsao/scc@1.1.0':
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
@@ -1503,8 +1503,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  posthog-js@1.318.0:
-    resolution: {integrity: sha512-gj86IKD4du3fbTm9y+a8KqYxz5o/E89UqTGDYf9ka2NYVWci2CN45Zzs2ijBeFHKhPfb+sTeO3NUecGhFBa6VQ==}
+  posthog-js@1.318.2:
+    resolution: {integrity: sha512-M5C/3HYlyNaqmCIwgGkmJLcGt5MREwsllwGLAOO3nMYhrWSjEuJnEzenplHxa/4UgwvhR4121ErzRHgK67qq1A==}
 
   preact@10.28.2:
     resolution: {integrity: sha512-lbteaWGzGHdlIuiJ0l2Jq454m6kcpI1zNje6d8MlGAFlYvP2GO4ibnat7P74Esfz4sPTdM6UxtTwh/d3pwM9JA==}
@@ -2024,7 +2024,7 @@ snapshots:
     dependencies:
       cross-spawn: 7.0.6
 
-  '@posthog/types@1.318.0': {}
+  '@posthog/types@1.318.2': {}
 
   '@rtsao/scc@1.1.0': {}
 
@@ -3455,10 +3455,10 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  posthog-js@1.318.0:
+  posthog-js@1.318.2:
     dependencies:
       '@posthog/core': 1.9.1
-      '@posthog/types': 1.318.0
+      '@posthog/types': 1.318.2
       core-js: 3.47.0
       dompurify: 3.3.1
       fflate: 0.4.8
