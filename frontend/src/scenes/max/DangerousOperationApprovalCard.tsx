@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ApprovalCardUIStatus, DangerousOperationResponse } from '~/queries/schema/schema-assistant-messages'
 
@@ -21,13 +21,13 @@ export function DangerousOperationApprovalCard({
     conversationId,
     onResolved,
 }: DangerousOperationApprovalCardProps): JSX.Element {
-    const [localStatus, setLocalStatus] = useState<ApprovalCardUIStatus>('pending')
-
     const { tabId } = useValues(maxLogic)
     const { effectiveApprovalStatuses } = useValues(maxThreadLogic({ conversationId, tabId }))
     const { continueAfterApproval, continueAfterRejection } = useActions(maxThreadLogic({ conversationId, tabId }))
 
     const resolvedStatus = effectiveApprovalStatuses[operation.proposalId]
+    const [localStatus, setLocalStatus] = useState<ApprovalCardUIStatus>(resolvedStatus)
+
     useEffect(() => {
         if (resolvedStatus) {
             // Clears loading states
@@ -50,26 +50,26 @@ export function DangerousOperationApprovalCard({
     }
 
     return (
-        <MessageTemplate type="ai" boxClassName="border-warning p-0 overflow-hidden">
-            <div className="bg-warning-highlight px-4 py-2 border-b border-warning flex items-center gap-2">
-                <IconWarning className="text-warning size-4" />
-                <span className="font-medium text-sm">Approval required</span>
+        <MessageTemplate type="ai" boxClassName="border-warning p-0 overflow-hidden text-xs">
+            <div className="bg-warning-highlight p-2 border-b border-warning flex items-center gap-2">
+                <IconWarning className="text-warning size-3" />
+                <span className="font-medium">Approval required</span>
             </div>
 
-            <div className="p-4">
-                <p className="text-sm text-secondary mb-3">This operation will make the following changes:</p>
-                <pre className="text-sm bg-bg-light p-3 rounded whitespace-pre-wrap font-mono m-0">
-                    {operation.preview}
-                </pre>
+            <div className="p-2 pb-0">
+                <p className="text-secondary mb-3">This operation will make the following changes:</p>
+                <pre className="bg-bg-light rounded whitespace-pre-wrap font-mono m-0">{operation.preview}</pre>
             </div>
 
-            <div className="px-4 py-3 bg-bg-light border-t flex items-center justify-between">
+            <LemonDivider />
+
+            <div className="p-2 flex items-center justify-between">
                 {localStatus === 'pending' && (
                     <>
-                        <span className="text-xs text-muted">Review the changes above before approving</span>
+                        <span className="text-muted">Review the changes above before approving</span>
                         <div className="flex gap-2">
                             <LemonButton
-                                size="small"
+                                size="xxsmall"
                                 type="secondary"
                                 status="danger"
                                 icon={<IconX />}
@@ -77,7 +77,7 @@ export function DangerousOperationApprovalCard({
                             >
                                 Reject
                             </LemonButton>
-                            <LemonButton size="small" type="primary" icon={<IconCheck />} onClick={handleApprove}>
+                            <LemonButton size="xxsmall" type="primary" icon={<IconCheck />} onClick={handleApprove}>
                                 Approve
                             </LemonButton>
                         </div>
