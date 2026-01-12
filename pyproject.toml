@@ -213,7 +213,7 @@ dev = [
     "pytest-rerunfailures~=16.1",
     "freezegun==1.2.2",
     "ipython>=9.3.0",
-    "mypy~=1.18.2",
+    "mypy~=1.19.1",
     "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
     "ty==0.0.4",
@@ -359,6 +359,39 @@ section-order = [
 
 [tool.dagster]
 python_version = "3.12"
+
+[tool.mypy]
+python_version = "3.12"
+plugins = [
+    "mypy_django_plugin.main",
+    "mypy_drf_plugin.main",
+    "pydantic.mypy",
+]
+strict_optional = true
+no_implicit_optional = true
+warn_unused_ignores = true
+check_untyped_defs = true
+warn_unreachable = true
+strict_equality = true
+ignore_missing_imports = true
+exclude_gitignore = true
+exclude = ["^(bin/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+
+[[tool.mypy.overrides]]
+module = "bin.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "posthog.hogql.grammar.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "posthog.tasks.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.django-stubs]
+django_settings_module = "posthog.settings"
 
 [tool.mypy-baseline]
 sort_baseline = true

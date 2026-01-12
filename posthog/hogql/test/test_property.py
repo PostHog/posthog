@@ -1136,6 +1136,26 @@ class TestProperty(BaseTest):
             ),
         )
 
+        # Test semver_caret with 0.x.y versions (^0.2.3 means >=0.2.3 <0.3.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "0.2.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('0.2.3') AND sortableSemver(person.properties.app_version) < sortableSemver('0.3.0'))"
+            ),
+        )
+
+        # Test semver_caret with 0.0.x versions (^0.0.3 means >=0.0.3 <0.0.4)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "0.0.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('0.0.3') AND sortableSemver(person.properties.app_version) < sortableSemver('0.0.4'))"
+            ),
+        )
+
         # Test semver_wildcard (1.2.* means >=1.2.0 <1.3.0)
         self.assertEqual(
             self._property_to_expr(

@@ -1686,6 +1686,7 @@ export interface SessionRecordingExternalReference {
     external_url: string
     title: string
     issue_id: string
+    metadata?: Record<string, string>
 }
 
 export interface SessionRecordingType {
@@ -4629,6 +4630,7 @@ export const INTEGRATION_KINDS = [
     'databricks',
     'tiktok-ads',
     'bing-ads',
+    'vercel',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4826,6 +4828,7 @@ export type APIScopeObject =
     | 'logs'
     | 'notebook'
     | 'organization'
+    | 'organization_integration'
     | 'organization_member'
     | 'person'
     | 'plugin'
@@ -6065,6 +6068,18 @@ export interface DeepResearchNotebook extends _NotebookBase {
 
 export type NotebookInfo = DeepResearchNotebook
 
+export type ApprovalDecisionStatus = 'pending' | 'approved' | 'rejected' | 'auto_rejected'
+
+export interface PendingApproval {
+    proposal_id: string
+    decision_status: ApprovalDecisionStatus
+    tool_name: string
+    preview: string
+    payload: Record<string, unknown>
+    original_tool_call_id?: string
+    message_id?: string
+}
+
 export interface Conversation {
     id: string
     user: UserBasicType
@@ -6078,6 +6093,7 @@ export interface Conversation {
     slack_thread_key?: string | null
     slack_workspace_domain?: string | null
     is_internal?: boolean
+    pending_approvals?: PendingApproval[]
 }
 
 export interface ConversationDetail extends Conversation {

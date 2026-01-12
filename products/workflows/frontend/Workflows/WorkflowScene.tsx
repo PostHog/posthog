@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -90,7 +91,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     ]
 
     return (
-        <SceneContent className="flex flex-col">
+        <SceneContent className="flex flex-col grow">
             <WorkflowSceneHeader {...props} />
             {/* Only show Logs and Metrics tabs if the workflow has already been created */}
             {!props.id || props.id === 'new' ? (
@@ -101,6 +102,9 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                     onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                     tabs={tabs}
                     sceneInset
+                    className={clsx({
+                        'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
+                    })}
                 />
             )}
         </SceneContent>
