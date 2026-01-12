@@ -9,7 +9,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { groupLogic } from 'scenes/groups/groupLogic'
@@ -24,6 +23,7 @@ import { Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { calculateMRRData, getLifetimeValue, getPaidProducts } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex, tabId, title } = attributes
@@ -111,9 +111,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
     )
 }
 
-function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
+export function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
-    const lifetimeValue: number | null = groupData.group_properties.customer_lifetime_value || null
+    const lifetimeValue = getLifetimeValue(groupData)
 
     return (
         <div className="flex flex-col">
@@ -122,7 +122,7 @@ function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
                 {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
             </div>
             <MRR groupData={groupData} />
-            {lifetimeValue && (
+            {lifetimeValue !== null && (
                 <div>
                     <Tooltip title="Total worth of revenue from this customer over the whole relationship">
                         <span className="text-secondary">Lifetime value: </span>{' '}
@@ -135,70 +135,50 @@ function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
     )
 }
 
-function MRR({ groupData }: { groupData: Group }): JSX.Element | null {
+export function MRR({ groupData }: { groupData: Group }): JSX.Element | null {
     const { baseCurrency } = useValues(teamLogic)
-    const mrr: number | null = groupData.group_properties.mrr || null
-    const forecastedMrr: number | null = groupData.group_properties.forecasted_mrr || null
+    const mrrData = calculateMRRData(groupData, baseCurrency)
 
-    if (!mrr) {
+    if (!mrrData) {
         return null
     }
 
-    const percentageDiff = mrr === null || forecastedMrr === null ? null : (forecastedMrr - mrr) / mrr
-    const percentageDiffTooltip =
-        percentageDiff === null
-            ? null
-            : forecastedMrr === null // Duplicated check for appropriate type narrowing
-              ? null
-              : percentageDiff > 0
-                ? `${percentage(percentageDiff)} MRR growth forecasted to ${formatCurrency(forecastedMrr, baseCurrency)}`
-                : percentageDiff < 0
-                  ? `${percentage(-percentageDiff)} MRR decrease forecasted to ${formatCurrency(forecastedMrr, baseCurrency)}`
-                  : `No MRR change forecasted, flat at ${formatCurrency(mrr, baseCurrency)}`
     const icon =
-        percentageDiff === null ? null : percentageDiff > 0 ? (
+        mrrData.trendDirection === 'up' ? (
             <IconTrending className="text-success" />
-        ) : percentageDiff < 0 ? (
+        ) : mrrData.trendDirection === 'down' ? (
             <IconTrendingDown className="text-danger" />
-        ) : (
+        ) : mrrData.trendDirection === 'flat' ? (
             <IconTrendingFlat />
-        )
+        ) : null
 
     return (
         <div>
-            {mrr && (
-                <div className="flex gap-1 items-center">
-                    <span className="text-secondary">MRR:</span>
-                    <Tooltip title={percentageDiffTooltip}>
-                        <div className="flex gap-2 items-center">
-                            {formatCurrency(mrr, baseCurrency)}
-                            {icon}
-                        </div>
-                    </Tooltip>
-                </div>
-            )}
+            <div className="flex gap-1 items-center">
+                <span className="text-secondary">MRR:</span>
+                <Tooltip title={mrrData.tooltipText}>
+                    <div className="flex gap-2 items-center">
+                        {formatCurrency(mrrData.mrr, baseCurrency)}
+                        {icon}
+                    </div>
+                </Tooltip>
+            </div>
         </div>
     )
 }
 
-function PaidProducts({ groupData }: { groupData: Group }): JSX.Element | null {
-    const mrrPerProduct: Record<string, number> = groupData.group_properties.mrr_per_product || {}
+export function PaidProducts({ groupData }: { groupData: Group }): JSX.Element | null {
+    const paidProducts = getPaidProducts(groupData)
 
-    const paidProductBadges = Object.entries(mrrPerProduct)
-        .filter(([_, mrr]) => mrr > 0)
-        .map(([product]) => (
-            <LemonTag
-                className="mr-1 mb-1"
-                key={product}
-                children={capitalizeFirstLetter(product.replaceAll('_', ' '))}
-            />
-        ))
-
-    if (paidProductBadges.length === 0) {
+    if (paidProducts.length === 0) {
         return null
     }
 
-    return <div>Paid products: {paidProductBadges}</div>
+    const paidProductTags = paidProducts.map((product) => (
+        <LemonTag className="mr-1 mb-1" key={product} children={product} />
+    ))
+
+    return <div>Paid products: {paidProductTags}</div>
 }
 
 type NotebookNodeGroupAttributes = {
