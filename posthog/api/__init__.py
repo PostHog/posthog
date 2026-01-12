@@ -121,6 +121,7 @@ from . import (
     user,
     user_home_settings,
     web_vitals,
+    webauthn,
 )
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
@@ -129,7 +130,7 @@ from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
-from .oauth_application import OAuthApplicationPublicMetadataViewSet
+from .oauth import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
 from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
@@ -569,6 +570,9 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
+router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
+router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
+router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(

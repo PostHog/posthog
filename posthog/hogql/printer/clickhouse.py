@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal, Union, cast
 from uuid import UUID
 
-from posthog.schema import MaterializedColumnsOptimizationMode, PropertyGroupsMode
+from posthog.schema import PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
@@ -14,6 +14,7 @@ from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryEr
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
+from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
@@ -31,6 +32,16 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
         right=ast.Constant(value=context.team_id),
         type=ast.BooleanType(),
     )
+
+
+COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
+    "mat_$ai_trace_id",
+    "mat_$ai_session_id",
+    "mat_$ai_is_error",
+    "$ai_trace_id",
+    "$ai_session_id",
+    "$ai_is_error",
+}
 
 
 class ClickHousePrinter(HogQLPrinter):
@@ -241,25 +252,22 @@ class ClickHousePrinter(HogQLPrinter):
 
         return None  # nothing to optimize
 
-    def _get_optimized_materialized_column_compare_operation(self, node: ast.CompareOperation) -> str | None:
+    def _get_optimized_materialized_column_equals_operation(self, node: ast.CompareOperation) -> str | None:
         """
         Returns an optimized printed expression for comparisons involving individually materialized columns.
 
-        When comparing a materialized column to a non-empty, non-null string constant, we can skip the
-        nullIf() wrapping that normally happens. This allows ClickHouse to use skip indexes on the
-        materialized column.
+        When comparing equality between a materialized column and a non-empty, non-null string constant, we can avoid the
+        nullIf() wrapping that normally happens. This allows ClickHouse to use skip indexes on the materialized column.
 
         For example, instead of:
             ifNull(equals(nullIf(nullIf(events.`mat_$feature_flag`, ''), 'null'), 'some_value'), 0)
         We can emit:
-            equals(events.`mat_$feature_flag`, 'some_value')
+            ifNull(equals(events.`mat_$feature_flag`, 'some_value'), 0)
 
         This is safe because we know 'some_value' is neither empty string nor 'null', so the nullIf
-        checks are redundant for the comparison result.
+        checks are redundant for the comparison result. We keep the outer ifNull to ensure proper
+        boolean semantics when composed with not() or other logical operations.
         """
-        if self.context.modifiers.materializedColumnsOptimizationMode != MaterializedColumnsOptimizationMode.OPTIMIZED:
-            return None
-
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             return None
 
@@ -295,14 +303,149 @@ class ClickHousePrinter(HogQLPrinter):
         if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
+        # These are optimized elsewhere
+        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            return None
+
         # Build the optimized comparison using the raw materialized column
         materialized_column_sql = str(property_source)
         constant_sql = self.visit(constant_expr)
 
+        # Wrap in additional handling to ensure proper boolean semantics when composed with not() or other logic.
+        # - equals(NULL, 'value') → NULL, but should be 0 (false) so not() works correctly
+        # - notEquals(NULL, 'value') → NULL, but should be 1 (true) since NULL != 'value'
+        # Use a compound expression for the Eq case to allow skip indexes to be used (which are broken by ifNull)
         if node.op == ast.CompareOperationOp.Eq:
-            return f"equals({materialized_column_sql}, {constant_sql})"
-        else:  # NotEq
-            return f"notEquals({materialized_column_sql}, {constant_sql})"
+            if property_source.is_nullable:
+                return (
+                    f"(equals({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
+                )
+            else:
+                return f"equals({materialized_column_sql}, {constant_sql})"
+        else:
+            if property_source.is_nullable:
+                return f"ifNull(notEquals({materialized_column_sql}, {constant_sql}), 1)"
+            else:
+                return f"notEquals({materialized_column_sql}, {constant_sql})"
+
+    def _get_optimized_materialized_column_ilike_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns an optimized printed expression for ILIKE comparisons involving materialized columns.
+
+        For non-nullable columns with patterns that could match sentinel values ('', 'null'),
+        we bail out and let the normal code path handle it with proper nullif wrapping.
+
+        For patterns that cannot match sentinels, we use the raw materialized column directly,
+        enabling skip index optimization.
+        """
+        if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):
+            return None
+
+        property_type: ast.PropertyType | None = None
+        pattern_expr: ast.Constant | None = None
+
+        left_type = resolve_field_type(node.left)
+        if isinstance(left_type, ast.PropertyType) and isinstance(node.right, ast.Constant):
+            property_type = left_type
+            pattern_expr = node.right
+
+        if property_type is None or pattern_expr is None:
+            return None
+
+        # Only optimize simple property access (not chained like properties.foo.bar)
+        if len(property_type.chain) != 1:
+            return None
+
+        # Only optimize for string pattern constants
+        if not isinstance(pattern_expr.value, str):
+            return None
+
+        # Check if this property uses an individually materialized column (not a property group)
+        property_source = self._get_materialized_property_source_for_property_type(property_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
+            return None
+
+        materialized_column_sql = str(property_source)
+        pattern_sql = self.visit(pattern_expr)
+
+        if property_source.is_nullable:
+            if node.op == ast.CompareOperationOp.ILike:
+                # We include IS NOT NULL because we want to return FALSE rather than NULL if the column is NULL,
+                # and prefer this to wrapping in ifNull because it allows skip index usage.
+                return f"and(ilike({materialized_column_sql}, {pattern_sql}), {materialized_column_sql} IS NOT NULL)"
+            else:
+                # For NOT ILIKE, we need ifNull wrapper because NULL NOT ILIKE pattern should be TRUE
+                return f"ifNull(notILike({materialized_column_sql}, {pattern_sql}), 1)"
+        else:
+            # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
+            # regular code path handle it, which handles this case
+            if any(ilike_matches(pattern_expr.value, s) for s in ["", "null", '"null"']):
+                return None
+
+            if node.op == ast.CompareOperationOp.ILike:
+                return f"ilike({materialized_column_sql}, {pattern_sql})"
+            else:
+                return f"notILike({materialized_column_sql}, {pattern_sql})"
+
+    def _get_optimized_materialized_column_like_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns an optimized printed expression for LIKE comparisons involving materialized columns.
+
+        For non-nullable columns with patterns that could match sentinel values ('', 'null'),
+        we bail out and let the normal code path handle it with proper nullif wrapping.
+
+        For patterns that cannot match sentinels, we use the raw materialized column directly,
+        enabling skip index optimization. Unlike ILIKE, LIKE is case-sensitive which allows
+        ClickHouse to use ngrambf_v1 skip indexes.
+        """
+        if node.op not in (ast.CompareOperationOp.Like, ast.CompareOperationOp.NotLike):
+            return None
+
+        property_type: ast.PropertyType | None = None
+        pattern_expr: ast.Constant | None = None
+
+        left_type = resolve_field_type(node.left)
+        if isinstance(left_type, ast.PropertyType) and isinstance(node.right, ast.Constant):
+            property_type = left_type
+            pattern_expr = node.right
+
+        if property_type is None or pattern_expr is None:
+            return None
+
+        # Only optimize simple property access (not chained like properties.foo.bar)
+        if len(property_type.chain) != 1:
+            return None
+
+        # Only optimize for string pattern constants
+        if not isinstance(pattern_expr.value, str):
+            return None
+
+        property_source = self._get_materialized_property_source_for_property_type(property_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
+            return None
+
+        materialized_column_sql = str(property_source)
+        pattern_sql = self.visit(pattern_expr)
+
+        if property_source.is_nullable:
+            if node.op == ast.CompareOperationOp.Like:
+                # We include IS NOT NULL because we want to return FALSE rather than NULL if the column is NULL,
+                # and prefer this to wrapping in ifNull because it allows skip index usage.
+                return f"and(like({materialized_column_sql}, {pattern_sql}), {materialized_column_sql} IS NOT NULL)"
+            else:  # NotLike
+                # For NOT LIKE, we need ifNull wrapper because NULL NOT LIKE pattern should be TRUE
+                return f"ifNull(notLike({materialized_column_sql}, {pattern_sql}), 1)"
+        else:
+            # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
+            # regular code path handle it, which handles this case
+            if any(like_matches(pattern_expr.value, s) for s in ["", "null", '"null"']):
+                return None
+
+            # For non-nullable columns with non-sentinel patterns, use raw column for performance
+            if node.op == ast.CompareOperationOp.Like:
+                return f"like({materialized_column_sql}, {pattern_sql})"
+            else:  # NotLike
+                return f"notLike({materialized_column_sql}, {pattern_sql})"
 
     def _optimize_in_with_string_values(
         self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
@@ -458,8 +601,14 @@ class ClickHousePrinter(HogQLPrinter):
 
         # If either side is an individually materialized column being compared to a string constant,
         # we can skip the nullIf wrapping to allow skip index usage.
-        if optimized_materialized_column_compare := self._get_optimized_materialized_column_compare_operation(node):
+        if optimized_materialized_column_compare := self._get_optimized_materialized_column_equals_operation(node):
             return optimized_materialized_column_compare
+        # Similar optimization for ILIKE, but gated by a modifier since pattern matching is more complex
+        if optimized_materialized_ilike := self._get_optimized_materialized_column_ilike_operation(node):
+            return optimized_materialized_ilike
+        # Similar optimization for LIKE - case-sensitive allows ngrambf_v1 skip index usage
+        if optimized_materialized_like := self._get_optimized_materialized_column_like_operation(node):
+            return optimized_materialized_like
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
@@ -483,20 +632,7 @@ class ClickHousePrinter(HogQLPrinter):
 
         # :HACK: Prevent ifNull() wrapping for $ai_trace_id, $ai_session_id, and $ai_is_error to allow index usage
         # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
-        if (
-            "mat_$ai_trace_id" in left
-            or "mat_$ai_trace_id" in right
-            or "mat_$ai_session_id" in left
-            or "mat_$ai_session_id" in right
-            or "mat_$ai_is_error" in left
-            or "mat_$ai_is_error" in right
-            or "$ai_trace_id" in left
-            or "$ai_trace_id" in right
-            or "$ai_session_id" in left
-            or "$ai_session_id" in right
-            or "$ai_is_error" in left
-            or "$ai_is_error" in right
-        ):
+        if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
             not_nullable = True
 
         constant_lambda = None

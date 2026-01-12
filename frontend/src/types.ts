@@ -252,7 +252,7 @@ export enum Region {
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
-export type LoginMethod = SSOProvider | 'password' | null
+export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -844,8 +844,6 @@ export type ReplayTab = {
 
 export enum ExperimentsTabs {
     All = 'all',
-    Yours = 'yours',
-    Archived = 'archived',
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
     History = 'history',
@@ -1680,6 +1678,7 @@ export interface SessionRecordingExternalReference {
     external_url: string
     title: string
     issue_id: string
+    metadata?: Record<string, string>
 }
 
 export interface SessionRecordingType {
@@ -3322,6 +3321,8 @@ export interface ProductTourStep {
     selector?: string
     /** Rich text content in tiptap JSONContent format */
     content: Record<string, any> | null
+    /** Pre-rendered HTML content for SDK consumption. Built from `content` on tour save. */
+    contentHtml?: string
     position?: 'top' | 'bottom' | 'left' | 'right'
     /** Inline survey question config - only for survey steps */
     survey?: ProductTourSurveyQuestion
@@ -3825,6 +3826,8 @@ interface InstancePreferencesInterface {
     debug_queries: boolean
     /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
     disable_paid_fs: boolean
+    /** Whether Cloudflare proxy is enabled for managed reverse proxies. */
+    cloudflare_proxy_enabled?: boolean
 }
 
 export interface PreflightStatus {
@@ -6136,6 +6139,7 @@ export interface ProjectTreeRef {
 export type OAuthApplicationPublicMetadata = {
     name: string
     client_id: string
+    is_verified: boolean
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'

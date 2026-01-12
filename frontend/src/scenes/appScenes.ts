@@ -86,6 +86,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ReplayPlaylist]: () => import('./session-recordings/playlist/SessionRecordingsPlaylistScene'),
     [Scene.ReplaySettings]: () => import('./session-recordings/settings/SessionRecordingsSettingsScene'),
     [Scene.ReplaySingle]: () => import('./session-recordings/detail/SessionRecordingDetail'),
+    [Scene.ReplayKiosk]: () => import('./session-recordings/kiosk/SessionRecordingsKiosk'),
     [Scene.Replay]: () => import('./session-recordings/SessionRecordings'),
     [Scene.RevenueAnalytics]: () => import('products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
