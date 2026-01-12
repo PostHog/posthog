@@ -102,6 +102,7 @@ from . import (
     organization,
     organization_domain,
     organization_feature_flag,
+    organization_integration,
     organization_invite,
     organization_member,
     personal_api_key,
@@ -504,6 +505,12 @@ environments_router.register(
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
+organizations_router.register(
+    r"integrations",
+    organization_integration.OrganizationIntegrationViewSet,
+    "organization_integrations",
+    ["organization_id"],
+)
 organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
 )

@@ -27,7 +27,7 @@ use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{
     build_dependency_graph, filter_graph_by_keys, log_dependency_graph_operation_error,
-    DependencyGraph,
+    DependencyGraph, DependencyGraphResult, FilteredGraphResult,
 };
 use anyhow::Result;
 use common_metrics::{inc, timing_guard};
@@ -70,6 +70,18 @@ impl FeatureFlagMatch {
             (true, Some(variant)) => FlagValue::String(variant.clone()),
             (true, None) => FlagValue::Boolean(true),
             (false, _) => FlagValue::Boolean(false),
+        }
+    }
+
+    /// Creates a match result for flags with missing dependencies.
+    /// These flags evaluate to `false` (fail closed) with the `MissingDependency` reason.
+    pub fn missing_dependency() -> Self {
+        Self {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::MissingDependency,
+            condition_index: None,
+            payload: None,
         }
     }
 }
@@ -238,25 +250,33 @@ impl FeatureFlagMatcher {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
 
         // Build dependency graph once - reused for both optimization check and evaluation
-        let (global_dependency_graph, graph_errors) =
-            match build_dependency_graph(&feature_flags, self.team_id) {
-                Some((graph, errors)) => (graph, errors),
-                None => return FlagsResponse::new(true, HashMap::new(), None, request_id),
-            };
+        let DependencyGraphResult {
+            graph: global_dependency_graph,
+            errors: graph_errors,
+            flags_with_missing_deps: global_flags_with_missing_deps,
+        } = match build_dependency_graph(&feature_flags, self.team_id) {
+            Some(result) => result,
+            None => return FlagsResponse::new(true, HashMap::new(), None, request_id),
+        };
 
         // Filter graph by flag_keys if specified (includes transitive dependencies)
-        let dependency_graph = if let Some(ref keys) = flag_keys {
-            match filter_graph_by_keys(&global_dependency_graph, keys) {
-                Some(filtered_graph) => filtered_graph,
+        let (dependency_graph, flags_with_missing_deps) = if let Some(ref keys) = flag_keys {
+            match filter_graph_by_keys(
+                &global_dependency_graph,
+                keys,
+                &global_flags_with_missing_deps,
+            ) {
+                Some(FilteredGraphResult {
+                    graph,
+                    flags_with_missing_deps,
+                }) => (graph, flags_with_missing_deps),
                 None => return FlagsResponse::new(true, HashMap::new(), None, request_id),
             }
         } else {
-            global_dependency_graph
+            (global_dependency_graph, global_flags_with_missing_deps)
         };
 
-        // Track graph construction errors for the response (errors already logged in build_dependency_graph)
-        let has_graph_errors = !graph_errors.is_empty();
-        if has_graph_errors {
+        if !graph_errors.is_empty() {
             with_canonical_log(|log| log.dependency_graph_errors = graph_errors.len());
         }
 
@@ -332,12 +352,18 @@ impl FeatureFlagMatcher {
 
         // Pass the pre-built graph to avoid redundant graph construction
         let flags_response = self
-            .evaluate_flags_with_overrides(overrides, request_id, dependency_graph)
+            .evaluate_flags_with_overrides(
+                overrides,
+                request_id,
+                dependency_graph,
+                flags_with_missing_deps,
+            )
             .await;
 
+        let has_cycle_errors = graph_errors.iter().any(|e| e.is_cycle());
         let has_errors = flag_hash_key_override_error
             || flags_response.errors_while_computing_flags
-            || has_graph_errors;
+            || has_cycle_errors;
 
         eval_timer
             .label("outcome", if has_errors { "error" } else { "success" })
@@ -507,6 +533,7 @@ impl FeatureFlagMatcher {
         overrides: FlagEvaluationOverrides,
         request_id: Uuid,
         dependency_graph: DependencyGraph<FeatureFlag>,
+        flags_with_missing_deps: HashSet<i32>,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
@@ -548,6 +575,7 @@ impl FeatureFlagMatcher {
                 &overrides.group_property_overrides,
                 &overrides.hash_key_overrides,
                 &mut evaluated_flags_map,
+                &flags_with_missing_deps,
             )
             .await;
         errors_while_computing_flags |= graph_evaluation_errors;
@@ -569,6 +597,7 @@ impl FeatureFlagMatcher {
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: &Option<HashMap<String, String>>,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
+        flags_with_missing_deps: &HashSet<i32>,
     ) -> bool {
         // Get evaluation stages for the dependency graph
         let evaluation_stages = match flag_dependency_graph.evaluation_stages() {
@@ -589,6 +618,7 @@ impl FeatureFlagMatcher {
                     person_property_overrides,
                     group_property_overrides,
                     hash_key_overrides,
+                    flags_with_missing_deps,
                 )
                 .await;
             errors_while_computing_flags |= level_errors;
@@ -673,6 +703,7 @@ impl FeatureFlagMatcher {
         person_property_overrides: &Option<HashMap<String, Value>>,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: &Option<HashMap<String, String>>,
+        flags_with_missing_deps: &HashSet<i32>,
     ) -> (HashMap<String, FlagDetails>, bool) {
         // initialize some state
         let mut errors_while_computing_flags = false;
@@ -722,6 +753,11 @@ impl FeatureFlagMatcher {
         let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = flags_to_evaluate
             .par_iter()
             .map(|flag| {
+                // Flags with missing dependencies evaluate to false (fail closed)
+                if flags_with_missing_deps.contains(&flag.id) {
+                    return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
+                }
+
                 // If the overrides for this flag are not in the pre-computed map, assume no overrides
                 // this shouldn't happen, but it's here to avoid panics
                 let property_overrides = precomputed_property_overrides

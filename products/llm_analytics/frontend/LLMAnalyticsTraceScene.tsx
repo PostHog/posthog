@@ -44,6 +44,7 @@ import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
+import { ClustersTabContent } from './components/ClustersTabContent'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
@@ -67,6 +68,7 @@ import {
     getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
+    isTraceLevel,
     removeMilliseconds,
 } from './utils'
 
@@ -958,6 +960,22 @@ const EventContent = React.memo(
                                                       distinctId={trace.person.distinct_id}
                                                   />
                                               ),
+                                          },
+                                      ]
+                                    : []),
+                                ...(isTraceLevel(event)
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Clusters,
+                                              label: (
+                                                  <>
+                                                      Clusters{' '}
+                                                      <LemonTag className="ml-1" type="completion">
+                                                          Alpha
+                                                      </LemonTag>
+                                                  </>
+                                              ),
+                                              content: <ClustersTabContent />,
                                           },
                                       ]
                                     : []),
