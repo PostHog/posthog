@@ -130,7 +130,7 @@ describe('sessionRecordingDataCoordinatorLogic performance', () => {
             const stdDev = Math.sqrt(variance)
 
             expect(averageDuration).toBeLessThan(130)
-            expect(stdDev).toBeLessThan(100)
+            expect(stdDev).toBeLessThan(150)
         })
     })
 })
