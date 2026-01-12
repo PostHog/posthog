@@ -123,7 +123,7 @@ def google_sheets_source(
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
-        values = worksheet.get_all_records()
+        values = worksheet.get_all_records(empty2zero=True)
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
