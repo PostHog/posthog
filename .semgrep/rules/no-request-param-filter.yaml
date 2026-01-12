@@ -1,0 +1,23 @@
+rules:
+    - id: no-request-param-orm-filter
+      mode: taint
+      pattern-sources:
+          - patterns:
+                - pattern-either:
+                      - pattern: $REQ.GET.dict()
+                      - pattern: $REQ.POST.dict()
+                      - pattern: $REQ.query_params.dict()
+                      - pattern: $REQ.data
+      pattern-sinks:
+          - patterns:
+                - pattern-either:
+                      - pattern: $Q.filter(**$SINK)
+                      - pattern: $Q.exclude(**$SINK)
+                      - pattern: $Q.get(**$SINK)
+                - focus-metavariable: $SINK
+      message: |
+          ORM filter injection risk: Do not unpack request parameters directly into filter/exclude/get.
+          This allows attackers to query arbitrary fields and traverse relationships.
+          Instead, explicitly whitelist allowed filter parameters.
+      languages: [python]
+      severity: ERROR
