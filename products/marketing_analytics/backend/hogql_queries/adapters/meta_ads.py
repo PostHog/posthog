@@ -7,8 +7,55 @@ from posthog.hogql import ast
 from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, INTEGRATION_PRIMARY_SOURCE
 from .base import MarketingSourceAdapter, MetaAdsConfig, ValidationResult
 
-# Purchase action types to extract from Meta's actions/action_values arrays
-META_PURCHASE_ACTION_TYPES = ["omni_purchase", "purchase"]
+# Conversion action types to extract from Meta's actions array (counts)
+# Includes all meaningful conversion events: standard, omni (cross-channel), and offsite pixel events
+META_CONVERSION_ACTION_TYPES = [
+    # Purchase
+    "purchase",
+    "omni_purchase",
+    "offsite_conversion.fb_pixel_purchase",
+    # Lead
+    "lead",
+    "omni_lead",
+    "offsite_conversion.fb_pixel_lead",
+    # Registration
+    "complete_registration",
+    "omni_complete_registration",
+    "offsite_conversion.fb_pixel_complete_registration",
+    # Add to cart
+    "add_to_cart",
+    "omni_add_to_cart",
+    "offsite_conversion.fb_pixel_add_to_cart",
+    # Initiate checkout
+    "initiate_checkout",
+    "omni_initiate_checkout",
+    "offsite_conversion.fb_pixel_initiate_checkout",
+    # App install
+    "app_install",
+    "omni_app_install",
+    "mobile_app_install",
+    # Subscribe
+    "subscribe",
+    "omni_subscribe",
+    "offsite_conversion.fb_pixel_subscribe",
+    # Add payment info
+    "add_payment_info",
+    "omni_add_payment_info",
+    "offsite_conversion.fb_pixel_add_payment_info",
+]
+
+# Action types that have meaningful monetary values (for action_values array)
+# Limited to purchase/transaction events that carry revenue data
+META_CONVERSION_VALUE_ACTION_TYPES = [
+    # Purchase (primary revenue events)
+    "purchase",
+    "omni_purchase",
+    "offsite_conversion.fb_pixel_purchase",
+    # Subscribe (recurring revenue)
+    "subscribe",
+    "omni_subscribe",
+    "offsite_conversion.fb_pixel_subscribe",
+]
 
 
 class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
@@ -121,8 +168,8 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="SUM", args=[spend_float])
 
-    def _build_action_type_filter(self) -> ast.Expr:
-        """Build filter condition for purchase action types"""
+    def _build_action_type_filter(self, action_types: list[str]) -> ast.Expr:
+        """Build filter condition for specified action types"""
         return ast.Or(
             exprs=[
                 ast.CompareOperation(
@@ -132,7 +179,7 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                     op=ast.CompareOperationOp.Eq,
                     right=ast.Constant(value=action_type),
                 )
-                for action_type in META_PURCHASE_ACTION_TYPES
+                for action_type in action_types
             ]
         )
 
@@ -164,7 +211,9 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                         ast.Call(
                             name="arrayFilter",
                             args=[
-                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
+                                ast.Lambda(
+                                    args=["x"], expr=self._build_action_type_filter(META_CONVERSION_ACTION_TYPES)
+                                ),
                                 ast.Call(name="JSONExtractArrayRaw", args=[actions_non_null]),
                             ],
                         ),
@@ -204,7 +253,9 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                         ast.Call(
                             name="arrayFilter",
                             args=[
-                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
+                                ast.Lambda(
+                                    args=["x"], expr=self._build_action_type_filter(META_CONVERSION_VALUE_ACTION_TYPES)
+                                ),
                                 ast.Call(name="JSONExtractArrayRaw", args=[action_values_non_null]),
                             ],
                         ),

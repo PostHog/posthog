@@ -472,6 +472,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                         "schema_valid": True,
                     },
                     "actions": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "action_values": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "cost_per_action_type": {
                         "hogql": "StringDatabaseField",
                         "clickhouse": "String",
