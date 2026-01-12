@@ -22,6 +22,14 @@ export const getBaseUrlForRegion = (region: CloudRegion): string => {
 
 export const CUSTOM_BASE_URL = env.POSTHOG_BASE_URL
 
+// Get the authorization server URL for OAuth, respecting CUSTOM_BASE_URL for self-hosted instances
+export const getAuthorizationServerUrl = (regionParam: string | null): string => {
+    if (CUSTOM_BASE_URL) {
+        return CUSTOM_BASE_URL
+    }
+    return getBaseUrlForRegion(toCloudRegion(regionParam))
+}
+
 // OAuth Authorization Server URL (where clients get tokens)
 // Defaults to CUSTOM_BASE_URL if not explicitly set
 export const OAUTH_AUTHORIZATION_SERVER_URL =

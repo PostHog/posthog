@@ -9,6 +9,7 @@ import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
 import {
     CUSTOM_BASE_URL,
+    getAuthorizationServerUrl,
     getBaseUrlForRegion,
     MCP_DOCS_URL,
     OAUTH_SCOPES_SUPPORTED,
@@ -321,9 +322,8 @@ export default {
 
             // Determine authorization server based on region param.
             // The region param is set by the wizard based on user's cloud region selection.
-            // Invalid/unknown regions safely default to US via toCloudRegion().
-            const regionParam = url.searchParams.get('region')
-            const authorizationServer = CUSTOM_BASE_URL || getBaseUrlForRegion(toCloudRegion(regionParam))
+            // CUSTOM_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
+            const authorizationServer = getAuthorizationServerUrl(url.searchParams.get('region'))
 
             return new Response(
                 JSON.stringify({
