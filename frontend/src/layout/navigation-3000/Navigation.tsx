@@ -117,12 +117,12 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 h-full flex-1 transition-[width] duration-300',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 h-full flex-1 transition-[width] duration-300 rounded-t',
                                 {
                                     'p-0':
                                         sceneConfig?.layout === 'app-raw-no-header' ||
                                         sceneConfig?.layout === 'app-raw',
-                                    'lg:rounded-r-none': scenePanelIsPresent,
+                                    'rounded-tl-none': firstTabIsActive,
                                 }
                             )}
                             onScroll={(e) => {
