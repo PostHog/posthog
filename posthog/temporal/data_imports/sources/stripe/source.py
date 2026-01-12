@@ -51,6 +51,7 @@ PERMISSIONS = [
     "rak_subscription_read",
     "rak_application_fee_read",
     "rak_transfer_read",
+    "rak_connected_account_read",
 ]
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
 
@@ -73,7 +74,7 @@ By clicking the link above, you will be taken to a form that pre-fills everythin
 
 - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
 - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
-- Under the **Connect** resource type, select *read* for either the **entire resource** or **Application Fees** and **Transfers**
+- Under the **Connect** resource type, select *read* for the **entire resource**
 
 These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
 """,
