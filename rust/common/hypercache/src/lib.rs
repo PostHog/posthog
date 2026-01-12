@@ -44,7 +44,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
 const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
@@ -143,6 +143,17 @@ pub enum CacheSource {
     Redis,
     S3,
     Fallback,
+}
+
+impl CacheSource {
+    /// Returns a consistent string representation for canonical logging.
+    pub fn as_log_str(&self) -> &'static str {
+        match self {
+            CacheSource::Redis => "redis",
+            CacheSource::S3 => "s3",
+            CacheSource::Fallback => "fallback",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -318,14 +329,14 @@ impl HyperCacheReader {
                 return Ok((data, CacheSource::Redis));
             }
             Ok(Err(e)) => {
-                info!(
+                debug!(
                     cache_key = %redis_cache_key,
                     error = %e,
                     "HyperCache Redis miss, trying S3"
                 );
             }
             Err(_) => {
-                info!(
+                debug!(
                     cache_key = %redis_cache_key,
                     "HyperCache Redis timeout, trying S3"
                 );
@@ -353,21 +364,21 @@ impl HyperCacheReader {
                 return Ok((data, CacheSource::S3));
             }
             Ok(Err(e)) => {
-                info!(
+                debug!(
                     cache_key = %s3_cache_key,
                     error = %e,
                     "HyperCache S3 miss"
                 );
             }
             Err(_) => {
-                info!(
+                debug!(
                     cache_key = %s3_cache_key,
                     "HyperCache S3 timeout"
                 );
             }
         }
 
-        warn!(
+        debug!(
             redis_key = %redis_cache_key,
             s3_key = %s3_cache_key,
             namespace = %self.config.namespace,

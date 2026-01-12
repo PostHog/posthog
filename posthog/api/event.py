@@ -30,6 +30,7 @@ from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import query_with_columns
+from posthog.clickhouse.client.limit import get_events_list_rate_limiter
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Filter, Person, PersonDistinctId, PropertyDefinition
 from posthog.models.event.query_event_list import query_events_list
@@ -40,7 +41,7 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.utils import convert_property_value, flatten, relative_date_parse
+from posthog.utils import convert_property_value, flatten, generate_short_id, relative_date_parse
 
 tracer = trace.get_tracer(__name__)
 
@@ -272,46 +273,49 @@ class EventViewSet(
                 windows_to_try.remove(cached_window)
                 windows_to_try.insert(0, cached_window)
 
-            query_result: list = []
-            successful_window: Optional[int] = None
-            applied_window: Optional[int] = None
-            half_limit = max(limit // 2, 1)  # At least 1 result required
+            task_id = generate_short_id()
 
-            for window in windows_to_try:
-                query_result, applied_window = query_events_list(
-                    filter=filter,
-                    team=team,
-                    limit=limit,
-                    offset=offset,
-                    request_get_query_dict=request.GET.dict(),
-                    order_by=order_by,
-                    action_id=request.GET.get("action_id"),
-                    time_window_seconds=window,
-                )
+            with get_events_list_rate_limiter().run(team_id=team.pk, task_id=task_id):
+                query_result: list = []
+                successful_window: Optional[int] = None
+                applied_window: Optional[int] = None
+                half_limit = max(limit // 2, 1)  # At least 1 result required
 
-                # If window wasn't applied (e.g., ASC order), don't try other windows
-                if applied_window is None:
-                    break
+                for window in windows_to_try:
+                    query_result, applied_window = query_events_list(
+                        filter=filter,
+                        team=team,
+                        limit=limit,
+                        offset=offset,
+                        request_get_query_dict=request.GET.dict(),
+                        order_by=order_by,
+                        action_id=request.GET.get("action_id"),
+                        time_window_seconds=window,
+                    )
 
-                if len(query_result) >= half_limit:
-                    successful_window = window
-                    break
+                    # If window wasn't applied (e.g., ASC order), don't try other windows
+                    if applied_window is None:
+                        break
 
-            if successful_window:
-                # Cache the successful window for future requests
-                if successful_window != cached_window:
-                    cache.set(cache_key, successful_window, EVENT_LIST_CACHE_TTL)
-            elif applied_window is not None or not windows_to_try:
-                # Windows were applied but didn't return enough results, or no windows to try - run full query
-                query_result, _ = query_events_list(
-                    filter=filter,
-                    team=team,
-                    limit=limit,
-                    offset=offset,
-                    request_get_query_dict=request.GET.dict(),
-                    order_by=order_by,
-                    action_id=request.GET.get("action_id"),
-                )
+                    if len(query_result) >= half_limit:
+                        successful_window = window
+                        break
+
+                if successful_window:
+                    # Cache the successful window for future requests
+                    if successful_window != cached_window:
+                        cache.set(cache_key, successful_window, EVENT_LIST_CACHE_TTL)
+                elif applied_window is not None or not windows_to_try:
+                    # Windows were applied but didn't return enough results, or no windows to try - run full query
+                    query_result, _ = query_events_list(
+                        filter=filter,
+                        team=team,
+                        limit=limit,
+                        offset=offset,
+                        request_get_query_dict=request.GET.dict(),
+                        order_by=order_by,
+                        action_id=request.GET.get("action_id"),
+                    )
 
             result = ClickhouseEventSerializer(
                 query_result[0:limit],

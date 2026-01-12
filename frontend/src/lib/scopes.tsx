@@ -44,6 +44,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
     {
+        key: 'organization_integration',
+        objectName: 'Organization integration',
+        objectPlural: 'organization integrations',
+        disabledWhenProjectScoped: true,
+    },
+    {
         key: 'organization_member',
         objectName: 'Organization member',
         objectPlural: 'organization members',
