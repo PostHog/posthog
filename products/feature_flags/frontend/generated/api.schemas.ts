@@ -194,6 +194,7 @@ export interface FeatureFlagApi {
     last_called_at?: string | null
     _create_in_folder?: string
     _should_create_usage_dashboard?: boolean
+    _should_delete_usage_dashboard?: boolean
 }
 
 export interface PaginatedFeatureFlagListApi {
@@ -284,6 +285,7 @@ export interface PatchedFeatureFlagApi {
     last_called_at?: string | null
     _create_in_folder?: string
     _should_create_usage_dashboard?: boolean
+    _should_delete_usage_dashboard?: boolean
 }
 
 export interface ChangeApi {
