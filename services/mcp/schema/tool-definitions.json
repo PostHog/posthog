@@ -1,4 +1,74 @@
 {
+    "action-create": {
+        "description": "Create a new action to define complex event matching rules. Actions combine multiple matching conditions (steps) with OR logic - an event matches if any step matches. Use actions to track specific user behaviors like 'Clicked signup button' or 'Visited pricing page'. Each step can match on event type, URL patterns, CSS selectors, element text, and property filters.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Create a new action with event matching rules.",
+        "title": "Create action",
+        "required_scopes": ["action:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "action-delete": {
+        "description": "Delete an action by ID (soft delete - marks as deleted). The action can potentially be restored later if needed.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Delete an action by ID.",
+        "title": "Delete action",
+        "required_scopes": ["action:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "action-get": {
+        "description": "Get details of a specific action by ID, including its matching steps, property filters, and configuration.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Get action details by ID.",
+        "title": "Get action",
+        "required_scopes": ["action:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "actions-get-all": {
+        "description": "Get all actions in the project with optional filtering. Can filter by search term or use pagination. Returns action names, IDs, descriptions, and tags.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Get all actions in the project.",
+        "title": "Get all actions",
+        "required_scopes": ["action:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "action-update": {
+        "description": "Update an existing action by ID. Can update name, description, matching steps, tags, and Slack notification settings. Use action-get first to see current configuration before updating.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Update an existing action.",
+        "title": "Update action",
+        "required_scopes": ["action:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "add-insight-to-dashboard": {
         "description": "Add an existing insight to a dashboard. Requires insight ID and dashboard ID. Optionally supports layout and color customization.",
         "category": "Dashboards",

@@ -5,6 +5,12 @@ import { hasScopes } from '@/lib/utils/api'
 import { MemoryCache } from '@/lib/utils/cache/MemoryCache'
 import { hash } from '@/lib/utils/helper-functions'
 
+// Actions
+import createAction from './actions/create'
+import deleteAction from './actions/delete'
+import getAction from './actions/get'
+import getAllActions from './actions/getAll'
+import updateAction from './actions/update'
 // Dashboards
 import addInsightToDashboard from './dashboards/addInsight'
 import createDashboard from './dashboards/create'
@@ -70,6 +76,13 @@ import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 
 // Map of tool names to tool factory functions
 const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
+    // Actions
+    'action-create': createAction,
+    'action-delete': deleteAction,
+    'action-get': getAction,
+    'actions-get-all': getAllActions,
+    'action-update': updateAction,
+
     // Feature Flags
     'feature-flag-get-definition': getFeatureFlagDefinition,
     'feature-flag-get-all': getAllFeatureFlags,

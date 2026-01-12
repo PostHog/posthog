@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { ActionStepSchema, ListActionsInputSchema, UpdateActionInputSchema } from './actions'
 import {
     AddInsightToDashboardSchema,
     CreateDashboardInputSchema,
@@ -385,6 +386,38 @@ export const SurveyUpdateSchema = UpdateSurveyInputSchema.extend({
 
 export const QueryRunInputSchema = z.object({
     query: InsightQuerySchema,
+})
+
+// Action schemas
+export const ActionGetSchema = z.object({
+    actionId: z.number().describe('The ID of the action to retrieve'),
+})
+
+export const ActionGetAllSchema = z.object({
+    data: ListActionsInputSchema.optional(),
+})
+
+export const ActionCreateSchema = z.object({
+    name: z.string().min(1).describe('Action name (must be unique within the project)'),
+    description: z.string().optional().describe('Description of what this action tracks'),
+    steps: z
+        .array(ActionStepSchema)
+        .min(1)
+        .describe(
+            "Match conditions for this action. Multiple steps use OR logic - an event matches if any step matches. Each step should specify an 'event' (e.g., '$pageview', '$autocapture', or custom event name) and optionally URL/element matching criteria."
+        ),
+    tags: z.array(z.string()).optional().describe('Tags for organizing actions'),
+    post_to_slack: z.boolean().optional().describe('Send notification to Slack when action is triggered'),
+    slack_message_format: z.string().optional().describe('Custom Slack message format'),
+})
+
+export const ActionUpdateSchema = z.object({
+    actionId: z.number().describe('The ID of the action to update'),
+    data: UpdateActionInputSchema.describe('The action data to update'),
+})
+
+export const ActionDeleteSchema = z.object({
+    actionId: z.number().describe('The ID of the action to delete'),
 })
 
 export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeValuesInputSchema }
