@@ -55,7 +55,6 @@ export const AngularInstallation = (): JSX.Element => {
                                   '<ph_project_api_key>',
                                   {
                                     api_host: '<ph_client_api_host>',
-                                    person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users too
                                     defaults: '2025-11-30'
                                   }
                                 )

@@ -111,7 +111,6 @@ export const NextJSInstallation = (): JSX.Element => {
                                               useEffect(() => {
                                                 posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
                                                   api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                  person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users too
                                                   defaults: '2025-11-30'
                                                 })
                                               }, [])
@@ -176,7 +175,6 @@ export const NextJSInstallation = (): JSX.Element => {
                                               useEffect(() => {
                                                 posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
                                                   api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                  person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users too
                                                   defaults: '2025-11-30',
                                                   loaded: (posthog) => {
                                                     if (process.env.NODE_ENV === 'development') posthog.debug()
@@ -206,7 +204,7 @@ export const NextJSInstallation = (): JSX.Element => {
                 </CalloutBox>
             </Step>
 
-            <Step title="Accessing PostHog in your code" badge="recommended">
+            <Step title="Accessing PostHog on the client" badge="recommended">
                 <Tab.Group tabs={['Next.js 15.3+', 'App/Pages router']}>
                     <Tab.List>
                         <Tab>Next.js 15.3+</Tab>
@@ -267,16 +265,64 @@ export const NextJSInstallation = (): JSX.Element => {
                                     },
                                 ]}
                             />
-                            <CalloutBox type="caution" title="Client components only">
-                                <Markdown>
-                                    PostHog methods like `capture`, `identify`, and feature flags only work in client
-                                    components (marked with `'use client'`). For server-side analytics, use the
-                                    [PostHog Node.js library](https://posthog.com/docs/libraries/node).
-                                </Markdown>
-                            </CalloutBox>
                         </Tab.Panel>
                     </Tab.Panels>
                 </Tab.Group>
+            </Step>
+
+            <Step title="Server-side setup" badge="optional">
+                <Markdown>
+                    To capture events from API routes or server actions, install `posthog-node`:
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'npm',
+                            code: dedent`
+                                npm install posthog-node
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'yarn',
+                            code: dedent`
+                                yarn add posthog-node
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'pnpm',
+                            code: dedent`
+                                pnpm add posthog-node
+                            `,
+                        },
+                    ]}
+                />
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'typescript',
+                            file: 'app/api/example/route.ts',
+                            code: dedent`
+                                import { PostHog } from 'posthog-node'
+
+                                export async function POST(request: Request) {
+                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+                                        host: process.env.NEXT_PUBLIC_POSTHOG_HOST
+                                    })
+
+                                    posthog.capture({
+                                        distinctId: 'distinct_id_of_the_user',
+                                        event: 'event_name'
+                                    })
+
+                                    await posthog.shutdown()
+                                }
+                            `,
+                        },
+                    ]}
+                />
             </Step>
 
             <Step title="Send events" badge="recommended">

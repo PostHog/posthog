@@ -57,8 +57,7 @@ export const SvelteInstallation = (): JSX.Element => {
                                       '<ph_project_api_key>',
                                       {
                                         api_host: '<ph_client_api_host>',
-                                        defaults: '2025-11-30',
-                                        person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users too
+                                        defaults: '2025-11-30'
                                       }
                                     )
                                   }
@@ -75,6 +74,61 @@ export const SvelteInstallation = (): JSX.Element => {
                         documentation.
                     </Markdown>
                 </CalloutBox>
+            </Step>
+
+            <Step title="Server-side setup" badge="optional">
+                <Markdown>
+                    To capture events from the server side, install `posthog-node` and use it in a load function:
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'npm',
+                            code: dedent`
+                                npm install posthog-node
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'yarn',
+                            code: dedent`
+                                yarn add posthog-node
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'pnpm',
+                            code: dedent`
+                                pnpm add posthog-node
+                            `,
+                        },
+                    ]}
+                />
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'javascript',
+                            file: 'routes/+page.server.js',
+                            code: dedent`
+                                import { PostHog } from 'posthog-node'
+
+                                export async function load() {
+                                    const posthog = new PostHog('<ph_project_api_key>', {
+                                        host: '<ph_client_api_host>'
+                                    })
+
+                                    posthog.capture({
+                                        distinctId: 'distinct_id_of_the_user',
+                                        event: 'event_name'
+                                    })
+
+                                    await posthog.shutdown()
+                                }
+                            `,
+                        },
+                    ]}
+                />
             </Step>
 
             <Step title="Send events">{JSEventCapture && <JSEventCapture />}</Step>

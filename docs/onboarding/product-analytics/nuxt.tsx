@@ -83,7 +83,6 @@ export const NuxtInstallation = (): JSX.Element => {
                                   const posthogClient = posthog.init(runtimeConfig.public.posthogPublicKey, {
                                     api_host: runtimeConfig.public.posthogHost,
                                     defaults: runtimeConfig.public.posthogDefaults,
-                                    person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users too
                                     loaded: (posthog) => {
                                       if (import.meta.env.MODE === 'development') posthog.debug();
                                     }
@@ -94,6 +93,64 @@ export const NuxtInstallation = (): JSX.Element => {
                                       posthog: () => posthogClient
                                     }
                                   }
+                                })
+                            `,
+                        },
+                    ]}
+                />
+            </Step>
+
+            <Step title="Server-side setup" badge="optional">
+                <Markdown>
+                    To capture events from server routes, install `posthog-node` and instantiate it directly:
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'npm',
+                            code: dedent`
+                                npm install posthog-node
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'yarn',
+                            code: dedent`
+                                yarn add posthog-node
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'pnpm',
+                            code: dedent`
+                                pnpm add posthog-node
+                            `,
+                        },
+                    ]}
+                />
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'javascript',
+                            file: 'server/api/example.js',
+                            code: dedent`
+                                import { PostHog } from 'posthog-node'
+
+                                export default defineEventHandler(async (event) => {
+                                    const runtimeConfig = useRuntimeConfig()
+
+                                    const posthog = new PostHog(
+                                        runtimeConfig.public.posthogPublicKey,
+                                        { host: runtimeConfig.public.posthogHost }
+                                    )
+
+                                    posthog.capture({
+                                        distinctId: 'distinct_id_of_the_user',
+                                        event: 'event_name'
+                                    })
+
+                                    await posthog.shutdown()
                                 })
                             `,
                         },

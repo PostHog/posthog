@@ -175,15 +175,7 @@ export const getReactSteps = (
         {
             title: 'Send events',
             badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>
-                        Once installed, PostHog will automatically start capturing events. You can also manually send
-                        events to test your integration:
-                    </Markdown>
-                    {JSEventCapture && <JSEventCapture />}
-                </>
-            ),
+            content: <>{JSEventCapture && <JSEventCapture />}</>,
         },
     ]
 }

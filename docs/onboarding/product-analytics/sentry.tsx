@@ -42,8 +42,7 @@ export const SentryInstallation = (): JSX.Element => {
                                 // Initialize PostHog with Sentry integration
                                 posthog.init('<ph_project_api_key>', {
                                   api_host: '<ph_client_api_host>',
-                                  defaults: '2025-11-30',
-                                  person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users too
+                                  defaults: '2025-11-30'
                                 })
 
                                 // Set PostHog session ID on Sentry scope
