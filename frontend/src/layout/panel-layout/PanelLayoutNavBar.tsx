@@ -103,6 +103,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { activeTabId } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const isAiUx = useFeatureFlag('AI_UX')
+    const { firstTabIsActive } = useValues(sceneLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -638,7 +639,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             // top + 7ox is to match rounded-lg border-radius on <main>
                             className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4', {
                                 // // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
-                                // 'top-[calc(var(--scene-layout-header-height)+10px)]': !firstTabIsActive,
+                                'top-[var(--scene-layout-header-height)]': firstTabIsActive,
                                 'top-0': isLayoutPanelVisible,
                             })}
                             offset={0}
