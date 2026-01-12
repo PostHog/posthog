@@ -141,7 +141,9 @@ export function createPreprocessingPipeline<
                             // Prefetch hog functions for all teams in the batch
                             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, hub.CDP_HOG_WATCHER_SAMPLE_RATE))
                             // Prefetch materialized column slots for all teams in the batch
-                            .pipeBatch(createPrefetchSlotsStep(materializedColumnSlotManager))
+                            .pipeBatch(
+                                createPrefetchSlotsStep(materializedColumnSlotManager, hub.PERSONS_PREFETCH_ENABLED)
+                            )
                     )
                     .handleIngestionWarnings(kafkaProducer)
             )
