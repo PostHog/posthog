@@ -1,0 +1,31 @@
+load("@aspect_rules_py//py:defs.bzl", "py_test")
+
+# All tests for visual_review product
+# Combined into single target to avoid aspect_rules_py .venv.pth conflicts
+py_test(
+    name = "tests",
+    srcs = glob(["test_*.py"]),
+    package_collisions = "ignore",  # Some pypi packages include tests/ dirs
+    args = [
+        # Only collect from this test directory, ignore everything else
+        "products/visual_review/backend/tests/",
+        "--ignore=posthog/",
+        "--ignore=ee/",
+        "--ignore=products/data_warehouse/",
+        "--ignore=products/tasks/",
+    ],
+    env = {
+        "DJANGO_SETTINGS_MODULE": "posthog.settings",
+        "DEBUG": "1",
+    },
+    pytest_main = True,
+    deps = [
+        "//products/visual_review/backend:impl",
+        "//products/visual_review/backend:presentation",
+        "//products/visual_review/backend:tasks",
+        "//posthog:core",  # Core posthog + ee for django.setup()
+        "//products:non_isolated",  # Legacy products data (JSON, etc.)
+        "@pypi//pytest",
+        "@pypi//pytest_django",
+    ],
+)

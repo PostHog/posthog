@@ -4,8 +4,7 @@ load("@rules_python//python:defs.bzl", "py_library")
 # Add your product here when you create it - if you don't, all legacy
 # tests will run on your changes (which is how you'll know to add it!)
 ISOLATED_PRODUCTS = [
-    # Add isolated products here as they're created.
-    # Example: "visual_review",
+    "visual_review",
 ]
 
 # All non-isolated (legacy) product sources as one blob.
@@ -60,8 +59,7 @@ py_library(
 package_group(
     name = "integration_tests",
     packages = [
-        # Add product test packages as they're created.
-        # Example: "//products/visual_review/backend/tests",
+        "//products/visual_review/backend/tests",
     ],
 )
 
