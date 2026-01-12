@@ -1,4 +1,74 @@
 {
+    "action-create": {
+        "description": "Create a new action to track user behaviors. Actions match events based on autocapture selectors, custom event names, URL patterns, and element properties. Use this to define what events should be tracked in PostHog. Each action must have at least one step that defines matching criteria.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Create a new action to track user behaviors.",
+        "title": "Create action",
+        "required_scopes": ["action:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "action-delete": {
+        "description": "Delete an action by ID (soft delete - marks as deleted). This prevents the action from being used in new insights or queries but preserves historical data.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Delete an action by ID.",
+        "title": "Delete action",
+        "required_scopes": ["action:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "action-get": {
+        "description": "Get a specific action by ID. Returns action details including name, description, and all matching steps (selectors, events, URL patterns).",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Get a specific action by ID.",
+        "title": "Get action",
+        "required_scopes": ["action:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "actions-get-all": {
+        "description": "Get all actions in the project with optional filtering. Can filter by search term or use pagination with limit and offset.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Get all actions in the project with optional filtering.",
+        "title": "Get all actions",
+        "required_scopes": ["action:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "action-update": {
+        "description": "Update an existing action by ID. Can update name, description, matching steps, tags, or Slack integration settings.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Update an existing action by ID.",
+        "title": "Update action",
+        "required_scopes": ["action:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "add-insight-to-dashboard": {
         "description": "Add an existing insight to a dashboard. Requires insight ID and dashboard ID. Optionally supports layout and color customization.",
         "category": "Dashboards",

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { CreateActionInputSchema, ListActionsSchema, UpdateActionInputSchema } from './actions'
 import {
     AddInsightToDashboardSchema,
     CreateDashboardInputSchema,
@@ -46,6 +47,28 @@ export const DashboardUpdateSchema = z.object({
 })
 
 export const DashboardReorderTilesSchema = ReorderDashboardTilesSchema
+
+// Actions tools accept validated payloads under `data`
+export const ActionCreateSchema = z.object({
+    data: CreateActionInputSchema,
+})
+
+export const ActionUpdateSchema = z.object({
+    actionId: z.number().describe('The ID of the action to update'),
+    data: UpdateActionInputSchema,
+})
+
+export const ActionDeleteSchema = z.object({
+    actionId: z.number().describe('The ID of the action to delete'),
+})
+
+export const ActionGetSchema = z.object({
+    actionId: z.number().describe('The ID of the action to retrieve'),
+})
+
+export const ActionGetAllSchema = z.object({
+    data: ListActionsSchema.optional(),
+})
 
 export const DocumentationSearchSchema = z.object({
     query: z.string(),

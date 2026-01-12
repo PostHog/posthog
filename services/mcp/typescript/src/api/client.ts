@@ -3,6 +3,18 @@ import { z } from 'zod'
 import { ErrorCode } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils/helper-functions'
 import {
+    type Action,
+    ActionSchema,
+    type CreateActionInput,
+    CreateActionInputSchema,
+    type ListActionsData,
+    ListActionsSchema,
+    type SimpleAction,
+    SimpleActionSchema,
+    type UpdateActionInput,
+    UpdateActionInputSchema,
+} from '@/schema/actions'
+import {
     type ApiEventDefinition,
     ApiEventDefinitionSchema,
     ApiListResponseSchema,
@@ -1347,6 +1359,105 @@ export class ApiClient {
                 const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${validatedParams.survey_id}/stats/${searchParams.toString() ? `?${searchParams}` : ''}`
 
                 return this.fetchWithSchema(url, SurveyResponseStatsOutputSchema)
+            },
+        }
+    }
+
+    actions({ projectId }: { projectId: string }): Endpoint {
+        return {
+            list: async ({ params }: { params?: ListActionsData } = {}): Promise<Result<SimpleAction[]>> => {
+                const validatedParams = params ? ListActionsSchema.parse(params) : undefined
+                const searchParams = new URLSearchParams()
+
+                if (validatedParams?.limit) {
+                    searchParams.append('limit', String(validatedParams.limit))
+                }
+                if (validatedParams?.offset) {
+                    searchParams.append('offset', String(validatedParams.offset))
+                }
+                if (validatedParams?.search) {
+                    searchParams.append('search', validatedParams.search)
+                }
+
+                const url = `${this.baseUrl}/api/projects/${projectId}/actions/${searchParams.toString() ? `?${searchParams}` : ''}`
+
+                const responseSchema = z.object({
+                    results: z.array(SimpleActionSchema),
+                })
+
+                const result = await this.fetchWithSchema(url, responseSchema)
+
+                if (result.success) {
+                    return { success: true, data: result.data.results }
+                }
+
+                return result
+            },
+
+            get: async ({ actionId }: { actionId: number }): Promise<Result<Action>> => {
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                    ActionSchema
+                )
+            },
+
+            create: async ({ data }: { data: CreateActionInput }): Promise<Result<Action>> => {
+                const validatedInput = CreateActionInputSchema.parse(data)
+
+                return this.fetchWithSchema(`${this.baseUrl}/api/projects/${projectId}/actions/`, ActionSchema, {
+                    method: 'POST',
+                    body: JSON.stringify(validatedInput),
+                })
+            },
+
+            update: async ({
+                actionId,
+                data,
+            }: {
+                actionId: number
+                data: UpdateActionInput
+            }): Promise<Result<Action>> => {
+                const validatedInput = UpdateActionInputSchema.parse(data)
+
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                    ActionSchema,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify(validatedInput),
+                    }
+                )
+            },
+
+            delete: async ({
+                actionId,
+            }: {
+                actionId: number
+            }): Promise<Result<{ success: boolean; message: string }>> => {
+                try {
+                    const response = await fetch(
+                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                        {
+                            method: 'PATCH',
+                            headers: this.buildHeaders(),
+                            body: JSON.stringify({ deleted: true }),
+                        }
+                    )
+
+                    if (!response.ok) {
+                        throw new Error(`Failed to delete action: ${response.statusText}`)
+                    }
+
+                    return {
+                        success: true,
+                        data: {
+                            success: true,
+                            message: 'Action deleted successfully',
+                        },
+                    }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
             },
         }
     }
