@@ -1,14 +1,11 @@
+# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from typing import Generic, Optional, cast
 
 from langchain_core.agents import AgentAction
 from langchain_core.exceptions import OutputParserException
-from langchain_core.messages import (
-    AIMessage as LangchainAssistantMessage,
-    BaseMessage,
-    merge_message_runs,
-)
+from langchain_core.messages import BaseMessage, merge_message_runs
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 
@@ -18,19 +15,10 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
-from ee.hogai.utils.types.base import ArtifactRefMessage
 
 from .parsers import PydanticOutputParserException, parse_pydantic_structured_output
-from .prompts import (
-    FAILOVER_OUTPUT_PROMPT,
-    FAILOVER_PROMPT,
-    GROUP_MAPPING_PROMPT,
-    NEW_PLAN_PROMPT,
-    PLAN_PROMPT,
-    QUESTION_PROMPT,
-)
+from .prompts import FAILOVER_OUTPUT_PROMPT, FAILOVER_PROMPT, GROUP_MAPPING_PROMPT, PLAN_PROMPT
 from .utils import Q, SchemaGeneratorOutput
 
 RETRIES_ALLOWED = 2
@@ -58,7 +46,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-5.1",
+            model="gpt-5.2",
             temperature=0.3,
             disable_streaming=True,
             user=self._user,
@@ -189,15 +177,11 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         self, state: AssistantState, validation_error_message: str | None = None
     ) -> list[BaseMessage]:
         """
-        Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
+        Construct the prompt for schema generation with only the plan and a static generation instruction.
         """
-        # Only process the last five artifact messages.
-        artifact_messages = await self.context_manager.artifacts.aenrich_messages(
-            [message for message in state.messages if isinstance(message, ArtifactRefMessage)][-5:]
-        )
-        generated_plan = state.plan
+        generated_plan = state.plan or ""
 
-        # Add the group mapping prompt to the beginning of the conversation.
+        # Add the group mapping prompt.
         group_mapping = await self._get_group_mapping_prompt()
         conversation: list[BaseMessage] = [
             HumanMessagePromptTemplate.from_template(GROUP_MAPPING_PROMPT, template_format="mustache").format(
@@ -205,42 +189,10 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
         ]
 
-        # Batch fetch all artifact contents (pass full state.messages for State source lookup)
-        artifact_contents = await self.context_manager.artifacts.aget_contents_by_message_id(state.messages)
-
-        for message in artifact_messages:
-            content = artifact_contents.get(message.id or "")
-            if not content:
-                continue
-            plan = content.plan or ""
-            query = content.name or ""
-            answer = content.query
-
-            # Plans go first.
-            conversation.append(
-                HumanMessagePromptTemplate.from_template(PLAN_PROMPT, template_format="mustache").format(plan=plan)
-            )
-            # Then questions.
-            conversation.append(
-                HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
-                    question=query
-                )
-            )
-            # Then the answer.
-            if answer:
-                conversation.append(LangchainAssistantMessage(content=answer.model_dump_json()))
-
-        # Add the initiator message and the generated plan to the end, so instructions are clear.
-        if generated_plan:
-            prompt = NEW_PLAN_PROMPT if artifact_messages else PLAN_PROMPT
-            conversation.append(
-                HumanMessagePromptTemplate.from_template(prompt, template_format="mustache").format(
-                    plan=generated_plan or ""
-                )
-            )
+        # Add the plan with generation instruction.
         conversation.append(
-            HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
-                question=self._get_insight_plan(state)
+            HumanMessagePromptTemplate.from_template(PLAN_PROMPT, template_format="mustache").format(
+                plan=generated_plan
             )
         )
 
@@ -253,14 +205,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
 
         return conversation
-
-    def _get_insight_plan(self, state: AssistantState) -> str:
-        if state.root_tool_insight_plan:
-            return state.root_tool_insight_plan
-        start_message = find_start_message(state.messages, state.start_id)
-        if start_message:
-            return start_message.content
-        return ""
 
 
 class SchemaGeneratorToolsNode(AssistantNode):

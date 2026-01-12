@@ -69,7 +69,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
         <div
             className={clsx(
                 'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
-                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
+                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
         >
             {emptyOnboardingContent ??
@@ -141,7 +141,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && (
-                <div className="flex flex-row items-center mb-3">
+                <div className="flex flex-row items-center mb-2">
                     <h2>{title}</h2>
                     {docs && <LearnMorePopover url={docs.url} title={docs.title} description={docs.description} />}
                 </div>
@@ -307,7 +307,7 @@ export const WebTabs = ({
 
     return (
         <div className={clsx(className, 'flex flex-col')}>
-            <div className="flex flex-row items-center self-stretch mb-3">
+            <div className="flex flex-row items-center self-stretch mb-2">
                 <h2 className="flex-1 m-0 flex flex-row ml-1">
                     {activeTab?.title}
                     {activeTab?.docs && (
@@ -503,13 +503,15 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <WebAnalyticsSurveyModal />
                 <VersionCheckerBanner />
-                <SceneContent className="WebAnalyticsDashboard">
-                    <WebAnalyticsTabs />
-                    {/* Empty fragment so tabs are not part of the sticky bar */}
-                    <Filters tabs={<></>} />
+                <SceneContent className="WebAnalyticsDashboard gap-y-2">
+                    <>
+                        <WebAnalyticsTabs />
+                        {/* Empty fragment so tabs are not part of the sticky bar */}
+                        <Filters tabs={<></>} />
 
-                    <WebAnalyticsHealthCheck />
-                    <MainContent />
+                        <WebAnalyticsHealthCheck />
+                        <MainContent />
+                    </>
                 </SceneContent>
             </BindLogic>
         </BindLogic>
@@ -586,6 +588,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
             sceneInset
             className="-mt-4"
             rightSlot={
+                !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] &&
                 !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && (
                     <LemonButton
                         type="secondary"
@@ -661,7 +664,10 @@ const getEmptyOnboardingContent = (
                         <div className="flex items-center gap-2">
                             <LemonButton
                                 type="primary"
-                                to={urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.INSTALL)}
+                                to={urls.onboarding({
+                                    productKey: ProductKey.WEB_ANALYTICS,
+                                    stepKey: OnboardingStepKey.INSTALL,
+                                })}
                                 data-attr="web-analytics-onboarding"
                             >
                                 Open installation guide

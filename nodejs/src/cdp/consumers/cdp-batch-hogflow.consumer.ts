@@ -117,12 +117,22 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             }
         )
 
+        logger.info(
+            '📝',
+            `Found ${matchingPersonsCount} matching persons for batch HogFlow run ${batchHogFlowRequest.batchJobId}`
+        )
+
         const rateLimits = await instrumentFn('cdpProducer.generateBatch.hogRateLimiter.rateLimitMany', async () => {
             return await this.hogRateLimiter.rateLimitMany([[hogFlow.id, matchingPersonsCount]])
         })
 
         const rateLimit = rateLimits[0][1]
         if (rateLimit.isRateLimited || rateLimit.tokens < matchingPersonsCount) {
+            logger.info('🚨', 'Rate limiting batch HogFlow run due to exceeding rate limits', {
+                rateLimit,
+                matchingPersonsCount,
+                batchJobId: batchHogFlowRequest.batchJobId,
+            })
             counterRateLimited.labels({ kind: 'hog_flow' }).inc()
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
@@ -131,7 +141,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                     instance_id: batchHogFlowRequest.batchJobId,
                     metric_kind: 'failure',
                     metric_name: 'rate_limited',
-                    count: 1,
+                    count: matchingPersonsCount,
                 },
                 'hog_flow'
             )
@@ -155,17 +165,19 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                     teamId: team.id,
                     properties: (filters.properties as PersonPropertyFilter[]) || [],
                 },
-                onPerson: ({ personId, distinctId }) => {
-                    const invocation = this.createHogFlowInvocation({
-                        batchJobId: batchHogFlowRequest.batchJobId,
-                        hogFlow,
-                        team,
-                        personId,
-                        distinctId,
-                        defaultVariables,
-                    })
+                onPersonBatch: async (persons: { personId: string; distinctId: string }[]) => {
+                    const batchInvocations = persons.map(({ personId, distinctId }) =>
+                        this.createHogFlowInvocation({
+                            hogFlow,
+                            team,
+                            personId,
+                            distinctId,
+                            defaultVariables,
+                        })
+                    )
 
-                    invocations.push(invocation)
+                    invocations.push(...batchInvocations)
+                    return Promise.resolve()
                 },
             })
         })
@@ -188,6 +200,8 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                 await Promise.all(batchHogFlowRequests.map((request) => this.createHogFlowInvocations(request)))
             ).flat(),
         ]
+
+        logger.info('📝', `Created ${invocationsToBeQueued.length} hog flow invocations to be queued`)
 
         return {
             // This is all IO so we can set them off in the background and start processing the next batch

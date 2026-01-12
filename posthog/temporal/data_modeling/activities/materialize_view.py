@@ -87,24 +87,28 @@ def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_nam
 
 
 def _get_aws_storage_options() -> dict[str, str]:
-    opts = {
-        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-        "region_name": settings.AIRBYTE_BUCKET_REGION,
-        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
             settings.BUCKET_URL,
-            settings.AIRBYTE_BUCKET_KEY,
-            settings.AIRBYTE_BUCKET_SECRET,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             settings.OBJECT_STORAGE_ENDPOINT,
         )
+
     if settings.USE_LOCAL_SETUP or TEST:
-        opts["endpoint_url"] = settings.OBJECT_STORAGE_ENDPOINT
-        opts["AWS_ALLOW_HTTP"] = "true"
-    return opts
+        return {
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "AWS_ALLOW_HTTP": "true",
+        }
+
+    return {
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
 
 
 def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:

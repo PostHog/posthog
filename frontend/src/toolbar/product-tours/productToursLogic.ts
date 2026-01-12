@@ -6,6 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { uuid } from 'lib/utils'
+import { prepareStepForRender, prepareStepsForRender } from 'scenes/product-tours/editor/generateStepHtml'
 import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -145,8 +146,9 @@ export const productToursLogic = kea<productToursLogicType>([
             content: JSONContent | null,
             selector?: string,
             survey?: ProductTourSurveyQuestion,
-            progressionTrigger?: ProductTourProgressionTriggerType
-        ) => ({ content, selector, survey, progressionTrigger }),
+            progressionTrigger?: ProductTourProgressionTriggerType,
+            maxWidth?: number
+        ) => ({ content, selector, survey, progressionTrigger, maxWidth }),
         cancelEditing: true,
         removeStep: (index: number) => ({ index }),
 
@@ -155,6 +157,7 @@ export const productToursLogic = kea<productToursLogicType>([
         newTour: true,
         saveTour: true,
         previewTour: true,
+        startPreviewMode: true,
         stopPreview: true,
         deleteTour: (id: string) => ({ id }),
 
@@ -207,7 +210,7 @@ export const productToursLogic = kea<productToursLogicType>([
         isPreviewing: [
             false,
             {
-                previewTour: () => true,
+                startPreviewMode: () => true,
                 stopPreview: () => false,
                 selectTour: () => false,
             },
@@ -326,8 +329,8 @@ export const productToursLogic = kea<productToursLogicType>([
                 const { id, name, steps } = formValues
                 const isUpdate = !!id
 
-                // Strip element references from steps before saving (element is a local-only DOM ref)
-                const stepsForApi = steps.map(({ element: _, ...step }) => step)
+                // Strip element references and add pre-computed HTML for SDK consumption
+                const stepsForApi = steps.map(({ element: _, ...step }) => prepareStepForRender(step))
 
                 // Get existing step_order_history if updating an existing tour
                 const existingTour = id ? values.tours.find((t: ProductTour) => t.id === id) : null
@@ -516,7 +519,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
             }
         },
-        confirmStep: ({ content, selector: selectorOverride, survey, progressionTrigger }) => {
+        confirmStep: ({ content, selector: selectorOverride, survey, progressionTrigger, maxWidth }) => {
             const { editorState, tourForm, selectedElement } = values
             if (editorState.mode !== 'editing' || !tourForm) {
                 return
@@ -538,6 +541,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 element: selectedElement ?? existingStep?.element,
                 ...(survey ? { survey } : {}),
                 ...(progressionTrigger ? { progressionTrigger } : {}),
+                ...(maxWidth ? { maxWidth } : {}),
             }
 
             if (stepIndex < steps.length) {
@@ -583,6 +587,18 @@ export const productToursLogic = kea<productToursLogicType>([
                 return
             }
 
+            // Check if the first element step's target exists on this page
+            const firstElementStep = tourForm.steps.find((step) => step.type === 'element' && step.selector)
+            if (firstElementStep && !getStepElement(firstElementStep)) {
+                // eslint-disable-next-line no-alert
+                alert(
+                    "Can't preview tour: the first step targets an element not found on this page.\n\nNavigate to a page where this element exists, or update the selector."
+                )
+                return
+            }
+
+            // Validation passed - now enter preview mode
+            actions.startPreviewMode()
             toolbarLogic.actions.toggleMinimized(true)
 
             // Get appearance from the saved tour if editing an existing one
@@ -597,7 +613,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 type: 'product_tour' as const,
                 start_date: null,
                 end_date: null,
-                steps: tourForm.steps,
+                steps: prepareStepsForRender(tourForm.steps),
                 appearance: existingTour?.content?.appearance,
             }
 
