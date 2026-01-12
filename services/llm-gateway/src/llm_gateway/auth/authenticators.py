@@ -92,9 +92,10 @@ class OAuthAccessTokenAuthenticator(Authenticator):
             row = await conn.fetchrow(
                 """
                 SELECT oat.id, oat.user_id, oat.scope, oat.expires,
-                       u.current_team_id, oat.application_id
+                       u.current_team_id, app.client_id
                 FROM posthog_oauthaccesstoken oat
                 JOIN posthog_user u ON oat.user_id = u.id
+                LEFT JOIN posthog_oauthapplication app ON oat.application_id = app.id
                 WHERE oat.token_checksum = $1 AND u.is_active = true
                 """,
                 token_hash,
@@ -107,7 +108,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
             if expires and expires < datetime.now(UTC):
                 return None
 
-            if not row["application_id"]:
+            if not row["client_id"]:
                 return None
 
             scopes = row["scope"].split() if row["scope"] else []
@@ -120,4 +121,5 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 auth_method=self.auth_type,
                 scopes=scopes,
                 token_expires_at=expires,
+                client_id=row["client_id"],
             )

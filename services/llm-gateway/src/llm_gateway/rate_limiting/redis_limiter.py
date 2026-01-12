@@ -8,6 +8,8 @@ from llm_gateway.rate_limiting.token_bucket import TokenBucketLimiter
 
 logger = structlog.get_logger(__name__)
 
+IN_MEMORY_LIMIT_DIVIDER = 10  # When Redis unavailable, use limit / 10
+
 
 class RateLimiter:
     """
@@ -87,3 +89,68 @@ class RateLimiter:
             logger.exception("redis_rate_limit_check_failed", user_id=user_id)
             REDIS_FALLBACK.inc()
             return True, None
+
+
+class TokenRateLimiter:
+    """
+    Redis-backed token rate limiter with local fallback.
+
+    Uses Redis for cluster-wide limits. When Redis unavailable,
+    falls back to in-memory with limit / IN_MEMORY_LIMIT_DIVIDER.
+    """
+
+    def __init__(
+        self,
+        redis: Redis[bytes] | None,
+        limit: int,
+        window_seconds: int,
+    ):
+        self.redis = redis
+        self.limit = limit
+        self.window = window_seconds
+
+        fallback_limit = limit / IN_MEMORY_LIMIT_DIVIDER
+        self._fallback = TokenBucketLimiter(
+            rate=fallback_limit / window_seconds,
+            capacity=fallback_limit,
+        )
+
+    async def consume(self, key: str, tokens: int = 1) -> bool:
+        """Consume tokens. Returns True if allowed."""
+        if self.redis is None:
+            return self._fallback.consume(key, float(tokens))
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            current: int = await self.redis.incrby(redis_key, tokens)
+            if current == tokens:
+                await self.redis.expire(redis_key, self.window)
+            return current <= self.limit
+        except Exception:
+            logger.exception("redis_rate_limit_failed", key=key)
+            REDIS_FALLBACK.inc()
+            return self._fallback.consume(key, float(tokens))
+
+    async def get_remaining(self, key: str) -> int:
+        """Get remaining tokens in bucket."""
+        if self.redis is None:
+            return int(self._fallback.get_remaining(key))
+
+        try:
+            current = await self.redis.get(f"ratelimit:{key}")
+            return max(0, self.limit - int(current or 0))
+        except Exception:
+            return int(self._fallback.get_remaining(key))
+
+    async def release(self, key: str, tokens: int) -> None:
+        """Release tokens back to bucket (for output adjustment)."""
+        if self.redis is None:
+            self._fallback.release(key, float(tokens))
+            return
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            await self.redis.decrby(redis_key, tokens)
+        except Exception:
+            logger.exception("redis_release_failed", key=key)
+            self._fallback.release(key, float(tokens))

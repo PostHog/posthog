@@ -207,7 +207,7 @@ class TestAuthServiceCaching:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
-                "application_id": 789,
+                "client_id": "test_client_id_789",
             }
         )
 
@@ -245,7 +245,7 @@ class TestAuthServiceCaching:
                 "scope": "llm_gateway:read",
                 "expires": None,
                 "current_team_id": 456,
-                "application_id": 789,
+                "client_id": "test_client_id_789",
             }
         )
 
@@ -300,7 +300,7 @@ class TestAuthServiceMetrics:
                 "scopes": ["llm_gateway:read"],
                 "scope": "llm_gateway:read",
                 "current_team_id": 456,
-                "application_id": 789,
+                "client_id": "test_client_id_789",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
             }
         )
@@ -329,7 +329,7 @@ class TestAuthServiceMetrics:
                 "scopes": ["llm_gateway:read"],
                 "scope": "llm_gateway:read",
                 "current_team_id": 456,
-                "application_id": 789,
+                "client_id": "test_client_id_789",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
             }
         )
