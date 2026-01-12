@@ -49,7 +49,7 @@ function sanitizeFilters(filters?: FilterType): FilterType {
 
 function UsageMetricsTable(): JSX.Element {
     const { usageMetrics, usageMetricsLoading } = useValues(usageMetricsConfigLogic)
-    const { removeUsageMetric, toggleIsModalOpen, setUsageMetricValues } = useActions(usageMetricsConfigLogic)
+    const { removeUsageMetric, openModal, setUsageMetricValues } = useActions(usageMetricsConfigLogic)
     const { reportUsageMetricsUpdateButtonClicked } = useActions(eventUsageLogic)
 
     const columns: LemonTableColumns<UsageMetric> = [
@@ -84,7 +84,7 @@ function UsageMetricsTable(): JSX.Element {
                             {
                                 label: 'Edit',
                                 onClick: () => {
-                                    toggleIsModalOpen()
+                                    openModal()
                                     setUsageMetricValues(metric)
                                     reportUsageMetricsUpdateButtonClicked()
                                 },
@@ -234,7 +234,7 @@ function UsageMetricsForm(): JSX.Element {
 }
 
 export function UsageMetricsConfig(): JSX.Element {
-    const { toggleIsModalOpen } = useActions(usageMetricsConfigLogic)
+    const { openModal } = useActions(usageMetricsConfigLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { reportUsageMetricsSettingsViewed } = useActions(eventUsageLogic)
 
@@ -250,7 +250,7 @@ export function UsageMetricsConfig(): JSX.Element {
                 Usage metrics are displayed in the person {groupsEnabled ? 'and group profiles' : 'profile'}.
             </p>
             <div className="flex flex-col gap-2 items-start">
-                <LemonButton type="primary" size="small" onClick={toggleIsModalOpen} icon={<IconPlusSmall />}>
+                <LemonButton type="primary" size="small" onClick={openModal} icon={<IconPlusSmall />}>
                     Add metric
                 </LemonButton>
                 <UsageMetricsTable />
@@ -262,18 +262,13 @@ export function UsageMetricsConfig(): JSX.Element {
 
 export function UsageMetricsModal(): JSX.Element {
     const { isModalOpen } = useValues(usageMetricsConfigLogic)
-    const { toggleIsModalOpen, resetUsageMetric } = useActions(usageMetricsConfigLogic)
-
-    const handleClose = (): void => {
-        toggleIsModalOpen()
-        resetUsageMetric()
-    }
+    const { closeModal } = useActions(usageMetricsConfigLogic)
 
     return (
         <LemonModal
             title="Add usage metric"
             isOpen={isModalOpen}
-            onClose={handleClose}
+            onClose={closeModal}
             description={<UsageMetricsForm />}
             footer={
                 <>
@@ -284,7 +279,7 @@ export function UsageMetricsModal(): JSX.Element {
                         children="Save"
                         data-attr="create-usage-metric"
                     />
-                    <LemonButton children="Cancel" onClick={handleClose} data-attr="cancel-create-usage-metric" />
+                    <LemonButton children="Cancel" onClick={closeModal} data-attr="cancel-create-usage-metric" />
                 </>
             }
         />

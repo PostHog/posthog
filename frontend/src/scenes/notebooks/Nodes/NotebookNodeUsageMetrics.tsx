@@ -45,14 +45,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
     const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId }
-    const { toggleIsModalOpen } = useActions(usageMetricsConfigLogic(usageMetricsConfigLogicProps))
+    const { openModal } = useActions(usageMetricsConfigLogic(usageMetricsConfigLogicProps))
 
     useEffect(() => {
         setActions([
             {
                 text: 'Add metric',
                 icon: <IconPlusSmall />,
-                onClick: toggleIsModalOpen,
+                onClick: openModal,
             },
             {
                 text: 'Refresh',

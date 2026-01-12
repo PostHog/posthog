@@ -58,14 +58,16 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
         addUsageMetric: (metric: UsageMetricFormData) => ({ metric }),
         updateUsageMetric: (metric: UsageMetricFormData) => ({ metric }),
         removeUsageMetric: (id: string) => ({ id }),
-        toggleIsModalOpen: true,
+        openModal: true,
+        closeModal: true,
     })),
 
     reducers({
         isModalOpen: [
             false,
             {
-                toggleIsModalOpen: (state) => !state,
+                openModal: () => true,
+                closeModal: () => false,
             },
         ],
     }),
@@ -119,10 +121,12 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
     })),
 
     listeners(({ actions }) => ({
-        submitUsageMetricSuccess: () => {
+        closeModal: () => {
             actions.resetUsageMetric()
+        },
+        submitUsageMetricSuccess: () => {
             actions.loadUsageMetrics()
-            actions.toggleIsModalOpen()
+            actions.closeModal()
         },
         addUsageMetricSuccess: () => {
             actions.loadUsageMetrics()
