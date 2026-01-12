@@ -55,7 +55,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHrefMatchType: (matchType: HrefMatchType) => ({ matchType }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
-        setWindowHeightOverride: (heightOverride: number | null) => ({ heightOverride }),
         setIsReady: (isReady: boolean) => ({ isReady }),
     }),
     windowValues(() => ({
@@ -117,13 +116,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             { persist: true },
             {
                 setWindowWidthOverride: (_, { widthOverride }) => widthOverride,
-            },
-        ],
-        windowHeightOverride: [
-            null as number | null,
-            { persist: true },
-            {
-                setWindowHeightOverride: (_, { heightOverride }) => heightOverride,
             },
         ],
         isReady: [
@@ -274,9 +266,10 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         heightOverride: [
             (s) => [s.maxYFromEvents],
             (maxYFromEvents: number): number => {
-                // Round maxY up to nearest 100 and add padding for full page view
+                const MAX_HEATMAP_HEIGHT = 40000
                 if (maxYFromEvents > 0) {
-                    return Math.ceil((maxYFromEvents + 100) / 100) * 100
+                    const calculatedHeight = Math.ceil((maxYFromEvents + 100) / 100) * 100
+                    return Math.min(calculatedHeight, MAX_HEATMAP_HEIGHT)
                 }
                 return DEFAULT_HEATMAP_HEIGHT
             },

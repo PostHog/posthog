@@ -38,7 +38,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             heatmapsSceneLogic,
             ['loadSavedHeatmaps'],
             heatmapDataLogic({ context: 'in-app' }),
-            ['loadHeatmap', 'setWindowWidthOverride', 'setWindowHeightOverride'],
+            ['loadHeatmap', 'setWindowWidthOverride'],
             exportsLogic,
             ['startHeatmapExport'],
         ],

@@ -80,7 +80,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 'setHref',
                 'setHrefMatchType',
                 'setWindowWidthOverride',
-                'setWindowHeightOverride',
                 'setCommonFilters',
                 'patchHeatmapFilters',
                 'setHeatmapFixedPositionMode',

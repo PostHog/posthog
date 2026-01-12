@@ -17,9 +17,9 @@ export function FixedReplayHeatmapBrowser({
     return hasValidReplayIframeData ? (
         <div className="flex flex-row gap-x-2 w-full">
             <div className="relative flex-1 w-full h-full">
-                <div className="flex justify-center h-full w-full overflow-scroll">
+                <div className="flex justify-center h-full w-full overflow-auto">
                     <div
-                        className="relative overflow-scroll"
+                        className="relative"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ width: widthOverride, height: heightOverride }}
                     >
