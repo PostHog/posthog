@@ -1,6 +1,7 @@
 from django.db.models import Count, QuerySet
 
 import structlog
+import posthoganalytics
 from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.request import Request
 
@@ -68,6 +69,21 @@ class PublicHogFunctionTemplateViewSet(
 
             # Don't include deprecated templates when listing
             queryset = queryset.exclude(status="deprecated")
+
+            # Hide Firebase push notification template behind feature flag
+            if hasattr(self.request, "user") and self.request.user.is_authenticated:
+                organization = getattr(self.request.user, "organization", None)
+                if organization:
+                    workflows_push_notifications_enabled = posthoganalytics.feature_enabled(
+                        "workflows-push-notifications",
+                        str(self.request.user.distinct_id),
+                        groups={"organization": str(organization.id)},
+                        group_properties={"organization": {"id": str(organization.id)}},
+                        only_evaluate_locally=False,
+                        send_feature_flag_events=False,
+                    )
+                    if not workflows_push_notifications_enabled:
+                        queryset = queryset.exclude(template_id="template-firebase-push")
 
         if self.request.path.startswith("/api/public_hog_function_templates"):
             queryset = queryset.exclude(status="hidden")
