@@ -108,6 +108,122 @@ def _block_internal_requests(page: Page) -> None:
     page.route("**/*", lambda route: route.abort() if should_block_url(route.request.url) else route.continue_())
 
 
+def _trigger_lazy_loading(page: Page) -> None:
+    """
+    Trigger lazy-loaded images to load before taking a screenshot.
+
+    Many sites use lazy loading (native loading="lazy", Intersection Observer,
+    or libraries like Nitro CDN). This function:
+    1. Scrolls through the page to trigger intersection observers
+    2. Forces common lazy-loading patterns to load immediately
+    3. Waits for images to finish loading
+    """
+    try:
+        # First, scroll through the page to trigger intersection observers
+        page.evaluate(
+            """
+            async () => {
+                const scrollHeight = document.body.scrollHeight;
+                const viewportHeight = window.innerHeight;
+                const scrollStep = viewportHeight * 0.8;
+
+                // Scroll down in steps to trigger lazy loading
+                for (let y = 0; y < scrollHeight; y += scrollStep) {
+                    window.scrollTo(0, y);
+                    await new Promise(r => setTimeout(r, 100));
+                }
+
+                // Scroll back to top
+                window.scrollTo(0, 0);
+            }
+            """
+        )
+        page.wait_for_timeout(500)
+    except Exception:
+        pass
+
+    try:
+        # Force lazy images to load by copying lazy src attributes to actual src
+        page.evaluate(
+            """
+            () => {
+                // Handle native lazy loading
+                document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+                    img.loading = 'eager';
+                });
+
+                // Handle common lazy-loading data attributes
+                const lazyAttrs = ['data-src', 'data-lazy-src', 'nitro-lazy-src', 'data-original'];
+                document.querySelectorAll('img').forEach(img => {
+                    for (const attr of lazyAttrs) {
+                        const lazySrc = img.getAttribute(attr);
+                        if (lazySrc && !img.src) {
+                            img.src = lazySrc;
+                        }
+                    }
+                });
+
+                // Handle srcset lazy loading
+                const lazySrcsetAttrs = ['data-srcset', 'data-lazy-srcset', 'nitro-lazy-srcset'];
+                document.querySelectorAll('img').forEach(img => {
+                    for (const attr of lazySrcsetAttrs) {
+                        const lazySrcset = img.getAttribute(attr);
+                        if (lazySrcset && !img.srcset) {
+                            img.srcset = lazySrcset;
+                        }
+                    }
+                });
+
+                // Handle background images with lazy loading
+                document.querySelectorAll('[data-bg], [data-background-image]').forEach(el => {
+                    const bgUrl = el.getAttribute('data-bg') || el.getAttribute('data-background-image');
+                    if (bgUrl && !el.style.backgroundImage) {
+                        el.style.backgroundImage = `url('${bgUrl}')`;
+                    }
+                });
+            }
+            """
+        )
+    except Exception:
+        pass
+
+    try:
+        # Wait for images to finish loading (with timeout)
+        page.evaluate(
+            """
+            async () => {
+                const images = Array.from(document.images);
+                const timeout = 5000;
+                const startTime = Date.now();
+
+                await Promise.all(
+                    images.map(img => {
+                        if (img.complete) return Promise.resolve();
+                        return new Promise(resolve => {
+                            const checkTimeout = () => {
+                                if (Date.now() - startTime > timeout) {
+                                    resolve();
+                                    return;
+                                }
+                                if (img.complete) {
+                                    resolve();
+                                    return;
+                                }
+                                setTimeout(checkTimeout, 100);
+                            };
+                            img.onload = resolve;
+                            img.onerror = resolve;
+                            checkTimeout();
+                        });
+                    })
+                );
+            }
+            """
+        )
+    except Exception:
+        pass
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.EXPORTS.value,
@@ -237,6 +353,9 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
                 # Try to clear overlays/cookie banners if present
                 _dismiss_cookie_banners(page)
                 page.wait_for_timeout(500)
+
+                # Trigger lazy-loaded images to load before measuring height
+                _trigger_lazy_loading(page)
 
                 # Measure final height and resize to capture everything
                 total_height = page.evaluate("""() => Math.max(
