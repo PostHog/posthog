@@ -30,6 +30,7 @@ Actions:
 
 Query Options:
 - user_only (default: true): Search only current user's memories, or all team memories
+- metadata_filter: Filter by metadata key-value pairs (e.g., {"type": "preference"})
 - limit: Maximum results (default: 10)
 
 Returns for query: memory_id, contents, metadata (as dict), distance score
@@ -56,6 +57,10 @@ class ManageMemoriesToolArgs(BaseModel):
     query_text: str | None = Field(
         default=None, description="The search query for finding relevant memories (for query action)"
     )
+    metadata_filter: dict | None = Field(
+        default=None,
+        description="Filter memories by metadata key-value pairs (for query action). Example: {'type': 'preference'}",
+    )
     user_only: bool = Field(
         default=True, description="If true, search only current user's memories; if false, search all team memories"
     )
@@ -81,13 +86,14 @@ class ManageMemoriesTool(MaxTool):
         metadata: dict | None = None,
         memory_id: str | None = None,
         query_text: str | None = None,
+        metadata_filter: dict | None = None,
         user_only: bool = True,
         limit: int = 10,
     ) -> tuple[str, dict[str, Any]]:
         if action == "create":
             return await self._create_memory(contents, metadata)
         elif action == "query":
-            return await self._query_memories(query_text, user_only, limit)
+            return await self._query_memories(query_text, metadata_filter, user_only, limit)
         elif action == "update":
             return await self._update_memory(memory_id, contents, metadata)
         elif action == "list_metadata_keys":
@@ -119,24 +125,38 @@ class ManageMemoriesTool(MaxTool):
             {"memory_id": str(memory.id), "action": "created"},
         )
 
-    async def _query_memories(self, query_text: str | None, user_only: bool, limit: int) -> tuple[str, dict[str, Any]]:
+    async def _query_memories(
+        self, query_text: str | None, metadata_filter: dict | None, user_only: bool, limit: int
+    ) -> tuple[str, dict[str, Any]]:
         if not query_text:
             raise MaxToolRetryableError("query_text is required for query action")
 
-        query = """
+        # Build metadata filter conditions using HogQL's metadata.$key syntax
+        metadata_conditions = []
+        metadata_placeholders: dict[str, ast.Expr] = {}
+        if metadata_filter:
+            for i, (key, value) in enumerate(metadata_filter.items()):
+                placeholder_name = f"meta_value_{i}"
+                metadata_conditions.append(f"metadata.{key} = {{{placeholder_name}}}")
+                metadata_placeholders[placeholder_name] = ast.Constant(value=str(value))
+
+        metadata_filter_sql = " AND ".join(metadata_conditions) if metadata_conditions else "1=1"
+
+        query = f"""
             SELECT
                 document_id,
                 content,
                 metadata,
-                cosineDistance(embedding, embedText({query_text}, {model_name})) as distance
+                cosineDistance(embedding, embedText({{query_text}}, {{model_name}})) as distance
             FROM document_embeddings
-            WHERE team_id = {team_id}
-              AND model_name = {model_name}
+            WHERE team_id = {{team_id}}
+              AND model_name = {{model_name}}
               AND product = 'posthog-ai'
               AND document_type = 'memory'
-              AND ({skip_user_filter} OR JSONExtractString(metadata, 'user_id') = {user_id})
+              AND ({{skip_user_filter}} OR metadata.user_id = {{user_id}})
+              AND ({metadata_filter_sql})
             ORDER BY distance ASC
-            LIMIT {limit}
+            LIMIT {{limit}}
         """
 
         user_id = str(self._user.id) if self._user else ""
@@ -155,6 +175,7 @@ class ManageMemoriesTool(MaxTool):
                     "user_id": ast.Constant(value=user_id),
                     "skip_user_filter": ast.Constant(value=skip_user_filter),
                     "limit": ast.Constant(value=limit),
+                    **metadata_placeholders,
                 },
             )
 
