@@ -145,7 +145,8 @@ def enforce_two_factor(request, user):
 
         device = default_device(user)
         user_has_passkeys = has_passkeys(user)
-        if not device and not user_has_passkeys:
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
+        if not device and not passkeys_enabled_for_2fa:
             raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
 
         if not is_two_factor_verified_in_session(request._request):

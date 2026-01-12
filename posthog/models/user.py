@@ -196,6 +196,10 @@ class User(AbstractUser, UUIDTClassicModel):
     shortcut_position = models.CharField(
         max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
     )
+    passkeys_enabled_for_2fa = models.BooleanField(
+        default=False,
+        help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+    )
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)

@@ -42,7 +42,6 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor, UserVerificationRequirement
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
-from posthog.api.webauthn import WEBAUTHN_2FA_CHALLENGE_KEY
 from posthog.auth import get_webauthn_rp_id, get_webauthn_rp_origin
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.email import is_email_available
@@ -182,9 +181,10 @@ class LoginSerializer(serializers.Serializer):
 
         device = default_device(user)
         user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
-        # If user has neither TOTP nor passkeys, check for email MFA remember cookie
-        if not device and not user_has_passkeys:
+        # If user has neither TOTP nor passkeys enabled for 2FA, check for email MFA remember cookie
+        if not device and not passkeys_enabled_for_2fa:
             for key, value in self.context["request"].COOKIES.items():
                 if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
                     try:
@@ -208,11 +208,14 @@ class LoginSerializer(serializers.Serializer):
                         # Workaround for signature mismatches due to Django upgrades.
                         # See https://github.com/PostHog/posthog/issues/19350
                         pass
-
-        # Has passkeys but no TOTP - 2FA still required (passkey will be used)
-        if user_has_passkeys:
+            # TOTP device exists but no valid remember cookie - 2FA required
             return True
 
+        # Has passkeys enabled for 2FA but no TOTP - 2FA still required (passkey will be used)
+        if passkeys_enabled_for_2fa:
+            return True
+
+        # No device and no passkeys enabled for 2FA - should have been handled above, but fallback to email MFA
         return True
 
     def create(self, validated_data: dict[str, str]) -> Any:
@@ -273,13 +276,14 @@ class LoginSerializer(serializers.Serializer):
             request.session["user_authenticated_but_no_2fa"] = user.pk
             request.session["user_authenticated_time"] = time.time()
 
-            # Check if user has TOTP device or passkeys
+            # Check if user has TOTP device or passkeys enabled for 2FA
             from posthog.helpers.two_factor_session import has_passkeys
 
             totp_device = default_device(user)
             user_has_passkeys = has_passkeys(user)
+            passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
-            if totp_device or user_has_passkeys:
+            if totp_device or passkeys_enabled_for_2fa:
                 # TOTP or passkey flow
                 raise TwoFactorRequired()
             else:
@@ -429,6 +433,8 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         Raises:
             ValidationError: If passkey verification fails
         """
+        from posthog.api.webauthn import WEBAUTHN_2FA_CHALLENGE_KEY
+
         challenge_b64 = request.session.pop(WEBAUTHN_2FA_CHALLENGE_KEY, None)
         if not challenge_b64:
             raise serializers.ValidationError(
@@ -581,11 +587,12 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 
         totp_device = default_device(user)
         user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
         return Response(
             {
                 "has_totp": totp_device is not None,
-                "has_passkeys": user_has_passkeys,
+                "has_passkeys": passkeys_enabled_for_2fa,
             }
         )
 
@@ -594,6 +601,8 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         """
         Begin 2FA passkey authentication by generating a challenge.
         """
+        from posthog.api.webauthn import WEBAUTHN_2FA_CHALLENGE_KEY
+
         user_id = request.session.get("user_authenticated_but_no_2fa")
         if not user_id:
             return Response(
@@ -613,6 +622,13 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         if not has_passkeys(user):
             return Response(
                 {"error": "No passkeys found for this user."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check if passkeys are enabled for 2FA
+        if not user.passkeys_enabled_for_2fa:
+            return Response(
+                {"error": "Passkeys are not enabled for 2FA. Please enable them in your settings."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

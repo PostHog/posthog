@@ -148,6 +148,7 @@ class UserSerializer(serializers.ModelSerializer):
             "allow_sidebar_suggestions",
             "shortcut_position",
             "role_at_organization",
+            "passkeys_enabled_for_2fa",
         ]
 
         read_only_fields = [
@@ -313,6 +314,19 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_role_at_organization(self, value):
         if value and value not in dict(ROLE_CHOICES):
             raise serializers.ValidationError("Invalid role selected")
+        return value
+
+    def validate_passkeys_enabled_for_2fa(self, value: bool) -> bool:
+        """Validate that user has passkeys before enabling passkeys for 2FA"""
+        from posthog.helpers.two_factor_session import has_passkeys
+
+        if value:  # Only validate when enabling
+            instance = cast(User, self.instance)
+            if instance and not has_passkeys(instance):
+                raise serializers.ValidationError(
+                    "You must have at least one passkey set up before enabling passkeys for 2FA.",
+                    code="no_passkeys",
+                )
         return value
 
     def update(self, instance: "User", validated_data: Any) -> Any:
@@ -656,6 +670,7 @@ class UserViewSet(
         totp_device = TOTPDevice.objects.filter(user=user).first()
         static_device = StaticDevice.objects.filter(user=user).first()
         user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
         backup_codes = []
         if static_device:
@@ -665,15 +680,17 @@ class UserViewSet(
         method = None
         if totp_device:
             method = "TOTP"
-        elif user_has_passkeys:
+        elif passkeys_enabled_for_2fa:
             method = "passkey"
 
         return Response(
             {
-                "is_enabled": default_device(user) is not None or user_has_passkeys,
+                "is_enabled": default_device(user) is not None or passkeys_enabled_for_2fa,
                 "backup_codes": backup_codes if totp_device else [],
                 "method": method,
                 "has_passkeys": user_has_passkeys,
+                "has_totp": totp_device is not None,
+                "passkeys_enabled_for_2fa": passkeys_enabled_for_2fa,
             }
         )
 

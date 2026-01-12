@@ -310,7 +310,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'live',
     },
     [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger', defaultDocsPath: '/docs/data/events' },
-    [Scene.Login2FA]: { onlyUnauthenticated: true },
+    [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA' },
     [Scene.EmailMFAVerify]: { onlyUnauthenticated: true },
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },

@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { passkeySettingsLogicType } from './passkeySettingsLogicType'
@@ -49,7 +50,7 @@ export type RegistrationStep = 'idle' | 'registering' | 'verifying' | 'complete'
 export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
     path(['scenes', 'settings', 'user', 'passkeySettingsLogic']),
     connect({
-        actions: [userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser'], twoFactorLogic, ['loadStatus']],
     }),
     actions({
         beginRegistration: (label: string) => ({ label }),
@@ -224,6 +225,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         lemonToast.success('Passkey added successfully!')
                         actions.loadPasskeys()
                         actions.loadUser()
+                        actions.loadStatus()
 
                         return null
                     } catch (e: any) {
@@ -240,9 +242,11 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
     listeners(({ actions }) => ({
         deletePasskeySuccess: () => {
             actions.loadUser()
+            actions.loadStatus()
         },
         verifyPasskeySuccess: () => {
             actions.loadUser()
+            actions.loadStatus()
         },
     })),
 ])
