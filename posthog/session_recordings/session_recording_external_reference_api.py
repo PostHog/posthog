@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
-from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration, LinearIntegration
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_external_reference import SessionRecordingExternalReference
 
@@ -69,6 +69,9 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             repository = external_context.get("repository", "")
             issue_number = external_context.get("id", "").lstrip("#")
             return f"https://github.com/{org}/{repository}/issues/{issue_number}"
+        elif reference.integration.kind == Integration.IntegrationKind.GITLAB:
+            gitlab = GitLabIntegration(reference.integration)
+            return f"{gitlab.hostname}/{gitlab.project_path}/-/issues/{external_context['issue_id']}"
         else:
             return ""
 
@@ -149,6 +152,15 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
                 "id": f"#{response.get('number', '')}",
                 "title": title,
                 "repository": response.get("repository", ""),
+            }
+        elif integration.kind == Integration.IntegrationKind.GITLAB:
+            title = config.get("title", "")
+            config["body"] = f"{config.get('body', '')}\n\n**PostHog recording:** {recording_url}"
+            response = GitLabIntegration(integration).create_issue(config)
+            external_context = {
+                "id": f"#{response.get('issue_id', '')}",
+                "title": title,
+                "issue_id": response.get("issue_id", ""),
             }
         else:
             raise ValidationError(f"Integration kind '{integration.kind}' not supported")

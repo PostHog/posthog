@@ -85,3 +85,38 @@ export const createGitHubIssueForm = (
         },
     })
 }
+
+export const createGitLabIssueForm = (
+    sessionRecordingId: string,
+    integration: IntegrationType,
+    onSubmit: (integrationId: number, config: IssueConfig) => void
+): void => {
+    const recordingUrl = urls.absolute(urls.replay(undefined, undefined, sessionRecordingId))
+    const body = `**Session Recording:** ${recordingUrl}`
+
+    LemonDialog.openForm({
+        title: 'Create GitLab issue',
+        shouldAwaitSubmit: true,
+        initialValues: {
+            title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
+            body: body,
+            integrationId: integration.id,
+        },
+        content: (
+            <div className="flex flex-col gap-y-2">
+                <LemonField name="title" label="Title">
+                    <LemonInput data-attr="gitlab-issue-title" placeholder="Issue title" size="small" />
+                </LemonField>
+                <LemonField name="body" label="Body">
+                    <LemonTextArea data-attr="gitlab-issue-body" placeholder="Start typing..." />
+                </LemonField>
+            </div>
+        ),
+        errors: {
+            title: (title) => (!title ? 'You must enter a title' : undefined),
+        },
+        onSubmit: ({ title, body }) => {
+            onSubmit(integration.id, { title, body })
+        },
+    })
+}
