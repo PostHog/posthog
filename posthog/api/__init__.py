@@ -1,18 +1,10 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import (
-    data_color_theme,
-    feed,
-    hog_flow,
-    hog_flow_template,
-    llm_gateway,
-    metalytics,
-    my_notifications,
-    project,
-)
+from posthog.api import data_color_theme, feed, hog_flow, hog_flow_template, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
+from posthog.api.onboarding import OnboardingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
@@ -27,6 +19,7 @@ import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
+import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.data_warehouse.backend.api import (
     data_modeling_job,
@@ -78,6 +71,7 @@ from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, ver
 
 from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
+from ..session_recordings.session_recording_external_reference_api import SessionRecordingExternalReferenceViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
@@ -128,6 +122,7 @@ from . import (
     user,
     user_home_settings,
     web_vitals,
+    webauthn,
 )
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
@@ -136,8 +131,9 @@ from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
-from .oauth_application import OAuthApplicationPublicMetadataViewSet
+from .oauth import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
+from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -262,9 +258,6 @@ project_features_router = projects_router.register(
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
 
-# Workflows endpoints
-projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
-
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
 projects_router.register(
@@ -301,6 +294,13 @@ register_grandfathered_environment_nested_viewset(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
     "environment_ingestion_warnings",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"customer_profile_configs",
+    customer_analytics.CustomerProfileConfigViewSet,
+    "environment_customer_profile_configs",
     ["team_id"],
 )
 
@@ -577,6 +577,9 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
+router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
+router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
+router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(
@@ -626,6 +629,13 @@ environment_sessions_recordings_router, legacy_project_session_recordings_router
         "environment_session_recordings",
         ["team_id"],
     )
+)
+
+environments_router.register(
+    r"session_recording_external_references",
+    SessionRecordingExternalReferenceViewSet,
+    "environment_session_recording_external_references",
+    ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(
@@ -957,6 +967,12 @@ environments_router.register(
     "environment_web_vitals",
     ["team_id"],
 )
+environments_router.register(
+    r"web_analytics_filter_presets",
+    WebAnalyticsFilterPresetViewSet,
+    "environment_web_analytics_filter_preset",
+    ["team_id"],
+)
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
@@ -1022,6 +1038,13 @@ environments_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
     "environment_csp_reporting",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"onboarding",
+    OnboardingViewSet,
+    "environment_onboarding",
     ["team_id"],
 )
 

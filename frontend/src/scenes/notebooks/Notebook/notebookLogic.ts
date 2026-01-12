@@ -17,7 +17,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isSavedInsightNode } from '~/queries/utils'
+import { isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -28,6 +28,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { collectNodeIndices, collectPythonNodes } from '../Nodes/notebookNodeContent'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from the types file
@@ -141,7 +142,10 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeType,
             knownStartingPosition,
         }),
-        addSavedInsightToNotebook: (insightShortId: InsightShortId) => ({ insightShortId }),
+        addSavedInsightToNotebook: (insightShortId: InsightShortId, insertionPosition: number | null = null) => ({
+            insightShortId,
+            insertionPosition,
+        }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
@@ -314,6 +318,17 @@ export const notebookLogic = kea<notebookLogicType>([
                             title: notebook.title,
                         })
 
+                        if (
+                            response.content &&
+                            values.editor &&
+                            values.localContent &&
+                            notebook.content === values.localContent
+                        ) {
+                            const currentPosition = values.editor.getCurrentPosition()
+                            values.editor.setContent(response.content)
+                            values.editor.setTextSelection(currentPosition)
+                        }
+
                         // If the object is identical then no edits were made, so we can safely clear the local changes
                         if (notebook.content === values.localContent) {
                             actions.clearLocalContent()
@@ -470,10 +485,34 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
+        pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
+
+        pythonNodeIndices: [
+            (s) => [s.content],
+            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.Python),
+        ],
+
+        sqlNodeIndices: [
+            (s) => [s.content],
+            (content) =>
+                collectNodeIndices(
+                    content,
+                    (node) =>
+                        node.type === NotebookNodeType.Query &&
+                        (isHogQLQuery(node.attrs?.query) ||
+                            (node.attrs?.query?.source && isHogQLQuery(node.attrs.query.source)))
+                ),
+        ],
+
         isShowingLeftColumn: [
-            (s) => [s.editingNodeId, s.showHistory, s.showTableOfContents, s.containerSize],
-            (editingNodeId, showHistory, showTableOfContents, containerSize) => {
-                return showHistory || showTableOfContents || (!!editingNodeId && containerSize !== 'small')
+            (s) => [s.editingNodeLogic, s.showHistory, s.showTableOfContents, s.containerSize],
+            (editingNodeLogic, showHistory, showTableOfContents, containerSize) => {
+                const shouldShowSettings =
+                    !!editingNodeLogic &&
+                    containerSize !== 'small' &&
+                    editingNodeLogic.values.settingsPlacement !== 'inline'
+
+                return showHistory || showTableOfContents || shouldShowSettings
             },
         ],
 
@@ -555,8 +594,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             )
         },
-        addSavedInsightToNotebook: async ({ insightShortId }) => {
-            actions.insertAfterLastNode({
+        addSavedInsightToNotebook: async ({ insightShortId, insertionPosition }) => {
+            const content = {
                 type: NotebookNodeType.Query,
                 attrs: {
                     query: {
@@ -564,7 +603,13 @@ export const notebookLogic = kea<notebookLogicType>([
                         shortId: insightShortId,
                     },
                 },
-            })
+            }
+
+            if (insertionPosition !== null) {
+                values.editor?.insertContentAt(insertionPosition, content)
+            } else {
+                actions.insertAfterLastNode(content)
+            }
             lemonToast.success('Insight added to notebook')
         },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {

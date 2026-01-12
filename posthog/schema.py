@@ -2679,6 +2679,7 @@ class ProductIntentContext(StrEnum):
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
+    LOGS_SET_FILTERS = "logs_set_filters"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -3175,6 +3176,27 @@ class SessionPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["session"] = "session"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class Integration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display_name: str
+    id: float
+    kind: IntegrationKind
+
+
+class SessionRecordingExternalReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    external_url: str
+    id: str
+    integration: Integration
+    issue_id: str
+    metadata: dict[str, str] | None = None
+    title: str
 
 
 class SnapshotSource(StrEnum):
@@ -3792,6 +3814,22 @@ class WebVitalsPercentile(StrEnum):
     P75 = "p75"
     P90 = "p90"
     P99 = "p99"
+
+
+class WebsiteBrowsingHistoryProdInterest(StrEnum):
+    PRODUCT_ANALYTICS = "product-analytics"
+    WEB_ANALYTICS = "web-analytics"
+    SESSION_REPLAY = "session-replay"
+    FEATURE_FLAGS = "feature-flags"
+    EXPERIMENTS = "experiments"
+    ERROR_TRACKING = "error-tracking"
+    SURVEYS = "surveys"
+    DATA_WAREHOUSE = "data-warehouse"
+    LLM_ANALYTICS = "llm-analytics"
+    REVENUE_ANALYTICS = "revenue-analytics"
+    WORKFLOWS = "workflows"
+    LOGS = "logs"
+    ENDPOINTS = "endpoints"
 
 
 class Scale(StrEnum):
@@ -5750,6 +5788,9 @@ class SessionRecordingType(BaseModel):
     email: str | None = None
     end_time: str = Field(..., description="When the recording ends in ISO format.")
     expiry_time: str | None = Field(default=None, description="When the recording expires, in ISO format.")
+    external_references: list[SessionRecordingExternalReference] | None = Field(
+        default=None, description="External references to third party issues."
+    )
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None

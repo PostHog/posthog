@@ -21,19 +21,20 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Trigger Vercel build
               id: trigger-build
               env:
+                  BRANCH_NAME: ${{ github.event.pull_request.head.ref || github.ref_name }}
                   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
                   VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
                   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-              run: .github/scripts/trigger-vercel-preview.sh "${{ github.event.pull_request.head.ref || github.ref_name }}"
+              run: .github/scripts/trigger-vercel-preview.sh "$BRANCH_NAME"
 
             - name: Comment on PR
               if: github.event_name == 'pull_request'
-              uses: actions/github-script@v7
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
                       const commentFn = require('./.github/scripts/comment-pr-preview.js');
@@ -50,7 +51,7 @@ jobs:
         name: Validate docs structure
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Check frontmatter in published docs
               run: |

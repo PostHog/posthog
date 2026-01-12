@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
+import { Experiment, FeatureFlagType, ProgressStatus } from '~/types'
 
 import { experimentsLogic, getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
 
@@ -185,23 +185,23 @@ describe('experimentsLogic', () => {
         })
 
         it('removes ff_page URL parameter when page is reset to 1 via filters', () => {
-            // Mock router to capture URL changes
-            const mockPush = jest.fn()
-            router.actions.push = mockPush
+            // Mock router to capture URL changes (uses replace, not push, to avoid polluting browser history)
+            const mockReplace = jest.fn()
+            router.actions.replace = mockReplace
 
             // User navigates to page 2 first
             logic.actions.setFeatureFlagModalFilters({ page: 2 })
 
             // This should add ff_page=2 to URL
-            expect(mockPush).toHaveBeenLastCalledWith(expect.stringContaining('ff_page=2'))
+            expect(mockReplace).toHaveBeenLastCalledWith(expect.stringContaining('ff_page=2'))
 
-            mockPush.mockClear()
+            mockReplace.mockClear()
 
             // User applies a search filter which includes page: 1
             logic.actions.setFeatureFlagModalFilters({ search: 'test', page: 1 })
 
             // This should remove ff_page from URL (since page is 1)
-            expect(mockPush).toHaveBeenLastCalledWith(expect.not.stringContaining('ff_page'))
+            expect(mockReplace).toHaveBeenLastCalledWith(expect.not.stringContaining('ff_page'))
         })
 
         it('constructs API params correctly', async () => {
@@ -250,16 +250,13 @@ describe('experimentsLogic', () => {
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('search=test%20experiment'))
         })
 
-        it('handles tab switching', async () => {
+        it('filters archived experiments', async () => {
             api.get.mockClear()
 
             await expectLogic(logic, () => {
-                logic.actions.setExperimentsTab(ExperimentsTabs.Archived)
-                logic.actions.loadExperiments()
+                logic.actions.setExperimentsFilters({ archived: true })
             })
-                .toMatchValues({
-                    tab: ExperimentsTabs.Archived,
-                })
+                .delay(350)
                 .toFinishAllListeners()
 
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('archived=true'))

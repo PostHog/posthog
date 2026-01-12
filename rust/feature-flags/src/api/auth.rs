@@ -1,8 +1,4 @@
-use crate::{
-    api::errors::FlagError,
-    router::State as AppState,
-    team::{team_models::Team, team_operations},
-};
+use crate::{api::errors::FlagError, router::State as AppState, team::team_models::Team};
 use axum::http::HeaderMap;
 use common_database::PostgresReader;
 use tracing::{debug, warn};
@@ -37,19 +33,12 @@ pub async fn validate_secret_api_token(state: &AppState, token: &str) -> Result<
     debug!("Validating team token");
 
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
-    let token_str = token.to_string();
 
-    team_operations::fetch_team_from_redis_with_fallback(
-        state.redis_client.clone(),
-        token,
-        Some(state.config.team_cache_ttl_seconds),
-        || async move {
-            Team::from_pg_by_secret_token(pg_reader, &token_str)
-                .await
-                .map_err(|_| FlagError::TokenValidationError)
-        },
-    )
-    .await
+    // Secret tokens are validated directly against PostgreSQL
+    // (they are not cached in HyperCache team_metadata)
+    Team::from_pg_by_secret_token(pg_reader, token)
+        .await
+        .map_err(|_| FlagError::TokenValidationError)
 }
 
 /// Validates that a secret API token matches the specified team

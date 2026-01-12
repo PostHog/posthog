@@ -371,7 +371,21 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         return (num_requests, duration)
 
 
-class SignupIPThrottle(SimpleRateThrottle):
+class IPThrottle(SimpleRateThrottle):
+    """
+    Rate limit requests by IP address.
+    This is a general purpose throttle that can be used to rate limit any endpoint by IP address.
+    You should subclass this and set the rate and scope.
+    """
+
+    def get_cache_key(self, request, view):
+        from posthog.utils import get_ip_address
+
+        ip = get_ip_address(request)
+        return self.cache_format % {"scope": self.scope, "ident": ip}
+
+
+class SignupIPThrottle(IPThrottle):
     """
     Rate limit signups by IP address to avoid a single IP address from creating too many accounts.
     """
@@ -379,11 +393,15 @@ class SignupIPThrottle(SimpleRateThrottle):
     scope = "signup_ip"
     rate = "5/day"
 
-    def get_cache_key(self, request, view):
-        from posthog.utils import get_ip_address
 
-        ip = get_ip_address(request)
-        return self.cache_format % {"scope": self.scope, "ident": ip}
+class OnboardingIPThrottle(IPThrottle):
+    """
+    Rate limit onboarding product recommendations by IP address.
+    This endpoint uses an LLM, so we want to be conservative with rate limits.
+    """
+
+    scope = "onboarding_ip"
+    rate = "10/hour"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -444,72 +462,19 @@ class AISustainedRateThrottle(UserRateThrottle):
         return request_allowed
 
 
-LLM_GATEWAY_MODEL_RATE_LIMITS: dict[str, dict[str, str]] = {
-    "haiku": {"burst": "1000/minute", "sustained": "20000/hour"},
-}
-
-LLM_GATEWAY_DEFAULT_BURST_RATE = "100/minute"
-LLM_GATEWAY_DEFAULT_SUSTAINED_RATE = "1000/hour"
-
-
-def _get_model_from_request(request) -> str | None:
-    try:
-        return request.data.get("model")
-    except Exception:
-        return None
-
-
-def _get_rate_for_model(model: str | None, rate_type: str, default: str) -> str:
-    if not model:
-        return default
-
-    model_lower = model.lower()
-    for model_substring, limits in LLM_GATEWAY_MODEL_RATE_LIMITS.items():
-        if model_substring in model_lower:
-            return limits.get(rate_type, default)
-
-    return default
-
-
-class LLMGatewayBurstRateThrottle(UserRateThrottle):
-    scope = "llm_gateway_burst"
-    rate = LLM_GATEWAY_DEFAULT_BURST_RATE
-
-    def allow_request(self, request, view):
-        model = _get_model_from_request(request)
-        self.rate = _get_rate_for_model(model, "burst", LLM_GATEWAY_DEFAULT_BURST_RATE)
-        self.num_requests, self.duration = self.parse_rate(self.rate)
-        return super().allow_request(request, view)
-
-
-class LLMGatewaySustainedRateThrottle(UserRateThrottle):
-    scope = "llm_gateway_sustained"
-    rate = LLM_GATEWAY_DEFAULT_SUSTAINED_RATE
-
-    def allow_request(self, request, view):
-        model = _get_model_from_request(request)
-        self.rate = _get_rate_for_model(model, "sustained", LLM_GATEWAY_DEFAULT_SUSTAINED_RATE)
-        self.num_requests, self.duration = self.parse_rate(self.rate)
-        return super().allow_request(request, view)
-
-
 class LLMProxyBurstRateThrottle(UserRateThrottle):
     scope = "llm_proxy_burst"
-    rate = "30/minute"
+    rate = "2/minute"
 
 
 class LLMProxySustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
-    # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_proxy_sustained"
-    rate = "500/hour"
+    rate = "10/hour"
 
 
 class LLMProxyDailyRateThrottle(UserRateThrottle):
-    # Daily cap for LLM proxy (playground) endpoint
-    # Hard limit to prevent runaway costs from sustained abuse
     scope = "llm_proxy_daily"
-    rate = "1000/day"
+    rate = "20/day"
 
 
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):

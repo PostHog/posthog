@@ -5,16 +5,17 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import ANTHROPIC_CONFIG, handle_llm_request
+from llm_gateway.api.products import validate_product
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.models.anthropic import AnthropicMessagesRequest
 
 anthropic_router = APIRouter()
 
 
-@anthropic_router.post("/v1/messages", response_model=None)
-async def anthropic_messages(
+async def _handle_anthropic_messages(
     request: AnthropicMessagesRequest,
     user: RateLimitedUser,
+    product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = request.model_dump(exclude_none=True)
 
@@ -25,4 +26,23 @@ async def anthropic_messages(
         is_streaming=request.stream or False,
         provider_config=ANTHROPIC_CONFIG,
         llm_call=litellm.anthropic_messages,
+        product=product,
     )
+
+
+@anthropic_router.post("/v1/messages", response_model=None)
+async def anthropic_messages(
+    request: AnthropicMessagesRequest,
+    user: RateLimitedUser,
+) -> dict[str, Any] | StreamingResponse:
+    return await _handle_anthropic_messages(request, user)
+
+
+@anthropic_router.post("/{product}/v1/messages", response_model=None)
+async def anthropic_messages_with_product(
+    request: AnthropicMessagesRequest,
+    user: RateLimitedUser,
+    product: str,
+) -> dict[str, Any] | StreamingResponse:
+    validate_product(product)
+    return await _handle_anthropic_messages(request, user, product=product)
