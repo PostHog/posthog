@@ -1,4 +1,5 @@
 import os
+import math
 import hashlib
 from typing import Any, Optional
 
@@ -30,10 +31,9 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
 
-from products.notebooks.backend.kernel_runtime import get_kernel_runtime
+from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
-from products.tasks.backend.services.sandbox import SandboxConfig
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
 logger = structlog.get_logger(__name__)
@@ -199,6 +199,37 @@ class NotebookKernelExecuteSerializer(serializers.Serializer):
     code = serializers.CharField(allow_blank=True)
     return_variables = serializers.BooleanField(default=True)
     timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
+
+
+ALLOWED_KERNEL_CPU_CORES = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
+ALLOWED_KERNEL_MEMORY_GB = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
+ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS = [600, 1800, 3600, 10800, 21600, 43200]
+
+
+class NotebookKernelConfigSerializer(serializers.Serializer):
+    cpu_cores = serializers.FloatField(required=False)
+    memory_gb = serializers.FloatField(required=False)
+    idle_timeout_seconds = serializers.IntegerField(required=False)
+
+    def validate_cpu_cores(self, value: float) -> float:
+        if not any(math.isclose(value, option, rel_tol=0, abs_tol=1e-6) for option in ALLOWED_KERNEL_CPU_CORES):
+            raise serializers.ValidationError("CPU cores must be a supported option.")
+        return value
+
+    def validate_memory_gb(self, value: float) -> float:
+        if not any(math.isclose(value, option, rel_tol=0, abs_tol=1e-6) for option in ALLOWED_KERNEL_MEMORY_GB):
+            raise serializers.ValidationError("Memory must be a supported option.")
+        return value
+
+    def validate_idle_timeout_seconds(self, value: int) -> int:
+        if value not in ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS:
+            raise serializers.ValidationError("Idle timeout must be a supported option.")
+        return value
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("Provide at least one kernel configuration option.")
+        return attrs
 
 
 @extend_schema(
@@ -440,7 +471,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if service._should_use_local_kernel()
             else KernelRuntime.Backend.MODAL
         )
-        sandbox_config = SandboxConfig(name=f"notebook-kernel-{notebook.short_id}")
+        sandbox_config = build_notebook_sandbox_config(notebook)
         cpu_cores = sandbox_config.cpu_cores if backend == KernelRuntime.Backend.MODAL else (os.cpu_count() or 1)
 
         return Response(
@@ -456,6 +487,34 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "cpu_cores": cpu_cores,
                 "memory_gb": sandbox_config.memory_gb if backend == KernelRuntime.Backend.MODAL else None,
                 "disk_size_gb": sandbox_config.disk_size_gb if backend == KernelRuntime.Backend.MODAL else None,
+                "idle_timeout_seconds": sandbox_config.ttl_seconds if backend == KernelRuntime.Backend.MODAL else None,
+            }
+        )
+
+    @action(methods=["POST"], url_path="kernel/config", detail=True)
+    def kernel_config(self, request: Request, **kwargs):
+        serializer = NotebookKernelConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        update_fields = []
+
+        if "cpu_cores" in serializer.validated_data:
+            notebook.kernel_cpu_cores = serializer.validated_data["cpu_cores"]
+            update_fields.append("kernel_cpu_cores")
+        if "memory_gb" in serializer.validated_data:
+            notebook.kernel_memory_gb = serializer.validated_data["memory_gb"]
+            update_fields.append("kernel_memory_gb")
+        if "idle_timeout_seconds" in serializer.validated_data:
+            notebook.kernel_idle_timeout_seconds = serializer.validated_data["idle_timeout_seconds"]
+            update_fields.append("kernel_idle_timeout_seconds")
+
+        notebook.save(update_fields=update_fields)
+
+        return Response(
+            {
+                "cpu_cores": notebook.kernel_cpu_cores,
+                "memory_gb": notebook.kernel_memory_gb,
+                "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
             }
         )
 

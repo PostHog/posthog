@@ -38,6 +38,9 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         blank=True,
         related_name="modified_notebooks",
     )
+    kernel_cpu_cores = models.FloatField(null=True, blank=True)
+    kernel_memory_gb = models.FloatField(null=True, blank=True)
+    kernel_idle_timeout_seconds = models.IntegerField(null=True, blank=True)
 
     class Meta:
         unique_together = ("team", "short_id")

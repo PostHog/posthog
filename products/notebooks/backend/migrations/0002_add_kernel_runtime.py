@@ -83,4 +83,19 @@ class Migration(migrations.Migration):
             name="sandbox_id",
             field=models.CharField(blank=True, max_length=128, null=True),
         ),
+        migrations.AddField(
+            model_name="notebook",
+            name="kernel_cpu_cores",
+            field=models.FloatField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="notebook",
+            name="kernel_memory_gb",
+            field=models.FloatField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="notebook",
+            name="kernel_idle_timeout_seconds",
+            field=models.IntegerField(blank=True, null=True),
+        ),
     ]

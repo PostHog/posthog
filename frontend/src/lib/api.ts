@@ -3760,6 +3760,12 @@ const api = {
         async kernelRestart(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/restart').create()
         },
+        async kernelConfig(
+            notebookId: NotebookType['short_id'],
+            data: { cpu_cores?: number; memory_gb?: number; idle_timeout_seconds?: number }
+        ): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/config').create({ data })
+        },
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
         },

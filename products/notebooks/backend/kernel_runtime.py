@@ -21,6 +21,7 @@ from jupyter_client.blocking import BlockingKernelClient
 from posthog.models import User
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
+from products.tasks.backend.services.sandbox import SandboxConfig, SandboxTemplate
 
 logger = structlog.get_logger(__name__)
 
@@ -103,6 +104,20 @@ class KernelRuntimeSession:
             variable_names=variable_names,
             timeout=timeout,
         )
+
+
+def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
+    sandbox_config = SandboxConfig(
+        name=f"notebook-kernel-{notebook.short_id}",
+        template=SandboxTemplate.DEFAULT_BASE,
+    )
+    if notebook.kernel_cpu_cores:
+        sandbox_config.cpu_cores = notebook.kernel_cpu_cores
+    if notebook.kernel_memory_gb:
+        sandbox_config.memory_gb = notebook.kernel_memory_gb
+    if notebook.kernel_idle_timeout_seconds:
+        sandbox_config.ttl_seconds = notebook.kernel_idle_timeout_seconds
+    return sandbox_config
 
 
 class KernelRuntimeService:
@@ -589,15 +604,11 @@ class KernelRuntimeService:
 
     def _create_modal_kernel_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle:
         from products.tasks.backend.services.modal_sandbox import ModalSandbox
-        from products.tasks.backend.services.sandbox import SandboxConfig, SandboxTemplate
 
         runtime = self._create_runtime(notebook, user, KernelRuntime.Backend.MODAL)
         connection_file = f"/tmp/jupyter/kernel-{runtime.id}.json"
         kernel_id = f"kernel-{runtime.id}"
-        sandbox_config = SandboxConfig(
-            name=f"notebook-kernel-{notebook.short_id}",
-            template=SandboxTemplate.DEFAULT_BASE,
-        )
+        sandbox_config = build_notebook_sandbox_config(notebook)
         sandbox = ModalSandbox.create(sandbox_config)
 
         try:

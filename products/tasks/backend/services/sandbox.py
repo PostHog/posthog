@@ -40,9 +40,9 @@ class SandboxConfig(BaseModel):
     snapshot_id: str | None = None
     ttl_seconds: int = 60 * 30  # 30 minutes
     metadata: dict[str, str] | None = None
-    memory_gb: int = 16
-    cpu_cores: int = 4
-    disk_size_gb: int = 64
+    memory_gb: float = 16
+    cpu_cores: float = 4
+    disk_size_gb: float = 64
 
 
 def get_sandbox_class():

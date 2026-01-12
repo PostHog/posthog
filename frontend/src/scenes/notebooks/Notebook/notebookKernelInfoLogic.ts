@@ -18,6 +18,7 @@ export type NotebookKernelInfo = {
     cpu_cores?: number | null
     memory_gb?: number | null
     disk_size_gb?: number | null
+    idle_timeout_seconds?: number | null
 }
 
 export type NotebookKernelInfoLogicProps = {
@@ -32,6 +33,10 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         startKernel: true,
         stopKernel: true,
         restartKernel: true,
+        saveKernelConfig: (config: { cpu_cores?: number; memory_gb?: number; idle_timeout_seconds?: number }) => ({
+            config,
+        }),
+        saveKernelConfigFailure: true,
         clearExecution: true,
     }),
     reducers({
@@ -42,10 +47,12 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                 stopKernel: () => true,
                 restartKernel: () => true,
                 executeKernel: () => true,
+                saveKernelConfig: () => true,
                 loadKernelInfoSuccess: () => false,
                 loadKernelInfoFailure: () => false,
                 executeKernelSuccess: () => false,
                 executeKernelFailure: () => false,
+                saveKernelConfigFailure: () => false,
             },
         ],
     }),
@@ -88,6 +95,15 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         restartKernel: async () => {
             await api.notebooks.kernelRestart(props.shortId)
             actions.loadKernelInfo()
+        },
+        saveKernelConfig: async ({ config }) => {
+            try {
+                await api.notebooks.kernelConfig(props.shortId, config)
+            } catch {
+                actions.saveKernelConfigFailure()
+                return
+            }
+            actions.restartKernel()
         },
         executeKernelSuccess: () => {
             actions.loadKernelInfo()
