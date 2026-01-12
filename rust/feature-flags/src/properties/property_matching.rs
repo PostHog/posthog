@@ -37,6 +37,9 @@ pub fn to_semver_representation(value: &Value) -> Option<Version> {
     let version_string = to_string_representation(value);
     // Strip 'v' prefix if present (e.g., "v1.2.3" -> "1.2.3")
     let normalized = version_string.strip_prefix('v').unwrap_or(&version_string);
+    // TODO: Build metadata (e.g., "1.0.0+build.1") is not currently supported because
+    // our `sortableSemver` method in ClickHouse/HogQL doesn't support it yet.
+    // For semver equality checks, use regular string equality operators instead.
     Version::parse(normalized).ok()
 }
 
@@ -227,9 +230,7 @@ pub fn match_property(
         OperatorType::SemverGt
         | OperatorType::SemverGte
         | OperatorType::SemverLt
-        | OperatorType::SemverLte
-        | OperatorType::SemverEq
-        | OperatorType::SemverNeq => {
+        | OperatorType::SemverLte => {
             if match_value.is_none() {
                 return Ok(false);
             }
@@ -240,8 +241,6 @@ pub fn match_property(
                     OperatorType::SemverGte => lhs >= rhs,
                     OperatorType::SemverLt => lhs < rhs,
                     OperatorType::SemverLte => lhs <= rhs,
-                    OperatorType::SemverEq => lhs == rhs,
-                    OperatorType::SemverNeq => lhs != rhs,
                     _ => false,
                 }
             };
@@ -270,7 +269,9 @@ pub fn match_property(
                     key,
                     operator
                 );
-                Ok(false)
+                Err(FlagMatchingError::ValidationError(
+                    "filter value is not a valid semver".to_string(),
+                ))
             }
         }
         OperatorType::SemverTilde | OperatorType::SemverCaret | OperatorType::SemverWildcard => {
@@ -302,7 +303,12 @@ pub fn match_property(
                 OperatorType::SemverTilde => format!("~{normalized_version}"),
                 OperatorType::SemverCaret => format!("^{normalized_version}"),
                 OperatorType::SemverWildcard => {
-                    // For wildcard, replace * with x for semver compatibility
+                    // For wildcard, replace * with x for semver compatibility.
+                    // Supported patterns: "1.*", "1.2.*", "1.*.*", "*"
+                    // Note: Patterns like "1.*.3" (wildcard in middle) are invalid and will
+                    // fail VersionReq parsing, which is the expected behavior.
+                    // This differs slightly from Python's rstrip(".*") approach but produces
+                    // consistent results for valid semver wildcard patterns.
                     normalized_version.replace('*', "x")
                 }
                 _ => normalized_version.to_string(),
@@ -1964,53 +1970,9 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Test SemverEq
-        let property_eq = PropertyFilter {
-            key: "version".to_string(),
-            value: Some(json!("1.2.3")),
-            operator: Some(OperatorType::SemverEq),
-            prop_type: PropertyType::Person,
-            group_type_index: None,
-            negation: None,
-        };
-
-        assert!(match_property(
-            &property_eq,
-            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
-        assert!(!match_property(
-            &property_eq,
-            &HashMap::from([("version".to_string(), json!("1.2.4"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
-        // Test SemverNeq
-        let property_neq = PropertyFilter {
-            key: "version".to_string(),
-            value: Some(json!("1.2.3")),
-            operator: Some(OperatorType::SemverNeq),
-            prop_type: PropertyType::Person,
-            group_type_index: None,
-            negation: None,
-        };
-
-        assert!(match_property(
-            &property_neq,
-            &HashMap::from([("version".to_string(), json!("1.2.4"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
-        assert!(!match_property(
-            &property_neq,
-            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
-            true
-        )
-        .expect("expected match to exist"));
+        // Note: SemverEq and SemverNeq are not supported. Build metadata is also not supported
+        // because our `sortableSemver` method doesn't support it yet.
+        // Use regular string equality operators (Exact, IsNot) for version equality checks.
     }
 
     #[test]
@@ -2102,35 +2064,9 @@ mod test_match_properties {
         .expect("expected match to exist"));
     }
 
-    #[test]
-    fn test_semver_with_build_metadata() {
-        // The semver crate handles build metadata according to the semver spec
-        // Build metadata is compared lexicographically in all operations
-        let property_eq = PropertyFilter {
-            key: "version".to_string(),
-            value: Some(json!("1.0.0+build.1")),
-            operator: Some(OperatorType::SemverEq),
-            prop_type: PropertyType::Person,
-            group_type_index: None,
-            negation: None,
-        };
-
-        // Same build metadata should match
-        assert!(match_property(
-            &property_eq,
-            &HashMap::from([("version".to_string(), json!("1.0.0+build.1"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
-        // Different build metadata should not match
-        assert!(!match_property(
-            &property_eq,
-            &HashMap::from([("version".to_string(), json!("1.0.0+build.2"))]),
-            true
-        )
-        .expect("expected match to exist"));
-    }
+    // TODO: Build metadata in semver (e.g., "1.0.0+build.1") is not currently supported.
+    // For semver equality checks, use regular string equality operators (Exact, IsNot) instead.
+    // See to_semver_representation() for details.
 
     #[test]
     fn test_semver_invalid_versions() {
@@ -2440,6 +2376,72 @@ mod test_match_properties {
         assert!(!match_property(
             &property_minor,
             &HashMap::from([("version".to_string(), json!("0.9.9"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test 1.* (single wildcard, should work same as 1.*.*)
+        let property_single = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.*")),
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_single,
+            &HashMap::from([("version".to_string(), json!("1.5.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_single,
+            &HashMap::from([("version".to_string(), json!("2.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test * (all versions)
+        let property_all = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("*")),
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_all,
+            &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_all,
+            &HashMap::from([("version".to_string(), json!("99.99.99"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test invalid pattern: 1.*.3 (wildcard in middle) - should fail gracefully
+        let property_invalid = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.*.3")),
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Invalid patterns return Ok(false) since VersionReq parsing fails
+        assert!(!match_property(
+            &property_invalid,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
             true
         )
         .expect("expected match to exist"));
