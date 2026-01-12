@@ -142,7 +142,7 @@ class ManageMemoriesTool(MaxTool):
         user_id = str(self._user.id) if self._user else ""
         skip_user_filter = not user_only or not self._user
 
-        @database_sync_to_async
+        @database_sync_to_async(thread_sensitive=False)
         def run_query():
             return execute_hogql_query(
                 query_type="ManageMemoriesTool",
