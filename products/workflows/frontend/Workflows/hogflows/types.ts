@@ -63,6 +63,7 @@ export const HogFlowBatchJobSchema = z.object({
     hog_flow_id: z.string(),
     variables: z.record(z.any()),
     status: z.enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed']),
+    filters: z.any(),
     scheduled_at: z.string().nullable(),
     created_at: z.string(),
     updated_at: z.string(),

@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import type { batchWorkflowJobsLogicType } from './batchWorkflowJobsLogicType'
-import { type HogFlow, type HogFlowAction } from './hogflows/types'
+import { type HogFlowAction, HogFlowBatchJob } from './hogflows/types'
 
 export interface WorkflowLogicProps {
     id?: string
@@ -19,7 +19,7 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
     key((props) => props.id || 'new'),
     lazyLoaders(({ props }) => ({
         batchWorkflowJobs: [
-            null as HogFlow | null,
+            null as HogFlowBatchJob[] | null,
             {
                 loadBatchWorkflowJobs: async () => {
                     if (!props.id || props.id === 'new') {

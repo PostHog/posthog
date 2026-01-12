@@ -10,6 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { HogFlowBatchJob } from './hogflows/types'
 import { renderWorkflowLogMessage } from './logs/log-utils'
 import { workflowLogic } from './workflowLogic'
 
@@ -30,17 +31,23 @@ function WorkflowRunLogs({ id }: WorkflowLogsProps): JSX.Element {
     )
 }
 
-function BatchRunHeader({ job }: { job: any }): JSX.Element {
+function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
     return (
         <div className="flex gap-2 w-full justify-between">
             <strong>{job.id}</strong>
             <div className="flex items-center gap-2">
                 {job.scheduled_at && (
-                    <>
-                        <IconClock className="text-lg" /> <TZLabel time={job.scheduled_at} />
-                        <LemonDivider vertical className="h-full" />
-                    </>
+                    <Tooltip title="This job was scheduled to run in advance" placement="left">
+                        <div className="flex items-center gap-2 text-muted">
+                            <IconClock className="text-lg" />
+                            <TZLabel title="Scheduled at" time={job.scheduled_at} />
+                            {' ⋅ '}
+                        </div>
+                    </Tooltip>
                 )}
+                <TZLabel title="Created at" time={job.created_at} />
+                <LemonDivider vertical className="h-full" />
+
                 <Tooltip
                     title={`${job.scheduled_at ? 'Scheduled' : 'Triggered'} by ${job.created_by?.email || 'unknown user'}`}
                 >
@@ -59,7 +66,7 @@ function BatchRunHeader({ job }: { job: any }): JSX.Element {
     )
 }
 
-function BatchRunInfo({ job }: { job: any }): JSX.Element {
+function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
     const { workflow } = useValues(workflowLogic({ id: job.hog_flow_id }))
 
     const isFutureJob = job.scheduled_at && dayjs(job.scheduled_at).isAfter(dayjs())
@@ -116,22 +123,7 @@ function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
         )
     }
 
-    const pastJobsSection = (
-        <LemonCollapse
-            panels={(pastJobs || []).map((job) => ({
-                key: job.id,
-                header: <BatchRunHeader job={job} />,
-                content: <BatchRunInfo job={job} />,
-            }))}
-        />
-    )
-
-    if (futureJobs.length === 0) {
-        // If no past jobs, just render past jobs directly
-        return pastJobsSection
-    }
-
-    const futureJobsSection = (
+    const futureJobsSection = futureJobs.length ? (
         <LemonCollapse
             panels={futureJobs.map((job) => ({
                 key: job.id,
@@ -139,6 +131,20 @@ function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
                 content: <BatchRunInfo job={job} />,
             }))}
         />
+    ) : (
+        <div className="border rounded bg-surface-primary p-2 text-muted">No scheduled jobs.</div>
+    )
+
+    const pastJobsSection = pastJobs.length ? (
+        <LemonCollapse
+            panels={pastJobs.map((job) => ({
+                key: job.id,
+                header: <BatchRunHeader job={job} />,
+                content: <BatchRunInfo job={job} />,
+            }))}
+        />
+    ) : (
+        <div className="border rounded bg-surface-primary p-2 text-muted">No past jobs.</div>
     )
 
     return (

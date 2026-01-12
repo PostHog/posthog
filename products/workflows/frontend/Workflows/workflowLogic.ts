@@ -569,8 +569,12 @@ export const workflowLogic = kea<workflowLogicType>([
                     filters,
                     scheduled_at: scheduledAt,
                 })
-                lemonToast.success('Batch workflow job created')
-                router.actions.push(urls.workflow(values.workflow.id!, 'logs'))
+                lemonToast.success(`Batch workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
+                    button: {
+                        label: 'View logs',
+                        action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                    },
+                })
             } catch (e) {
                 lemonToast.error('Error creating batch workflow job: ' + (e as Error).message)
                 return
