@@ -22,19 +22,6 @@ Manage persistent memories to remember facts about the user's company, product, 
 
 A memory is a chunk of text that is searched via semantic embedding, plus metadata allowing you to build up a taxonomy of types or tags for memories over time.
 
-Actions:
-- **create**: Store a new memory with content and optional metadata
-- **query**: Search for relevant memories using semantic search
-- **update**: Modify an existing memory by its ID (content and/or metadata)
-- **list_metadata_keys**: Get all metadata keys used across memories (to know what you can filter by)
-
-Query Options:
-- user_only (default: true): Search only current user's memories, or all team memories
-- metadata_filter: Filter by metadata key-value pairs (e.g., {"type": "preference"})
-- limit: Maximum results (default: 10)
-
-Returns for query: memory_id, contents, metadata (as dict), distance score
-
 Use memories to:
 - Remember user preferences and past interactions
 - Store facts about their product, business model, or technical setup
@@ -45,26 +32,33 @@ Always query memories when you need context about the user's product or when the
 """.strip()
 
 
+class CreateMemoryArgs(BaseModel):
+    contents: str = Field(description="The content of the memory to store")
+    metadata: dict | None = Field(default=None, description="Optional metadata tags for the memory")
+
+
+class QueryMemoryArgs(BaseModel):
+    query_text: str = Field(description="The search query for finding relevant memories")
+    metadata_filter: dict | None = Field(
+        default=None, description="Filter by metadata key-value pairs, e.g. {'type': 'preference'}"
+    )
+    user_only: bool = Field(default=True, description="Search only current user's memories, or all team memories")
+    limit: int = Field(default=10, description="Maximum number of results to return")
+
+
+class UpdateMemoryArgs(BaseModel):
+    memory_id: str = Field(description="The ID of the memory to update")
+    contents: str | None = Field(default=None, description="New content for the memory")
+    metadata: dict | None = Field(default=None, description="New metadata for the memory")
+
+
 class ManageMemoriesToolArgs(BaseModel):
     action: Literal["create", "query", "update", "list_metadata_keys"] = Field(
-        description="The action to perform on memories"
+        description="The action to perform: create (store new memory), query (search memories), update (modify existing), or list_metadata_keys (get available filter keys)"
     )
-    contents: str | None = Field(default=None, description="The content of the memory (for create/update)")
-    metadata: dict | None = Field(
-        default=None, description="Optional metadata to attach to the memory (for create/update)"
+    args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | None = Field(
+        default=None, description="Arguments for the action (not needed for list_metadata_keys)"
     )
-    memory_id: str | None = Field(default=None, description="The ID of the memory to update (for update action)")
-    query_text: str | None = Field(
-        default=None, description="The search query for finding relevant memories (for query action)"
-    )
-    metadata_filter: dict | None = Field(
-        default=None,
-        description="Filter memories by metadata key-value pairs (for query action). Example: {'type': 'preference'}",
-    )
-    user_only: bool = Field(
-        default=True, description="If true, search only current user's memories; if false, search all team memories"
-    )
-    limit: int = Field(default=10, description="Maximum number of results to return (for query action)")
 
 
 class MemoryResult(BaseModel):
@@ -81,32 +75,27 @@ class ManageMemoriesTool(MaxTool):
 
     async def _arun_impl(
         self,
-        action: str,
-        contents: str | None = None,
-        metadata: dict | None = None,
-        memory_id: str | None = None,
-        query_text: str | None = None,
-        metadata_filter: dict | None = None,
-        user_only: bool = True,
-        limit: int = 10,
+        action: Literal["create", "query", "update", "list_metadata_keys"],
+        args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | None = None,
     ) -> tuple[str, dict[str, Any]]:
         if action == "create":
-            return await self._create_memory(contents, metadata)
+            if not isinstance(args, CreateMemoryArgs):
+                raise MaxToolRetryableError("CreateMemoryArgs required for create action")
+            return await self._create_memory(args.contents, args.metadata)
         elif action == "query":
-            return await self._query_memories(query_text, metadata_filter, user_only, limit)
+            if not isinstance(args, QueryMemoryArgs):
+                raise MaxToolRetryableError("QueryMemoryArgs required for query action")
+            return await self._query_memories(args.query_text, args.metadata_filter, args.user_only, args.limit)
         elif action == "update":
-            return await self._update_memory(memory_id, contents, metadata)
+            if not isinstance(args, UpdateMemoryArgs):
+                raise MaxToolRetryableError("UpdateMemoryArgs required for update action")
+            return await self._update_memory(args.memory_id, args.contents, args.metadata)
         elif action == "list_metadata_keys":
             return await self._list_metadata_keys()
         else:
-            raise MaxToolRetryableError(
-                f"Unknown action: {action}. Valid actions are: create, query, update, list_metadata_keys"
-            )
+            raise MaxToolRetryableError(f"Unknown action: {action}")
 
-    async def _create_memory(self, contents: str | None, metadata: dict | None) -> tuple[str, dict[str, Any]]:
-        if not contents:
-            raise MaxToolRetryableError("contents is required for create action")
-
+    async def _create_memory(self, contents: str, metadata: dict | None) -> tuple[str, dict[str, Any]]:
         @database_sync_to_async
         def create():
             with transaction.atomic():
@@ -126,11 +115,8 @@ class ManageMemoriesTool(MaxTool):
         )
 
     async def _query_memories(
-        self, query_text: str | None, metadata_filter: dict | None, user_only: bool, limit: int
+        self, query_text: str, metadata_filter: dict | None, user_only: bool, limit: int
     ) -> tuple[str, dict[str, Any]]:
-        if not query_text:
-            raise MaxToolRetryableError("query_text is required for query action")
-
         # Build metadata filter conditions using HogQL's metadata.$key syntax
         metadata_conditions = []
         metadata_placeholders: dict[str, ast.Expr] = {}
@@ -215,10 +201,8 @@ class ManageMemoriesTool(MaxTool):
         }
 
     async def _update_memory(
-        self, memory_id: str | None, contents: str | None, metadata: dict | None
+        self, memory_id: str, contents: str | None, metadata: dict | None
     ) -> tuple[str, dict[str, Any]]:
-        if not memory_id:
-            raise MaxToolRetryableError("memory_id is required for update action")
         if contents is None and metadata is None:
             raise MaxToolRetryableError("At least one of contents or metadata must be provided for update action")
 
