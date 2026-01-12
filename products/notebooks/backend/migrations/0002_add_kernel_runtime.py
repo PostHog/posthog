@@ -69,4 +69,18 @@ class Migration(migrations.Migration):
                 fields=["team", "notebook_short_id", "user", "status"], name="notebooks_k_team_id_d9a4c8_idx"
             ),
         ),
+        migrations.AddField(
+            model_name="kernelruntime",
+            name="backend",
+            field=models.CharField(
+                choices=[("local", "local"), ("modal", "modal")],
+                default="local",
+                max_length=20,
+            ),
+        ),
+        migrations.AddField(
+            model_name="kernelruntime",
+            name="sandbox_id",
+            field=models.CharField(blank=True, max_length=128, null=True),
+        ),
     ]

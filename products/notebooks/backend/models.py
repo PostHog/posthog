@@ -133,6 +133,10 @@ class ResourceNotebook(UUIDTModel):
 
 
 class KernelRuntime(UUIDTModel):
+    class Backend(models.TextChoices):
+        LOCAL = "local", "local"
+        MODAL = "modal", "modal"
+
     class Status(models.TextChoices):
         STARTING = "starting", "starting"
         RUNNING = "running", "running"
@@ -147,9 +151,11 @@ class KernelRuntime(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(default=timezone.now)
     status = models.CharField(choices=Status.choices, default=Status.STARTING, max_length=20)
+    backend = models.CharField(choices=Backend.choices, default=Backend.LOCAL, max_length=20)
     kernel_id = models.CharField(max_length=64, null=True, blank=True)
     kernel_pid = models.IntegerField(null=True, blank=True)
     connection_file = models.TextField(null=True, blank=True)
+    sandbox_id = models.CharField(max_length=128, null=True, blank=True)
     last_error = models.TextField(null=True, blank=True)
 
     class Meta:
