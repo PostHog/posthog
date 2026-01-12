@@ -117,14 +117,18 @@ class ManageMemoriesTool(MaxTool):
     async def _query_memories(
         self, query_text: str, metadata_filter: dict | None, user_only: bool, limit: int
     ) -> tuple[str, dict[str, Any]]:
-        # Build metadata filter conditions using HogQL's metadata.$key syntax
+        # Build metadata filter conditions using JSONExtractString with placeholders for both key and value
         metadata_conditions = []
         metadata_placeholders: dict[str, ast.Expr] = {}
         if metadata_filter:
             for i, (key, value) in enumerate(metadata_filter.items()):
-                placeholder_name = f"meta_value_{i}"
-                metadata_conditions.append(f"metadata.{key} = {{{placeholder_name}}}")
-                metadata_placeholders[placeholder_name] = ast.Constant(value=str(value))
+                key_placeholder = f"meta_key_{i}"
+                value_placeholder = f"meta_value_{i}"
+                metadata_conditions.append(
+                    f"JSONExtractString(metadata, {{{key_placeholder}}}) = {{{value_placeholder}}}"
+                )
+                metadata_placeholders[key_placeholder] = ast.Constant(value=key)
+                metadata_placeholders[value_placeholder] = ast.Constant(value=str(value))
 
         metadata_filter_sql = " AND ".join(metadata_conditions) if metadata_conditions else "1=1"
 
