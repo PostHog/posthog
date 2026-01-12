@@ -8429,7 +8429,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("does not support list values", response.json()["detail"].lower())
 
-<<<<<<< HEAD
     def test_user_blast_radius_with_semver_operators(self):
         """Test all semver comparison operators"""
         versions = ["0.9.0", "1.0.0", "1.2.0", "1.2.3", "1.2.5", "1.3.0", "2.0.0", "2.1.0"]
@@ -8740,8 +8739,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["users_affected"], 3)  # 2.0.0, 2.5.0, 3.0.0
         self.assertEqual(response_json["total_users"], 5)
 
-=======
->>>>>>> master
 
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):
