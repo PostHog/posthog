@@ -78,6 +78,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         pythonRunQueued,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
+        customMenuItems,
     } = useValues(nodeLogic)
     const {
         setRef,
@@ -152,7 +153,8 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const pythonIsStale = pythonExecutionCodeHash !== null && pythonExecutionCodeHash !== pythonCodeHash
     const pythonIsFresh = pythonExecutionCodeHash !== null && pythonExecutionCodeHash === pythonCodeHash
 
-    const menuItems: LemonMenuItems = [
+    // TODO: Add list on non-copyable nodes
+    const defaultMenuItems: LemonMenuItems = [
         {
             label: 'Copy',
             onClick: () => copyToClipboard(),
@@ -183,6 +185,8 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             : null,
         isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconX />, status: 'danger' } : null,
     ]
+
+    const menuItems = customMenuItems ?? defaultMenuItems
 
     const hasMenu = menuItems.some((x) => !!x)
     const isInCanvas = mode === 'canvas'
