@@ -23,6 +23,7 @@
 
     .storybook-test-runner & {
         height: auto;
+        min-height: 100vh;
     }
 
     > main {
@@ -709,6 +710,12 @@
         minmax(0, 1fr) var(--side-panel-width);
     height: 100vh;
     overflow: hidden;
+
+    .storybook-test-runner & {
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+    }
 
     /* Mobile layout - single column with overlay nav */
     &.app-layout--mobile {
