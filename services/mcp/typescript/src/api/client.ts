@@ -1537,12 +1537,27 @@ export class ApiClient {
                 actionId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
+                    // First fetch the action to get its name (required by backend validation)
+                    const getResponse = await fetch(
+                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                        {
+                            method: 'GET',
+                            headers: this.buildHeaders(),
+                        }
+                    )
+
+                    if (!getResponse.ok) {
+                        throw new Error(`Failed to fetch action: ${getResponse.statusText}`)
+                    }
+
+                    const action = (await getResponse.json()) as { name: string }
+
                     const response = await fetch(
                         `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
                         {
                             method: 'PATCH',
                             headers: this.buildHeaders(),
-                            body: JSON.stringify({ deleted: true }),
+                            body: JSON.stringify({ name: action.name, deleted: true }),
                         }
                     )
 
