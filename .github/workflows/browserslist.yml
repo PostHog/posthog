@@ -38,13 +38,17 @@ jobs:
                   node-version: 22.17.1
                   cache: 'pnpm'
 
-            - name: Clean up old browserslist branch
+            - name: Reset stale browserslist branch
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   if git ls-remote --heads origin browserslist-update | grep browserslist-update; then
-                    echo "Closing any existing PR from browserslist-update branch"
-                    gh pr close browserslist-update --delete-branch || true
+                    echo "Resetting stale browserslist-update branch to master to avoid rebase conflicts"
+                    git fetch origin browserslist-update
+                    git checkout -b browserslist-update origin/browserslist-update
+                    git reset --hard origin/master
+                    git push origin browserslist-update --force
+                    git checkout master
                   fi
 
             - name: Update Browserslist database and create PR if applies
