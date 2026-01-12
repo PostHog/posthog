@@ -34,7 +34,8 @@ function savePlayedRecordingIds(ids: string[]): void {
     try {
         sessionStorage.setItem(KIOSK_PLAYED_IDS_KEY, JSON.stringify(ids))
     } catch {
-        // sessionStorage might be full or disabled
+        // Silently ignore - kiosk mode is unattended so toasts aren't useful.
+        // Failure is non-critical: playback continues, just won't persist across refreshes.
     }
 }
 
