@@ -24,6 +24,15 @@ MODEL_TOKEN_LIMITS: Final[dict[str, dict[str, int]]] = {
     "gpt-4o-mini": {"input_tpm": 4_000_000, "output_tpm": 800_000},
     "gpt-4-turbo": {"input_tpm": 2_000_000, "output_tpm": 400_000},
     "gpt-4o": {"input_tpm": 2_000_000, "output_tpm": 400_000},
+    "gpt-5-mini": {"input_tpm": 4_000_000, "output_tpm": 800_000},
+    "gpt-5": {"input_tpm": 2_000_000, "output_tpm": 400_000},
+    # Gemini models (more specific first)
+    "gemini-2.5-flash-lite": {"input_tpm": 4_000_000, "output_tpm": 800_000},
+    "gemini-2.5-flash": {"input_tpm": 4_000_000, "output_tpm": 800_000},
+    "gemini-2.5-pro": {"input_tpm": 2_000_000, "output_tpm": 400_000},
+    "gemini-2.0-flash": {"input_tpm": 4_000_000, "output_tpm": 800_000},
+    "gemini-3-flash": {"input_tpm": 4_000_000, "output_tpm": 800_000},
+    "gemini-3-pro": {"input_tpm": 2_000_000, "output_tpm": 400_000},
     # Default for unknown models (assume expensive)
     "default": {"input_tpm": 500_000, "output_tpm": 100_000},
 }

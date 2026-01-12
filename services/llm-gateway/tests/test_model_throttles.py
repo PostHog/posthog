@@ -46,6 +46,12 @@ class TestGetModelLimits:
             ("claude-3-opus-20240229", 2_000_000, 400_000),
             ("gpt-4o-mini", 4_000_000, 800_000),
             ("gpt-4o", 2_000_000, 400_000),
+            ("gemini-2.5-flash-lite", 4_000_000, 800_000),
+            ("gemini-2.5-flash", 4_000_000, 800_000),
+            ("gemini-2.5-pro", 2_000_000, 400_000),
+            ("gemini-2.0-flash", 4_000_000, 800_000),
+            ("gemini-3-flash-preview", 4_000_000, 800_000),
+            ("gemini-3-pro-preview", 2_000_000, 400_000),
             ("unknown-model-xyz", 500_000, 100_000),  # Default expensive
         ],
     )

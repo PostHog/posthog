@@ -21,7 +21,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "array": ProductConfig(
         allowed_application_ids=frozenset(),  # No OAuth clients allowed yet
-        allowed_models=frozenset({"claude-3-5-haiku", "gpt-4o-mini"}),
+        allowed_models=None,
         allow_api_keys=False,
     ),
     "wizard": ProductConfig(
