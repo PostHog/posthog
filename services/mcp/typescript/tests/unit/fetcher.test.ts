@@ -206,16 +206,20 @@ describe('buildApiFetcher', () => {
 
             const fetcher = buildApiFetcher(mockConfig)
             
-            // Use runAllTimersAsync to let all timers complete
-            const promise = fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
-            })
+            // Start the fetch and immediately wrap in expect to catch rejection
+            const fetchPromise = expect(
+                fetcher.fetch({
+                    url: new URL('https://api.example.com/test'),
+                    method: 'get',
+                })
+            ).rejects.toThrow('Rate limit exceeded after 3 retries')
 
             // Run all timers to completion
             await vi.runAllTimersAsync()
-
-            await expect(promise).rejects.toThrow('Rate limit exceeded after 3 retries')
+            
+            // Wait for the assertion
+            await fetchPromise
+            
             expect(global.fetch).toHaveBeenCalledTimes(4) // Initial + 3 retries
         })
 
