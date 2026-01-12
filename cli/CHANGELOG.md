@@ -2,6 +2,10 @@
 
 # 0.5.23
 
+- chore: add endpoints use case to cli auth flow
+
+# 0.5.23
+
 - feat: add experimental commands for endpoints management
 
 # 0.5.22
