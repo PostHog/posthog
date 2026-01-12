@@ -23,7 +23,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import SessionAuthentication
-from posthog.event_usage import report_user_action
+from posthog.event_usage import groups, report_user_action
 from posthog.models import User
 from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
@@ -142,11 +142,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             trace_id = str(uuid.uuid4())
             distinct_id = getattr(request.user, "email", "") if request.user and request.user.is_authenticated else ""
             properties = {"ai_product": "playground"}
-            groups = {}  # placeholder for groups, maybe we should add team_id here or something????
-            if request.user and request.user.is_authenticated:
-                team_id = getattr(request.user, "team_id", None)
-                if team_id:
-                    groups["team"] = str(team_id)
+            groups_data = groups(team=getattr(request.user, "current_team", None))
 
             if mode == "completion" and hasattr(provider, "stream_response"):
                 messages = serializer.validated_data.get("messages")
@@ -178,7 +174,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     "distinct_id": distinct_id,
                     "trace_id": trace_id,
                     "properties": properties,
-                    "groups": groups,
+                    "groups": groups_data,
                 }
 
                 # Only pass reasoning_level to OpenAI provider which supports it
