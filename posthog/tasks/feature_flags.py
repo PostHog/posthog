@@ -121,7 +121,7 @@ def refresh_expiring_flags_cache_entries() -> None:
         raise
 
 
-@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
 def cleanup_stale_flags_expiry_tracking_task(self: PushGatewayTask) -> None:
     """
     Periodic task to clean up stale entries in the flags cache expiry tracking sorted set.
