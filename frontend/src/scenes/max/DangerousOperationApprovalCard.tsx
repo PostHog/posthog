@@ -113,7 +113,7 @@ export function DangerousOperationApprovalCard({
 
             <LemonDivider />
 
-            <div className="p-2 pt-0 flex items-center justify-between">
+            <div className="p-2 pt-0 flex items-center justify-between gap-1.5">
                 {displayStatus === 'pending' && (
                     <>
                         <span className="text-muted">Review the changes above before approving</span>
