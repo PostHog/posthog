@@ -70,6 +70,13 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class ApprovalDecisionStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    AUTO_REJECTED = "auto_rejected"
+
+
 class ArtifactContentType(StrEnum):
     VISUALIZATION = "visualization"
     NOTEBOOK = "notebook"
@@ -137,6 +144,7 @@ class AssistantEventType(StrEnum):
     CONVERSATION = "conversation"
     NOTEBOOK = "notebook"
     UPDATE = "update"
+    APPROVAL = "approval"
 
 
 class AssistantFormOption(BaseModel):
@@ -909,6 +917,17 @@ class CustomEventConversionGoal(BaseModel):
         extra="forbid",
     )
     customEventName: str
+
+
+class DangerousOperationResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    payload: dict[str, Any]
+    preview: str
+    proposalId: str
+    status: Literal["pending_approval"] = "pending_approval"
+    toolName: str
 
 
 class DataColorToken(StrEnum):
@@ -3872,6 +3891,10 @@ class AlertCondition(BaseModel):
         extra="forbid",
     )
     type: AlertConditionType
+
+
+class ApprovalCardUIStatus(RootModel[ApprovalDecisionStatus | str]):
+    root: ApprovalDecisionStatus | str
 
 
 class AssistantArrayPropertyFilter(BaseModel):

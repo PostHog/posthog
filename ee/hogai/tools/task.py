@@ -166,7 +166,7 @@ class TaskTool(MaxTool):
             async for event_type, message in executor.astream(ChatAgentWorkflow, inputs):
                 if event_type == AssistantEventType.MESSAGE:
                     # Only parse completed messages
-                    if isinstance(message, AssistantGenerationStatusEvent) or not message.id:
+                    if isinstance(message, AssistantGenerationStatusEvent) or not getattr(message, "id", None):
                         continue
                     if isinstance(message, AssistantMessage):
                         final_content = message.content
