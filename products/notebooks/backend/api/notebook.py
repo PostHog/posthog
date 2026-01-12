@@ -32,6 +32,7 @@ from posthog.utils import relative_date_parse
 from products.notebooks.backend.kernel_runtime import get_kernel_runtime
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
 logger = structlog.get_logger(__name__)
 
@@ -385,6 +386,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).ensure()
+        except SandboxProvisionError as err:
+            logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": str(err)}, status=503)
         except RuntimeError as err:
             logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": str(err)}, status=503)
@@ -405,6 +409,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).restart()
+        except SandboxProvisionError as err:
+            logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": str(err)}, status=503)
         except RuntimeError as err:
             logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": str(err)}, status=503)
@@ -425,6 +432,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 variable_names=variable_names,
                 timeout=serializer.validated_data.get("timeout"),
             )
+        except SandboxProvisionError as err:
+            logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": str(err)}, status=503)
         except RuntimeError as err:
             logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": str(err)}, status=503)
