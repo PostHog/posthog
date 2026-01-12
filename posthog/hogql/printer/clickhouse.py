@@ -370,11 +370,21 @@ class ClickHousePrinter(HogQLPrinter):
 
         if property_source.is_nullable:
             if node.op == ast.CompareOperationOp.ILike:
-                # We include IS NOT NULL because we want to return FALSE rather than NULL if the column is NULL,
-                # and prefer this to wrapping in ifNull because it allows skip index usage.
-                return f"and(ilike({materialized_column_sql}, {pattern_sql}), {materialized_column_sql} IS NOT NULL)"
+                if property_source.has_ngram_lower_index:
+                    # Use the ngram_lower index if it exists, must use like instead of ilike.
+                    # ilike(haystack, needle) is equivalent to like(lower(haystack), lower(needle)), though less CPU
+                    # efficient so ONLY do this if the skip index is present. Do lower(needle) in python, not Clickhouse.
+                    # We use coalesce to match the index expression (ngram indexes don't support nullable columns).
+                    return f"and(like(lower(coalesce({materialized_column_sql}, '')), {pattern_sql.lower()}), {materialized_column_sql} IS NOT NULL)"
+                else:
+                    # We include IS NOT NULL because we want to return FALSE rather than NULL if the column is NULL,
+                    # and prefer this to wrapping in ifNull because it allows skip index usage.
+                    return (
+                        f"and(ilike({materialized_column_sql}, {pattern_sql}), {materialized_column_sql} IS NOT NULL)"
+                    )
             else:
-                # For NOT ILIKE, we need ifNull wrapper because NULL NOT ILIKE pattern should be TRUE
+                # For NOT ILIKE, we need ifNull wrapper because NULL NOT ILIKE pattern should be TRUE.
+                # We don't care about the skip index here, as bloom filters don't help with detecting negative presence
                 return f"ifNull(notILike({materialized_column_sql}, {pattern_sql}), 1)"
         else:
             # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
@@ -383,7 +393,10 @@ class ClickHousePrinter(HogQLPrinter):
                 return None
 
             if node.op == ast.CompareOperationOp.ILike:
-                return f"ilike({materialized_column_sql}, {pattern_sql})"
+                if property_source.has_ngram_lower_index:
+                    return f"like(lower({materialized_column_sql}), {pattern_sql.lower()})"
+                else:
+                    return f"ilike({materialized_column_sql}, {pattern_sql})"
             else:
                 return f"notILike({materialized_column_sql}, {pattern_sql})"
 
@@ -599,14 +612,12 @@ class ClickHousePrinter(HogQLPrinter):
         if optimized_property_group_compare_operation := self._get_optimized_property_group_compare_operation(node):
             return optimized_property_group_compare_operation
 
-        # If either side is an individually materialized column being compared to a string constant,
+        # When comparing an individually materialized column being compared to a string constant,
         # we can skip the nullIf wrapping to allow skip index usage.
         if optimized_materialized_column_compare := self._get_optimized_materialized_column_equals_operation(node):
             return optimized_materialized_column_compare
-        # Similar optimization for ILIKE, but gated by a modifier since pattern matching is more complex
         if optimized_materialized_ilike := self._get_optimized_materialized_column_ilike_operation(node):
             return optimized_materialized_ilike
-        # Similar optimization for LIKE - case-sensitive allows ngrambf_v1 skip index usage
         if optimized_materialized_like := self._get_optimized_materialized_column_like_operation(node):
             return optimized_materialized_like
 

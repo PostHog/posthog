@@ -1,4 +1,3 @@
-import re
 import json
 from collections.abc import Mapping
 from typing import Any, Literal, Optional, cast
@@ -12,6 +11,7 @@ from posthog.test.base import (
     _create_person,
     clean_varying_query_parts,
     cleanup_materialized_columns,
+    get_index_from_explain,
     materialized,
     snapshot_clickhouse_queries,
 )
@@ -52,7 +52,7 @@ from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 
-from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, materialize
+from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, get_ngram_lower_index_name, materialize
 
 
 class TestPrinter(BaseTest):
@@ -3180,34 +3180,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         if expected_context_values is not None:
             self.assertLessEqual(expected_context_values.items(), context.values.items())
 
-    def _assert_skip_index_used(self, clickhouse_sql: str, mat_col) -> None:
-        """Assert that the materialized column's skip index is used in the query."""
-        index_name = get_minmax_index_name(mat_col.name)
-
-        # Substitute placeholders with dummy values for EXPLAIN
-        sql_for_explain = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", clickhouse_sql)
-        explain_query = f"EXPLAIN indexes = 1, json = 1 {sql_for_explain}"
-        [[raw_explain_result]] = sync_execute(explain_query)
-
-        def find_node(node, condition):
-            if condition(node):
-                return node
-            for child in node.get("Plans", []):
-                if result := find_node(child, condition):
-                    return result
-            return None
-
-        read_from_merge_tree = find_node(
-            json.loads(raw_explain_result)[0]["Plan"],
-            condition=lambda node: node["Node Type"] == "ReadFromMergeTree",
-        )
-        indexes = (
-            {idx["Name"] for idx in read_from_merge_tree.get("Indexes", []) if idx["Type"] == "Skip"}
-            if read_from_merge_tree
-            else set()
-        )
-        self.assertIn(index_name, indexes, f"Expected skip index {index_name} to be used")
-
     def test_materialized_column_optimized_equality_comparison_non_nullable(self) -> None:
         # Non-nullable columns don't need any wrapping
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
@@ -3337,7 +3309,10 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(eq_result.results, [("d1",)])
             assert eq_result.clickhouse is not None
-            self._assert_skip_index_used(eq_result.clickhouse, mat_col)
+            index_name = get_minmax_index_name(mat_col.name)
+            assert get_index_from_explain(
+                eq_result.clickhouse, index_name
+            ), f"Expected skip index {index_name} to be used"
 
             neq_result = execute_hogql_query(
                 team=self.team,
@@ -3558,18 +3533,23 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
+            ("no_mat_col", None, False),
+            ("nullable_mat_col", True, False),
+            ("non_nullable_mat_col", False, False),
+            ("nullable_mat_col_with_ngram_lower", True, True),
+            ("non_nullable_mat_col_with_ngram_lower", False, True),
         ]
     )
-    def test_materialized_column_ilike_returns_correct_results(self, _, is_nullable) -> None:
+    def test_materialized_column_ilike_returns_correct_results(self, _, is_nullable, create_ngram_lower_index) -> None:
         """
         Test that ilike produces correct results for patterns that don't match sentinel values.
         This works consistently across all column types.
         """
+        mat_col = None
         if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
+            mat_col = materialize(
+                "events", "test_prop", is_nullable=is_nullable, create_ngram_lower_index=create_ngram_lower_index
+            )
             self.addCleanup(cleanup_materialized_columns)
 
         _create_event(
@@ -3590,20 +3570,30 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert ilike_result.clickhouse is not None
         assert clean_varying_query_parts(ilike_result.clickhouse, replace_all_numbers=False) == self.snapshot
 
+        if create_ngram_lower_index and mat_col:
+            index_name = get_ngram_lower_index_name(mat_col.name)
+            assert get_index_from_explain(
+                ilike_result.clickhouse, index_name
+            ), f"Expected skip index {index_name} to be used"
+
     @parameterized.expand(
         [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
+            ("no_mat_col", None, False),
+            ("nullable_mat_col", True, False),
+            ("non_nullable_mat_col", False, False),
+            ("nullable_mat_col_with_ngram_lower", True, True),
+            ("non_nullable_mat_col_with_ngram_lower", False, True),
         ]
     )
-    def test_materialized_column_ilike_with_sentinel_patterns(self, _, is_nullable) -> None:
+    def test_materialized_column_ilike_with_sentinel_patterns(self, _, is_nullable, create_ngram_lower_index) -> None:
         """
         Test ilike with patterns that could match sentinel values ('', 'null').
         These only work correctly for no materialized column or nullable materialized columns.
 
         Non-nullable materialized columns use 'null' and '' as sentinel values, making it
         impossible to distinguish between the sentinel and actual property values.
+
+        Note: Sentinel patterns don't use the ngram_lower skip index optimization.
         """
         if is_nullable is False:
             pytest.xfail(
@@ -3613,7 +3603,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
 
         if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
+            materialize(
+                "events", "test_prop", is_nullable=is_nullable, create_ngram_lower_index=create_ngram_lower_index
+            )
             self.addCleanup(cleanup_materialized_columns)
 
         _create_event(
@@ -3655,18 +3647,26 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
+            ("no_mat_col", None, False),
+            ("nullable_mat_col", True, False),
+            ("non_nullable_mat_col", False, False),
+            ("nullable_mat_col_with_ngram_lower", True, True),
+            ("non_nullable_mat_col_with_ngram_lower", False, True),
         ]
     )
-    def test_materialized_column_not_ilike_returns_correct_results(self, _, is_nullable) -> None:
+    def test_materialized_column_not_ilike_returns_correct_results(
+        self, _, is_nullable, create_ngram_lower_index
+    ) -> None:
         """
         Test that not ilike produces correct results for patterns that don't match sentinel values.
         This works consistently across all column types.
+
+        Note: NOT ILIKE doesn't use skip index optimizations (bloom filters don't help with negation).
         """
         if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
+            materialize(
+                "events", "test_prop", is_nullable=is_nullable, create_ngram_lower_index=create_ngram_lower_index
+            )
             self.addCleanup(cleanup_materialized_columns)
 
         _create_event(
@@ -3689,18 +3689,24 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
+            ("no_mat_col", None, False),
+            ("nullable_mat_col", True, False),
+            ("non_nullable_mat_col", False, False),
+            ("nullable_mat_col_with_ngram_lower", True, True),
+            ("non_nullable_mat_col_with_ngram_lower", False, True),
         ]
     )
-    def test_materialized_column_not_ilike_with_sentinel_patterns(self, _, is_nullable) -> None:
+    def test_materialized_column_not_ilike_with_sentinel_patterns(
+        self, _, is_nullable, create_ngram_lower_index
+    ) -> None:
         """
         Test not ilike with patterns that could match sentinel values ('', 'null').
         These only work correctly for no materialized column or nullable materialized columns.
 
         Non-nullable materialized columns use 'null' and '' as sentinel values, making it
         impossible to distinguish between the sentinel and actual property values.
+
+        Note: NOT ILIKE doesn't use skip index optimizations (bloom filters don't help with negation).
         """
         if is_nullable is False:
             pytest.xfail(
@@ -3710,7 +3716,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
 
         if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
+            materialize(
+                "events", "test_prop", is_nullable=is_nullable, create_ngram_lower_index=create_ngram_lower_index
+            )
             self.addCleanup(cleanup_materialized_columns)
 
         _create_event(
