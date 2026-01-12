@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
 
 import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
@@ -11,71 +10,45 @@ import { cn } from 'lib/utils/css-classes'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { AttributeBreakdowns } from 'products/logs/frontend/AttributeBreakdowns'
-import { ParsedLogMessage } from 'products/logs/frontend/types'
+import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 
-import { logsViewerLogic } from './logsViewerLogic'
-
-export interface ExpandedLogContentProps {
-    log: ParsedLogMessage
-    logIndex: number
+export interface LogAttributesProps {
+    attributes: Record<string, string>
+    type: PropertyFilterType.LogAttribute | PropertyFilterType.LogResourceAttribute
+    logUuid: string
+    title: string
 }
 
-export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): JSX.Element {
-    const { expandedAttributeBreakdowns, tabId, cursorIndex, cursorAttributeIndex, isAttributeColumn } =
-        useValues(logsViewerLogic)
-    const { addFilter, toggleAttributeBreakdown, toggleAttributeColumn, recomputeRowHeights, userSetCursorAttribute } =
-        useActions(logsViewerLogic)
-    const containerRef = useRef<HTMLDivElement>(null)
+export function LogAttributes({ attributes, type, logUuid, title }: LogAttributesProps): JSX.Element {
+    const { expandedAttributeBreakdowns, tabId, isAttributeColumn } = useValues(logsViewerLogic)
+    const { addFilter, toggleAttributeColumn, toggleAttributeBreakdown } = useActions(logsViewerLogic)
 
-    const isThisLogFocused = cursorIndex === logIndex
+    const expandedBreakdownsForThisLog = expandedAttributeBreakdowns[logUuid] || []
 
-    // Scroll focused attribute into view
-    useEffect(() => {
-        if (isThisLogFocused && cursorAttributeIndex !== null && containerRef.current) {
-            const rows = containerRef.current.querySelectorAll('tbody tr')
-            const targetRow = rows[cursorAttributeIndex]
-            if (targetRow) {
-                targetRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-            }
-        }
-    }, [isThisLogFocused, cursorAttributeIndex])
+    const rows = Object.entries(attributes).map(([key, value], index) => ({
+        key,
+        value,
+        type,
+        index,
+    }))
 
-    const handleToggleBreakdown = (attributeKey: string): void => {
-        toggleAttributeBreakdown(log.uuid, attributeKey)
-        // Trigger row height recomputation after breakdown toggle
-        recomputeRowHeights([log.uuid])
+    if (rows.length === 0) {
+        return <></>
     }
 
-    const expandedBreakdownsForThisLog = expandedAttributeBreakdowns[log.uuid] || []
-
-    const rows: { key: string; value: string; type: PropertyFilterType; index: number }[] = [
-        ...Object.entries(log.resource_attributes as Record<string, string>).map(([key, value], index) => ({
-            key,
-            value,
-            type: PropertyFilterType.LogResourceAttribute,
-            index,
-        })),
-        ...Object.entries(log.attributes).map(([key, value], index) => ({
-            key,
-            value,
-            type: PropertyFilterType.LogAttribute,
-            index,
-        })),
-    ]
-
     return (
-        <div ref={containerRef} className="bg-primary border-t border-border">
+        <div className="bg-primary rounded border border-border overflow-hidden">
+            <div className="px-3 py-2 bg-bg-light border-b border-border">
+                <span className="text-xs font-semibold text-muted uppercase">{title}</span>
+            </div>
             <LemonTable
                 embedded
                 showHeader={false}
                 size="small"
                 rowKey="key"
                 onRow={(record) => ({
-                    onClick: () => userSetCursorAttribute(logIndex, record.index),
-                    className: cn(
-                        'cursor-pointer',
-                        isThisLogFocused && cursorAttributeIndex === record.index && 'bg-primary-highlight'
-                    ),
+                    className: cn('cursor-pointer'),
+                    onClick: () => toggleAttributeBreakdown(logUuid, record.key),
                 })}
                 columns={[
                     {
@@ -106,9 +79,10 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                                 <LemonButton
                                     tooltip="Show breakdown"
                                     size="xsmall"
+                                    active={expandedBreakdownsForThisLog.includes(record.key)}
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        handleToggleBreakdown(record.key)
+                                        toggleAttributeBreakdown(logUuid, record.key)
                                     }}
                                 >
                                     <IconFilter />

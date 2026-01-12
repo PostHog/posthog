@@ -2195,3 +2195,69 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertFalse(data["active"])
+
+
+class TestOAuthAuthorizationServerMetadata(APIBaseTest):
+    """Tests for OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
+
+    def test_returns_valid_metadata(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        metadata = response.json()
+
+        # Required fields per RFC 8414
+        self.assertIn("issuer", metadata)
+        self.assertIn("authorization_endpoint", metadata)
+        self.assertIn("token_endpoint", metadata)
+
+    def test_metadata_endpoints_are_valid_urls(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        metadata = response.json()
+
+        endpoint_fields = [
+            "issuer",
+            "authorization_endpoint",
+            "token_endpoint",
+            "revocation_endpoint",
+            "introspection_endpoint",
+            "userinfo_endpoint",
+            "jwks_uri",
+        ]
+
+        for field in endpoint_fields:
+            self.assertIn(field, metadata)
+            self.assertTrue(
+                metadata[field].startswith("http://") or metadata[field].startswith("https://"),
+                f"{field} should be a valid URL, got: {metadata[field]}",
+            )
+
+    def test_metadata_includes_supported_features(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        metadata = response.json()
+
+        self.assertEqual(metadata["response_types_supported"], ["code"])
+        self.assertEqual(metadata["grant_types_supported"], ["authorization_code", "refresh_token"])
+        self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
+        self.assertIn("none", metadata["token_endpoint_auth_methods_supported"])
+
+    def test_metadata_includes_scopes(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        metadata = response.json()
+
+        scopes = metadata["scopes_supported"]
+
+        # OIDC scopes
+        self.assertIn("openid", scopes)
+        self.assertIn("profile", scopes)
+        self.assertIn("email", scopes)
+
+        # Resource scopes (from get_scope_descriptions) are in format "resource:action"
+        resource_scopes = [s for s in scopes if ":" in s]
+        self.assertGreater(len(resource_scopes), 0, "Should have resource scopes like 'event_definition:read'")
+
+    def test_metadata_accessible_without_authentication(self):
+        self.client.logout()
+
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

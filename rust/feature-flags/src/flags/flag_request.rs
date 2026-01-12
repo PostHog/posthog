@@ -202,13 +202,10 @@ mod tests {
     use crate::flags::flag_service::FlagService;
     use crate::utils::test_utils::{
         insert_new_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
-        setup_redis_client,
+        setup_redis_client, setup_team_hypercache_reader,
     };
     use bytes::Bytes;
     use serde_json::json;
-
-    // Default cache TTL for tests: 5 days in seconds
-    const DEFAULT_CACHE_TTL_SECONDS: u64 = 432000;
 
     #[test]
     fn empty_distinct_id_is_accepted() {
@@ -489,11 +486,13 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+
         let flag_service = FlagService::new(
             redis_client.clone(),
             pg_client.clone(),
-            DEFAULT_CACHE_TTL_SECONDS,
+            team_hypercache_reader,
             hypercache_reader,
         );
 
@@ -507,6 +506,7 @@ mod tests {
     async fn test_error_cases() {
         let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
 
         // Test invalid token
@@ -521,7 +521,7 @@ mod tests {
         let flag_service = FlagService::new(
             redis_client.clone(),
             pg_client.clone(),
-            DEFAULT_CACHE_TTL_SECONDS,
+            team_hypercache_reader,
             hypercache_reader,
         );
         assert!(matches!(

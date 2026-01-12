@@ -60,3 +60,4 @@ ALLOWED_TEAM_IDS: list[int] = [
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-summarization"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-summarization-coordinator"
+COORDINATOR_SCHEDULE_ID = "llma-trace-summarization-coordinator-schedule"
