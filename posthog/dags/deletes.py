@@ -822,7 +822,7 @@ def find_partitions_to_cleanup(
     """
 
     parameters = {
-        "team_ids": list(config.team_ids),
+        "team_ids": config.team_ids,
         "min_age_months": config.min_age_months,
     }
 
