@@ -12,16 +12,15 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from posthog.event_usage import groups
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.tasks.exports.failure_handler import EXCEPTIONS_TO_RETRY, USER_QUERY_ERRORS, classify_failure_type
+from posthog.tasks.exports.failure_handler import (
+    EXCEPTIONS_TO_RETRY,
+    USER_QUERY_ERRORS,
+    ExportCancelled,
+    classify_failure_type,
+)
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
-
-
-class ExportCancelled(Exception):
-    """Raised when an export is cancelled due to timeout."""
-
-    pass
 
 
 EXPORT_SUCCEEDED_COUNTER = Counter(

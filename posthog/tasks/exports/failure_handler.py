@@ -20,7 +20,6 @@ from posthog.errors import (
     CHQueryErrorUnknownFunction,
 )
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
-from posthog.tasks.exporter import ExportCancelled
 
 # =============================================================================
 # Export Failure Classification
@@ -39,6 +38,13 @@ FAILURE_TYPE_USER = "user"
 FAILURE_TYPE_SYSTEM = "system"
 FAILURE_TYPE_TIMEOUT_GENERATION = "timeout_generation"
 FAILURE_TYPE_UNKNOWN = "unknown"
+
+
+class ExportCancelled(Exception):
+    """Raised when an export is canceled due to timeout."""
+
+    pass
+
 
 EXCEPTIONS_TO_RETRY = (
     CHQueryErrorS3Error,

@@ -18,8 +18,6 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
-from posthog.tasks.exporter import EXPORT_FAILED_COUNTER
-from posthog.tasks.exports.failure_handler import FAILURE_TYPE_TIMEOUT_GENERATION
 from posthog.utils import wait_for_parallel_celery_group
 
 logger = structlog.get_logger(__name__)
@@ -30,14 +28,17 @@ DEFAULT_MAX_ASSET_COUNT = 6
 # when rendering very tall pages (e.g., tables with thousands of rows).
 MAX_SCREENSHOT_HEIGHT_PIXELS = 5000
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
+# Prometheus metrics for Temporal workers (web/worker pods)
+SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
+    "subscription_asset_generation_duration_seconds",
+    "Time spent generating assets for a subscription",
+    labelnames=["execution_path"],
+    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
+)
 
 
 def _has_asset_failed(asset: ExportedAsset) -> bool:
     return (not asset.content and not asset.content_location) or asset.exception is not None
-
-
-def _has_asset_timedout(asset: ExportedAsset) -> bool:
-    return not asset.has_content and asset.exception is None and asset.failure_type is None
 
 
 def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscription, SharingConfiguration]) -> dict:
@@ -57,15 +58,6 @@ def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscrip
         "failed_insight_urls": failed_insight_urls,
         "dashboard_url": dashboard_url,
     }
-
-
-# Prometheus metrics for Celery workers (web/worker pods)
-SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
-    "subscription_asset_generation_duration_seconds",
-    "Time spent generating assets for a subscription",
-    labelnames=["execution_path"],
-    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
-)
 
 
 # Temporal metrics for temporal workers
@@ -226,6 +218,8 @@ async def generate_assets_async(
                     subscription_id=subscription_id,
                     team_id=resource.team_id,
                 )
+                # Export completed successfully, remove from cancellation tracking
+                cancellation_events.pop(asset.id, None)
             except Exception as e:
                 # The failure is already recorded on the asset by export_asset_direct so we just log it here.
                 logger.warning(
@@ -237,7 +231,7 @@ async def generate_assets_async(
                     failure_type=asset.failure_type,
                     error=str(e),
                 )
-            finally:
+                # Export failed, remove from cancellation tracking
                 cancellation_events.pop(asset.id, None)
 
         # Reserve buffer time for email/Slack delivery after exports
@@ -269,13 +263,6 @@ async def generate_assets_async(
             # Signal all running exports to cancel so orphaned threads don't update assets
             for event in cancellation_events.values():
                 event.set()
-
-            # Mark incomplete assets as timed out
-            for asset in assets:
-                if _has_asset_timedout(asset):
-                    asset.failure_type = FAILURE_TYPE_TIMEOUT_GENERATION
-                    await database_sync_to_async(asset.save, thread_sensitive=False)(update_fields=["failure_type"])
-                    EXPORT_FAILED_COUNTER.labels(type=asset.export_format, failure_type=asset.failure_type).inc()
 
             # Get failure info for logging
             failure_info = _get_failed_asset_info(assets, resource)
