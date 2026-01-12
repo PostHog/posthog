@@ -435,6 +435,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Replay recordings of user sessions to understand how users interact with your product or website.',
     },
+    [Scene.ReplayKiosk]: {
+        projectBased: true,
+        name: 'Kiosk mode',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+        layout: 'plain',
+        hideProjectNotice: true,
+    },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
         name: 'Revenue analytics',
@@ -705,6 +713,7 @@ export const routes: Record<string, [Scene | string, string]> = {
         {} as Record<string, [Scene, string]>
     ),
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
+    [urls.replayKiosk()]: [Scene.ReplayKiosk, 'replayKiosk'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
     [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],

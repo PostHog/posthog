@@ -28,6 +28,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 from posthog.rate_limit import (
     LLMAnalyticsSummarizationBurstThrottle,
@@ -188,8 +189,10 @@ def fetch_log_by_uuid(team: Team, uuid: str, timestamp: str) -> dict | None:
         },
     )
     response = execute_hogql_query(
+        query_type="LogExplainQuery",
         query=query,
         team=team,
+        workload=Workload.LOGS,
     )
     if not response.results:
         return None
