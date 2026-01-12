@@ -79,12 +79,22 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
 
 
 def should_block_url(u: str) -> bool:
+    """
+    Check if a URL should be blocked (for runtime request interception).
+
+    Returns True if the URL should be blocked, False if allowed.
+    This is a faster check than is_url_allowed() for use in request handlers.
+    """
     if is_dev_mode():
         return False
     try:
         parsed = urlparse.urlparse(u)
     except Exception:
         return True
+
+    if parsed.scheme not in {"http", "https"}:
+        return True
+
     host = (parsed.hostname or "").lower()
     if host in METADATA_HOSTS:
         return True
@@ -128,4 +138,4 @@ def should_block_url(u: str) -> bool:
         if _is_internal_ip(ip):
             return True
 
-    return parsed.scheme not in {"http", "https"}
+    return False
