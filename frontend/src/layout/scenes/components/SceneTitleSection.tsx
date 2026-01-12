@@ -35,10 +35,10 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
             className={cn(!inPanel && '-mr-2')}
             onClick={() => setScenePanelOpen(!scenePanelOpenManual)}
             icon={inPanel ? <IconX className="text-primary p-0.5" /> : <IconEllipsis className="text-primary" />}
-            tooltip="Open Info & actions panel"
+            tooltip={inPanel ? 'Close Info & actions panel' : 'Open Info & actions panel'}
             data-attr="info-actions-panel"
-            aria-label="Open Info & actions panel"
-            active={scenePanelOpenManual}
+            aria-label={inPanel ? 'Close Info & actions panel' : 'Open Info & actions panel'}
+            active={inPanel ? true : scenePanelOpenManual}
             size="small"
         />
     )
