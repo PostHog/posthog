@@ -30,7 +30,7 @@ from llm_gateway.rate_limiting.model_throttles import (
 )
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.tokenizer import TokenCounter
-from llm_gateway.request_context import get_request_id, set_request_id
+from llm_gateway.request_context import set_request_id
 
 
 def configure_logging() -> None:
