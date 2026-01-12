@@ -430,7 +430,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                         # 3. As a last resort, create a UUID by hashing the value with a table prefix.
                         return parse_expr(
                             f"""tupleElement((
-                                throwIf(isNull(e.{node.id_field}), '{node.table_name}.{node.id_field} must not be NULL. The id column is required.'),
+                                throwIf(isNull(e.{node.id_field}), 'Encountered a null value in {node.table_name}.{node.id_field}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'),
                                 accurateCastOrDefault(
                                     e.{node.id_field},
                                     'UUID',
