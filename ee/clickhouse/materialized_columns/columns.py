@@ -305,10 +305,19 @@ class CreateColumnOnDataNodesTask:
             )
 
         if self.create_ngram_lower_index:
+            # There are 2 limitations in clickhouse we need to work around
+            # * clickhouse does not support a case-insensitive ngram index, so we need to call lower() on both sides and index lower(col)
+            # * clickhouse does not support ngram indexes on nullable columns, so we need to wrap the nullable version in coalesce(col, '')
+            # If either of these 2 limitations change, we should simplify this
             index_name = get_ngram_lower_index_name(self.column.name)
-            actions.append(
-                f"ADD INDEX IF NOT EXISTS {index_name} lower({self.column.name}) TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 1"
-            )
+            if self.column.is_nullable:
+                actions.append(
+                    f"ADD INDEX IF NOT EXISTS {index_name} lower(coalesce({self.column.name}, '')) TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 1"
+                )
+            else:
+                actions.append(
+                    f"ADD INDEX IF NOT EXISTS {index_name} lower({self.column.name}) TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 1"
+                )
 
         client.execute(
             f"ALTER TABLE {self.table} " + ", ".join(actions),

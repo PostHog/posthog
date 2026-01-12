@@ -454,7 +454,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         index_info = get_index_from_explain(query, index_name)
         assert index_info is not None, f"Bloom filter index {index_name} should appear in EXPLAIN output"
 
-    def test_ngram_lower_index_usage(self):
+    def test_ngram_lower_index_usage_non_nullable(self):
         property_name = "text_prop"
         _create_event(
             team=self.team,
@@ -463,11 +463,28 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             properties={property_name: "Hello World Text"},
         )
 
-        column = materialize("events", property_name, create_ngram_lower_index=True)
+        column = materialize("events", property_name, create_ngram_lower_index=True, is_nullable=False)
         index_name = get_ngram_lower_index_name(column.name)
 
         # Verify index appears in EXPLAIN for case-insensitive LIKE query
         query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE lower({column.name}) LIKE '%world%'"
+        index_info = get_index_from_explain(query, index_name)
+        assert index_info is not None, f"N-gram index {index_name} should appear in EXPLAIN output"
+
+    def test_ngram_lower_index_usage_nullable(self):
+        property_name = "text_prop"
+        _create_event(
+            team=self.team,
+            event="test_event",
+            distinct_id="user1",
+            properties={property_name: "Hello World Text"},
+        )
+
+        column = materialize("events", property_name, create_ngram_lower_index=True, is_nullable=True)
+        index_name = get_ngram_lower_index_name(column.name)
+
+        # Verify index appears in EXPLAIN for case-insensitive LIKE query
+        query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE lower(coalesce({column.name}, '')) LIKE '%world%'"
         index_info = get_index_from_explain(query, index_name)
         assert index_info is not None, f"N-gram index {index_name} should appear in EXPLAIN output"
 
