@@ -125,7 +125,8 @@ class Consumer:
             get_task = asyncio.create_task(queue.get())
             _ = await asyncio.wait((get_task, producer_task), return_when=asyncio.FIRST_COMPLETED)
 
-            match _WaitResult((get_task.done(), producer_task.done())):
+            wait_result = _WaitResult((get_task.done(), producer_task.done()))
+            match wait_result:
                 case _WaitResult.FIRST_DONE | _WaitResult.BOTH_DONE:
                     record_batch = get_task.result()
 
@@ -140,7 +141,7 @@ class Consumer:
                         record_batch = await get_task
 
                 case _:
-                    typing.assert_never(_WaitResult)
+                    typing.assert_never(wait_result)
 
             self.logger.debug(f"Consuming batch number {self.total_record_batches_count}")
 
