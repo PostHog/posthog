@@ -9,7 +9,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 def resolve_eav_properties(node: ast.AST, context: HogQLContext) -> None:
     """
-    Transform EAV property accesses into JOINs on the event_properties table.
+    Transform EAV property accesses into JOINs on the posthog.event_properties table.
 
     This mutates the AST in place:
     1. For each SelectQuery, finds PropertyType nodes that need EAV
@@ -92,7 +92,7 @@ class EAVResolver(TraversingVisitor):
         Create a JoinExpr for an EAV property.
 
         Generates:
-        LEFT ANY JOIN event_properties AS {eav_alias}
+        LEFT ANY JOIN posthog.event_properties AS {eav_alias}
             ON {events_alias}.team_id = {eav_alias}.team_id
             AND toDate({events_alias}.timestamp) = toDate({eav_alias}.timestamp)
             AND {events_alias}.event = {eav_alias}.event
@@ -144,7 +144,7 @@ class EAVResolver(TraversingVisitor):
 
         return ast.JoinExpr(
             join_type="LEFT ANY JOIN",
-            table=ast.Field(chain=["event_properties"]),
+            table=ast.Field(chain=["posthog", "event_properties"]),
             alias=eav_alias,
             constraint=ast.JoinConstraint(
                 expr=constraint_expr,

@@ -850,8 +850,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.318.0
-        version: 1.318.0
+        specifier: 1.318.2
+        version: 1.318.2
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1824,8 +1824,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.318.0
-        version: 1.318.0
+        specifier: 1.318.2
+        version: 1.318.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -2147,8 +2147,8 @@ importers:
         specifier: '*'
         version: 5.4.1
       posthog-js:
-        specifier: 1.318.0
-        version: 1.318.0
+        specifier: 1.318.2
+        version: 1.318.2
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2466,8 +2466,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.318.0
-        version: 1.318.0
+        specifier: 1.318.2
+        version: 1.318.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -2538,8 +2538,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.318.0
-        version: 1.318.0
+        specifier: 1.318.2
+        version: 1.318.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -6805,8 +6805,8 @@ packages:
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.318.0':
-    resolution: {integrity: sha512-cyJfAwEh8DELKkAVkC4pbMKfj51dtMowdxLORcS4+XB0c5FbAvYlGWULpQVHjVXhHNsPN6gIS/f66Oj5DXZ8JA==}
+  '@posthog/types@1.318.2':
+    resolution: {integrity: sha512-/4m1DStpyaZStTJJ4b7RyftnFoSM/IWmVBTiWvdm2e2I8A8W3D4+YY7YkTpPtTinRZEhDQEZFjhlHdDgNCiNuA==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -16946,8 +16946,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.318.0:
-    resolution: {integrity: sha512-gj86IKD4du3fbTm9y+a8KqYxz5o/E89UqTGDYf9ka2NYVWci2CN45Zzs2ijBeFHKhPfb+sTeO3NUecGhFBa6VQ==}
+  posthog-js@1.318.2:
+    resolution: {integrity: sha512-M5C/3HYlyNaqmCIwgGkmJLcGt5MREwsllwGLAOO3nMYhrWSjEuJnEzenplHxa/4UgwvhR4121ErzRHgK67qq1A==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -16974,9 +16974,6 @@ packages:
 
   pprof-format@2.2.1:
     resolution: {integrity: sha512-p4tVN7iK19ccDqQv8heyobzUmbHyds4N2FI6aBMcXz6y99MglTWDxIyhFkNaLeEXs6IFUEzT0zya0icbSLLY0g==}
-
-  preact@10.28.0:
-    resolution: {integrity: sha512-rytDAoiXr3+t6OIP3WGlDd0ouCUG1iCWzkcY3++Nreuoi17y6T5i/zRhe6uYfoVcxq6YU+sBtJouuRDsq8vvqA==}
 
   preact@10.28.2:
     resolution: {integrity: sha512-lbteaWGzGHdlIuiJ0l2Jq454m6kcpI1zNje6d8MlGAFlYvP2GO4ibnat7P74Esfz4sPTdM6UxtTwh/d3pwM9JA==}
@@ -19501,8 +19498,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.342.0:
-    resolution: {integrity: sha512-8+ga8rm40tISfLOOFsK5UQJaH9jB5xk78vSwT+aFzPbLCGt3jGMPpkfPfC/aMDaq4+RcIbqLTtCwplznN3g2dg==}
+  unlayer-types@1.351.0:
+    resolution: {integrity: sha512-l371kq0WSO7FrfhCegF4tefNnYfu4zZen5xkt5KaH9FqwZfmw+ba3xZVk9BTm5jxrZVl/rXydd3Ko7WqcDZo4Q==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -26420,7 +26417,7 @@ snapshots:
 
   '@posthog/siphash@1.1.1': {}
 
-  '@posthog/types@1.318.0': {}
+  '@posthog/types@1.318.2': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -35051,7 +35048,7 @@ snapshots:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.28.0
+      preact: 10.28.2
       qs: 6.9.7
       search-insights: 2.13.0
 
@@ -39252,10 +39249,10 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.318.0:
+  posthog-js@1.318.2:
     dependencies:
       '@posthog/core': 1.9.1
-      '@posthog/types': 1.318.0
+      '@posthog/types': 1.318.2
       core-js: 3.40.0
       dompurify: 3.3.1
       fflate: 0.4.8
@@ -39287,8 +39284,6 @@ snapshots:
   potpack@2.0.0: {}
 
   pprof-format@2.2.1: {}
-
-  preact@10.28.0: {}
 
   preact@10.28.2: {}
 
@@ -40087,7 +40082,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.342.0
+      unlayer-types: 1.351.0
 
   react-error-overlay@6.0.9: {}
 
@@ -42280,7 +42275,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.342.0: {}
+  unlayer-types@1.351.0: {}
 
   unpipe@1.0.0: {}
 
