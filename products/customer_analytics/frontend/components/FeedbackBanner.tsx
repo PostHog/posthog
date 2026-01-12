@@ -5,7 +5,8 @@ interface FeedbackBannerProps {
     message?: string
 }
 
-const DEFAULT_MESSAGE = "We're working on improving the persons experience. Send us your feedback!"
+const DEFAULT_MESSAGE =
+    "Customer analytics is in beta. Please let us know what you'd like to see here and/or report any issues directly to us!"
 
 export function FeedbackBanner({ feedbackButtonId, message = DEFAULT_MESSAGE }: FeedbackBannerProps): JSX.Element {
     return (
