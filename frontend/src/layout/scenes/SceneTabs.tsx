@@ -89,6 +89,11 @@ export function SceneTabs(): JSX.Element {
                 </ButtonPrimitive>
             )}
 
+            {/* Line below tabs to to complete border on <main> element */}
+            <div className="absolute bottom-0 w-full px-[5px]">
+                <div className="w-full bottom-0 h-px border-b border-primary z-10" />
+            </div>
+
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
@@ -98,7 +103,7 @@ export function SceneTabs(): JSX.Element {
                         direction="horizontal"
                         className="w-full min-w-0"
                         innerClassName={cn(
-                            'scene-tab-row min-w-0 gap-1 items-center flex w-full overflow-x-auto show-scrollbar-on-hover h-[var(--scene-layout-header-height)] lg:h-auto'
+                            'scene-tab-row min-w-0 gap-1 items-center flex w-full overflow-x-auto show-scrollbar-on-hover h-[var(--scene-layout-header-height)] lg:h-auto pr-2 '
                         )}
                         style={{ WebkitOverflowScrolling: 'touch' }}
                         styledScrollbars
@@ -194,7 +199,7 @@ function SortableSceneTab({
             style={style}
             {...attributes}
             {...listeners}
-            className={cn(isPinned ? 'w-[var(--button-height-sm)] shrink-0' : 'flex-1 min-w-[100px]')}
+            className={cn(isPinned ? 'w-[var(--button-height-sm)] shrink-0' : 'flex-1 min-w-[100px] max-w-[250px]')}
             data-tab-id={tab.id}
         >
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
@@ -217,14 +222,15 @@ interface SceneTabProps {
     index: number
 }
 
-function SceneTabComponent({ tab, className, isDragging, containerClassName }: SceneTabProps): JSX.Element {
+function SceneTabComponent({ tab, className, isDragging, containerClassName, index }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
-    const canRemoveTab = !isPinned
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
-    const { editingTabId } = useValues(sceneLogic)
+    const { editingTabId, tabs } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
     const isEditing = editingTabId === tab.id
+    const canRemoveTab = !isPinned && tabs.length !== 1
+    const firstTabActive = index === 0 && tab.active
 
     useEffect(() => {
         if (isEditing && editValue === '') {
@@ -267,7 +273,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                             isSideActionRight
                             iconOnly
                             size="xs"
-                            className="group-hover:opacity-100 opacity-0 order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
+                            className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
                         >
                             <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
                         </ButtonPrimitive>
@@ -298,14 +304,15 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                         }
                     }}
                     forceVariant={true}
-                    variant={tab.active ? 'panel' : 'default'}
+                    variant="default"
                     hasSideActionRight
                     className={cn(
                         'w-full order-first',
                         'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 border border-transparent text-tertiary',
                         tab.active
-                            ? 'tab-active cursor-default text-primary hover:bg-[var(--color-bg-fill-button-panel)]'
+                            ? 'tab-active bg-[var(--scene-layout-background)] cursor-default text-primary border-primary rounded-b-none'
                             : 'cursor-pointer hover:text-primary z-20',
+                        firstTabActive && 'rounded-bl-none',
                         'focus:outline-none',
                         isPinned && 'scene-tab--pinned justify-center pl-1 pr-1 gap-0',
                         className
@@ -325,6 +332,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                     ) : (
                         iconForType(tab.iconType as FileSystemIconType)
                     )}
+
                     {isPinned ? (
                         <span className="sr-only">{tab.customTitle || tab.title}</span>
                     ) : isEditing ? (
@@ -352,13 +360,25 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                         />
                     ) : (
                         <div
-                            className={cn('scene-tab-title flex-grow text-left truncate', tab.customTitle && 'italic')}
+                            className={cn(
+                                'scene-tab-title flex gap-1 flex-grow text-left truncate',
+                                tab.customTitle && 'italic'
+                            )}
                         >
                             {tab.customTitle || tab.title}
                         </div>
                     )}
                 </ButtonPrimitive>
             </ButtonGroupPrimitive>
+            {tab.active && (
+                <div
+                    className={cn(
+                        'scene-tab-active-indicator',
+                        index === 0 && 'scene-tab-active-indicator--first',
+                        firstTabActive && 'scene-tab-indicator--active-first'
+                    )}
+                />
+            )}
         </div>
     )
 }

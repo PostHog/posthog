@@ -44,6 +44,7 @@ export function Navigation({
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
+    const { firstTabIsActive } = useValues(sceneLogic)
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -98,18 +99,25 @@ export function Navigation({
                 <ProjectDragAndDropProvider>
                     <PanelLayout className="left-nav" />
 
-                    <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start">
+                    <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start mt-px">
                         <SceneTabs />
                     </div>
 
-                    <div className="@container/main-content-container main-content-container flex overflow-hidden lg:rounded-lg border-t lg:border border-primary lg:mb-2 relative">
+                    <div
+                        className={cn(
+                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary lg:mb-2 relative',
+                            {
+                                'lg:rounded-tl-none': firstTabIsActive,
+                            }
+                        )}
+                    >
                         <main
                             ref={mainRef}
                             role="main"
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden lg:rounded-lg show-scrollbar-on-hover p-4 h-full flex-1 transition-[width] duration-300',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 h-full flex-1 transition-[width] duration-300',
                                 {
                                     'p-0':
                                         sceneConfig?.layout === 'app-raw-no-header' ||
