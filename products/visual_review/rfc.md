@@ -120,6 +120,7 @@ platform/              # Shared platform code
   observability/       # Logging, tracing, metrics
 products/              # Product-specific apps
 services/              # Independent backend services
+tools/                 # Developer tooling, CLIs, scripts
 ```
 
 ### Services
@@ -148,7 +149,11 @@ Why platform must not call product facades:
 * dependency direction flips (platform → products)
 * cycles become likely over time
 
-That destroys the “platform is foundational” property and makes boundaries brittle.
+That destroys the "platform is foundational" property and makes boundaries brittle.
+
+### Tools
+
+Developer tooling: CLIs, linters, formatters, code generators, scaffolding scripts. Not imported by runtime code. Can be standalone packages or internal utilities.
 
 # 4. DTOs as Dataclasses
 
