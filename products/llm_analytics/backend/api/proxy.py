@@ -142,7 +142,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             trace_id = str(uuid.uuid4())
             distinct_id = getattr(request.user, "email", "") if request.user and request.user.is_authenticated else ""
             properties = {"ai_product": "playground"}
-            groups_data = groups(team=getattr(request.user, "current_team", None))
+            group_properties = groups(team=getattr(request.user, "current_team", None))
 
             if mode == "completion" and hasattr(provider, "stream_response"):
                 messages = serializer.validated_data.get("messages")
@@ -174,7 +174,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     "distinct_id": distinct_id,
                     "trace_id": trace_id,
                     "properties": properties,
-                    "groups": groups_data,
+                    "groups": group_properties,
                 }
 
                 # Only pass reasoning_level to OpenAI provider which supports it
