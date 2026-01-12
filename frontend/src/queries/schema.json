@@ -1933,7 +1933,8 @@
                 "create_insight",
                 "create_form",
                 "task",
-                "upsert_dashboard"
+                "upsert_dashboard",
+                "manage_memories"
             ],
             "type": "string"
         },
@@ -18284,7 +18285,8 @@
                 "reddit-ads",
                 "databricks",
                 "tiktok-ads",
-                "bing-ads"
+                "bing-ads",
+                "vercel"
             ],
             "type": "string"
         },
