@@ -697,8 +697,17 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
+        const showClustersTab = isTraceLevel(event) && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
+
+        // If the URL forces the "clusters" tab but the feature flag is off, fall back to a safe default.
+        useEffect(() => {
+            if (viewMode === TraceViewMode.Clusters && !showClustersTab) {
+                setViewMode(TraceViewMode.Conversation)
+            }
+        }, [setViewMode, showClustersTab, viewMode])
 
         // Only pre-load for generation events ($ai_input/$ai_output_choices).
         // TODO: Figure out why spans can't load properties async
@@ -963,7 +972,7 @@ const EventContent = React.memo(
                                           },
                                       ]
                                     : []),
-                                ...(isTraceLevel(event)
+                                ...(showClustersTab
                                     ? [
                                           {
                                               key: TraceViewMode.Clusters,
