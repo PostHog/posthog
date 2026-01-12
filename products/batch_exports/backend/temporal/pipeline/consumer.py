@@ -20,6 +20,8 @@ EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class _WaitResult(enum.Enum):
+    """Enumeration of possible results when concurrently waiting for two tasks."""
+
     FIRST_DONE = (True, False)
     SECOND_DONE = (False, True)
     BOTH_DONE = (True, True)
@@ -120,7 +122,19 @@ class Consumer:
         producer_task: asyncio.Task,
         json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
     ):
-        """Yield record batches from provided `queue` until `producer_task` is done."""
+        """Yield record batches from provided `queue` until `producer_task` is done.
+
+        This method is non-blocking by concurrently waiting for both `queue.get` and
+        `producer_task` in a loop using `asyncio.wait`.
+
+        Everytime `queue.get` returns a value it is yielded. Whenever `producer_task` is
+        done, we check if `queue` is empty. If it is, then the method doesn't expect
+        anything else to ever come in the queue, and thus can exit without data loss
+        (after canceling a pending `queue.get` to avoid resource leaking).
+
+        If the `queue` is not empty, then the method can't exit just yet and instead
+        continues waiting on `queue.get`.
+        """
 
         while True:
             get_task = asyncio.create_task(queue.get())
