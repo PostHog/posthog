@@ -18,7 +18,6 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         registerScenePanelElement: (element: HTMLElement | null) => ({ element }),
         setScenePanelIsPresent: (active: boolean) => ({ active }),
         setScenePanelOpen: (open: boolean) => ({ open }),
-        setForceScenePanelClosedWhenRelative: (closed: boolean) => ({ closed }),
         setSceneLayoutConfig: (config: SceneConfig) => ({ config }),
     }),
     reducers({
@@ -38,13 +37,6 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
             false,
             {
                 setScenePanelOpen: (_, { open }) => open,
-            },
-        ],
-        forceScenePanelClosedWhenRelative: [
-            false,
-            { persist: true },
-            {
-                setForceScenePanelClosedWhenRelative: (_, { closed }) => closed,
             },
         ],
         sceneLayoutConfig: [
