@@ -5,7 +5,6 @@ import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -42,7 +41,6 @@ export function Navigation({
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { setTabScrollDepth } = useActions(sceneLogic)
     const { activeTabId } = useValues(sceneLogic)
-    const simplerAppLayout = useFeatureFlag('SIMPLER_APP_LAYOUT')
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
@@ -98,7 +96,7 @@ export function Navigation({
                 }
             >
                 <ProjectDragAndDropProvider>
-                    <PanelLayout className="left-nav" isSimplerAppLayout={simplerAppLayout} />
+                    <PanelLayout className="left-nav" />
 
                     <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start">
                         <SceneTabs />
@@ -168,7 +166,7 @@ export function Navigation({
                         )}
                     </div>
 
-                    <SidePanel className={simplerAppLayout ? 'right-nav' : ''} />
+                    <SidePanel className="right-nav" />
                 </ProjectDragAndDropProvider>
             </div>
         </>
