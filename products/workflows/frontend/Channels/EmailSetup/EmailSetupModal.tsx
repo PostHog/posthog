@@ -21,7 +21,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
         }
 
         if (hostname.endsWith(`.${rootDomain}`)) {
-            const subdomain = hostname.slice(0, -(rootDomain.length + 1))
+            const subdomain = hostname.slice(0, -rootDomain.length - 1)
             return { subdomain, rootDomain: `.${rootDomain}` }
         }
 
@@ -105,7 +105,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                             icon={<IconCopy />}
                                                             onClick={() => {
                                                                 void navigator.clipboard.writeText(subdomain)
-                                                                lemonToast.success('Hostname copied to clipboard')
+                                                                lemonToast.success('Name copied to clipboard')
                                                             }}
                                                             tooltip="Copy hostname"
                                                             className="ml-0.5 -mr-0.5"
