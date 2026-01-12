@@ -172,7 +172,7 @@ export function SceneTitleSection({
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
             {effectiveDescription != null && (
                 // When this element touches top of the scene, we set the sticky bar to be sticky
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute top-[-55px]" aria-hidden />
+                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
             )}
 
             <div
