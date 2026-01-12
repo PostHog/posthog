@@ -368,6 +368,9 @@ pub fn match_property(
         OperatorType::FlagEvaluatesTo => Err(FlagMatchingError::ValidationError(
             "FlagEvaluatesTo operator should be handled by flag dependency matching".to_string(),
         )),
+        OperatorType::SemverEq | OperatorType::SemverNeq => Err(FlagMatchingError::ValidationError(
+            "SemverEq/SemverNeq operators are not supported; use Exact/IsNot for version equality".to_string(),
+        )),
     }
 }
 
