@@ -92,11 +92,9 @@ def export_asset(
     # synchronously (API) or asynchronously (Celery).
     try:
         export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
-    except EXCEPTIONS_TO_RETRY:
-        # System errors (capacity issues, etc.) are re-raised after retries exhausted.
-        raise
     except Exception:
-        # User errors (bad queries) are recorded but not re-raised to keep existing behavior.
+        # Swallow exceptions so that users see the exception message in the toast (without hovering over the failed
+        # export icon).
         pass
 
 
