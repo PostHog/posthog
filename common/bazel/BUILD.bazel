@@ -110,6 +110,7 @@ py_library(
         "@pypi//jsonref",
         "@pypi//azure_core",
         "@pypi//azure_ai_inference",
+        "@pypi//azure_storage_blob",
         "@pypi//glom",
         "@pypi//pymediainfo",
         "@pypi//natsort",
