@@ -936,7 +936,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation", "notebook", "update"],
+            "enum": ["status", "message", "conversation", "notebook", "update", "approval"],
             "type": "string"
         },
         "AssistantForm": {
