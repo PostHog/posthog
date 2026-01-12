@@ -8,10 +8,14 @@ from posthog.cloud_utils import is_dev_mode
 # Shared constants
 DEFAULT_TARGET_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
 
-# URL safety helpers
+# URL safety helpers - Schemes that should never be allowed for external URLs
 DISALLOWED_SCHEMES = {"file", "ftp", "gopher", "ws", "wss", "data", "javascript"}
+
+# Cloud metadata service hosts that should be blocked to prevent SSRF
 METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
+
 # Internal domain patterns that should never be accessed
+# These are common internal TLDs and suffixes used in private networks
 INTERNAL_DOMAIN_PATTERNS = (
     ".local",
     ".internal",
@@ -63,6 +67,7 @@ def resolve_host_ips(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Add
 
 
 def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Check if an IP address is internal/private and should be blocked."""
     return any(
         [
             ip.is_private,
@@ -76,6 +81,16 @@ def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
 
 
 def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
+    """
+    Validate a URL for SSRF protection.
+
+    Returns (True, None) if the URL is safe to fetch, or (False, error_message) if blocked.
+
+    Checks:
+    - Scheme must be http or https
+    - Host must not be localhost, metadata service, or internal domain
+    - Resolved IPs must not be private/internal
+    """
     if is_dev_mode():
         return True, None
     try:
