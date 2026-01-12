@@ -4877,6 +4877,7 @@ const api = {
                 conversation?: string | null
                 trace_id: string
                 agent_mode?: AgentMode | null
+                resume_payload?: { action: 'approve' | 'reject'; proposal_id: string; feedback?: string } | null
             },
             options?: ApiMethodOptions
         ): Promise<Response> {

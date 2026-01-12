@@ -749,6 +749,25 @@
                 }
             ]
         },
+        "ApprovalCardUIStatus": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ApprovalDecisionStatus"
+                },
+                {
+                    "const": "approving",
+                    "type": "string"
+                },
+                {
+                    "const": "rejecting",
+                    "type": "string"
+                }
+            ]
+        },
+        "ApprovalDecisionStatus": {
+            "enum": ["pending", "approved", "rejected", "auto_rejected"],
+            "type": "string"
+        },
         "ArtifactContent": {
             "anyOf": [
                 {
@@ -917,7 +936,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation", "notebook", "update"],
+            "enum": ["status", "message", "conversation", "notebook", "update", "approval"],
             "type": "string"
         },
         "AssistantForm": {
@@ -8768,6 +8787,30 @@
                 "subscription_event",
                 "payment_event"
             ],
+            "type": "object"
+        },
+        "DangerousOperationResponse": {
+            "additionalProperties": false,
+            "description": "Response returned when a tool operation requires user approval",
+            "properties": {
+                "payload": {
+                    "type": "object"
+                },
+                "preview": {
+                    "type": "string"
+                },
+                "proposalId": {
+                    "type": "string"
+                },
+                "status": {
+                    "const": "pending_approval",
+                    "type": "string"
+                },
+                "toolName": {
+                    "type": "string"
+                }
+            },
+            "required": ["status", "proposalId", "toolName", "preview", "payload"],
             "type": "object"
         },
         "DashboardFilter": {
