@@ -113,8 +113,8 @@ export function MaterializedColumns(): JSX.Element {
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
             return (
                 <div className="text-xs text-muted">
-                    {slot.backfill_temporal_uuid ? (
-                        <span className="font-mono">{slot.backfill_temporal_uuid}</span>
+                    {slot.backfill_temporal_workflow_id ? (
+                        <span className="font-mono">{slot.backfill_temporal_workflow_id}</span>
                     ) : (
                         <span>—</span>
                     )}

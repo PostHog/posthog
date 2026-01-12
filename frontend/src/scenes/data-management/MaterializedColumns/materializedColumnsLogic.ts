@@ -33,7 +33,7 @@ export interface MaterializedColumnSlot {
     slot_index: number
     state: MaterializedColumnSlotState
     materialization_type: MaterializationType
-    backfill_temporal_uuid: string | null
+    backfill_temporal_workflow_id: string | null
     created_at: string
     updated_at: string
 }
