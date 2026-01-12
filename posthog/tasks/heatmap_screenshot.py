@@ -123,14 +123,20 @@ def _trigger_lazy_loading(page: Page) -> None:
         page.evaluate(
             """
             async () => {
-                const scrollHeight = document.body.scrollHeight;
                 const viewportHeight = window.innerHeight;
                 const scrollStep = viewportHeight * 0.8;
+                let lastScrollHeight = 0;
+                let currentScrollHeight = document.body.scrollHeight;
 
-                // Scroll down in steps to trigger lazy loading
-                for (let y = 0; y < scrollHeight; y += scrollStep) {
-                    window.scrollTo(0, y);
-                    await new Promise(r => setTimeout(r, 100));
+                // Keep scrolling until the page stops growing
+                while (currentScrollHeight > lastScrollHeight) {
+                    for (let y = 0; y < currentScrollHeight; y += scrollStep) {
+                        window.scrollTo(0, y);
+                        await new Promise(r => setTimeout(r, 100));
+                    }
+                    lastScrollHeight = currentScrollHeight;
+                    await new Promise(r => setTimeout(r, 200));
+                    currentScrollHeight = document.body.scrollHeight;
                 }
 
                 // Scroll back to top
@@ -157,7 +163,7 @@ def _trigger_lazy_loading(page: Page) -> None:
                 document.querySelectorAll('img').forEach(img => {
                     for (const attr of lazyAttrs) {
                         const lazySrc = img.getAttribute(attr);
-                        if (lazySrc && !img.src) {
+                        if (lazySrc && (!img.getAttribute('src') || img.getAttribute('src') === '')) {
                             img.src = lazySrc;
                         }
                     }
@@ -168,7 +174,7 @@ def _trigger_lazy_loading(page: Page) -> None:
                 document.querySelectorAll('img').forEach(img => {
                     for (const attr of lazySrcsetAttrs) {
                         const lazySrcset = img.getAttribute(attr);
-                        if (lazySrcset && !img.srcset) {
+                        if (lazySrcset && (!img.srcset || img.srcset === '')) {
                             img.srcset = lazySrcset;
                         }
                     }
