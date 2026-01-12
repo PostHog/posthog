@@ -118,5 +118,6 @@ py_library(
         "@pypi//nh3",
         "@pypi//pillow",
         "@pypi//django_prometheus",
+        "@pypi//webauthn",
     ],
 )
