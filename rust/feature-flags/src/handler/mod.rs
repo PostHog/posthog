@@ -97,12 +97,12 @@ async fn process_request_inner(
     };
 
     let result = async {
-        // Use the pre-initialized HyperCacheReader from state
+        // Use the pre-initialized HyperCacheReaders from state (for team and flags)
         // This avoids per-request AWS SDK initialization overhead
         let flag_service = FlagService::new(
             context.state.redis_client.clone(),
             context.state.database_pools.non_persons_reader.clone(),
-            context.state.config.team_cache_ttl_seconds,
+            context.state.team_hypercache_reader.clone(),
             context.state.flags_hypercache_reader.clone(),
         );
 
@@ -113,8 +113,11 @@ async fn process_request_inner(
             .clone()
             .unwrap_or_else(|| "disabled".to_string());
 
-        // Populate canonical log with distinct_id
-        with_canonical_log(|log| log.distinct_id = Some(distinct_id_for_logging.clone()));
+        // Populate canonical log with distinct_id and device_id
+        with_canonical_log(|log| {
+            log.distinct_id = Some(distinct_id_for_logging.clone());
+            log.device_id = request.device_id.clone();
+        });
 
         tracing::debug!(
             "Authentication completed for distinct_id: {}",
