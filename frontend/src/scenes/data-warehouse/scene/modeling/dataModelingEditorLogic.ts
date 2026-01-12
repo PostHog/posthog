@@ -112,10 +112,8 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             actions.resetGraphFromNodes(dataModelingNodes)
         },
         resetGraphFromNodes: async ({ dataModelingNodes }) => {
-            // for now matview nodes only
-            const matviewNodes = dataModelingNodes.filter((n) => n.type === 'matview')
             const handlesByNodeId: Record<string, Record<string, ModelNodeHandle>> = {}
-            matviewNodes.forEach((node) => {
+            dataModelingNodes.forEach((node) => {
                 handlesByNodeId[node.id] = {
                     [`target_${node.id}`]: {
                         id: `target_${node.id}`,
@@ -131,7 +129,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     },
                 }
             })
-            const nodes: ModelNode[] = matviewNodes.map((node) => ({
+            const nodes: ModelNode[] = dataModelingNodes.map((node) => ({
                 id: node.id,
                 type: 'model',
                 data: {
