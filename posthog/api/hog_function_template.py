@@ -70,7 +70,6 @@ class PublicHogFunctionTemplateViewSet(
             # Don't include deprecated templates when listing
             queryset = queryset.exclude(status="deprecated")
 
-            # Hide Firebase push notification template behind feature flag
             if hasattr(self.request, "user") and self.request.user.is_authenticated:
                 organization = getattr(self.request.user, "organization", None)
                 if organization:
