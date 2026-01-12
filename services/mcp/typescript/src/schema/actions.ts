@@ -47,7 +47,7 @@ export const ActionSchema = z.object({
     is_calculating: z.boolean(),
     last_calculated_at: z.string().optional(),
     team_id: z.number(),
-    is_action: z.boolean(),
+    is_action: z.boolean().optional(),
     bytecode_error: z.string().nullable(),
     pinned_at: z.string().nullish(),
 })

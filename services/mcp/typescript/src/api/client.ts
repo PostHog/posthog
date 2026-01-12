@@ -1417,7 +1417,22 @@ export class ApiClient {
                 actionId: number
                 data: UpdateActionInput
             }): Promise<Result<Action>> => {
-                const validatedInput = UpdateActionInputSchema.parse(data)
+                // Backend expects `name`; if missing, fetch current action and include it.
+                let payload: UpdateActionInput = data
+                if (typeof data.name === 'undefined') {
+                    const currentResult = await this.fetchWithSchema(
+                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                        ActionSchema
+                    )
+
+                    if (!currentResult.success) {
+                        return currentResult
+                    }
+
+                    payload = { name: currentResult.data.name, ...data }
+                }
+
+                const validatedInput = UpdateActionInputSchema.parse(payload)
 
                 return this.fetchWithSchema(
                     `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
@@ -1445,7 +1460,8 @@ export class ApiClient {
                     )
 
                     if (!response.ok) {
-                        throw new Error(`Failed to delete action: ${response.statusText}`)
+                        const errorBody = await response.text().catch(() => response.statusText)
+                        throw new Error(`Failed to delete action: ${response.status} ${response.statusText} - ${errorBody}`)
                     }
 
                     return {
