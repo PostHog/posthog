@@ -25,6 +25,9 @@ type Subscription struct {
 	// Channels
 	EventChan   chan interface{}
 	ShouldClose *atomic.Bool
+
+	// Stats
+	DroppedEvents *atomic.Uint64
 }
 
 //easyjson:json
@@ -88,6 +91,9 @@ func uuidFromDistinctId(teamId int, distinctId string) string {
 func removeSubscription(subID uint64, subs []Subscription) []Subscription {
 	for i, sub := range subs {
 		if subID == sub.SubID {
+			if dropped := sub.DroppedEvents.Load(); dropped >= 0 {
+				log.Printf("Team %d Distinct Id %s dropped %d events", sub.TeamId, sub.DistinctId, dropped)
+			}
 			metrics.SubTotal.Dec()
 			return slices.Delete(subs, i, i+1)
 		}
@@ -135,7 +141,7 @@ func (c *Filter) Run() {
 						select {
 						case sub.EventChan <- *responseGeoEvent:
 						default:
-							log.Printf("Dropped geo event for sub %d team %d (channel full)", sub.SubID, sub.TeamId)
+							sub.DroppedEvents.Add(1)
 							metrics.DroppedEvents.With(prometheus.Labels{"channel": "geo"}).Inc()
 						}
 					}
@@ -147,7 +153,7 @@ func (c *Filter) Run() {
 					select {
 					case sub.EventChan <- *responseEvent:
 					default:
-						log.Printf("Dropped event for sub %d team %d (channel full)", sub.SubID, sub.TeamId)
+						sub.DroppedEvents.Add(1)
 						metrics.DroppedEvents.With(prometheus.Labels{"channel": "events"}).Inc()
 					}
 				}
