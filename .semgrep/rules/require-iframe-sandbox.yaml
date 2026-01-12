@@ -1,0 +1,20 @@
+rules:
+    - id: require-iframe-sandbox
+      message: >-
+          iframe elements must have a sandbox attribute to restrict embedded content.
+          Add sandbox="..." with appropriate permissions (e.g., "allow-scripts allow-same-origin").
+          If this iframe intentionally needs no sandbox, add a nosemgrep comment.
+      severity: ERROR
+      languages: [typescript, javascript]
+      patterns:
+          - pattern: <iframe ... />
+          - pattern-not: <iframe ... sandbox="..." ... />
+          - pattern-not: <iframe ... sandbox={...} ... />
+      metadata:
+          category: security
+          technology:
+              - react
+          cwe:
+              - 'CWE-1021: Improper Restriction of Rendered UI Layers or Frames'
+          owasp:
+              - A05:2021 - Security Misconfiguration
