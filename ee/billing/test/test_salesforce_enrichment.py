@@ -11,7 +11,7 @@ from parameterized import parameterized
 
 from ee.billing.salesforce_enrichment.enrichment import (
     _extract_domain,
-    enrich_accounts_chunked_async,
+    enrich_accounts_async,
     get_salesforce_accounts_by_domain,
     is_excluded_domain,
     prepare_salesforce_update_data,
@@ -368,7 +368,8 @@ class TestSalesforceAccountQuery(BaseTest):
 
             # Should query with normalized domain (exact match or subdomain match)
             actual_query = mock_sf.query_all.call_args[0][0]
-            # Check for normalized domain in query (should be example.com without www/https)
+            # Verify SOQL query contains expected domain patterns (not URL sanitization)
+            # lgtm[py/incomplete-url-substring-sanitization]
             assert "example.com" in actual_query
             assert ".example.com" in actual_query  # subdomain pattern
             assert "www." not in actual_query
@@ -439,7 +440,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                 with patch(
                     "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
                 ) as mock_bulk_update:
-                    result = await enrich_accounts_chunked_async(specific_domain="example.com")
+                    result = await enrich_accounts_async(specific_domain="example.com")
 
                     # Check summary
                     assert result["summary"]["harmonic_data_found"] is True
@@ -483,7 +484,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                 return_value=mock_accounts,
             ):
                 with patch("ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"):
-                    result = await enrich_accounts_chunked_async(specific_domain="https://www.example.com/path")
+                    result = await enrich_accounts_async(specific_domain="https://www.example.com/path")
 
                     assert result["records_enriched"] == 1
                     assert result["enriched_data"] is not None
@@ -492,7 +493,7 @@ class TestSpecificDomainEnrichment(BaseTest):
     @pytest.mark.asyncio
     async def test_specific_domain_enrichment_excluded_domain(self):
         """Test that personal email domains are excluded."""
-        result = await enrich_accounts_chunked_async(specific_domain="gmail.com")
+        result = await enrich_accounts_async(specific_domain="gmail.com")
 
         assert result["records_processed"] == 1
         assert result["records_enriched"] == 0
@@ -515,7 +516,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                 "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
                 return_value=mock_accounts,
             ):
-                result = await enrich_accounts_chunked_async(specific_domain="unknown-domain.xyz")
+                result = await enrich_accounts_async(specific_domain="unknown-domain.xyz")
 
                 assert result["records_processed"] == 1
                 assert result["records_enriched"] == 0
@@ -528,7 +529,7 @@ class TestSpecificDomainEnrichment(BaseTest):
     async def test_specific_domain_no_salesforce_accounts(self):
         """Test handling when no Salesforce accounts match the domain."""
         with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain", return_value=[]):
-            result = await enrich_accounts_chunked_async(specific_domain="nonexistent-domain.com")
+            result = await enrich_accounts_async(specific_domain="nonexistent-domain.com")
 
             assert result["records_processed"] == 1
             assert result["records_enriched"] == 0
@@ -556,7 +557,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                 with patch(
                     "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
                 ) as mock_bulk_update:
-                    result = await enrich_accounts_chunked_async(specific_domain="example.com")
+                    result = await enrich_accounts_async(specific_domain="example.com")
 
                     # Verify Salesforce was queried
                     mock_get_accounts.assert_called_once_with("example.com")
@@ -590,7 +591,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                 with patch(
                     "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
                 ) as mock_bulk_update:
-                    result = await enrich_accounts_chunked_async(specific_domain="example.com")
+                    result = await enrich_accounts_async(specific_domain="example.com")
 
                     # Check summary shows all accounts
                     assert result["summary"]["harmonic_data_found"] is True
@@ -661,7 +662,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                         # Mock the single SOQL query that fetches updated accounts
                         mock_sf.query_all.return_value = {"records": [mock_updated_account]}
 
-                        result = await enrich_accounts_chunked_async(specific_domain="example.com")
+                        result = await enrich_accounts_async(specific_domain="example.com")
 
                         # Verify updated_salesforce_accounts is populated
                         assert "updated_salesforce_accounts" in result

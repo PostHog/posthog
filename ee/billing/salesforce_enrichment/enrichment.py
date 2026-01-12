@@ -718,56 +718,33 @@ async def _enrich_specific_domain_debug(
 
 
 async def enrich_accounts_chunked_async(
-    chunk_number: int = 0,
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
-    estimated_total_chunks: int | None = None,
-    specific_domain: str | None = None,
+    chunk_number: int,
+    chunk_size: int,
+    estimated_total_chunks: int | None,
+    start_time: float,
 ) -> dict[str, Any]:
-    """Enrich Salesforce accounts with Harmonic data using concurrent API calls.
+    """Production mode: Enrich a chunk of Salesforce accounts with Harmonic data.
 
-    Main workflow function that:
-    1. Queries chunk of Salesforce accounts (with global Redis caching)
-    2. Enriches business domains with Harmonic API (5 concurrent requests)
+    Standard workflow that:
+    1. Queries chunk of Salesforce accounts (from global Redis cache)
+    2. Enriches business domains with Harmonic API (default: 5 concurrent requests)
     3. Updates Salesforce in batches of 200 using sObject Collections
 
     Args:
         chunk_number: Zero-based chunk index
         chunk_size: Accounts per chunk (default: 5000)
         estimated_total_chunks: For progress logging
-        specific_domain: Optional domain/URL to enrich directly, skipping Salesforce query.
-                        When provided, only enriches this domain and returns the data without
-                        updating Salesforce.
+        start_time: For timing calculations
 
     Returns:
-        Dict with total_accounts_in_chunk (critical for workflow control), records_processed,
-        records_enriched, records_updated, success_rate, errors.
-        When specific_domain is provided, also includes enriched_data with the Harmonic response.
+        Dict with total_accounts_in_chunk, records_processed, records_enriched, etc.
     """
     logger = LOGGER.bind()
-    start_time = time.time()
     offset = chunk_number * chunk_size
 
     log_context = {"chunk_number": chunk_number, "chunk_size": chunk_size}
     if estimated_total_chunks:
         log_context["estimated_total_chunks"] = estimated_total_chunks
-
-    # Handle specific domain enrichment (debug mode with Salesforce update)
-    if specific_domain:
-        domain = _extract_domain(specific_domain)
-
-        if not domain or is_excluded_domain(domain):
-            return {
-                **_build_result(chunk_number, start_time, records_processed=1),
-                "summary": {
-                    "harmonic_data_found": False,
-                    "salesforce_update_succeeded": False,
-                    "domain": domain,
-                    "error": "Domain excluded (personal email domain)",
-                },
-                "error": f"Domain '{domain}' is excluded (personal email domain)",
-            }
-
-        return await _enrich_specific_domain_debug(domain, chunk_number, start_time)
 
     # Initialize Salesforce client
     try:
@@ -777,7 +754,7 @@ async def enrich_accounts_chunked_async(
         capture_exception(e)
         return _build_result(chunk_number, start_time, error=str(e))
 
-    # Query accounts
+    # Query accounts from Redis cache
     try:
         accounts = await query_salesforce_accounts_chunk_async(sf, offset, chunk_size)
         if not accounts:
@@ -822,12 +799,10 @@ async def enrich_accounts_chunked_async(
                 account_id = account_info["account_id"]
 
                 if harmonic_result:
-                    # Transform the raw GraphQL response
                     harmonic_data = transform_harmonic_data(harmonic_result)
 
                     if harmonic_data:
                         total_enriched += 1
-                        # Prepare update_data
                         update_data = prepare_salesforce_update_data(account_id, harmonic_data)
                         if update_data:
                             update_records.append(update_data)
@@ -868,3 +843,48 @@ async def enrich_accounts_chunked_async(
             pass
 
     return result
+
+
+async def enrich_accounts_async(
+    chunk_number: int = 0,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    estimated_total_chunks: int | None = None,
+    specific_domain: str | None = None,
+) -> dict[str, Any]:
+    """Entry point for Salesforce account enrichment.
+
+    Routes to either:
+    - Production mode: Process a chunk of accounts from Salesforce
+    - Debug mode: Enrich a specific domain and update matching SF accounts
+
+    Args:
+        chunk_number: Zero-based chunk index (production mode)
+        chunk_size: Accounts per chunk (production mode)
+        estimated_total_chunks: For progress logging (production mode)
+        specific_domain: Domain to enrich directly (debug mode)
+
+    Returns:
+        Dict with enrichment results. Structure varies by mode.
+    """
+    start_time = time.time()
+
+    # Debug mode: enrich specific domain
+    if specific_domain:
+        domain = _extract_domain(specific_domain)
+
+        if not domain or is_excluded_domain(domain):
+            return {
+                **_build_result(chunk_number, start_time, records_processed=1),
+                "summary": {
+                    "harmonic_data_found": False,
+                    "salesforce_update_succeeded": False,
+                    "domain": domain,
+                    "error": "Domain excluded (personal email domain)",
+                },
+                "error": f"Domain '{domain}' is excluded (personal email domain)",
+            }
+
+        return await _enrich_specific_domain_debug(domain, chunk_number, start_time)
+
+    # Production mode: process chunk of accounts
+    return await enrich_accounts_chunked_async(chunk_number, chunk_size, estimated_total_chunks, start_time)

@@ -16,7 +16,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE, SALESFORCE_ACCOUNTS_QUERY
-from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
+from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_async
 from ee.billing.salesforce_enrichment.redis_cache import get_cached_accounts_count, store_accounts_in_redis
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
 
@@ -58,7 +58,7 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
         )
 
         try:
-            result = await enrich_accounts_chunked_async(
+            result = await enrich_accounts_async(
                 chunk_number=inputs.chunk_number,
                 chunk_size=inputs.chunk_size,
                 estimated_total_chunks=inputs.estimated_total_chunks,
