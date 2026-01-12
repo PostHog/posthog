@@ -454,6 +454,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
                 )
 
+            # if someone is trying to reset the endpoint url, then we need to convert empty string to None
+            if merged_config.get("endpoint_url") == "":
+                destination_attrs["config"]["endpoint_url"] = None
+
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
             team_id = self.context["team_id"]
             team = Team.objects.get(id=team_id)
