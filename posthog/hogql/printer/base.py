@@ -1038,6 +1038,9 @@ class HogQLPrinter(Visitor[str]):
                     None,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
+                    has_minmax_index=materialized_column.has_minmax_index,
+                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
+                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
                 )
 
     def visit_property_type(self, type: ast.PropertyType):
