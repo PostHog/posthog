@@ -1,26 +1,24 @@
 import type { ApiConfig } from './client'
 import type { createApiClient } from './generated'
 import { globalRateLimiter } from './rate-limiter'
+import { RETRY_CONFIG, calculateRetryDelay } from './retry-config'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApiClient>[0] = (config) => {
     return {
         fetch: async (input) => {
-            const maxRetries = 3
-            const baseBackoffMs = 2000
+            // Handle query parameters once before retry loop
+            if (input.urlSearchParams) {
+                input.url.search = input.urlSearchParams.toString()
+            }
 
-            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            for (let attempt = 0; attempt <= RETRY_CONFIG.MAX_RETRIES; attempt++) {
                 // Apply rate limiting before making the request
                 await globalRateLimiter.throttle()
 
                 const headers = new Headers()
                 headers.set('Authorization', `Bearer ${config.apiToken}`)
-
-                // Handle query parameters
-                if (input.urlSearchParams) {
-                    input.url.search = input.urlSearchParams.toString()
-                }
 
                 // Handle request body for mutation methods
                 const body = ['post', 'put', 'patch', 'delete'].includes(input.method.toLowerCase())
@@ -49,15 +47,13 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
 
                 // Handle rate limiting with exponential backoff
                 if (response.status === 429) {
-                    if (attempt < maxRetries) {
-                        // Check for Retry-After header
+                    if (attempt < RETRY_CONFIG.MAX_RETRIES) {
+                        // Check for Retry-After header with validation
                         const retryAfter = response.headers.get('Retry-After')
-                        const delayMs = retryAfter
-                            ? parseInt(retryAfter, 10) * 1000
-                            : baseBackoffMs * Math.pow(2, attempt)
+                        const delayMs = calculateRetryDelay(attempt, retryAfter)
 
                         console.warn(
-                            `Rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
+                            `Rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${RETRY_CONFIG.MAX_RETRIES})`
                         )
                         await sleep(delayMs)
                         continue
@@ -65,7 +61,9 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
                     // Max retries exceeded
                     const errorResponse = await response.json()
                     throw new Error(
-                        `Rate limit exceeded after ${maxRetries} retries: [${response.status}] ${JSON.stringify(errorResponse)}`
+                        `Rate limit exceeded after ${RETRY_CONFIG.MAX_RETRIES} retries:\n` +
+                            `  Status: ${response.status}\n` +
+                            `  Response: ${JSON.stringify(errorResponse, null, 2)}`
                     )
                 }
 

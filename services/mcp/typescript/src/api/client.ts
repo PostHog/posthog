@@ -88,6 +88,7 @@ import {
 import { buildApiFetcher } from './fetcher'
 import { type Schemas, createApiClient } from './generated'
 import { globalRateLimiter } from './rate-limiter'
+import { RETRY_CONFIG, calculateRetryDelay } from './retry-config'
 
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
@@ -127,10 +128,7 @@ export class ApiClient {
     }
 
     private async fetchWithSchema<T>(url: string, schema: z.ZodType<T>, options?: RequestInit): Promise<Result<T>> {
-        const maxRetries = 3
-        const baseBackoffMs = 2000
-
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        for (let attempt = 0; attempt <= RETRY_CONFIG.MAX_RETRIES; attempt++) {
             try {
                 // Apply rate limiting before making the request
                 await globalRateLimiter.throttle()
@@ -145,15 +143,13 @@ export class ApiClient {
 
                 // Handle rate limiting with exponential backoff
                 if (response.status === 429) {
-                    if (attempt < maxRetries) {
-                        // Check for Retry-After header
+                    if (attempt < RETRY_CONFIG.MAX_RETRIES) {
+                        // Check for Retry-After header with validation
                         const retryAfter = response.headers.get('Retry-After')
-                        const delayMs = retryAfter
-                            ? parseInt(retryAfter, 10) * 1000
-                            : baseBackoffMs * Math.pow(2, attempt)
+                        const delayMs = calculateRetryDelay(attempt, retryAfter)
 
                         console.warn(
-                            `Rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
+                            `Rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${RETRY_CONFIG.MAX_RETRIES})`
                         )
                         await new Promise((resolve) => setTimeout(resolve, delayMs))
                         continue
@@ -163,7 +159,9 @@ export class ApiClient {
                     return {
                         success: false,
                         error: new Error(
-                            `Rate limit exceeded after ${maxRetries} retries:\nStatus Code: ${response.status}\nError Message: ${errorText}`
+                            `Rate limit exceeded after ${RETRY_CONFIG.MAX_RETRIES} retries:\n` +
+                                `  Status: ${response.status}\n` +
+                                `  Response: ${errorText}`
                         ),
                     }
                 }
@@ -200,10 +198,6 @@ export class ApiClient {
 
                 return { success: true, data: parseResult.data }
             } catch (error) {
-                // Only retry on rate limit errors, not other errors
-                if (error instanceof Error && error.message.includes('Rate limit')) {
-                    continue
-                }
                 return { success: false, error: error as Error }
             }
         }
