@@ -4,20 +4,31 @@ rules:
       pattern-sources:
           - patterns:
                 - pattern-either:
+                      # With .dict() call
                       - pattern: $REQ.GET.dict()
                       - pattern: $REQ.POST.dict()
                       - pattern: $REQ.query_params.dict()
+                      # Direct QueryDict (implements mapping protocol, can be unpacked with **)
+                      - pattern: $REQ.GET
+                      - pattern: $REQ.POST
+                      - pattern: $REQ.query_params
                       - pattern: $REQ.data
       pattern-sinks:
           - patterns:
                 - pattern-either:
+                      # Query methods (data exposure risk)
                       - pattern: $Q.filter(**$SINK)
                       - pattern: $Q.exclude(**$SINK)
                       - pattern: $Q.get(**$SINK)
+                      # Mutation methods (data integrity risk)
+                      - pattern: $Q.create(**$SINK)
+                      - pattern: $Q.update(**$SINK)
+                      - pattern: $Q.get_or_create(**$SINK)
+                      - pattern: $Q.update_or_create(**$SINK)
                 - focus-metavariable: $SINK
       message: |
-          ORM filter injection risk: Do not unpack request parameters directly into filter/exclude/get.
-          This allows attackers to query arbitrary fields and traverse relationships.
-          Instead, explicitly whitelist allowed filter parameters.
+          ORM injection risk: Do not unpack request parameters directly into ORM methods.
+          This allows attackers to query arbitrary fields, traverse relationships, or set arbitrary model fields.
+          Instead, explicitly whitelist allowed parameters.
       languages: [python]
       severity: ERROR
