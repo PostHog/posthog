@@ -297,9 +297,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
         start_time = time.monotonic()
 
+        cohort_type_cleared = False
         try:
             count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
+
+            # Clear cohort_type if count exceeds the realtime threshold
+            if self.cohort_type == CohortType.REALTIME and count and count > REALTIME_COHORT_MAX_PERSON_COUNT:
+                self.cohort_type = None
+                cohort_type_cleared = True
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
@@ -322,8 +328,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.save()
 
         # Update filter to match pending version if still valid
+        update_fields = {"version": pending_version, "count": count}
+        if cohort_type_cleared:
+            update_fields["cohort_type"] = None
         Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-            version=pending_version, count=count
+            **update_fields
         )
         self.refresh_from_db()
 
