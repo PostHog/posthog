@@ -62,7 +62,7 @@ function BatchRunHeader({ job }: { job: any }): JSX.Element {
 function BatchRunInfo({ job }: { job: any }): JSX.Element {
     const { workflow } = useValues(workflowLogic({ id: job.hog_flow_id }))
 
-    const isFutureJob = dayjs(job.scheduled_at).isAfter(dayjs())
+    const isFutureJob = job.scheduled_at && dayjs(job.scheduled_at).isAfter(dayjs())
 
     const logsSection = isFutureJob ? (
         <div className="flex flex-col w-full bg-surface-primary rounded py-8 items-center text-center">
