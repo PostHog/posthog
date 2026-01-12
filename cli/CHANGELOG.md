@@ -1,6 +1,6 @@
 # posthog-cli
 
-# 0.5.23
+# 0.5.24
 
 - chore: add endpoints use case to cli auth flow
 
