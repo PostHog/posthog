@@ -1,14 +1,18 @@
 import type { ApiConfig } from './client'
 import type { createApiClient } from './generated'
 import { globalRateLimiter } from './rate-limiter'
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+import {
+    calculateBackoffDelay,
+    formatRateLimitError,
+    RETRY_CONFIG,
+    safeJsonParse,
+    sleep,
+} from './retry-utils'
 
 export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApiClient>[0] = (config) => {
     return {
         fetch: async (input) => {
-            const maxRetries = 3
-            const baseBackoffMs = 2000
+            const maxRetries = RETRY_CONFIG.MAX_RETRIES
 
             for (let attempt = 0; attempt <= maxRetries; attempt++) {
                 // Apply rate limiting before making the request
@@ -17,7 +21,7 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
                 const headers = new Headers()
                 headers.set('Authorization', `Bearer ${config.apiToken}`)
 
-                // Handle query parameters
+                // Handle query parameters (only set once, outside retry loop would be better but this maintains compatibility)
                 if (input.urlSearchParams) {
                     input.url.search = input.urlSearchParams.toString()
                 }
@@ -50,11 +54,9 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
                 // Handle rate limiting with exponential backoff
                 if (response.status === 429) {
                     if (attempt < maxRetries) {
-                        // Check for Retry-After header
+                        // Check for Retry-After header and calculate delay
                         const retryAfter = response.headers.get('Retry-After')
-                        const delayMs = retryAfter
-                            ? parseInt(retryAfter, 10) * 1000
-                            : baseBackoffMs * Math.pow(2, attempt)
+                        const delayMs = calculateBackoffDelay(attempt, retryAfter)
 
                         console.warn(
                             `Rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
@@ -62,16 +64,18 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
                         await sleep(delayMs)
                         continue
                     }
-                    // Max retries exceeded
-                    const errorResponse = await response.json()
-                    throw new Error(
-                        `Rate limit exceeded after ${maxRetries} retries: [${response.status}] ${JSON.stringify(errorResponse)}`
-                    )
+                    // Max retries exceeded - safely parse response
+                    const { text } = await safeJsonParse(response)
+                    throw new Error(formatRateLimitError(maxRetries, response.status, text))
                 }
 
                 if (!response.ok) {
-                    const errorResponse = await response.json()
-                    throw new Error(`Failed request: [${response.status}] ${JSON.stringify(errorResponse)}`)
+                    // Safely parse error response (might not be JSON)
+                    const { json: errorResponse, text: errorText } = await safeJsonParse(response)
+                    const errorMessage = errorResponse
+                        ? `Failed request: [${response.status}] ${JSON.stringify(errorResponse)}`
+                        : `Failed request: [${response.status}] ${errorText}`
+                    throw new Error(errorMessage)
                 }
 
                 return response

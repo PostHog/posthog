@@ -88,6 +88,13 @@ import {
 import { buildApiFetcher } from './fetcher'
 import { type Schemas, createApiClient } from './generated'
 import { globalRateLimiter } from './rate-limiter'
+import {
+    calculateBackoffDelay,
+    formatRateLimitError,
+    RETRY_CONFIG,
+    safeJsonParse,
+    sleep,
+} from './retry-utils'
 
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
@@ -126,9 +133,52 @@ export class ApiClient {
         return `${this.baseUrl}/project/${projectId}`
     }
 
+    /**
+     * Wrapper for raw fetch calls with retry logic and rate limiting
+     * Use this for methods that need to use fetch directly instead of fetchWithSchema
+     */
+    private async fetchWithRetry(url: string, options?: RequestInit): Promise<Response> {
+        const maxRetries = RETRY_CONFIG.MAX_RETRIES
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            // Apply rate limiting before making the request
+            await globalRateLimiter.throttle()
+
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    ...this.buildHeaders(),
+                    ...options?.headers,
+                },
+            })
+
+            // Handle rate limiting with exponential backoff
+            if (response.status === 429) {
+                if (attempt < maxRetries) {
+                    // Check for Retry-After header and calculate delay
+                    const retryAfter = response.headers.get('Retry-After')
+                    const delayMs = calculateBackoffDelay(attempt, retryAfter)
+
+                    console.warn(
+                        `Rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
+                    )
+                    await sleep(delayMs)
+                    continue
+                }
+                // Max retries exceeded - safely parse response
+                const { text } = await safeJsonParse(response)
+                throw new Error(formatRateLimitError(maxRetries, response.status, text))
+            }
+
+            return response
+        }
+
+        // This should never be reached, but TypeScript needs it
+        throw new Error('Unexpected error in retry logic')
+    }
+
     private async fetchWithSchema<T>(url: string, schema: z.ZodType<T>, options?: RequestInit): Promise<Result<T>> {
-        const maxRetries = 3
-        const baseBackoffMs = 2000
+        const maxRetries = RETRY_CONFIG.MAX_RETRIES
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
@@ -146,25 +196,21 @@ export class ApiClient {
                 // Handle rate limiting with exponential backoff
                 if (response.status === 429) {
                     if (attempt < maxRetries) {
-                        // Check for Retry-After header
+                        // Check for Retry-After header and calculate delay
                         const retryAfter = response.headers.get('Retry-After')
-                        const delayMs = retryAfter
-                            ? parseInt(retryAfter, 10) * 1000
-                            : baseBackoffMs * Math.pow(2, attempt)
+                        const delayMs = calculateBackoffDelay(attempt, retryAfter)
 
                         console.warn(
                             `Rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
                         )
-                        await new Promise((resolve) => setTimeout(resolve, delayMs))
+                        await sleep(delayMs)
                         continue
                     }
-                    // Max retries exceeded
-                    const errorText = await response.text()
+                    // Max retries exceeded - safely parse response
+                    const { text } = await safeJsonParse(response)
                     return {
                         success: false,
-                        error: new Error(
-                            `Rate limit exceeded after ${maxRetries} retries:\nStatus Code: ${response.status}\nError Message: ${errorText}`
-                        ),
+                        error: new Error(formatRateLimitError(maxRetries, response.status, text)),
                     }
                 }
 
@@ -173,16 +219,10 @@ export class ApiClient {
                         throw new Error(ErrorCode.INVALID_API_KEY)
                     }
 
-                    const errorText = await response.text()
+                    // Safely parse error response (might not be JSON)
+                    const { json: errorData, text: errorText } = await safeJsonParse(response)
 
-                    let errorData: any
-                    try {
-                        errorData = JSON.parse(errorText)
-                    } catch {
-                        errorData = { detail: errorText }
-                    }
-
-                    if (errorData.type === 'validation_error' && errorData.code) {
+                    if (errorData?.type === 'validation_error' && errorData.code) {
                         throw new Error(`Validation error: ${errorData.code}`)
                     }
 
@@ -200,10 +240,7 @@ export class ApiClient {
 
                 return { success: true, data: parseResult.data }
             } catch (error) {
-                // Only retry on rate limit errors, not other errors
-                if (error instanceof Error && error.message.includes('Rate limit')) {
-                    continue
-                }
+                // Don't retry on non-rate-limit errors
                 return { success: false, error: error as Error }
             }
         }
@@ -323,11 +360,7 @@ export class ApiClient {
 
                     const url = `${this.baseUrl}/api/projects/${projectId}/property_definitions/?${searchParams}`
 
-                    const response = await fetch(url, {
-                        headers: {
-                            Authorization: `Bearer ${this.config.apiToken}`,
-                        },
-                    })
+                    const response = await this.fetchWithRetry(url)
 
                     if (!response.ok) {
                         throw new Error(`Failed to fetch property definitions: ${response.statusText}`)
@@ -367,11 +400,7 @@ export class ApiClient {
 
                     const requestUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/?${searchParams}`
 
-                    const response = await fetch(requestUrl, {
-                        headers: {
-                            Authorization: `Bearer ${this.config.apiToken}`,
-                        },
-                    })
+                    const response = await this.fetchWithRetry(requestUrl)
 
                     if (!response.ok) {
                         throw new Error(`Failed to fetch event definitions: ${response.statusText}`)
@@ -677,11 +706,10 @@ export class ApiClient {
                 experimentId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const deleteResponse = await fetch(
+                    const deleteResponse = await this.fetchWithRetry(
                         `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
                         {
                             method: 'PATCH',
-                            headers: this.buildHeaders(),
                             body: JSON.stringify({ deleted: true }),
                         }
                     )
@@ -845,9 +873,8 @@ export class ApiClient {
 
             delete: async ({ flagId }: { flagId: number }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`, {
+                    const response = await this.fetchWithRetry(`${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`, {
                         method: 'PATCH',
-                        headers: this.buildHeaders(),
                         body: JSON.stringify({ deleted: true }),
                     })
 
@@ -957,9 +984,8 @@ export class ApiClient {
                 insightId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`, {
+                    const response = await this.fetchWithRetry(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`, {
                         method: 'PATCH',
-                        headers: this.buildHeaders(),
                         body: JSON.stringify({ deleted: true }),
                     })
 
@@ -1124,11 +1150,10 @@ export class ApiClient {
                 dashboardId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await fetch(
+                    const response = await this.fetchWithRetry(
                         `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
                         {
                             method: 'PATCH',
-                            headers: this.buildHeaders(),
                             body: JSON.stringify({ deleted: true }),
                         }
                     )
@@ -1343,14 +1368,13 @@ export class ApiClient {
                 try {
                     const fetchOptions: RequestInit = {
                         method: softDelete ? 'PATCH' : 'DELETE',
-                        headers: this.buildHeaders(),
                     }
 
                     if (softDelete) {
                         fetchOptions.body = JSON.stringify({ archived: true })
                     }
 
-                    const response = await fetch(
+                    const response = await this.fetchWithRetry(
                         `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
                         fetchOptions
                     )
