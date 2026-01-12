@@ -35,7 +35,7 @@ def like_matches(pattern: str, text: str) -> bool:
         i += 1
 
     regex_pattern = f"^{''.join(regex_parts)}$"
-    return bool(re.match(regex_pattern, text))
+    return bool(re.match(regex_pattern, text, re.DOTALL))
 
 
 def ilike_matches(pattern: str, text: str) -> bool:

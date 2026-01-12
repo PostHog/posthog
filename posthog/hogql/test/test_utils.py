@@ -130,6 +130,14 @@ class TestIlikeMatches(BaseTest):
             ("_", "中", True),  # Chinese character is one code point
             ("__", "中文", True),  # Two Chinese characters
             ("%中%", "你好中文世界", True),
+            ("__", "¥", False),  # two bytes but only one code point
+            # Newline handling - % and _ should match newlines
+            ("%", "hello\nworld", True),
+            ("_", "\n", True),
+            ("a%b", "a\nb", True),
+            ("a_b", "a\nb", True),
+            ("hello%world", "hello\nworld", True),
+            ("%\n%", "line1\nline2", True),
             # Edge cases with consecutive wildcards
             ("%%a%%", "a", True),
             ("%%a%%", "XXaXX", True),
@@ -295,6 +303,14 @@ class TestLikeMatches(BaseTest):
             ("_", "中", True),
             ("__", "中文", True),
             ("%中%", "你好中文世界", True),
+            ("__", "¥", False),  # two bytes but only one code point
+            # Newline handling - % and _ should match newlines
+            ("%", "hello\nworld", True),
+            ("_", "\n", True),
+            ("a%b", "a\nb", True),
+            ("a_b", "a\nb", True),
+            ("hello%world", "hello\nworld", True),
+            ("%\n%", "line1\nline2", True),
             # Edge cases with consecutive wildcards
             ("%%a%%", "a", True),
             ("%%a%%", "XXaXX", True),
