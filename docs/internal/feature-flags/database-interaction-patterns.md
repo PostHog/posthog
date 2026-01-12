@@ -98,9 +98,12 @@ pub struct PostgresRouter {
 ### Usage pattern
 
 ```rust
-// Read person data
+// Read person data - always include team_id for partition efficiency
 let mut conn = router.get_persons_reader().get_connection().await?;
-let person = sqlx::query("SELECT * FROM posthog_person WHERE id = $1")
+let person = sqlx::query(
+    "SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2"
+)
+    .bind(team_id)
     .bind(person_id)
     .fetch_optional(&mut *conn)
     .await?;
@@ -112,6 +115,8 @@ let flags = sqlx::query("SELECT * FROM posthog_featureflag WHERE team_id = $1")
     .fetch_all(&mut *conn)
     .await?;
 ```
+
+**Important**: Always include `team_id` in queries against persons tables. These tables are partitioned by `team_id`, and queries without it will scan all partitions instead of targeting the correct one via the index.
 
 ## Error handling
 
