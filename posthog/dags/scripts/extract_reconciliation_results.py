@@ -59,6 +59,32 @@ query GetRuns($limit: Int!, $cursor: String, $filter: RunsFilter!) {
 }
 """
 
+# GraphQL query to get a single run by ID
+RUN_QUERY = """
+query GetRun($runId: ID!) {
+  runOrError(runId: $runId) {
+    __typename
+    ... on Run {
+      runId
+      status
+      startTime
+      endTime
+      tags {
+        key
+        value
+      }
+    }
+    ... on RunNotFoundError {
+      message
+    }
+    ... on PythonError {
+      message
+      stack
+    }
+  }
+}
+"""
+
 # GraphQL query to get step output events for a run
 STEP_OUTPUTS_QUERY = """
 query GetStepOutputs($runId: ID!) {
@@ -136,7 +162,7 @@ class DagsterCloudClient:
 
     def _execute_query(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         """Execute a GraphQL query and return the result."""
-        payload = {"query": query}
+        payload: dict[str, Any] = {"query": query}
         if variables:
             payload["variables"] = variables
 
@@ -199,6 +225,18 @@ class DagsterCloudClient:
             raise RuntimeError(f"Invalid filter: {runs_result['message']}")
         else:
             raise RuntimeError(f"Query error: {runs_result.get('message', 'Unknown error')}")
+
+    def get_run(self, run_id: str) -> dict[str, Any] | None:
+        """Get a single run by ID. Returns None if not found."""
+        data = self._execute_query(RUN_QUERY, {"runId": run_id})
+        result = data["runOrError"]
+
+        if result["__typename"] == "Run":
+            return result
+        elif result["__typename"] == "RunNotFoundError":
+            return None
+        else:
+            raise RuntimeError(f"Query error: {result.get('message', 'Unknown error')}")
 
     def get_step_outputs(self, run_id: str) -> list[dict[str, Any]]:
         """Get step output events for a run, filtered to reconcile_team_chunk steps."""
@@ -422,11 +460,8 @@ def main():
     all_failed_team_results: list[TeamResult] = []
 
     if args.run_id:
-        # Fetch specific run
         print(f"Fetching results for run {args.run_id}...")
-        # We need to get the run info first
-        runs, _ = client.get_runs(statuses=None, limit=1000)
-        run = next((r for r in runs if r["runId"] == args.run_id), None)
+        run = client.get_run(args.run_id)
         if not run:
             print(f"Error: Run {args.run_id} not found", file=sys.stderr)
             sys.exit(1)
