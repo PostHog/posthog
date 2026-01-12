@@ -1,6 +1,7 @@
 import socket
 import ipaddress
 import urllib.parse as urlparse
+import concurrent.futures
 
 from posthog.cloud_utils import is_dev_mode
 
@@ -26,17 +27,36 @@ INTERNAL_DOMAIN_PATTERNS = (
     ".priv",
 )
 
+# DNS resolution timeout to prevent DoS via slow DNS servers
+DNS_TIMEOUT_SECONDS = 3
+
+# Sentinel IP returned on DNS timeout - triggers blocking via is_unspecified
+_BLOCK_SENTINEL = ipaddress.ip_address("0.0.0.0")
+
 
 def resolve_host_ips(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Resolve a hostname to its IP addresses with timeout protection."""
+
+    def _resolve():
+        try:
+            return socket.getaddrinfo(host, None)
+        except socket.gaierror:
+            return []
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror:
-        return set()
+        future = executor.submit(_resolve)
+        infos = future.result(timeout=DNS_TIMEOUT_SECONDS)
+    except concurrent.futures.TimeoutError:
+        return {_BLOCK_SENTINEL}
+    finally:
+        # Don't wait for thread to complete - just allow cleanup when it finishes
+        executor.shutdown(wait=False)
+
     ips: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
     for _fam, *_rest, sockaddr in infos:
-        ip = sockaddr[0]
         try:
-            ips.add(ipaddress.ip_address(ip))
+            ips.add(ipaddress.ip_address(sockaddr[0]))
         except ValueError:
             pass
     return ips
