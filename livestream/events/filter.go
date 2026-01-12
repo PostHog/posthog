@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"slices"
-	"strconv"
 	"sync/atomic"
 
 	"github.com/gofrs/uuid/v5"
@@ -137,7 +136,7 @@ func (c *Filter) Run() {
 						case sub.EventChan <- *responseGeoEvent:
 						default:
 							log.Printf("Dropped geo event for sub %d team %d (channel full)", sub.SubID, sub.TeamId)
-							metrics.DroppedEvents.With(prometheus.Labels{"team_id": strconv.Itoa(sub.TeamId), "channel": "geo"}).Inc()
+							metrics.DroppedEvents.With(prometheus.Labels{"channel": "geo"}).Inc()
 						}
 					}
 				} else {
@@ -149,7 +148,7 @@ func (c *Filter) Run() {
 					case sub.EventChan <- *responseEvent:
 					default:
 						log.Printf("Dropped event for sub %d team %d (channel full)", sub.SubID, sub.TeamId)
-						metrics.DroppedEvents.With(prometheus.Labels{"team_id": strconv.Itoa(sub.TeamId), "channel": "events"}).Inc()
+						metrics.DroppedEvents.With(prometheus.Labels{"channel": "events"}).Inc()
 					}
 				}
 			}

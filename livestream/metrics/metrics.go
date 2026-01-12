@@ -55,7 +55,7 @@ var (
 			Name: "livestream_dropped_events_total",
 			Help: "Events dropped due to full subscriber channel",
 		},
-		[]string{"team_id", "channel"},
+		[]string{"channel"},
 	)
 
 	SessionRecordingMsgConsumed = promauto.NewCounterVec(
