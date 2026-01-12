@@ -209,7 +209,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         ],
     })),
     urlToAction(({ actions }) => ({
-        '/oauth/authorize': (_, searchParams) => {
+        '/oauth/authorize/': (_, searchParams) => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const scopes = requestedScopes.length === 0 ? DEFAULT_OAUTH_SCOPES : requestedScopes
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
