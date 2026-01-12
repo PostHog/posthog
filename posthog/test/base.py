@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import uuid
 import inspect
@@ -920,26 +921,76 @@ def cleanup_materialized_columns():
     optionally_drop("groups")
 
 
+def get_index_from_explain(query: str, index_name: str) -> dict | None:
+    """
+    Run EXPLAIN PLAN on a query and extract info for the given index name.
+
+    Returns the index info dict if found, None otherwise.
+    Useful for verifying that a skip index is being used in a query.
+    """
+    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}")
+    plan_json = json.loads(explain_result[0][0])
+
+    def find_indexes(obj):
+        """Recursively find all Indexes arrays in the plan."""
+        if isinstance(obj, dict):
+            if "Indexes" in obj:
+                yield from obj["Indexes"]
+            for value in obj.values():
+                yield from find_indexes(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                yield from find_indexes(item)
+
+    for index in find_indexes(plan_json):
+        if index.get("Name") == index_name:
+            return index
+    return None
+
+
 @contextmanager
 def materialized(
-    table, property, create_minmax_index: bool = False, is_nullable: bool = False
+    table,
+    property,
+    create_minmax_index: bool = False,
+    is_nullable: bool = False,
+    create_bloom_filter_index: bool = False,
+    create_ngram_lower_index: bool = False,
 ) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
-        from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, materialize
+        from ee.clickhouse.materialized_columns.columns import (
+            get_bloom_filter_index_name,
+            get_minmax_index_name,
+            get_ngram_lower_index_name,
+            materialize,
+        )
     except ModuleNotFoundError as e:
         pytest.xfail(str(e))
 
     column = None
     try:
-        column = materialize(table, property, create_minmax_index=create_minmax_index, is_nullable=is_nullable)
+        column = materialize(
+            table,
+            property,
+            create_minmax_index=create_minmax_index,
+            is_nullable=is_nullable,
+            create_bloom_filter_index=create_bloom_filter_index,
+            create_ngram_lower_index=create_ngram_lower_index,
+        )
         yield column
     finally:
-        if create_minmax_index and column is not None:
+        if column is not None:
             data_table = "sharded_events" if table == "events" else table
-            sync_execute(
-                f"ALTER TABLE {data_table} DROP INDEX {get_minmax_index_name(column.name)} SETTINGS mutations_sync = 2"
-            )
+            indexes_to_drop = []
+            if create_minmax_index:
+                indexes_to_drop.append(get_minmax_index_name(column.name))
+            if create_bloom_filter_index:
+                indexes_to_drop.append(get_bloom_filter_index_name(column.name))
+            if create_ngram_lower_index:
+                indexes_to_drop.append(get_ngram_lower_index_name(column.name))
+            for index_name in indexes_to_drop:
+                sync_execute(f"ALTER TABLE {data_table} DROP INDEX {index_name} SETTINGS mutations_sync = 2")
         cleanup_materialized_columns()
 
 
