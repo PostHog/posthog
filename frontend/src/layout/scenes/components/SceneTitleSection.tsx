@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil } from '@posthog/icons'
+import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -22,28 +22,23 @@ import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
-function SceneTitlePanelButton(): JSX.Element | null {
-    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative } = useValues(sceneLayoutLogic)
+export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
+    const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
-    if (!scenePanelIsPresent || scenePanelOpen) {
+    if (!scenePanelIsPresent || (!inPanel && scenePanelOpenManual)) {
         return null
     }
 
     return (
         <LemonButton
-            className="-mr-2.5"
-            onClick={() =>
-                // scenePanelIsRelative
-                //     ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
-                //     : setScenePanelOpen(!scenePanelOpen)
-                scenePanelIsRelative ? setScenePanelOpen(!scenePanelOpen) : setScenePanelOpen(!scenePanelOpen)
-            }
-            icon={<IconEllipsis className="text-primary" />}
+            className={cn(!inPanel && '-mr-2')}
+            onClick={() => setScenePanelOpen(!scenePanelOpenManual)}
+            icon={inPanel ? <IconX className="text-primary p-0.5" /> : <IconEllipsis className="text-primary" />}
             tooltip="Open Info & actions panel"
             data-attr="info-actions-panel"
             aria-label="Open Info & actions panel"
-            active={scenePanelOpen}
+            active={scenePanelOpenManual}
             size="small"
         />
     )
