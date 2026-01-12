@@ -426,8 +426,10 @@ class ConcurrentS3Consumer(Consumer):
     ):
         super().__init__()
 
-        if not (aws_access_key_id or "").strip() or not (aws_secret_access_key or "").strip():
-            raise InvalidCredentialsError("AWS access key ID and secret access key are required")
+        if (isinstance(aws_access_key_id, str) and aws_access_key_id.strip() == "") or (
+            isinstance(aws_secret_access_key, str) and aws_secret_access_key.strip() == ""
+        ):
+            raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
 
         self.bucket = bucket
         self.region_name = region_name
