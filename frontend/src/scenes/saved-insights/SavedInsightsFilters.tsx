@@ -91,7 +91,9 @@ const FeatureFlagInsightsToggle = ({
                         PostHog automatically creates insights by default for feature flags to help you understand their
                         performance.
                     </p>
-                    <p>Use this toggle to hide these auto-generated insights from your insights list.</p>
+                    <p className="mb-0">
+                        Use this toggle to hide these auto-generated insights from your insights list.
+                    </p>
                 </div>
             }
             placement="top"
@@ -99,7 +101,7 @@ const FeatureFlagInsightsToggle = ({
             <LemonButton
                 icon={<IconFlag />}
                 onClick={() => onToggle(!hideFeatureFlagInsights)}
-                type="secondary"
+                type="tertiary"
                 size="small"
             >
                 Hide feature flag insights: <LemonSwitch checked={hideFeatureFlagInsights || false} className="ml-1" />

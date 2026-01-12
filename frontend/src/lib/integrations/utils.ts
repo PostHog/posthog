@@ -23,6 +23,7 @@ import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
+import IconVercel from 'public/services/vercel.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
@@ -46,6 +47,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     databricks: IconDatabricks,
     'tiktok-ads': IconTikTok,
     'bing-ads': IconBingAds,
+    vercel: IconVercel,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {

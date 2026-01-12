@@ -52,6 +52,7 @@ from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import (
     CreateFormTool,
+    ManageMemoriesTool,
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
@@ -62,6 +63,7 @@ from ee.hogai.tools import (
 from ee.hogai.utils.feature_flags import (
     has_create_form_tool_feature_flag,
     has_error_tracking_mode_feature_flag,
+    has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
     has_web_search_feature_flag,
@@ -103,6 +105,8 @@ class ChatAgentToolkit(AgentToolkit):
             tools.extend(TASK_TOOLS)
         if has_task_tool_feature_flag(self._team, self._user):
             tools.append(TaskTool)
+        if has_memory_tool_feature_flag(self._team, self._user):
+            tools.append(ManageMemoriesTool)
         return tools
 
 
