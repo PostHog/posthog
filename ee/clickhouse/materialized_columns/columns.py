@@ -158,7 +158,7 @@ class MaterializedColumn:
             yield MaterializedColumn(
                 name,
                 MaterializedColumnDetails.from_column_comment(comment),
-                is_nullable,
+                is_nullable=bool(is_nullable),
                 has_minmax_index=has_minmax,
                 has_bloom_filter_index=has_bloom,
                 has_ngram_lower_index=has_ngram,
