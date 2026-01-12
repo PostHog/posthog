@@ -8,19 +8,19 @@ When evaluating a feature flag with multiple variants, PostHog determines which 
 
 1. Takes the user's `distinct_id` (e.g., `"anon_abc123"` or `"user@example.com"`)
 2. Combines it with the feature flag key
-3. Hashes the result to get a number between 0-100
-4. Uses that number to assign a variant based on the configured percentages
+3. Hashes the result to get a number between 0 and 1
+4. Compares that number against the rollout percentage (divided by 100) to assign a variant
 
 For example, with a 50/50 A/B test:
 
-- Hash values 0-50 → Variant A
-- Hash values 51-100 → Variant B
+- Hash values 0.0–0.5 → Variant A
+- Hash values 0.5–1.0 → Variant B
 
 When a user logs in, their `distinct_id` changes, which produces a different hash value that can land in a different variant bucket:
 
 ```text
-Anonymous:   hash("anon_abc123" + "my-flag") → 23 → Variant A
-Logged in:   hash("user@example.com" + "my-flag") → 67 → Variant B
+Anonymous:   hash("anon_abc123" + "my-flag") → 0.23 → Variant A
+Logged in:   hash("user@example.com" + "my-flag") → 0.67 → Variant B
 ```
 
 This is the problem experience continuity solves.
@@ -120,7 +120,7 @@ requests.post('https://app.posthog.com/flags/', json={
 When writing hash key overrides, the system reads from the **writer** database (not the replica) to avoid replication lag issues:
 
 ```rust
-// flag_matching.rs:152-160
+// flag_matching.rs:427-434
 let database_for_reading = if writing_hash_key_override {
     self.router.get_persons_writer().clone()
 } else {
@@ -239,7 +239,7 @@ With `always`, a person record already exists from the anonymous visit. The `ide
 
 ## Alternative: Device ID Bucketing
 
-Because of the issues with experience continuity (such as not working for anonymous users), we've added a new bucketing identifier: `device_id` to address these issues. This feature is still under construction.
+Because experience continuity requires a person record to exist (which doesn't happen with `person_profiles: 'identified_only'` until after identification), we've added a new bucketing identifier: `device_id` to address these issues. This feature is still under construction.
 
 Instead of using experience continuity (which requires database writes and person records), you can configure a flag to use `device_id` as the bucketing identifier. This is a simpler approach that works without person profiles.
 
@@ -275,7 +275,7 @@ Set `bucketing_identifier` on the feature flag:
 
 ### Code References
 
-The Rust service determines the hashed identifier in `flag_matching.rs:1234-1270`:
+The Rust service determines the hashed identifier in `flag_matching.rs:1260-1289`:
 
 ```rust
 // Check if flag is configured for device_id bucketing

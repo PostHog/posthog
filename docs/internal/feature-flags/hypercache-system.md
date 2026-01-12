@@ -76,7 +76,7 @@ The `token_based` parameter determines the cache key structure:
 | `get_if_none_match(key, etag)`    | ETag support for HTTP 304 responses                             |
 | `update_cache(key)`               | Force refresh from database                                     |
 | `set_cache_value(key, data)`      | Write to both Redis and S3                                      |
-| `clear_cache(key)`                | Delete from Redis and S3 (tests only)                           |
+| `clear_cache(key)`                | Delete from Redis and S3                                        |
 
 ### ETag support
 
