@@ -8,7 +8,7 @@ Usage:
     python posthog/dags/scripts/extract_reconciliation_results.py \
         --org posthog \
         --deployment <prod-us | prod-eu> \
-        [--all | --limit <INT> | [--since "2026-01-01"  --until "2026-01-12" ]
+        [--all | --limit <INT> | --since "2026-01-01" --until "2026-01-12"]
 
 Prerequisites:
     1. Get a Dagster Cloud user token:
