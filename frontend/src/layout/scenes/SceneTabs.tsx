@@ -5,7 +5,7 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { Fragment, useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 
@@ -112,9 +112,8 @@ export function SceneTabs(): JSX.Element {
                                 (index === tabs.length - 1 || !tabs[index + 1]?.pinned)
 
                             return (
-                                <>
+                                <Fragment key={sortableId}>
                                     <SortableSceneTab
-                                        key={sortableId}
                                         tab={tab}
                                         index={index}
                                         sortableId={sortableId}
@@ -126,7 +125,7 @@ export function SceneTabs(): JSX.Element {
                                             aria-hidden="true"
                                         />
                                     )}
-                                </>
+                                </Fragment>
                             )
                         })}
                     </ScrollableShadows>

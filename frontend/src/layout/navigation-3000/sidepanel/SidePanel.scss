@@ -14,8 +14,6 @@
         width: min(30%, 40rem);
         min-width: var(--side-panel-min-width);
 
-        // max-width: 60%;
-
         @media (max-width: 1200px) {
             position: fixed;
             top: 0;
