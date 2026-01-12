@@ -22,7 +22,7 @@ rules:
     - id: require-iframe-sandbox-array
       message: >-
           iframe in renderHTML array syntax must have a sandbox attribute.
-          Add sandbox: 'allow-scripts allow-same-origin' with appropriate permissions.
+          Add sandbox: '...' with appropriate permissions (e.g., 'allow-scripts allow-same-origin').
       severity: ERROR
       languages: [typescript, javascript]
       patterns:
