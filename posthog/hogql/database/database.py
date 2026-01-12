@@ -243,8 +243,12 @@ class Database(BaseModel):
     tables: TableNode = TableNode(
         children={
             **ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
-            # All new tables should be added to the below `posthog` table node
-            "posthog": TableNode(children={**ROOT_TABLES__DO_NOT_ADD_ANY_MORE}),
+            "posthog": TableNode(
+                children={
+                    **ROOT_TABLES__DO_NOT_ADD_ANY_MORE
+                    # Add new tables here
+                }
+            ),
             "system": SystemTables(),
             "numbers": TableNode(name="numbers", table=NumbersTable()),
         }
