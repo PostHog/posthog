@@ -9,7 +9,7 @@ from posthog.models.oauth import OAuthApplication
 
 @pytest.mark.requires_secrets
 class TestOAuthApplicationMetadataView(APIBaseTest):
-    public_fields = ["name", "client_id"]
+    public_fields = ["name", "client_id", "is_verified"]
 
     def setUp(self):
         super().setUp()
@@ -31,7 +31,7 @@ class TestOAuthApplicationMetadataView(APIBaseTest):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        expected_data = {"name": "Test App", "client_id": self.application.client_id}
+        expected_data = {"name": "Test App", "client_id": self.application.client_id, "is_verified": False}
         self.assertEqual(response.data, expected_data)
 
     def test_get_application_metadata_only_exposes_public_fields(self):
@@ -61,7 +61,7 @@ class TestOAuthApplicationMetadataView(APIBaseTest):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        expected_data = {"name": "Test App", "client_id": self.application.client_id}
+        expected_data = {"name": "Test App", "client_id": self.application.client_id, "is_verified": False}
         self.assertEqual(response.data, expected_data)
 
     def test_endpoint_is_publicly_accessible_with_unauthenticated_client(self):
@@ -71,5 +71,5 @@ class TestOAuthApplicationMetadataView(APIBaseTest):
         response = unauthenticated_client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        expected_data = {"name": "Test App", "client_id": self.application.client_id}
+        expected_data = {"name": "Test App", "client_id": self.application.client_id, "is_verified": False}
         self.assertEqual(response.data, expected_data)
