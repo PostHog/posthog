@@ -211,8 +211,7 @@ mod tests {
         let err_str = format!("{:?}", result.unwrap_err());
         assert!(
             err_str.contains("No public IPv4"),
-            "expected NoPublicIPv4Error, got: {}",
-            err_str
+            "expected NoPublicIPv4Error, got: {err_str}",
         );
     }
 
