@@ -4,6 +4,7 @@ import typing
 import asyncio
 import collections.abc
 
+import pyarrow as pa
 import temporalio.common
 
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -150,22 +151,27 @@ class Consumer:
 
             yield record_batch
 
-            num_records_in_batch = record_batch.num_rows
-            num_bytes_in_batch = record_batch.nbytes
+            self.track_record_batch(record_batch)
 
-            self.total_records_count += num_records_in_batch
-            self.total_record_batch_bytes_count += num_bytes_in_batch
-            self.rows_exported_counter.add(num_records_in_batch)
+    def track_record_batch(self, record_batch: pa.RecordBatch) -> None:
+        """Track consumer progress based on the last consumed record batch."""
 
-            self.logger.debug(
-                f"Consumed batch number {self.total_record_batches_count} with "
-                f"{num_records_in_batch:,} records, {num_bytes_in_batch / 1024**2:.2f} "
-                f"MiB. Total records consumed so far: {self.total_records_count:,}, "
-                f"total MiB consumed so far: {self.total_record_batch_bytes_count / 1024**2:.2f}, "
-                f"total file MiB consumed so far: {self.total_file_bytes_count / 1024**2:.2f}"
-            )
+        num_records_in_batch = record_batch.num_rows
+        num_bytes_in_batch = record_batch.nbytes
 
-            self.total_record_batches_count += 1
+        self.total_records_count += num_records_in_batch
+        self.total_record_batch_bytes_count += num_bytes_in_batch
+        self.rows_exported_counter.add(num_records_in_batch)
+
+        self.logger.debug(
+            f"Consumed batch number {self.total_record_batches_count} with "
+            f"{num_records_in_batch:,} records, {num_bytes_in_batch / 1024**2:.2f} "
+            f"MiB. Total records consumed so far: {self.total_records_count:,}, "
+            f"total MiB consumed so far: {self.total_record_batch_bytes_count / 1024**2:.2f}, "
+            f"total file MiB consumed so far: {self.total_file_bytes_count / 1024**2:.2f}"
+        )
+
+        self.total_record_batches_count += 1
 
     @abc.abstractmethod
     async def consume_chunk(self, data: bytes):
