@@ -6,11 +6,11 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 
 from posthog.schema import DataWarehouseNode, DataWarehousePropertyFilter, DateRange, EventsNode, FunnelsQuery
-from posthog.types import AnyPropertyFilter
 
 from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.test.test_journeys import journeys_for
+from posthog.types import AnyPropertyFilter
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
