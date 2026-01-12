@@ -105,7 +105,9 @@ class PostgresPrinter(HogQLPrinter):
         return table_type.table.to_printed_clickhouse(self.context)
 
     def _ensure_team_id_where_clause(
-        self, table_type: ast.TableType | ast.LazyTableType, node_type: ast.TableOrSelectType
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType,
     ):
         # Team ID filtering is not required for Postgres queries
         pass
