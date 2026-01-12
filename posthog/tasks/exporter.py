@@ -41,7 +41,7 @@ EXPORT_TIMER = Histogram(
 )
 
 
-def _make_retry_logger(exported_asset: ExportedAsset) -> Callable[[RetryCallState], None]:
+def _create_retry_logger(exported_asset: ExportedAsset) -> Callable[[RetryCallState], None]:
     def _log_retry(retry_state: RetryCallState) -> None:
         logger.info(
             "export_asset.retrying",
@@ -148,7 +148,7 @@ def export_asset_direct(
         retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
         stop=stop_after_attempt(4),
         wait=wait_exponential(multiplier=2, max=10),
-        before_sleep=_make_retry_logger(exported_asset),
+        before_sleep=_create_retry_logger(exported_asset),
         reraise=True,
     )
     def _do_export() -> None:

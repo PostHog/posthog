@@ -1094,7 +1094,7 @@ class TestGenerateAssetsAsyncCounters:
 
             if is_timeout:
                 # Wait for the orphaned thread to wake up from sleep and process cancellation
-                # The mock sleeps for 5s, timeout fires after 3s, so we wait ~3s more for processing
+                # The mock sleeps for 5s, timeout fires after 3s, so we wait ~4s more for processing
                 await asyncio.sleep(4)
 
             success_after = self._get_success_counter_value()
