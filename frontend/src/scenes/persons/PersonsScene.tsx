@@ -90,7 +90,10 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     </LemonMenu>
                 }
             />
-            <FeedbackBanner feedbackButtonId="people-list" message="We're improving the persons experience. Send us your feedback!" />
+            <FeedbackBanner
+                feedbackButtonId="people-list"
+                message="We're improving the persons experience. Send us your feedback!"
+            />
 
             <Query
                 uniqueKey={`persons-query-${tabId}`}

@@ -60,13 +60,11 @@ export const GroupProfileCanvas = ({ group, tabId }: GroupProfileCanvasProps): J
         <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: groupFilter }}>
             <BindLogic logic={groupLogic} props={{ groupKey, groupTypeIndex, tabId }}>
                 <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
-                    <div className="flex items-start gap-2">
-                        <CustomerProfileMenu />
-                        <FeedbackBanner
-                            feedbackButtonId="group-profile"
-                            message="We're improving the groups experience. Send us your feedback!"
-                        />
-                    </div>
+                    <FeedbackBanner
+                        feedbackButtonId="group-profile"
+                        message="We're improving the groups experience. Send us your feedback!"
+                    />
+                    <CustomerProfileMenu />
                     <Notebook
                         editable={false}
                         shortId={shortId}

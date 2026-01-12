@@ -54,13 +54,11 @@ const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: personFilter }}>
             <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
-                <div className="flex items-start gap-2">
-                    <CustomerProfileMenu />
-                    <FeedbackBanner
-                        feedbackButtonId="person-profile"
-                        message="We're improving the persons experience. Send us your feedback!"
-                    />
-                </div>
+                <FeedbackBanner
+                    feedbackButtonId="person-profile"
+                    message="We're improving the persons experience. Send us your feedback!"
+                />
+                <CustomerProfileMenu />
                 <Notebook
                     editable={false}
                     shortId={shortId}
