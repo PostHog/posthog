@@ -411,6 +411,7 @@ export type AssistantTool =
     | 'create_form'
     | 'task'
     | 'upsert_dashboard'
+    | 'manage_memories'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
