@@ -8,7 +8,7 @@ Usage:
     python posthog/dags/scripts/extract_reconciliation_results.py \
         --org posthog \
         --deployment <prod-us | prod-eu> \
-        [--all | --limit <INT> | --since "2026-01-01" --until "2026-01-12" ]
+        [--all | --limit <INT> | [--since "2026-01-01"  --until "2026-01-12" ]
 
 Prerequisites:
     1. Get a Dagster Cloud user token:
@@ -176,6 +176,7 @@ class DagsterCloudClient:
         if statuses:
             run_filter["statuses"] = statuses
         if created_after is not None:
+            # Dagster API uses "updatedAfter" (no "createdAfter" exists)
             run_filter["updatedAfter"] = created_after
         if created_before is not None:
             run_filter["createdBefore"] = created_before
@@ -393,51 +394,28 @@ def main():
         print("Error: DAGSTER_CLOUD_TOKEN environment variable not set and --token not provided", file=sys.stderr)
         print("\nTo get a token:", file=sys.stderr)
         print("  1. Go to Dagster Cloud UI (e.g., https://posthog.dagster.cloud/)", file=sys.stderr)
-        print("  2. Click your avatar (top-right) > 'User settings' > 'Tokens' tab", file=sys.stderr)
+        print("  2. Click your avatar (top-right) > 'Organization settings' > 'Tokens' tab", file=sys.stderr)
         print("  3. Create and copy the token", file=sys.stderr)
         sys.exit(1)
 
     client = DagsterCloudClient(args.org, args.deployment, args.token)
 
-    # Parse date filters
-    created_after: float | None = None
-    created_before: float | None = None
+    def parse_date_arg(value: str, arg_name: str, end_of_day: bool = False) -> float:
+        """Parse a date string to unix timestamp."""
+        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+            try:
+                dt = datetime.strptime(value, fmt)
+                if end_of_day and fmt == "%Y-%m-%d":
+                    dt = dt.replace(hour=23, minute=59, second=59)
+                return dt.timestamp()
+            except ValueError:
+                continue
+        print(f"Error: Invalid {arg_name} date format: {value}", file=sys.stderr)
+        print("Use ISO format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS", file=sys.stderr)
+        sys.exit(1)
 
-    if args.since:
-        try:
-            # Try parsing with time first, then date only
-            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
-                try:
-                    dt = datetime.strptime(args.since, fmt)
-                    created_after = dt.timestamp()
-                    break
-                except ValueError:
-                    continue
-            if created_after is None:
-                raise ValueError(f"Could not parse date: {args.since}")
-        except ValueError as e:
-            print(f"Error: Invalid --since date format: {e}", file=sys.stderr)
-            print("Use ISO format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS", file=sys.stderr)
-            sys.exit(1)
-
-    if args.until:
-        try:
-            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
-                try:
-                    dt = datetime.strptime(args.until, fmt)
-                    # For date-only, use end of day
-                    if fmt == "%Y-%m-%d":
-                        dt = dt.replace(hour=23, minute=59, second=59)
-                    created_before = dt.timestamp()
-                    break
-                except ValueError:
-                    continue
-            if created_before is None:
-                raise ValueError(f"Could not parse date: {args.until}")
-        except ValueError as e:
-            print(f"Error: Invalid --until date format: {e}", file=sys.stderr)
-            print("Use ISO format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS", file=sys.stderr)
-            sys.exit(1)
+    created_after = parse_date_arg(args.since, "--since") if args.since else None
+    created_before = parse_date_arg(args.until, "--until", end_of_day=True) if args.until else None
 
     all_summaries: list[RunSummary] = []
     all_failed_team_ids: set[int] = set()
