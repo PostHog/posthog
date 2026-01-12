@@ -4055,6 +4055,9 @@ const api = {
         async run(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).withAction('run').create()
         },
+        async clusterVideoSegments(): Promise<{ status: string; workflow_id: string; message: string }> {
+            return await new ApiRequest().tasks().withAction('cluster_video_segments').create()
+        },
         runs: {
             async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
                 return await new ApiRequest().taskRuns(taskId).get()

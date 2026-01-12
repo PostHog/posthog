@@ -43,6 +43,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         submitNewTask: true,
         submitNewTaskSuccess: true,
         submitNewTaskFailure: (error: string) => ({ error }),
+        inferTasks: true,
+        inferTasksSuccess: (message: string) => ({ message }),
+        inferTasksFailure: (error: string) => ({ error }),
     }),
 
     reducers({
@@ -111,6 +114,14 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 submitNewTask: () => true,
                 submitNewTaskSuccess: () => false,
                 submitNewTaskFailure: () => false,
+            },
+        ],
+        isRunningClustering: [
+            false,
+            {
+                inferTasks: () => true,
+                inferTasksSuccess: () => false,
+                inferTasksFailure: () => false,
             },
         ],
     }),
@@ -192,6 +203,22 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 lemonToast.error('Failed to create task')
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }
+        },
+        inferTasks: async () => {
+            try {
+                const response = await api.tasks.clusterVideoSegments()
+                lemonToast.success(response.message || 'Clustering completed')
+                actions.inferTasksSuccess(response.message)
+            } catch (error: any) {
+                const errorMessage = error?.detail || error?.message || 'Failed to start clustering workflow'
+                lemonToast.error(errorMessage)
+                actions.inferTasksFailure(errorMessage)
+            }
+        },
+        inferTasksSuccess: () => {
+            // Clear user filter and reload tasks to show newly created clustered tasks
+            actions.setCreatedBy(null)
+            actions.loadTasks()
         },
     })),
 

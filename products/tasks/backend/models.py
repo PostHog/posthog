@@ -63,6 +63,42 @@ class Task(DeletedMetaFields, models.Model):
         help_text="JSON schema for the task. This is used to validate the output of the task.",
     )
 
+    # Video segment clustering fields (for session_summaries origin_product)
+    cluster_centroid = ArrayField(
+        models.FloatField(),
+        null=True,
+        blank=True,
+        help_text="Embedding centroid for this task's video segment cluster (3072 dimensions)",
+    )
+    cluster_centroid_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the cluster centroid was last updated",
+    )
+    priority_score = models.FloatField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Calculated priority score for ranking tasks",
+    )
+    distinct_user_count = models.IntegerField(
+        default=0,
+        help_text="Number of unique users affected by this issue",
+    )
+    occurrence_count = models.IntegerField(
+        default=0,
+        help_text="Total number of video segment occurrences (cases)",
+    )
+    avg_impact_score = models.FloatField(
+        default=0.0,
+        help_text="Average impact score across all linked segments (0-1 scale)",
+    )
+    last_occurrence_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this issue was last observed in a video segment",
+    )
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -519,3 +555,109 @@ class SandboxEnvironment(UUIDModel):
             return domains
 
         return []
+
+
+class TaskSegmentLink(models.Model):
+    """Links a video segment to a Task (for session_summaries origin_product).
+
+    Each record represents one video segment occurrence that contributed to or
+    matches a Task's cluster. Used for tracking cases and calculating priority.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="segment_links")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+
+    # Segment identification (matches document_embeddings metadata)
+    session_id = models.CharField(max_length=255)
+    segment_start_time = models.CharField(max_length=20)
+    segment_end_time = models.CharField(max_length=20)
+
+    # User tracking for distinct_user_count
+    distinct_id = models.CharField(max_length=255)
+
+    # Segment content (cached from document_embeddings)
+    content = models.TextField(
+        blank=True,
+        help_text="The segment description text from video analysis",
+    )
+
+    # Impact metrics
+    impact_score = models.FloatField(
+        default=0.0,
+        help_text="Impact score for this segment (0-1 scale)",
+    )
+    failure_detected = models.BooleanField(default=False)
+    confusion_detected = models.BooleanField(default=False)
+    abandonment_detected = models.BooleanField(default=False)
+
+    # Clustering metadata
+    distance_to_centroid = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Cosine distance from this segment to the task's cluster centroid",
+    )
+
+    # Timestamps
+    segment_timestamp = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Original timestamp of the segment from document_embeddings",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_task_segment_link"
+        indexes = [
+            models.Index(fields=["task_id", "session_id"]),
+            models.Index(fields=["team_id", "session_id"]),
+            models.Index(fields=["distinct_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task_id", "session_id", "segment_start_time", "segment_end_time"],
+                name="unique_task_segment_link",
+            )
+        ]
+
+    def __str__(self):
+        return f"Segment {self.session_id}:{self.segment_start_time}-{self.segment_end_time} -> Task {self.task_id}"
+
+
+class VideoSegmentClusteringState(models.Model):
+    """Tracks the last processed timestamp per team for incremental clustering.
+
+    This is a watermark table that ensures we only process new video segments
+    that haven't been clustered yet.
+    """
+
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
+    last_processed_at = models.DateTimeField(
+        help_text="Timestamp of the most recently processed segment",
+    )
+    last_run_at = models.DateTimeField(
+        auto_now=True,
+        help_text="When the clustering workflow last ran for this team",
+    )
+    segments_processed = models.IntegerField(
+        default=0,
+        help_text="Total number of segments processed in the last run",
+    )
+    clusters_created = models.IntegerField(
+        default=0,
+        help_text="Number of new clusters created in the last run",
+    )
+    tasks_created = models.IntegerField(
+        default=0,
+        help_text="Number of new tasks created in the last run",
+    )
+    tasks_updated = models.IntegerField(
+        default=0,
+        help_text="Number of existing tasks updated in the last run",
+    )
+
+    class Meta:
+        db_table = "posthog_video_segment_clustering_state"
+
+    def __str__(self):
+        return f"Clustering state for team {self.team_id} (last: {self.last_processed_at})"

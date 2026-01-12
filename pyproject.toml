@@ -196,6 +196,7 @@ dependencies = [
     "webauthn>=2.1.0,<2.3.0",
     "botocore[crt]~=1.40.49",
     "defusedxml>=0.7.1",
+    "hdbscan>=0.8.40",
 ]
 
 [dependency-groups]

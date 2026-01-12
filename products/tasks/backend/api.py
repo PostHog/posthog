@@ -34,7 +34,7 @@ from .serializers import (
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
-from .temporal.client import execute_task_processing_workflow
+from .temporal.client import execute_task_processing_workflow, execute_video_segment_clustering_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "partial_update",
             "destroy",
             "run",
+            "cluster_video_segments",
         ]
     }
 
@@ -170,6 +171,58 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task.refresh_from_db()
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
+    @validated_request(
+        request_serializer=None,
+        responses={
+            200: OpenApiResponse(description="Clustering workflow completed"),
+            500: OpenApiResponse(description="Clustering workflow failed"),
+        },
+        summary="Run video segment clustering",
+        description="Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.",
+    )
+    @action(detail=False, methods=["post"], url_path="cluster_video_segments", required_scopes=["task:write"])
+    def cluster_video_segments(self, request, **kwargs):
+        """Run video segment clustering workflow for the current team.
+
+        This is a DEBUG endpoint for manually triggering the clustering workflow.
+        Blocks until the workflow completes and returns the result.
+        """
+        from django.conf import settings
+
+        if not settings.DEBUG:
+            return Response(
+                {"error": "This endpoint is only available in DEBUG mode"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            # Use 7 days lookback for manual debug runs (vs watermark-based for scheduled runs)
+            lookback_hours = 7 * 24  # 7 days
+            result = execute_video_segment_clustering_workflow(team_id=self.team.id, lookback_hours=lookback_hours)
+
+            response_status = status.HTTP_200_OK if result.get("success") else status.HTTP_500_INTERNAL_SERVER_ERROR
+
+            return Response(
+                {
+                    "workflow_id": result["workflow_id"],
+                    "lookback_hours": lookback_hours,
+                    "success": result.get("success"),
+                    "error": result.get("error"),
+                    "segments_processed": result.get("segments_processed"),
+                    "clusters_found": result.get("clusters_found"),
+                    "tasks_created": result.get("tasks_created"),
+                    "tasks_updated": result.get("tasks_updated"),
+                    "links_created": result.get("links_created"),
+                },
+                status=response_status,
+            )
+        except Exception as e:
+            logger.exception(f"Failed to run video segment clustering workflow for team {self.team.id}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 @extend_schema(tags=["task-runs"])

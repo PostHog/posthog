@@ -160,3 +160,54 @@ def execute_task_processing_workflow(
         logger.exception(f"Failed to validate permissions for task workflow execution: {e}")
     except Exception as e:
         logger.exception(f"Failed to start task processing workflow: {e}")
+
+
+def execute_video_segment_clustering_workflow(team_id: int, lookback_hours: int | None = None) -> dict[str, Any]:
+    """
+    Execute the video segment clustering workflow for a single team synchronously.
+    Waits for the workflow to complete and returns the result.
+
+    Args:
+        team_id: Team ID to run clustering for
+        lookback_hours: How far back to look for segments. If None, uses default from constants.
+    """
+    from datetime import datetime
+
+    from posthog.temporal.ai.video_segment_clustering import constants
+    from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
+
+    try:
+        effective_lookback = lookback_hours or int(constants.DEFAULT_LOOKBACK_WINDOW.total_seconds() / 3600)
+        workflow_id = f"video-segment-clustering-team-{team_id}-manual-{datetime.now().isoformat()}"
+
+        workflow_input = ClusteringWorkflowInputs(
+            team_id=team_id,
+            lookback_hours=effective_lookback,
+            min_segments=constants.MIN_SEGMENTS_FOR_CLUSTERING,
+        )
+
+        logger.info(f"Starting video-segment-clustering workflow ({workflow_id}) for team {team_id}")
+
+        client = sync_connect()
+        handle = asyncio.run(
+            client.start_workflow(
+                "video-segment-clustering",
+                workflow_input,
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        )
+
+        logger.info(f"Workflow started for team {team_id}, workflow_id={workflow_id}, waiting for completion...")
+
+        # Wait for workflow completion and get result
+        result = asyncio.run(handle.result())
+
+        logger.info(f"Workflow completed for team {team_id}, workflow_id={workflow_id}")
+        return {"workflow_id": workflow_id, "run_id": handle.result_run_id, **result}
+
+    except Exception as e:
+        logger.exception(f"Failed to execute video segment clustering workflow: {e}")
+        raise
