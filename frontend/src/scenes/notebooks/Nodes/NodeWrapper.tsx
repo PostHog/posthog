@@ -58,7 +58,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeIds, containerSize, notebook } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeIds, containerSize, notebook, mode } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
@@ -185,6 +185,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     ]
 
     const hasMenu = menuItems.some((x) => !!x)
+    const isInCanvas = mode === 'canvas'
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
@@ -239,6 +240,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                 ) : null}
 
                                                 {isEditable && Settings ? (
+                                                {(isEditable || isInCanvas) && Settings ? (
                                                     <LemonButton
                                                         onClick={() => toggleEditing()}
                                                         size="small"

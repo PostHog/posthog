@@ -548,15 +548,16 @@ export const notebookLogic = kea<notebookLogicType>([
         isEditable: [
             (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
             (shouldBeEditable, previewContent, notebook, mode) =>
-                mode === 'canvas' ||
-                (shouldBeEditable &&
-                    !previewContent &&
-                    !!notebook?.user_access_level &&
-                    accessLevelSatisfied(
-                        AccessControlResourceType.Notebook,
-                        notebook.user_access_level,
-                        AccessControlLevel.Editor
-                    )),
+                shouldBeEditable &&
+                (mode === 'canvas' ||
+                    (shouldBeEditable &&
+                        !previewContent &&
+                        !!notebook?.user_access_level &&
+                        accessLevelSatisfied(
+                            AccessControlResourceType.Notebook,
+                            notebook.user_access_level,
+                            AccessControlLevel.Editor
+                        ))),
         ],
 
         insightShortIdsInNotebook: [
