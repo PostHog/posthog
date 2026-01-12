@@ -3,6 +3,9 @@ common --enable_bzlmod
 # Allow network access for uv pip compile (git dependencies)
 build --sandbox_default_allow_network=true
 
+# Disk cache for faster incremental builds
+build --disk_cache=~/.cache/bazel-disk-cache
+
 # Django test settings
 test --test_env=DEBUG=1
 

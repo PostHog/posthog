@@ -205,9 +205,23 @@ jobs:
               if: steps.check-bazel.outputs.has_products == 'true'
               uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
 
+            - name: Cache pre-built wheels
+              if: steps.check-bazel.outputs.has_products == 'true'
+              uses: actions/cache@v4
+              with:
+                  path: /tmp/bazel-wheels
+                  key: bazel-wheels-${{ hashFiles('pyproject.toml') }}
+                  restore-keys: bazel-wheels-
+
             - name: Pre-build wheels for sdist-only packages
               if: steps.check-bazel.outputs.has_products == 'true'
-              run: ./bin/build-bazel-wheels
+              run: |
+                  if [ -z "$(ls /tmp/bazel-wheels/*.whl 2>/dev/null)" ]; then
+                    ./bin/build-bazel-wheels
+                  else
+                    echo "Using cached wheels from /tmp/bazel-wheels"
+                    ls -la /tmp/bazel-wheels/
+                  fi
 
             - name: Generate requirements_lock.txt for Bazel
               if: steps.check-bazel.outputs.has_products == 'true'
@@ -337,11 +351,31 @@ jobs:
                   chmod +x bazelisk-linux-amd64
                   sudo mv bazelisk-linux-amd64 /usr/local/bin/bazel
 
+            - name: Cache Bazel disk cache
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/bazel-disk-cache
+                  key: bazel-disk-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock.txt') }}
+                  restore-keys: bazel-disk-${{ runner.os }}-
+
+            - name: Cache pre-built wheels
+              uses: actions/cache@v4
+              with:
+                  path: /tmp/bazel-wheels
+                  key: bazel-wheels-${{ hashFiles('pyproject.toml') }}
+                  restore-keys: bazel-wheels-
+
             - name: Generate requirements_lock.txt for Bazel
               run: bazel run //:requirements.update
 
             - name: Pre-build wheels for sdist-only packages
-              run: ./bin/build-bazel-wheels
+              run: |
+                  if [ -z "$(ls /tmp/bazel-wheels/*.whl 2>/dev/null)" ]; then
+                    ./bin/build-bazel-wheels
+                  else
+                    echo "Using cached wheels from /tmp/bazel-wheels"
+                    ls -la /tmp/bazel-wheels/
+                  fi
 
             - name: Run Bazel tests
               run: |
