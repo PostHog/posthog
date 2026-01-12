@@ -80,6 +80,31 @@ def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     )
 
 
+def _is_private_ip_literal(host: str) -> bool:
+    """Quick check for RFC1918 and link-local IP literals (avoids DNS lookup)."""
+    return (
+        host.startswith("10.")
+        or host.startswith("192.168.")
+        or host.startswith("169.254.")
+        or host.startswith("172.16.")
+        or host.startswith("172.17.")
+        or host.startswith("172.18.")
+        or host.startswith("172.19.")
+        or host.startswith("172.20.")
+        or host.startswith("172.21.")
+        or host.startswith("172.22.")
+        or host.startswith("172.23.")
+        or host.startswith("172.24.")
+        or host.startswith("172.25.")
+        or host.startswith("172.26.")
+        or host.startswith("172.27.")
+        or host.startswith("172.28.")
+        or host.startswith("172.29.")
+        or host.startswith("172.30.")
+        or host.startswith("172.31.")
+    )
+
+
 def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
     """
     Validate a URL for SSRF protection.
@@ -106,6 +131,16 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
         return False, "Local/metadata host"
     if host in {"localhost", "127.0.0.1", "::1"}:
         return False, "Local/Loopback host not allowed"
+
+    # Check internal domain patterns
+    for pattern in INTERNAL_DOMAIN_PATTERNS:
+        if host.endswith(pattern):
+            return False, f"Internal domain pattern blocked: {pattern}"
+
+    # Quick check for private IP literals (avoids DNS lookup)
+    if _is_private_ip_literal(host):
+        return False, "Private IP address not allowed"
+
     ips = resolve_host_ips(host)
     for ip in ips:
         if _is_internal_ip(ip):
@@ -118,59 +153,6 @@ def should_block_url(u: str) -> bool:
     Check if a URL should be blocked (for runtime request interception).
 
     Returns True if the URL should be blocked, False if allowed.
-    This is a faster check than is_url_allowed() for use in request handlers.
     """
-    if is_dev_mode():
-        return False
-    try:
-        parsed = urlparse.urlparse(u)
-    except Exception:
-        return True
-
-    if parsed.scheme not in {"http", "https"}:
-        return True
-
-    host = (parsed.hostname or "").lower()
-    if host in METADATA_HOSTS:
-        return True
-    if host in {"localhost", "127.0.0.1", "::1"}:
-        return True
-
-    # Check internal domain patterns (fast path for known internal TLDs/suffixes)
-    # We still check all other domains below with (slower) DNS resolution
-    for pattern in INTERNAL_DOMAIN_PATTERNS:
-        if host.endswith(pattern):
-            return True
-
-    # Quick checks for RFC1918 and link-local ranges (IP literals only)
-    if (
-        host.startswith("10.")
-        or host.startswith("192.168.")
-        or host.startswith("169.254.")
-        or host.startswith("172.16.")
-        or host.startswith("172.17.")
-        or host.startswith("172.18.")
-        or host.startswith("172.19.")
-        or host.startswith("172.20.")
-        or host.startswith("172.21.")
-        or host.startswith("172.22.")
-        or host.startswith("172.23.")
-        or host.startswith("172.24.")
-        or host.startswith("172.25.")
-        or host.startswith("172.26.")
-        or host.startswith("172.27.")
-        or host.startswith("172.28.")
-        or host.startswith("172.29.")
-        or host.startswith("172.30.")
-        or host.startswith("172.31.")
-    ):
-        return True
-
-    # For non-IP hostnames, resolve DNS and check the resulting IPs
-    # This catches internal hostnames that don't match known patterns
-    ips = resolve_host_ips(host)
-    for ip in ips:
-        if _is_internal_ip(ip):
-            return True
-
-    return False
+    allowed, _ = is_url_allowed(u)
+    return not allowed
