@@ -414,19 +414,19 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     pushStack(temp !== temp2)
                     break
                 case Operation.GT:
-                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack(), true)
                     pushStack(temp > temp2)
                     break
                 case Operation.GT_EQ:
-                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack(), true)
                     pushStack(temp >= temp2)
                     break
                 case Operation.LT:
-                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack(), true)
                     pushStack(temp < temp2)
                     break
                 case Operation.LT_EQ:
-                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack(), true)
                     pushStack(temp <= temp2)
                     break
                 case Operation.LIKE:

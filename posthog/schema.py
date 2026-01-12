@@ -3194,6 +3194,7 @@ class SessionRecordingExternalReference(BaseModel):
     id: str
     integration: Integration
     issue_id: str
+    metadata: dict[str, str] | None = None
     title: str
 
 

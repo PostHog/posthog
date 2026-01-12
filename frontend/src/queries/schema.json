@@ -29382,6 +29382,12 @@
                 "issue_id": {
                     "type": "string"
                 },
+                "metadata": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
                 "title": {
                     "type": "string"
                 }
