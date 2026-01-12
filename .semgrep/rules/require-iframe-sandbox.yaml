@@ -18,3 +18,23 @@ rules:
               - 'CWE-1021: Improper Restriction of Rendered UI Layers or Frames'
           owasp:
               - A05:2021 - Security Misconfiguration
+
+    - id: require-iframe-sandbox-array
+      message: >-
+          iframe in renderHTML array syntax must have a sandbox attribute.
+          Add sandbox: 'allow-scripts allow-same-origin' with appropriate permissions.
+      severity: ERROR
+      languages: [typescript, javascript]
+      patterns:
+          - pattern: |
+                ['iframe', { ... }]
+          - pattern-not: |
+                ['iframe', { ..., sandbox: $X, ... }]
+      metadata:
+          category: security
+          technology:
+              - tiptap
+          cwe:
+              - 'CWE-1021: Improper Restriction of Rendered UI Layers or Frames'
+          owasp:
+              - A05:2021 - Security Misconfiguration

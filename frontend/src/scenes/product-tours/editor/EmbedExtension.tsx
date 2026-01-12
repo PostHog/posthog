@@ -152,6 +152,7 @@ export const EmbedExtension = Node.create<EmbedOptions>({
                         allowfullscreen: 'true',
                         allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture',
                         referrerpolicy: 'origin',
+                        sandbox: 'allow-scripts allow-same-origin allow-popups allow-presentation',
                     },
                 ],
             ],
