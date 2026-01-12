@@ -127,9 +127,12 @@ def _trigger_lazy_loading(page: Page) -> None:
                 const scrollStep = viewportHeight * 0.8;
                 let lastScrollHeight = 0;
                 let currentScrollHeight = document.body.scrollHeight;
+                let iterations = 0;
+                const maxIterations = 20;
 
-                // Keep scrolling until the page stops growing
-                while (currentScrollHeight > lastScrollHeight) {
+                // Keep scrolling until the page stops growing or max iterations reached
+                while (currentScrollHeight > lastScrollHeight && iterations < maxIterations) {
+                    iterations++;
                     for (let y = 0; y < currentScrollHeight; y += scrollStep) {
                         window.scrollTo(0, y);
                         await new Promise(r => setTimeout(r, 100));
