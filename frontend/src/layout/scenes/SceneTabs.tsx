@@ -7,7 +7,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconServer, IconX } from '@posthog/icons'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -33,7 +33,7 @@ export interface SceneTabsProps {
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs, firstTabIsActive } = useValues(sceneLogic)
+    const { tabs, firstTabIsActive, isInSQLContext } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
@@ -143,26 +143,73 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 )
                             })}
                         </div>
-                        <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
-                            <Link
-                                to={urls.newTab()}
-                                data-attr="scene-tab-new-button"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    newTab()
-                                }}
-                                tooltip="New tab"
-                                tooltipCloseDelayMs={0}
-                                buttonProps={{
-                                    size: 'sm',
-                                    className:
-                                        'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
-                                    iconOnly: true,
-                                }}
-                            >
-                                <IconPlus className="!ml-0" fontSize={14} />
-                            </Link>
-                        </AppShortcut>
+                        {isInSQLContext ? (
+                            <>
+                                <Link
+                                    to={urls.sqlEditor()}
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        newTab(urls.sqlEditor())
+                                    }}
+                                    buttonProps={{
+                                        size: 'sm',
+                                        className: 'p-1',
+                                        iconOnly: true,
+                                    }}
+                                    className="z-20 ml-px border-b rounded-lg"
+                                    tooltip="New SQL tab"
+                                    tooltipCloseDelayMs={0}
+                                >
+                                    <IconServer className="!ml-0" fontSize={14} />
+                                </Link>
+                                <AppShortcut
+                                    name="NewTab"
+                                    keybind={[keyBinds.newTab]}
+                                    intent="New tab"
+                                    interaction="click"
+                                >
+                                    <Link
+                                        to={urls.newTab()}
+                                        data-attr="scene-tab-new-button"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            newTab()
+                                        }}
+                                        tooltip="New blank tab"
+                                        tooltipCloseDelayMs={0}
+                                        buttonProps={{
+                                            size: 'sm',
+                                            className: 'p-1',
+                                            iconOnly: true,
+                                        }}
+                                        className="z-20 border-b rounded-lg"
+                                    >
+                                        <IconPlus className="!ml-0" fontSize={14} />
+                                    </Link>
+                                </AppShortcut>
+                            </>
+                        ) : (
+                            <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
+                                <Link
+                                    to={urls.newTab()}
+                                    data-attr="scene-tab-new-button"
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        newTab()
+                                    }}
+                                    tooltip="New tab"
+                                    tooltipCloseDelayMs={0}
+                                    buttonProps={{
+                                        size: 'sm',
+                                        className:
+                                            'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
+                                        iconOnly: true,
+                                    }}
+                                >
+                                    <IconPlus className="!ml-0" fontSize={14} />
+                                </Link>
+                            </AppShortcut>
+                        )}
                     </div>
                 </SortableContext>
             </DndContext>

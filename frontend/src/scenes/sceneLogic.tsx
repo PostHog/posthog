@@ -838,6 +838,16 @@ export const sceneLogic = kea<sceneLogicType>([
                 return activeTabId === tabs[0]?.id
             },
         ],
+        isInSQLContext: [
+            (s) => [s.activeTab],
+            (activeTab: SceneTab | null): boolean => {
+                return (
+                    activeTab?.sceneId === Scene.SQLEditor ||
+                    activeTab?.sceneId === Scene.DataWarehouse ||
+                    activeTab?.sceneId === Scene.DataWarehouseSource
+                )
+            },
+        ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
         [NEW_INTERNAL_TAB]: (payload) => {
