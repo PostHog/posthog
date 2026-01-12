@@ -13,8 +13,8 @@ from posthog.hogql.database.database import Database
 from posthog.models import Dashboard, Team, User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.artifacts.manager import ModelArtifactResult
-from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
+from ee.hogai.artifacts.types import ModelArtifactResult
+from ee.hogai.artifacts.utils import unwrap_notebook_artifact_content, unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -209,9 +209,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         self, artifact_or_insight_id: str, execute: bool
     ) -> tuple[str, ToolMessagesArtifact | None]:
         # Fetch the artifact content along with its source
-        result = await self._context_manager.artifacts.aget_insight_with_source(
-            self._state.messages, artifact_or_insight_id
-        )
+        result = await self._context_manager.artifacts.aget_visualization(self._state.messages, artifact_or_insight_id)
 
         if result is None:
             raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
@@ -253,15 +251,17 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         return "", ToolMessagesArtifact(messages=[artifact_message, tool_call_message])
 
     async def _read_artifacts(self) -> tuple[str, None]:
-        conversation_artifacts = await self._context_manager.artifacts.aget_conversation_artifact_messages()
+        conversation_artifacts = await self._context_manager.artifacts.aget_conversation_artifacts()
         formatted_artifacts = []
 
         for message in conversation_artifacts:
-            viz_content = unwrap_visualization_artifact_content(message)
-            if viz_content:
+            if viz_content := unwrap_visualization_artifact_content(message):
                 formatted_artifacts.append(
                     f"- id: {message.artifact_id}\n- name: {viz_content.name}\n- description: {viz_content.description}\n- query: {viz_content.query}"
                 )
+            elif notebook_content := unwrap_notebook_artifact_content(message):
+                # We don't need to show the content of the notebook, just the title
+                formatted_artifacts.append(f"- id: {message.artifact_id}\n- title: {notebook_content.title}")
         if len(formatted_artifacts) == 0:
             return "No artifacts available", None
         return "\n\n".join(formatted_artifacts), None

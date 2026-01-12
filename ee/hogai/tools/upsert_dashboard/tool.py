@@ -6,13 +6,14 @@ from django.db.models import Q
 import structlog
 from pydantic import BaseModel, Field
 
-from posthog.schema import ArtifactSource, DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
+from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.artifacts.manager import ArtifactManager, DatabaseArtifactResult, ModelArtifactResult, StateArtifactResult
+from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
@@ -259,13 +260,13 @@ class UpsertDashboardTool(MaxTool):
 
     async def _resolve_insights(self, insight_ids: list[str]) -> tuple[list[Insight], list[str]]:
         """
-        Resolve insight_ids using ArtifactManager.aget_insights_with_source.
+        Resolve insight_ids using VisualizationHandler.
         Returns (resolved_insights, missing_ids) in same order as input.
 
         For State/Artifact sources, creates and saves new Insights before adding to dashboard.
         """
         artifact_manager = ArtifactManager(self._team, self._user, self._config)
-        results = await artifact_manager.aget_insights_with_source(self._state.messages, insight_ids)
+        results = await artifact_manager.aget_visualizations(self._state.messages, insight_ids)
 
         resolved: list[Insight] = []
         missing: list[str] = []
@@ -273,10 +274,10 @@ class UpsertDashboardTool(MaxTool):
         for insight_id, result in zip(insight_ids, results):
             if result is None:
                 missing.append(insight_id)
-            elif isinstance(result, ModelArtifactResult) and result.source == ArtifactSource.INSIGHT:
+            elif isinstance(result, ModelArtifactResult):
                 resolved.append(result.model)
-            elif isinstance(result, StateArtifactResult | DatabaseArtifactResult):
-                # Need to create and save insight from artifact content
+            else:
+                # State or Artifact source - need to create and save insight from artifact content
                 content = result.content
                 # Coerce query to the QuerySchema union
                 coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
