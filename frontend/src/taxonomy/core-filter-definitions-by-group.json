@@ -1170,9 +1170,10 @@
             "system": true
         },
         "$has_recording": {
-            "description": "Whether a session recording exists for this event's session",
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
             "label": "Has recording",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$host": {
             "description": "The hostname of the Current URL.",
@@ -3702,9 +3703,10 @@
             "system": true
         },
         "$has_recording": {
-            "description": "Whether a session recording exists for this event's session",
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
             "label": "Has recording",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$host": {
             "description": "The hostname of the Current URL.",
