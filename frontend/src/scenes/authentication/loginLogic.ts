@@ -152,7 +152,11 @@ export const loginLogic = kea<loginLogicType>([
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
-                        router.actions.push(urls.login2FA())
+                        const searchParams: Record<string, any> = {}
+                        if (router.values.searchParams.next) {
+                            searchParams.next = router.values.searchParams.next
+                        }
+                        router.actions.push(urls.login2FA(), searchParams)
                         throw e
                     }
                     if (code === 'email_mfa_required') {
