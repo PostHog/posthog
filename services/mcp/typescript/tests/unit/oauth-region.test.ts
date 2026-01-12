@@ -1,6 +1,34 @@
 import { describe, expect, it } from 'vitest'
 
+import { getBaseUrlForRegion, toCloudRegion } from '@/lib/constants'
+
 describe('OAuth Region Routing', () => {
+    describe('toCloudRegion', () => {
+        it.each([
+            { input: 'eu', expected: 'eu' },
+            { input: 'EU', expected: 'eu' },
+            { input: 'Eu', expected: 'eu' },
+            { input: 'us', expected: 'us' },
+            { input: 'US', expected: 'us' },
+            { input: 'unknown', expected: 'us' },
+            { input: '', expected: 'us' },
+            { input: null, expected: 'us' },
+            { input: undefined, expected: 'us' },
+        ])('toCloudRegion($input) returns $expected', ({ input, expected }) => {
+            expect(toCloudRegion(input)).toBe(expected)
+        })
+    })
+
+    describe('getBaseUrlForRegion', () => {
+        it('returns EU URL for eu region', () => {
+            expect(getBaseUrlForRegion('eu')).toBe('https://eu.posthog.com')
+        })
+
+        it('returns US URL for us region', () => {
+            expect(getBaseUrlForRegion('us')).toBe('https://us.posthog.com')
+        })
+    })
+
     describe('Protected Resource Metadata', () => {
         const testCases = [
             {
@@ -32,14 +60,10 @@ describe('OAuth Region Routing', () => {
 
         it.each(testCases)('$name', ({ params, expectedServer }) => {
             const url = new URL(`https://mcp.posthog.com/.well-known/oauth-protected-resource${params}`)
-            const regionParam = url.searchParams.get('region')?.toLowerCase()
+            const regionParam = url.searchParams.get('region')
 
-            let authorizationServer: string
-            if (regionParam === 'eu') {
-                authorizationServer = 'https://eu.posthog.com'
-            } else {
-                authorizationServer = 'https://us.posthog.com'
-            }
+            // Uses actual helpers from constants.ts
+            const authorizationServer = getBaseUrlForRegion(toCloudRegion(regionParam))
 
             expect(authorizationServer).toBe(expectedServer)
         })
@@ -71,7 +95,7 @@ describe('OAuth Region Routing', () => {
 
         it.each(testCases)('$name', ({ requestUrl, expectedMetadataUrl }) => {
             const url = new URL(requestUrl)
-            // Normalize to lowercase for consistency with the metadata endpoint
+            // Matches actual behavior: normalize to lowercase and include if present
             const regionParam = url.searchParams.get('region')?.toLowerCase()
 
             const metadataUrl = new URL('/.well-known/oauth-protected-resource', requestUrl)

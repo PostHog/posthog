@@ -9,10 +9,12 @@ import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
 import {
     CUSTOM_BASE_URL,
+    getBaseUrlForRegion,
     MCP_DOCS_URL,
     OAUTH_SCOPES_SUPPORTED,
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
+    toCloudRegion,
 } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { SessionManager } from '@/lib/utils/SessionManager'
@@ -35,6 +37,7 @@ type RequestProperties = {
     apiToken: string
     sessionId?: string
     features?: string[]
+    region?: string
 }
 
 // Define our MCP agent with tools
@@ -114,13 +117,19 @@ export class MyMCP extends McpAgent<Env> {
             return CUSTOM_BASE_URL
         }
 
-        const region = (await this.cache.get('region')) || (await this.detectRegion())
-
-        if (region === 'eu') {
-            return POSTHOG_EU_BASE_URL
+        // Check region from request props first (passed via URL param), then cache, then detect
+        const propsRegion = this.requestProperties.region
+        if (propsRegion) {
+            const region = toCloudRegion(propsRegion)
+            // Cache it for future requests
+            await this.cache.set('region', region)
+            return getBaseUrlForRegion(region)
         }
 
-        return POSTHOG_US_BASE_URL
+        const cachedRegion = await this.cache.get('region')
+        const region = cachedRegion ? toCloudRegion(cachedRegion) : await this.detectRegion()
+
+        return getBaseUrlForRegion(region || 'us')
     }
 
     async api(): Promise<ApiClient> {
@@ -312,19 +321,9 @@ export default {
 
             // Determine authorization server based on region param.
             // The region param is set by the wizard based on user's cloud region selection.
-            // Invalid/unknown regions safely default to US.
-            const regionParam = url.searchParams.get('region')?.toLowerCase()
-            let authorizationServer: string
-
-            if (CUSTOM_BASE_URL) {
-                // Self-hosted instances use CUSTOM_BASE_URL
-                authorizationServer = CUSTOM_BASE_URL
-            } else if (regionParam === 'eu') {
-                authorizationServer = POSTHOG_EU_BASE_URL
-            } else {
-                // Default to US for 'us', missing, or invalid region values
-                authorizationServer = POSTHOG_US_BASE_URL
-            }
+            // Invalid/unknown regions safely default to US via toCloudRegion().
+            const regionParam = url.searchParams.get('region')
+            const authorizationServer = CUSTOM_BASE_URL || getBaseUrlForRegion(toCloudRegion(regionParam))
 
             return new Response(
                 JSON.stringify({
@@ -389,7 +388,12 @@ export default {
         // Example: ?features=org,insights
         const featuresParam = url.searchParams.get('features')
         const features = featuresParam ? featuresParam.split(',').filter(Boolean) : undefined
-        ctx.props = { ...ctx.props, features }
+
+        // Region param is used to route API calls to the correct PostHog instance (US or EU).
+        // This is set by the wizard based on user's cloud region selection during MCP setup.
+        const regionParam = url.searchParams.get('region') || undefined
+
+        ctx.props = { ...ctx.props, features, region: regionParam }
 
         if (url.pathname.startsWith('/mcp')) {
             return MyMCP.serve('/mcp').fetch(request, env, ctx).then(responseHandler)
