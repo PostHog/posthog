@@ -265,9 +265,9 @@ def test_report_heartbeat_timeout_first_attempt(team):
     with mock.patch(
         "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -290,9 +290,9 @@ def test_report_heartbeat_timeout_no_heartbeat_timeout(team):
     with mock.patch(
         "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -315,9 +315,9 @@ def test_report_heartbeat_timeout_no_current_attempt_scheduled_time(team):
     with mock.patch(
         "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -343,9 +343,9 @@ def test_report_heartbeat_timeout_no_heartbeat_details(team):
     with mock.patch(
         "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -371,9 +371,9 @@ def test_report_heartbeat_timeout_heartbeat_details_are_not_a_tuple(team):
     with mock.patch(
         "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -399,9 +399,9 @@ def test_report_heartbeat_timeout_heartbeat_details_last_item_is_not_a_dict(team
     with mock.patch(
         "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -427,9 +427,9 @@ def test_report_heartbeat_timeout_heartbeat_details_missing_host_or_ts(team):
     with mock.patch(
         "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -454,9 +454,9 @@ def test_report_heartbeat_timeout_heartbeat_within_timeout(team):
     with mock.patch(
         "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -490,9 +490,9 @@ def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
                 "posthog.temporal.data_imports.workflow_activities.import_data_sync.posthoganalytics.capture"
             ) as mock_posthog_capture,
         ):
-            from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+            from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-            _report_heartbeat_timeout(activity_inputs, logger)
+            report_heartbeat_timeout(activity_inputs, logger)
 
             mock_activity_info.assert_called_once()
             logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")

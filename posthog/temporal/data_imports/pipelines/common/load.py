@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from django.db.models import F
 
@@ -12,9 +12,6 @@ from products.data_warehouse.backend.models.external_data_job import ExternalDat
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
-if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSchema
-
 
 def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
     logger.debug(f"Updating rows_synced with +{count}")
@@ -22,7 +19,7 @@ def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) 
 
 
 def get_incremental_field_value(
-    schema: "ExternalDataSchema | None", table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
+    schema: ExternalDataSchema | None, table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
 ) -> Any:
     if schema is None or schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
         return None
@@ -46,7 +43,7 @@ def get_incremental_field_value(
     return last_value.as_py()
 
 
-def supports_partial_data_loading(schema: "ExternalDataSchema") -> bool:
+def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
     """
     We should be able to roll this out to all source types in the future.
     Currently only Stripe sources support partial data loading.
