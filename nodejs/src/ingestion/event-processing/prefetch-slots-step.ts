@@ -8,9 +8,14 @@ export interface PrefetchSlotsStepInput {
 }
 
 export function createPrefetchSlotsStep<TInput extends PrefetchSlotsStepInput>(
-    materializedColumnSlotManager: MaterializedColumnSlotManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager,
+    enabled: boolean
 ): BatchProcessingStep<TInput, TInput> {
     return function prefetchSlotsStep(events: TInput[]): Promise<PipelineResult<TInput>[]> {
+        if (!enabled) {
+            return Promise.resolve(events.map((event) => ok(event)))
+        }
+
         const teamIds = new Set<number>()
         for (const event of events) {
             teamIds.add(event.team.id)
