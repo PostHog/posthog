@@ -103,7 +103,7 @@ export function SceneTabs(): JSX.Element {
                         direction="horizontal"
                         className="w-full min-w-0"
                         innerClassName={cn(
-                            'scene-tab-row min-w-0 gap-1 items-center flex w-full overflow-x-auto show-scrollbar-on-hover h-[var(--scene-layout-header-height)] lg:h-auto pr-2 '
+                            'scene-tab-row min-w-0 gap-1 items-center flex w-full overflow-x-auto show-scrollbar-on-hover h-[var(--scene-layout-header-height)] lg:h-auto'
                         )}
                         style={{ WebkitOverflowScrolling: 'touch' }}
                         styledScrollbars
