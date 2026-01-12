@@ -223,6 +223,14 @@ jobs:
                     ls -la /tmp/bazel-wheels/
                   fi
 
+            - name: Cache Bazel disk cache
+              if: steps.check-bazel.outputs.has_products == 'true'
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/bazel-disk-cache
+                  key: bazel-disk-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock.txt') }}
+                  restore-keys: bazel-disk-${{ runner.os }}-
+
             - name: Generate requirements_lock.txt for Bazel
               if: steps.check-bazel.outputs.has_products == 'true'
               run: bazel run //:requirements.update
