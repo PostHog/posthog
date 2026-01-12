@@ -152,9 +152,9 @@ class MaterializedColumn:
 
         rows = MaterializedColumn._get_all(table)
         for name, comment, is_nullable, index_names in rows:
-            has_minmax = any(idx.startswith("minmax_") for idx in index_names)
-            has_bloom = any(idx.startswith("bf_") for idx in index_names)
-            has_ngram = any(idx.startswith("ngram_lower_") for idx in index_names)
+            has_minmax = any(idx and idx.startswith("minmax_") for idx in index_names)
+            has_bloom = any(idx and idx.startswith("bf_") for idx in index_names)
+            has_ngram = any(idx and idx.startswith("ngram_lower_") for idx in index_names)
             yield MaterializedColumn(
                 name,
                 MaterializedColumnDetails.from_column_comment(comment),

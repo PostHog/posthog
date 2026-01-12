@@ -477,6 +477,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         prop_minmax = "prop_minmax"
         prop_bf = "prop_bf"
         prop_ngram_lower = "prop_ngram_lower"
+        prop_none = "prop_none"
 
         _create_event(
             team=self.team,
@@ -487,6 +488,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 prop_minmax: prop_minmax,
                 prop_bf: prop_bf,
                 prop_ngram_lower: prop_ngram_lower,
+                prop_none: prop_none,
             },
         )
 
@@ -519,17 +521,26 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             create_ngram_lower_index=True,
             create_minmax_index=False,
         )
+        materialize(
+            "events",
+            prop_none,
+            create_bloom_filter_index=False,
+            create_ngram_lower_index=False,
+            create_minmax_index=False,
+        )
 
         cols = get_materialized_columns("events")
         mat_col_all = cols.get((prop_all, "properties"))
         mat_col_minmax = cols.get((prop_minmax, "properties"))
         mat_col_bf = cols.get((prop_bf, "properties"))
         mat_col_ngram_lower = cols.get((prop_ngram_lower, "properties"))
+        mat_col_none = cols.get((prop_none, "properties"))
 
         assert mat_col_all is not None
         assert mat_col_minmax is not None
         assert mat_col_bf is not None
         assert mat_col_ngram_lower is not None
+        assert mat_col_none is not None
 
         # Verify index flags: (has_minmax, has_bloom_filter, has_ngram_lower)
         assert (
@@ -552,3 +563,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             mat_col_ngram_lower.has_bloom_filter_index,
             mat_col_ngram_lower.has_ngram_lower_index,
         ) == (False, False, True)
+        assert (
+            mat_col_none.has_minmax_index,
+            mat_col_none.has_bloom_filter_index,
+            mat_col_none.has_ngram_lower_index,
+        ) == (False, False, False)
