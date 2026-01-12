@@ -1268,4 +1268,4 @@ jobs:
               if: always()
               with:
                   name: junit-results-llm-gateway
-                  path: services/llm-gateway/junit.xml
+                  path: junit.xml

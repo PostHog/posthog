@@ -84,6 +84,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = ["--junitxml=junit.xml"]
 
 [tool.mypy]
 python_version = "3.12"
