@@ -864,7 +864,7 @@ def cleanup_old_events_by_partition(
                 AND age('month', timestamp, now()) >= %(min_age_months)s
             """,
             parameters={
-                "team_ids": list(config.team_ids),
+                "team_ids": config.team_ids,
                 "min_age_months": config.min_age_months,
             },
             partition=str(partition),
