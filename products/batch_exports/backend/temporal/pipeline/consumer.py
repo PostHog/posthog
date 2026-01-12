@@ -134,6 +134,7 @@ class Consumer:
                         self.logger.debug(
                             "Empty queue with no more events being produced, closing writer loop and flushing"
                         )
+                        get_task.cancel()
                         break
                     else:
                         record_batch = await get_task
