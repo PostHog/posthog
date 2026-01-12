@@ -436,7 +436,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             empty_inputs = []
             for required_input in required_non_empty_inputs:
                 value = config.get(required_input)
-                if value is not None and value.strip() == "":
+                if isinstance(value, str) and value.strip() == "":
                     empty_inputs.append(required_input)
             if empty_inputs:
                 raise serializers.ValidationError(f"The following inputs are empty: {empty_inputs}")
