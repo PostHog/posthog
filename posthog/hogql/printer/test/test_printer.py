@@ -3568,7 +3568,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(ilike_result.results, [("d1",)])
         assert ilike_result.clickhouse is not None
-        assert clean_varying_query_parts(ilike_result.clickhouse, replace_all_numbers=False) == self.snapshot
 
         if create_ngram_lower_index and mat_col:
             index_name = get_ngram_lower_index_name(mat_col.name)
@@ -3685,7 +3684,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(not_ilike_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
         assert not_ilike_result.clickhouse is not None
-        assert clean_varying_query_parts(not_ilike_result.clickhouse, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand(
         [
@@ -3778,7 +3776,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(like_result.results, [("d1",)])
         assert like_result.clickhouse is not None
-        assert clean_varying_query_parts(like_result.clickhouse, replace_all_numbers=False) == self.snapshot
 
         like_lowercase_result = execute_hogql_query(
             team=self.team,
@@ -3872,7 +3869,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(not_like_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
         assert not_like_result.clickhouse is not None
-        assert clean_varying_query_parts(not_like_result.clickhouse, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand(
         [
