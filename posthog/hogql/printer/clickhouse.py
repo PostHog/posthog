@@ -14,7 +14,7 @@ from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryEr
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
-from posthog.hogql.utils import like_matches
+from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
@@ -379,7 +379,7 @@ class ClickHousePrinter(HogQLPrinter):
         else:
             # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
             # regular code path handle it, which handles this case
-            if any(like_matches(pattern_expr.value, s) for s in ["", "null", '"null"']):
+            if any(ilike_matches(pattern_expr.value, s) for s in ["", "null", '"null"']):
                 return None
 
             if node.op == ast.CompareOperationOp.ILike:

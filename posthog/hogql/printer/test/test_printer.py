@@ -3437,6 +3437,11 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 f"ifNull(ilike(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_1)s), 0)",
                 {"hogql_val_1": "%null%"},
             )
+            self._test_materialized_column_comparison(
+                "properties.test_prop ilike '%NULL%'",
+                f"ifNull(ilike(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%NULL%"},
+            )
 
     def test_materialized_column_like_uses_raw_column_for_non_nullable(self) -> None:
         # For non-nullable columns, LIKE uses raw column directly
