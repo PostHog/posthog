@@ -58,6 +58,13 @@ def delete_expired_exported_assets() -> None:
 
 
 @shared_task(ignore_result=True)
+def clear_expired_sessions() -> None:
+    from django.core.management import call_command
+
+    call_command("clearsessions")
+
+
+@shared_task(ignore_result=True)
 def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
