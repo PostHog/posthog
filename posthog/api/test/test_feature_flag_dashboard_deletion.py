@@ -239,9 +239,10 @@ class TestFeatureFlagDashboardDeletion(APIBaseTest):
 
         # Get an insight from the usage dashboard
         tile = DashboardTile.objects.filter(dashboard_id=dashboard_id).first()
-        self.assertIsNotNone(tile)
-        self.assertIsNotNone(tile.insight)
+        assert tile is not None
+        assert tile.insight is not None
         insight_id = tile.insight_id
+        assert insight_id is not None
 
         # Create another dashboard and add the same insight to it
         other_dashboard = Dashboard.objects.create(
@@ -276,3 +277,57 @@ class TestFeatureFlagDashboardDeletion(APIBaseTest):
         # The tile on the other dashboard should still exist
         other_tile = DashboardTile.objects.get(dashboard=other_dashboard, insight_id=insight_id)
         self.assertFalse(other_tile.deleted)
+
+    def test_undo_does_not_restore_shared_insights(self):
+        """Test that undo only restores insights that were deleted during flag deletion.
+
+        Insights shared with other dashboards are not deleted during flag deletion,
+        so they should not be restored during undo (they weren't affected).
+        """
+        from posthog.models.insight import Insight
+
+        # Create flag with dashboard
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "test-flag", "name": "Test", "_should_create_usage_dashboard": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        dashboard_id = response.json()["usage_dashboard"]
+
+        # Get an insight from the usage dashboard
+        tile = DashboardTile.objects.filter(dashboard_id=dashboard_id).first()
+        assert tile is not None
+        insight_id = tile.insight_id
+        assert insight_id is not None
+
+        # Share this insight to another dashboard (making it tile_count > 1)
+        other_dashboard = Dashboard.objects.create(team=self.team, name="Other Dashboard")
+        DashboardTile.objects.create(dashboard=other_dashboard, insight_id=insight_id)
+
+        # Manually soft-delete this shared insight (simulating user action unrelated to flag)
+        insight = Insight.objects.get(id=insight_id)
+        insight.deleted = True
+        insight.save()
+
+        # Delete the flag with dashboard deletion
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"deleted": True, "_should_delete_usage_dashboard": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Undo (restore) the flag
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"deleted": False, "_should_delete_usage_dashboard": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # The shared insight should STILL be deleted (it wasn't deleted by flag deletion,
+        # so it shouldn't be restored by undo)
+        insight = Insight.objects_including_soft_deleted.get(id=insight_id)
+        self.assertTrue(insight.deleted, "Shared insight that was manually deleted should not be restored")

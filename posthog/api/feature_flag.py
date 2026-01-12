@@ -1194,6 +1194,8 @@ def _delete_usage_dashboard(feature_flag: FeatureFlag) -> None:
 
 def _restore_usage_dashboard(feature_flag: FeatureFlag) -> None:
     """Restore a soft-deleted usage dashboard and its insights when a flag is restored."""
+    from django.db.models import Count
+
     from posthog.models.dashboard import Dashboard
     from posthog.models.dashboard_tile import DashboardTile
     from posthog.models.insight import Insight
@@ -1217,19 +1219,24 @@ def _restore_usage_dashboard(feature_flag: FeatureFlag) -> None:
     # Restore all tiles on this dashboard
     DashboardTile.objects_including_soft_deleted.filter(dashboard=usage_dashboard).update(deleted=False)
 
-    # Get all insight IDs from this dashboard's tiles (use objects_including_soft_deleted to avoid manager filtering)
-    tile_insight_ids = list(
-        DashboardTile.objects_including_soft_deleted.filter(
-            dashboard=usage_dashboard, insight__isnull=False
-        ).values_list("insight_id", flat=True)
+    # Only restore insights that exist solely on this dashboard (tile_count == 1)
+    # This matches the deletion logic which only deletes insights with tile_count == 1
+    # Insights shared with other dashboards were not deleted, so we shouldn't restore them
+    tiles_with_counts = (
+        DashboardTile.objects.filter(dashboard=usage_dashboard, insight__isnull=False)
+        .select_related("insight")
+        .annotate(insight_tile_count=Count("insight__dashboard_tiles"))
     )
 
-    if not tile_insight_ids:
-        return
+    insights_to_restore = []
+    for tile in tiles_with_counts:
+        if tile.insight and tile.insight.deleted and tile.insight_tile_count == 1:
+            tile.insight.deleted = False
+            insights_to_restore.append(tile.insight)
 
-    # Restore all soft-deleted insights that were on this dashboard
-    # These were deleted because they only existed on this dashboard
-    Insight.objects_including_soft_deleted.filter(id__in=tile_insight_ids, deleted=True).update(deleted=False)
+    if insights_to_restore:
+        # Use objects_including_soft_deleted since the insights are currently soft-deleted
+        Insight.objects_including_soft_deleted.bulk_update(insights_to_restore, ["deleted"])
 
 
 def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> None:
