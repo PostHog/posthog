@@ -124,13 +124,14 @@ class TestFeatureFlagDashboardDeletion(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(response.json()["usage_dashboard"])
 
-    def test_flag_usage_dashboard_cleared_after_deletion(self):
-        """Test that the flag's usage_dashboard reference is cleared after deletion."""
+    def test_flag_usage_dashboard_reference_preserved_for_undo(self):
+        """Test that the flag's usage_dashboard reference is preserved for undo support."""
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {"key": "test-flag", "name": "Test", "_should_create_usage_dashboard": True},
             format="json",
         )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag_id = response.json()["id"]
         dashboard_id = response.json()["usage_dashboard"]
         self.assertIsNotNone(dashboard_id)
@@ -142,8 +143,9 @@ class TestFeatureFlagDashboardDeletion(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        # Reference is kept for undo support
         flag = FeatureFlag.objects.get(id=flag_id)
-        self.assertIsNone(flag.usage_dashboard)
+        self.assertEqual(flag.usage_dashboard_id, dashboard_id)
 
     def test_regular_update_ignores_delete_dashboard_field(self):
         """Test that _should_delete_usage_dashboard is ignored on non-delete updates."""
@@ -167,3 +169,110 @@ class TestFeatureFlagDashboardDeletion(APIBaseTest):
 
         flag = FeatureFlag.objects.get(id=flag_id)
         self.assertEqual(flag.usage_dashboard_id, dashboard_id)
+
+    def test_undo_restores_dashboard_and_insights(self):
+        """Test that undoing a deletion restores the dashboard and insights."""
+        from posthog.models.insight import Insight
+
+        # Create flag with dashboard
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "test-flag", "name": "Test", "_should_create_usage_dashboard": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        dashboard_id = response.json()["usage_dashboard"]
+
+        # Get initial insight count
+        initial_tiles = list(DashboardTile.objects.filter(dashboard_id=dashboard_id))
+        self.assertGreater(len(initial_tiles), 0)
+
+        # Delete flag with dashboard
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"deleted": True, "_should_delete_usage_dashboard": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify everything is deleted
+        dashboard = Dashboard.objects_including_soft_deleted.get(id=dashboard_id)
+        self.assertTrue(dashboard.deleted)
+
+        # Undo (restore) the flag - simulates what deleteWithUndo does
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"deleted": False, "_should_delete_usage_dashboard": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify dashboard is restored
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+
+        # Verify tiles are restored
+        restored_tiles = list(DashboardTile.objects.filter(dashboard_id=dashboard_id))
+        self.assertEqual(len(restored_tiles), len(initial_tiles))
+
+        # Verify insights are restored (refresh from DB to avoid stale cached objects)
+
+        for tile in restored_tiles:
+            if tile.insight_id:
+                insight = Insight.objects_including_soft_deleted.get(id=tile.insight_id)
+                self.assertFalse(insight.deleted, f"Insight {insight.id} should not be deleted")
+
+    def test_shared_insight_preserved_when_deleting_dashboard(self):
+        """Test that insights on multiple dashboards are preserved when deleting usage dashboard."""
+        from posthog.models.insight import Insight
+
+        # Create flag with dashboard
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "test-flag", "name": "Test", "_should_create_usage_dashboard": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        dashboard_id = response.json()["usage_dashboard"]
+
+        # Get an insight from the usage dashboard
+        tile = DashboardTile.objects.filter(dashboard_id=dashboard_id).first()
+        self.assertIsNotNone(tile)
+        self.assertIsNotNone(tile.insight)
+        insight_id = tile.insight_id
+
+        # Create another dashboard and add the same insight to it
+        other_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Other Dashboard",
+        )
+        DashboardTile.objects.create(
+            dashboard=other_dashboard,
+            insight_id=insight_id,
+        )
+
+        # Now delete the flag with dashboard deletion
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"deleted": True, "_should_delete_usage_dashboard": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # The usage dashboard should be deleted
+        usage_dashboard = Dashboard.objects_including_soft_deleted.get(id=dashboard_id)
+        self.assertTrue(usage_dashboard.deleted)
+
+        # But the shared insight should NOT be deleted (it exists on another dashboard)
+        insight = Insight.objects.get(id=insight_id)
+        self.assertFalse(insight.deleted)
+
+        # The tile on the usage dashboard should be deleted
+        usage_tile = DashboardTile.objects_including_soft_deleted.get(dashboard_id=dashboard_id, insight_id=insight_id)
+        self.assertTrue(usage_tile.deleted)
+
+        # The tile on the other dashboard should still exist
+        other_tile = DashboardTile.objects.get(dashboard=other_dashboard, insight_id=insight_id)
+        self.assertFalse(other_tile.deleted)

@@ -65,11 +65,12 @@ export const deleteFeatureFlagLogic = kea<deleteFeatureFlagLogicType>([
                             refreshTreeItem('feature_flag', String(featureFlagId))
                         } else {
                             deleteFromTree('feature_flag', String(featureFlagId))
+                            // Only navigate away on successful deletion (not on undo)
+                            actions.hideDeleteFeatureFlagModal()
+                            router.actions.push(urls.featureFlags())
                         }
                     },
                 })
-                actions.hideDeleteFeatureFlagModal()
-                router.actions.push(urls.featureFlags())
             },
         },
     })),
