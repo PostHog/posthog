@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/posthog/posthog/livestream/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Subscription struct {
@@ -134,7 +136,8 @@ func (c *Filter) Run() {
 						select {
 						case sub.EventChan <- *responseGeoEvent:
 						default:
-							// Don't block
+							log.Printf("Dropped geo event for sub %d team %d (channel full)", sub.SubID, sub.TeamId)
+							metrics.DroppedEvents.With(prometheus.Labels{"team_id": strconv.Itoa(sub.TeamId), "channel": "geo"}).Inc()
 						}
 					}
 				} else {
@@ -145,7 +148,8 @@ func (c *Filter) Run() {
 					select {
 					case sub.EventChan <- *responseEvent:
 					default:
-						// Don't block
+						log.Printf("Dropped event for sub %d team %d (channel full)", sub.SubID, sub.TeamId)
+						metrics.DroppedEvents.With(prometheus.Labels{"team_id": strconv.Itoa(sub.TeamId), "channel": "events"}).Inc()
 					}
 				}
 			}

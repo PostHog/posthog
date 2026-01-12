@@ -50,6 +50,13 @@ var (
 		Name: "livestream_active_event_subscriptions_total",
 		Help: "How many active event subscriptions we have",
 	})
+	DroppedEvents = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_dropped_events_total",
+			Help: "Events dropped due to full subscriber channel",
+		},
+		[]string{"team_id", "channel"},
+	)
 
 	SessionRecordingMsgConsumed = promauto.NewCounterVec(
 		prometheus.CounterOpts{
