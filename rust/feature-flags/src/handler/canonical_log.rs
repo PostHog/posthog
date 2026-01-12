@@ -298,6 +298,7 @@ mod tests {
         log.api_version = Some("3".to_string());
         log.team_id = Some(123);
         log.distinct_id = Some("user_abc".to_string());
+        log.device_id = Some("device_123".to_string());
         log.flags_evaluated = 10;
         log.flags_experience_continuity = 2;
         log.flags_disabled = false;
