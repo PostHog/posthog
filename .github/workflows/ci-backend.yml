@@ -199,11 +199,26 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+
+            - name: Cache Rust toolchain
+              uses: actions/cache@v4
               with:
-                  toolchain: 1.88.0
-                  components: cargo
+                  path: |
+                      ~/.rustup/toolchains
+                      ~/.rustup/update-hashes
+                      ~/.rustup/settings.toml
+                  key: rust-toolchain-1.88.0-${{ runner.os }}
+                  restore-keys: |
+                      rust-toolchain-1.88.0-
+
+            - name: Install Rust
+              run: |
+                  if ! rustup toolchain list | grep -q '1.88.0'; then
+                    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0 --profile minimal --component cargo
+                    echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+                  else
+                    echo "Rust 1.88.0 already installed from cache"
+                  fi
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
@@ -748,12 +763,28 @@ jobs:
               run: |
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
+            - name: Cache Rust toolchain
+              if: needs.changes.outputs.backend == 'true'
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.rustup/toolchains
+                      ~/.rustup/update-hashes
+                      ~/.rustup/settings.toml
+                  key: rust-toolchain-1.88.0-${{ runner.os }}
+                  restore-keys: |
+                      rust-toolchain-1.88.0-
+
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
-              with:
-                  toolchain: 1.88.0
-                  components: cargo
+              shell: bash
+              run: |
+                  if ! rustup toolchain list | grep -q '1.88.0'; then
+                    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0 --profile minimal --component cargo
+                    echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+                  else
+                    echo "Rust 1.88.0 already installed from cache"
+                  fi
 
             - name: Cache Rust dependencies
               if: needs.changes.outputs.backend == 'true'
@@ -1143,11 +1174,25 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+            - name: Cache Rust toolchain
+              uses: actions/cache@v4
               with:
-                  toolchain: 1.88.0
-                  components: cargo
+                  path: |
+                      ~/.rustup/toolchains
+                      ~/.rustup/update-hashes
+                      ~/.rustup/settings.toml
+                  key: rust-toolchain-1.88.0-${{ runner.os }}
+                  restore-keys: |
+                      rust-toolchain-1.88.0-
+
+            - name: Install Rust
+              run: |
+                  if ! rustup toolchain list | grep -q '1.88.0'; then
+                    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0 --profile minimal --component cargo
+                    echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+                  else
+                    echo "Rust 1.88.0 already installed from cache"
+                  fi
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
