@@ -603,7 +603,7 @@ class KernelRuntimeService:
         try:
             start_command = (
                 "mkdir -p /tmp/jupyter && "
-                f"nohup python -m ipykernel_launcher -f {connection_file} "
+                f"nohup python3 -m ipykernel_launcher -f {connection_file} "
                 "> /tmp/jupyter/kernel.log 2>&1 & echo $!"
             )
             start_result = sandbox.execute(start_command, timeout_seconds=int(self._startup_timeout))
@@ -709,7 +709,7 @@ class KernelRuntimeService:
         payload["action"] = action
         encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
         return (
-            "python - <<'PY'\n"
+            "python3 - <<'PY'\n"
             "import base64\n"
             "import json\n"
             "from queue import Empty\n"
