@@ -86,7 +86,6 @@ py_library(
         "@pypi//token_bucket",
         "@pypi//drf_extensions",
         "@pypi//djangorestframework_dataclasses",
-        "@pypi//litellm",
         "@pypi//geoip2",
         "@pypi//google_genai",
         "@pypi//brotli",
