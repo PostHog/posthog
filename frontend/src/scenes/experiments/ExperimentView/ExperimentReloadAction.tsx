@@ -13,7 +13,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Label } from 'lib/ui/Label/Label'
 import { humanFriendlyDuration } from 'lib/utils'
 
-import { EXPERIMENT_REFRESH_INTERVAL_SECONDS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 
 /**
@@ -78,7 +77,14 @@ export const ExperimentLastRefreshText = ({ lastRefresh }: { lastRefresh: string
     return <span className={colorClass}>{lastRefresh ? <TZLabel time={lastRefresh} /> : 'a while ago'}</span>
 }
 
-const INTERVAL_OPTIONS = Array.from(EXPERIMENT_REFRESH_INTERVAL_SECONDS, (value) => ({
+const getExperimentRefreshIntervalSeconds = (): number[] => {
+    if (process.env.NODE_ENV === 'development') {
+        return [10, 300, 900, 1800] // 10s, 5min, 15min, 30min
+    }
+    return [300, 900, 1800] // 5min, 15min, 30min
+}
+
+const INTERVAL_OPTIONS = Array.from(getExperimentRefreshIntervalSeconds(), (value) => ({
     label: humanFriendlyDuration(value),
     value: value,
 }))
