@@ -87,6 +87,7 @@ import {
 } from '../schema/surveys.js'
 import { buildApiFetcher } from './fetcher'
 import { type Schemas, createApiClient } from './generated'
+import { globalRateLimiter } from './rate-limiter'
 
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
@@ -126,48 +127,91 @@ export class ApiClient {
     }
 
     private async fetchWithSchema<T>(url: string, schema: z.ZodType<T>, options?: RequestInit): Promise<Result<T>> {
-        try {
-            const response = await fetch(url, {
-                ...options,
-                headers: {
-                    ...this.buildHeaders(),
-                    ...options?.headers,
-                },
-            })
+        const maxRetries = 3
+        const baseBackoffMs = 2000
 
-            if (!response.ok) {
-                if (response.status === 401) {
-                    throw new Error(ErrorCode.INVALID_API_KEY)
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                // Apply rate limiting before making the request
+                await globalRateLimiter.throttle()
+
+                const response = await fetch(url, {
+                    ...options,
+                    headers: {
+                        ...this.buildHeaders(),
+                        ...options?.headers,
+                    },
+                })
+
+                // Handle rate limiting with exponential backoff
+                if (response.status === 429) {
+                    if (attempt < maxRetries) {
+                        // Check for Retry-After header
+                        const retryAfter = response.headers.get('Retry-After')
+                        const delayMs = retryAfter
+                            ? parseInt(retryAfter, 10) * 1000
+                            : baseBackoffMs * Math.pow(2, attempt)
+
+                        console.warn(
+                            `Rate limited (429) on ${url}. Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
+                        )
+                        await new Promise((resolve) => setTimeout(resolve, delayMs))
+                        continue
+                    }
+                    // Max retries exceeded
+                    const errorText = await response.text()
+                    return {
+                        success: false,
+                        error: new Error(
+                            `Rate limit exceeded after ${maxRetries} retries:\nStatus Code: ${response.status}\nError Message: ${errorText}`
+                        ),
+                    }
                 }
 
-                const errorText = await response.text()
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error(ErrorCode.INVALID_API_KEY)
+                    }
 
-                let errorData: any
-                try {
-                    errorData = JSON.parse(errorText)
-                } catch {
-                    errorData = { detail: errorText }
+                    const errorText = await response.text()
+
+                    let errorData: any
+                    try {
+                        errorData = JSON.parse(errorText)
+                    } catch {
+                        errorData = { detail: errorText }
+                    }
+
+                    if (errorData.type === 'validation_error' && errorData.code) {
+                        throw new Error(`Validation error: ${errorData.code}`)
+                    }
+
+                    throw new Error(
+                        `Request failed:\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
+                    )
                 }
 
-                if (errorData.type === 'validation_error' && errorData.code) {
-                    throw new Error(`Validation error: ${errorData.code}`)
+                const rawData = await response.json()
+                const parseResult = schema.safeParse(rawData)
+
+                if (!parseResult.success) {
+                    throw new Error(`Response validation failed: ${parseResult.error.message}`)
                 }
 
-                throw new Error(
-                    `Request failed:\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
-                )
+                return { success: true, data: parseResult.data }
+            } catch (error) {
+                // Only retry on rate limit errors, not other errors
+                if (error instanceof Error && error.message.includes('Rate limit')) {
+                    continue
+                }
+                return { success: false, error: error as Error }
             }
+        }
 
-            const rawData = await response.json()
-            const parseResult = schema.safeParse(rawData)
-
-            if (!parseResult.success) {
-                throw new Error(`Response validation failed: ${parseResult.error.message}`)
-            }
-
-            return { success: true, data: parseResult.data }
-        } catch (error) {
-            return { success: false, error: error as Error }
+        // This should never be reached, but TypeScript needs it
+        return {
+            success: false,
+            error: new Error('Unexpected error in retry logic'),
         }
     }
 
