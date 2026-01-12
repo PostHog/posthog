@@ -811,6 +811,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
+    [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelines(':kind' as any)]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
