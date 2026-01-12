@@ -504,3 +504,54 @@ class OAuthJwksInfoView(JwksInfoView):
 
 class OAuthUserInfoView(UserInfoView):
     pass
+
+
+class OAuthAuthorizationServerMetadataView(APIView):
+    """
+    OAuth 2.0 Authorization Server Metadata (RFC 8414).
+
+    This endpoint enables MCP clients to discover PostHog's OAuth endpoints,
+    including the DCR registration endpoint for dynamic client registration.
+
+    Unlike OIDC Discovery (/.well-known/openid-configuration), this endpoint
+    is specifically for OAuth-only clients that need DCR support.
+    """
+
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request, *args, **kwargs):
+        from posthog.scopes import get_scope_descriptions
+
+        # Build base URL from request
+        base_url = request.build_absolute_uri("/").rstrip("/")
+
+        # Get all available scopes
+        oidc_scopes = ["openid", "profile", "email"]
+        resource_scopes = list(get_scope_descriptions().keys())
+        all_scopes = oidc_scopes + resource_scopes
+
+        metadata = {
+            # Required by RFC 8414
+            "issuer": base_url,
+            "authorization_endpoint": f"{base_url}/oauth/authorize/",
+            "token_endpoint": f"{base_url}/oauth/token/",
+            # Other endpoints
+            "revocation_endpoint": f"{base_url}/oauth/revoke/",
+            "introspection_endpoint": f"{base_url}/oauth/introspect/",
+            "userinfo_endpoint": f"{base_url}/oauth/userinfo/",
+            "jwks_uri": f"{base_url}/.well-known/jwks.json",
+            # Dynamic Client Registration (RFC 7591)
+            "registration_endpoint": f"{base_url}/oauth/register/",
+            # Supported features
+            "scopes_supported": all_scopes,
+            "response_types_supported": ["code"],
+            "response_modes_supported": ["query"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
+            "code_challenge_methods_supported": ["S256"],
+            # Service documentation
+            "service_documentation": "https://posthog.com/docs/api",
+        }
+
+        return JsonResponse(metadata)

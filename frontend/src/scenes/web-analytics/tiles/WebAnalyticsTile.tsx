@@ -343,7 +343,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     return null
 }
 
-const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): QueryContextColumnTitleComponent =>
+const SortableCell = (
+    name: string,
+    orderByField: WebAnalyticsOrderByFields,
+    tooltip?: string
+): QueryContextColumnTitleComponent =>
     function SortableCell() {
         const { tablesOrderBy } = useValues(webAnalyticsLogic)
         const { setTablesOrderBy } = useActions(webAnalyticsLogic)
@@ -360,7 +364,7 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
             }
         }, [isAscending, isSortedByMyField, setTablesOrderBy])
 
-        return (
+        const content = (
             <span onClick={onClick} className="group cursor-pointer inline-flex items-center">
                 {name}
                 <IconChevronDown
@@ -372,6 +376,8 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
                 />
             </span>
         )
+
+        return tooltip ? <Tooltip title={tooltip}>{content}</Tooltip> : content
     }
 
 export const webAnalyticsDataTableQueryContext: QueryContext = {
@@ -386,7 +392,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             align: 'right',
         },
         avg_time_on_page: {
-            renderTitle: SortableCell('Avg Time on Page', WebAnalyticsOrderByFields.AvgTimeOnPage),
+            renderTitle: SortableCell(
+                'Time on Page',
+                WebAnalyticsOrderByFields.AvgTimeOnPage,
+                'The 90th percentile of time users spent on this page'
+            ),
             render: VariationCell({ isDuration: true }),
             align: 'right',
         },

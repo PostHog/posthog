@@ -1,15 +1,17 @@
 """Clustering utilities: HDBSCAN and k-means implementations."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from sklearn.cluster import HDBSCAN, KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
-from umap import UMAP
 
 from posthog.temporal.llm_analytics.trace_clustering.models import HDBSCANResult, KMeansResult
+
+if TYPE_CHECKING:
+    from umap import UMAP
 
 
 def perform_kmeans_with_optimal_k(
@@ -143,6 +145,9 @@ def compute_2d_coordinates(
             centroid_coords = combined_coords[n_samples:]
 
     else:  # default to umap
+        # Lazy import to avoid numba JIT compilation at Django startup
+        from umap import UMAP
+
         # Adjust n_neighbors if we have fewer samples
         effective_n_neighbors = min(n_neighbors, n_samples - 1)
 
@@ -170,7 +175,7 @@ def reduce_dimensions_for_clustering(
     n_neighbors: int = 15,
     min_dist: float = 0.0,
     random_state: int = 42,
-) -> tuple[np.ndarray, UMAP]:
+) -> tuple[np.ndarray, "UMAP | None"]:
     """
     Reduce high-dimensional embeddings using UMAP for clustering.
 
@@ -187,6 +192,9 @@ def reduce_dimensions_for_clustering(
     Returns:
         Tuple of (reduced_embeddings, fitted_reducer)
     """
+    # Lazy import to avoid numba JIT compilation at Django startup
+    from umap import UMAP
+
     n_samples = len(embeddings)
 
     if n_samples < 2:
