@@ -712,8 +712,7 @@
     overflow: hidden;
 
     .storybook-test-runner & {
-        height: auto;
-        overflow: visible;
+        height: fit-content;
     }
 
     /* Mobile layout - single column with overlay nav */
