@@ -31,13 +31,13 @@ pub enum WebhookParseError {
 #[derive(Error, Debug)]
 pub enum WebhookRequestError {
     RetryableRequestError {
-        error: reqwest::Error,
+        error: common_dns::reqwest::Error,
         status: Option<StatusCode>,
         response: Option<String>,
         retry_after: Option<time::Duration>,
     },
     NonRetryableRetryableRequestError {
-        error: reqwest::Error,
+        error: common_dns::reqwest::Error,
         status: Option<StatusCode>,
         response: Option<String>,
     },
@@ -51,12 +51,12 @@ pub enum WebhookResponseError {
     #[error("failed to parse a response as UTF8")]
     ParseUTF8StringError(#[from] std::str::Utf8Error),
     #[error("error while iterating over response body chunks")]
-    StreamIterationError(#[from] reqwest::Error),
+    StreamIterationError(#[from] common_dns::reqwest::Error),
     #[error("attempted to slice a chunk of length {0} with an out of bounds index of {1}")]
     ChunkOutOfBoundsError(usize, usize),
 }
 
-/// Implement display of `WebhookRequestError` by appending to the underlying `reqwest::Error`
+/// Implement display of `WebhookRequestError` by appending to the underlying `common_dns::reqwest::Error`
 /// any response message if available.
 impl fmt::Display for WebhookRequestError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -90,7 +90,7 @@ impl fmt::Display for WebhookRequestError {
 }
 
 /// Implementation of `WebhookRequestError` designed to further describe the error.
-/// In particular, we pass some calls to underyling `reqwest::Error` to provide more details.
+/// In particular, we pass some calls to underyling `common_dns::reqwest::Error` to provide more details.
 impl WebhookRequestError {
     pub fn is_timeout(&self) -> bool {
         match self {
@@ -131,7 +131,7 @@ impl From<&WebhookRequestError> for WebhookJobError {
             )
         } else {
             // Catch all other errors as `app_metrics::ErrorType::Connection` errors.
-            // Not all of `reqwest::Error` may strictly be connection errors, so our supported error types may need an extension
+            // Not all of `common_dns::reqwest::Error` may strictly be connection errors, so our supported error types may need an extension
             // depending on how strict error reporting has to be.
             WebhookJobError::new_connection(&error.to_string())
         }

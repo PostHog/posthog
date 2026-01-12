@@ -11,7 +11,6 @@ workspace = true
 async-trait = { workspace = true }
 chrono = { workspace = true }
 http = { workspace = true }
-reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
@@ -20,6 +19,7 @@ time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 common-kafka = { path = "../common/kafka" }
+common-dns = { path = "../common/dns" }
 
 [dev-dependencies]
 tokio = { workspace = true } # We need a runtime for async tests

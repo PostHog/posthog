@@ -29,7 +29,6 @@ envconfig = { workspace = true }
 fernet = { workspace = true }
 base64 = { workspace = true }
 axum = { workspace = true }
-reqwest = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 rdkafka = { workspace = true }

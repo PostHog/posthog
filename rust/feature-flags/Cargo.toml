@@ -68,7 +68,6 @@ workspace = true
 [dev-dependencies]
 rstest = "0.25.0"
 assert-json-diff = { workspace = true }
-reqwest = { workspace = true }
 futures = "0.3.30"
 test-case = "3.3.1"
 tokio = { workspace = true, features = ["test-util"] }

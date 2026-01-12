@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::async_trait;
 
 use chunk_id::OrChunkId;
-use reqwest::Url;
+use common_dns::reqwest::Url;
 use sourcemap::OwnedSourceMapCache;
 
 use crate::{

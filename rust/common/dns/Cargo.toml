@@ -9,4 +9,9 @@ workspace = true
 [dependencies]
 futures = { workspace = true }
 reqwest = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+httpmock = { workspace = true }

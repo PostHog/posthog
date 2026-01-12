@@ -41,7 +41,7 @@ pub fn get_user_message(error: &anyhow::Error) -> String {
 pub struct RateLimitedError {
     pub retry_after: Option<Duration>,
     #[source]
-    pub source: reqwest::Error,
+    pub source: common_dns::reqwest::Error,
 }
 
 /// Extracts a Retry-After duration if a RateLimitedError is present in the error chain
@@ -67,7 +67,7 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
         return true;
     }
 
-    if let Some(reqwest_err) = error.downcast_ref::<reqwest::Error>() {
+    if let Some(reqwest_err) = error.downcast_ref::<common_dns::reqwest::Error>() {
         if reqwest_err.status().is_some_and(|s| s.as_u16() == 429) {
             return true;
         }
@@ -75,7 +75,7 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
 
     let mut source = error.source();
     while let Some(err) = source {
-        if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
+        if let Some(reqwest_err) = err.downcast_ref::<common_dns::reqwest::Error>() {
             if reqwest_err.status().is_some_and(|s| s.as_u16() == 429) {
                 return true;
             }
@@ -89,8 +89,8 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
 mod tests {
     use super::*;
     use anyhow::anyhow;
+    use common_dns::reqwest::Client;
     use httpmock::MockServer;
-    use reqwest::Client;
 
     #[test]
     fn test_user_error_as_root() {

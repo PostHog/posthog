@@ -6,6 +6,13 @@ use futures::FutureExt;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use tokio::task::spawn_blocking;
 
+mod client;
+
+pub use client::{ClientError, InternalClient};
+
+// Re-export reqwest types for convenience
+pub use reqwest::{self, Method, Request, RequestBuilder, Response};
+
 pub struct NoPublicIPv4Error;
 
 impl std::error::Error for NoPublicIPv4Error {}
@@ -23,19 +30,23 @@ impl fmt::Debug for NoPublicIPv4Error {
 /// Internal reqwest type, copied here as part of Resolving
 pub(crate) type BoxError = Box<dyn StdError + Send + Sync>;
 
-/// Returns [`true`] if the address appears to be a globally reachable IPv4.
+use std::net::Ipv4Addr;
+
+/// Returns true if the IPv4 address is globally reachable (not private, loopback, etc.)
 ///
 /// Trimmed down version of the unstable IpAddr::is_global, move to it when it's stable.
-fn is_global_ipv4(addr: &SocketAddr) -> bool {
+pub(crate) fn is_global_ipv4(ip: &Ipv4Addr) -> bool {
+    !(ip.octets()[0] == 0 // "This network"
+        || ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_broadcast())
+}
+
+fn is_global_sockaddr(addr: &SocketAddr) -> bool {
     match addr.ip() {
-        IpAddr::V4(ip) => {
-            !(ip.octets()[0] == 0 // "This network"
-            || ip.is_private()
-            || ip.is_loopback()
-            || ip.is_link_local()
-            || ip.is_broadcast())
-        }
-        IpAddr::V6(_) => false, // Our network does not currently support ipv6, let's ignore for now
+        IpAddr::V4(ip) => is_global_ipv4(&ip),
+        IpAddr::V6(_) => false, // Our network does not currently support ipv6
     }
 }
 
@@ -56,7 +67,7 @@ impl Resolve for PublicIPv4Resolver {
         let future_result = spawn_blocking(resolve_host).map(|result| match result {
             Ok(Ok(all_addrs)) => {
                 // Resolution succeeded, filter the results
-                let filtered_addr: Vec<SocketAddr> = all_addrs.filter(is_global_ipv4).collect();
+                let filtered_addr: Vec<SocketAddr> = all_addrs.filter(is_global_sockaddr).collect();
                 if filtered_addr.is_empty() {
                     // No public IPs found, error out with PermissionDenied
                     let err: BoxError = Box::new(NoPublicIPv4Error);

@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Error;
 use async_trait::async_trait;
-use reqwest::Client;
+use common_dns::reqwest::Client;
 use tracing::warn;
 
 use super::DataSource;
@@ -23,7 +23,7 @@ impl UrlList {
     ) -> Result<Self, Error> {
         let resolver = Arc::new(common_dns::PublicIPv4Resolver {});
 
-        let mut client = reqwest::Client::builder().timeout(timeout);
+        let mut client = Client::builder().timeout(timeout);
 
         if !allow_internal_ips {
             client = client.dns_resolver(resolver);

@@ -525,9 +525,9 @@ impl Job {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use common_dns::reqwest::Client;
     use httpmock::Method;
     use httpmock::MockServer;
-    use reqwest::Client;
     use std::collections::HashMap;
 
     struct MockDataSource {

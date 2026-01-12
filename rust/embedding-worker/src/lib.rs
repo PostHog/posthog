@@ -6,7 +6,7 @@ use common_types::embedding::{
     EmbeddingModel, EmbeddingRequest, EmbeddingResponse, EmbeddingResult, ModelResult,
 };
 use metrics::counter;
-use reqwest::{Client, Method, Request, RequestBuilder};
+
 use tracing::error;
 
 use crate::{
@@ -109,17 +109,17 @@ pub async fn generate_embedding(
     // Generate the text to actually send to OpenAI
     let (text, token_count) = generate_embedding_text(content, &model, labels)?;
 
-    let api_req = construct_request(
-        &text,
-        model,
-        &context.config.openai_api_key,
-        context.client.clone(),
-    );
-
     context.respect_rate_limits(model, token_count).await;
 
     let request_time = common_metrics::timing_guard(EMBEDDING_REQUEST_TIME, labels.render());
-    let response = context.client.execute(api_req).await?; // Unhandled - network errors etc
+    let response = context
+        .client
+        .post(model.model_url())?
+        .header("Authorization", format!("Bearer {}", context.config.openai_api_key))
+        .header("Content-Type", "application/json")
+        .json(&model.construct_request_body(&text))
+        .send()
+        .await?;
 
     // TODO - implement 429 backoff and retry
     if !response.status().is_success() {
@@ -175,28 +175,4 @@ pub fn generate_embedding_text(
     }
 
     Ok((text, count))
-}
-
-pub fn construct_request(
-    content: &str,
-    model: EmbeddingModel,
-    api_key: &str,
-    client: Client,
-) -> Request {
-    let req = Request::new(
-        Method::POST,
-        model
-            .model_url()
-            .parse()
-            .expect("The models enum only produces valid urls"),
-    );
-
-    let req = RequestBuilder::from_parts(client, req)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .header("Content-Type", "application/json")
-        .json(&model.construct_request_body(content));
-
-    // This expect is fine, because we have total control over everything in the
-    // request, except the string of input content, which will serialize correctly.
-    req.build().expect("we manage to build the request")
 }

@@ -202,8 +202,8 @@ impl From<FrameError> for UnhandledError {
     }
 }
 
-impl From<reqwest::Error> for JsResolveErr {
-    fn from(e: reqwest::Error) -> Self {
+impl From<common_dns::reqwest::Error> for JsResolveErr {
+    fn from(e: common_dns::reqwest::Error) -> Self {
         if e.is_timeout() {
             return JsResolveErr::Timeout(e.to_string());
         }

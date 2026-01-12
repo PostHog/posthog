@@ -17,12 +17,12 @@ common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
+common-dns = { path = "../common/dns" }
 anyhow = { workspace = true } # We use anyhow for now because we're in hack it ship it mode, real error types later
 sqlx = { workspace = true }
 uuid = { workspace = true }
 posthog-rs = { workspace = true }
 futures.workspace = true
-reqwest.workspace = true
 tiktoken-rs.workspace = true
 leaky-bucket = "1.1.2" # Arguably we should just implement this, but :shrug:
 moka.workspace = true

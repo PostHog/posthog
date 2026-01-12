@@ -381,7 +381,7 @@ mod test {
     use httpmock::MockServer;
     use mockall::predicate;
     use posthog_symbol_data::write_symbol_data;
-    use reqwest::Url;
+    use common_dns::reqwest::Url;
     use sqlx::PgPool;
 
     use crate::{

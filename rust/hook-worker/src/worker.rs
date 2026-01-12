@@ -9,7 +9,7 @@ use health::HealthHandle;
 use http::StatusCode;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use reqwest::{header, Client};
+use common_dns::reqwest::{header, Client};
 use serde_json::{json, Value};
 use tokio::sync;
 use tokio::time::{sleep, Duration};
@@ -78,7 +78,7 @@ pub struct WebhookWorker<'p> {
     /// The interval for polling the queue.
     poll_interval: time::Duration,
     /// The client used for HTTP requests.
-    http_client: reqwest::Client,
+    http_client: common_dns::reqwest::Client,
     /// Maximum number of concurrent jobs being processed.
     max_concurrent_jobs: usize,
     /// The retry policy used to calculate retry intervals when a job fails with a retryable error.
@@ -96,13 +96,13 @@ pub struct WebhookWorker<'p> {
 pub fn build_http_client(
     request_timeout: time::Duration,
     allow_internal_ips: bool,
-) -> reqwest::Result<Client> {
+) -> common_dns::reqwest::Result<Client> {
     let mut headers = header::HeaderMap::new();
     headers.insert(
         header::CONTENT_TYPE,
         header::HeaderValue::from_static("application/json"),
     );
-    let mut client_builder = reqwest::Client::builder()
+    let mut client_builder = common_dns::reqwest::Client::builder()
         .default_headers(headers)
         .user_agent("PostHog Webhook Worker")
         .timeout(request_timeout);
@@ -432,7 +432,7 @@ enum WebhookResult {
 /// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
 /// * `retry_policy`: The retry policy used to set retry parameters if a job fails and has remaining attempts.
 async fn process_webhook_job<W: WebhookJob>(
-    http_client: reqwest::Client,
+    http_client: common_dns::reqwest::Client,
     webhook_job: W,
     retry_policy: &RetryPolicy,
     read_body: bool,
@@ -664,18 +664,18 @@ async fn process_webhook_job<W: WebhookJob>(
 /// * `headers`: Key, value pairs of HTTP headers in a `std::collections::HashMap`. Can fail if headers are not valid.
 /// * `body`: The body of the request. Ownership is required.
 async fn send_webhook(
-    client: reqwest::Client,
+    client: common_dns::reqwest::Client,
     method: &HttpMethod,
     url: &str,
     headers: &collections::HashMap<String, String>,
     body: String,
-) -> Result<reqwest::Response, WebhookError> {
+) -> Result<common_dns::reqwest::Response, WebhookError> {
     let method: http::Method = method.into();
-    let url: reqwest::Url = (url).parse().map_err(WebhookParseError::ParseUrlError)?;
-    let headers: reqwest::header::HeaderMap = (headers)
+    let url: common_dns::reqwest::Url = (url).parse().map_err(WebhookParseError::ParseUrlError)?;
+    let headers: common_dns::reqwest::header::HeaderMap = (headers)
         .try_into()
         .map_err(WebhookParseError::ParseHeadersError)?;
-    let body = reqwest::Body::from(body);
+    let body = common_dns::reqwest::Body::from(body);
 
     let response = client
         .request(method, url)
@@ -745,8 +745,8 @@ fn is_retryable_status(status: StatusCode) -> bool {
 /// # Arguments
 ///
 /// * `header_map`: A `&reqwest::HeaderMap` of response headers that could contain Retry-After.
-fn parse_retry_after_header(header_map: &reqwest::header::HeaderMap) -> Option<time::Duration> {
-    let retry_after_header = header_map.get(reqwest::header::RETRY_AFTER);
+fn parse_retry_after_header(header_map: &common_dns::reqwest::header::HeaderMap) -> Option<time::Duration> {
+    let retry_after_header = header_map.get(common_dns::reqwest::header::RETRY_AFTER);
 
     let retry_after = match retry_after_header {
         Some(header_value) => match header_value.to_str() {
@@ -821,19 +821,19 @@ mod tests {
 
     #[test]
     fn test_parse_retry_after_header() {
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(reqwest::header::RETRY_AFTER, "120".parse().unwrap());
+        let mut headers = common_dns::reqwest::header::HeaderMap::new();
+        headers.insert(common_dns::reqwest::header::RETRY_AFTER, "120".parse().unwrap());
 
         let duration = parse_retry_after_header(&headers).unwrap();
         assert_eq!(duration, time::Duration::from_secs(120));
 
-        headers.remove(reqwest::header::RETRY_AFTER);
+        headers.remove(common_dns::reqwest::header::RETRY_AFTER);
 
         let duration = parse_retry_after_header(&headers);
         assert_eq!(duration, None);
 
         headers.insert(
-            reqwest::header::RETRY_AFTER,
+            common_dns::reqwest::header::RETRY_AFTER,
             "Wed, 21 Oct 2015 07:28:00 GMT".parse().unwrap(),
         );
 

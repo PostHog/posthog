@@ -1203,7 +1203,6 @@ dependencies = [
  "natord",
  "rayon",
  "rdkafka",
- "reqwest 0.12.15",
  "serde",
  "serde_json",
  "sqlx",
@@ -1589,7 +1588,6 @@ dependencies = [
  "rand 0.8.5",
  "rdkafka",
  "redis",
- "reqwest 0.12.15",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -1987,8 +1985,11 @@ name = "common-dns"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "httpmock",
  "reqwest 0.12.15",
+ "thiserror 2.0.17",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -2466,7 +2467,6 @@ dependencies = [
  "proguard",
  "rdkafka",
  "regex",
- "reqwest 0.12.15",
  "rustls 0.23.7",
  "serde",
  "serde_json",
@@ -2814,6 +2814,7 @@ dependencies = [
  "axum 0.7.5",
  "common-alloc",
  "common-continuous-profiling",
+ "common-dns",
  "common-kafka",
  "common-metrics",
  "common-types",
@@ -2824,7 +2825,6 @@ dependencies = [
  "metrics",
  "moka",
  "posthog-rs",
- "reqwest 0.12.15",
  "serde",
  "sqlx",
  "tiktoken-rs",
@@ -3074,7 +3074,6 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "regex",
- "reqwest 0.12.15",
  "rstest",
  "rust_decimal",
  "serde",
@@ -3716,9 +3715,9 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "common-dns",
  "common-kafka",
  "http 1.1.0",
- "reqwest 0.12.15",
  "serde",
  "serde_json",
  "sqlx",
@@ -3774,7 +3773,6 @@ dependencies = [
  "httpmock",
  "metrics",
  "rdkafka",
- "reqwest 0.12.15",
  "serde_json",
  "sqlx",
  "thiserror 2.0.17",

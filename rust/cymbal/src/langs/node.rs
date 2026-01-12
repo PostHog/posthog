@@ -7,7 +7,7 @@ use crate::{
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
 use common_types::error_tracking::FrameId;
-use reqwest::Url;
+use common_dns::reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition};

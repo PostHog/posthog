@@ -30,7 +30,6 @@ serde = { workspace = true }
 sourcemap = "9.0.0"
 symbolic = { version = "12.17.0", features = ["sourcemapcache"] }
 proguard = "5.6.2"
-reqwest = { workspace = true }
 sha2 = "0.10.8"
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }

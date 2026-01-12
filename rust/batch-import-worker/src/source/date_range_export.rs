@@ -4,8 +4,8 @@ use crate::extractor::{ExtractedPartData, PartExtractor};
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use reqwest::header::HeaderMap;
-use reqwest::{Client, Error as ReqwestError};
+use common_dns::reqwest::header::HeaderMap;
+use common_dns::reqwest::{Client, Error as ReqwestError};
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tempfile::TempDir;
 use tokio::{
@@ -44,7 +44,7 @@ fn extract_client_request_error(error: &ReqwestError) -> String {
 
 // Parse Retry-After header per RFC7231: either delta-seconds or HTTP-date
 pub(crate) fn parse_retry_after_header(headers: &HeaderMap) -> Option<Duration> {
-    let value = headers.get(reqwest::header::RETRY_AFTER)?;
+    let value = headers.get(common_dns::reqwest::header::RETRY_AFTER)?;
     let s = value.to_str().ok()?;
 
     if let Ok(seconds) = s.trim().parse::<u64>() {
@@ -161,7 +161,7 @@ impl DateRangeExportSourceBuilder {
             current = next;
         }
 
-        let client = reqwest::Client::builder()
+        let client = Client::builder()
             .timeout(self.timeout)
             .build()
             .map_err(|e| Error::msg(e.to_string()))?;
@@ -327,11 +327,11 @@ impl DateRangeExportSource {
             AuthConfig::MixpanelAuth { secret_key } => request.basic_auth(secret_key, None::<&str>),
         };
 
-        let mut headers = reqwest::header::HeaderMap::new();
+        let mut headers = common_dns::reqwest::header::HeaderMap::new();
         for (key, value) in &self.headers {
             if let (Ok(header_name), Ok(header_value)) = (
-                reqwest::header::HeaderName::from_bytes(key.as_bytes()),
-                reqwest::header::HeaderValue::from_str(value),
+                common_dns::reqwest::header::HeaderName::from_bytes(key.as_bytes()),
+                common_dns::reqwest::header::HeaderValue::from_str(value),
             ) {
                 headers.insert(header_name, header_value);
             }
@@ -681,10 +681,10 @@ mod tests {
     #[tokio::test]
     async fn test_parse_retry_after_seconds() {
         // delta-seconds parse
-        let mut headers = reqwest::header::HeaderMap::new();
+        let mut headers = common_dns::reqwest::header::HeaderMap::new();
         headers.insert(
-            reqwest::header::RETRY_AFTER,
-            reqwest::header::HeaderValue::from_static("120"),
+            common_dns::reqwest::header::RETRY_AFTER,
+            common_dns::reqwest::header::HeaderValue::from_static("120"),
         );
         let d = super::parse_retry_after_header(&headers).unwrap();
         assert_eq!(d.as_secs(), 120);
@@ -696,10 +696,10 @@ mod tests {
         let future = httpdate::fmt_http_date(
             std::time::SystemTime::now() + std::time::Duration::from_secs(90),
         );
-        let mut headers = reqwest::header::HeaderMap::new();
+        let mut headers = common_dns::reqwest::header::HeaderMap::new();
         headers.insert(
-            reqwest::header::RETRY_AFTER,
-            reqwest::header::HeaderValue::from_str(&future).unwrap(),
+            common_dns::reqwest::header::RETRY_AFTER,
+            common_dns::reqwest::header::HeaderValue::from_str(&future).unwrap(),
         );
         let d = super::parse_retry_after_header(&headers).unwrap();
         assert!(d.as_secs() <= 90 && d.as_secs() > 0);

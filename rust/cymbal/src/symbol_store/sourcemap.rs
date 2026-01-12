@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use axum::async_trait;
 use base64::Engine;
 use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
-use reqwest::Url;
+use common_dns::reqwest::Url;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
 
@@ -19,7 +19,7 @@ use crate::{
 use super::{Fetcher, Parser};
 
 pub struct SourcemapProvider {
-    pub client: reqwest::Client,
+    pub client: common_dns::reqwest::Client,
 }
 
 // Sigh. Later we can be smarter here to only do the parse once, but it involves
@@ -57,7 +57,7 @@ impl SourcemapProvider {
     pub fn new(config: &Config) -> Self {
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
         let connect_timeout = Duration::from_secs(config.sourcemap_connect_timeout_seconds);
-        let mut client = reqwest::Client::builder()
+        let mut client = common_dns::reqwest::Client::builder()
             .timeout(timeout)
             .connect_timeout(connect_timeout);
 
@@ -135,7 +135,7 @@ impl Parser for SourcemapProvider {
 }
 
 async fn find_sourcemap_url(
-    client: &reqwest::Client,
+    client: &common_dns::reqwest::Client,
     start: Url,
 ) -> Result<(SourceMappingUrl, String), ResolveError> {
     info!("Fetching script source from {}", start);
@@ -244,7 +244,7 @@ async fn find_sourcemap_url(
     Err(JsResolveErr::NoSourcemap(final_url.to_string()).into())
 }
 
-async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<String, ResolveError> {
+async fn fetch_source_map(client: &common_dns::reqwest::Client, url: Url) -> Result<String, ResolveError> {
     metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
     let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
@@ -389,7 +389,7 @@ mod test {
             then.status(200).body(MINIFIED);
         });
 
-        let client = reqwest::Client::new();
+        let client = common_dns::reqwest::Client::new();
         let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
         let (res, _) = find_sourcemap_url(&client, url).await.unwrap();
 
@@ -477,7 +477,7 @@ mod test {
             then.status(200).body(data_url_example);
         });
 
-        let client = reqwest::Client::new();
+        let client = common_dns::reqwest::Client::new();
         let url = server
             .url("/static/inline_sourcemap_example.js")
             .parse()

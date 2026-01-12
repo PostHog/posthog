@@ -1,6 +1,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
+use common_dns::{InternalClient, Response};
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer, kafka_producer::KafkaContext,
     transaction::TransactionalProducer,
@@ -10,7 +11,6 @@ use health::{HealthHandle, HealthRegistry};
 use leaky_bucket::RateLimiter;
 use metrics::{counter, gauge};
 use moka::sync::{Cache, CacheBuilder};
-use reqwest::Response;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
@@ -29,7 +29,7 @@ pub struct AppContext {
     pub transactional_producer: Mutex<TransactionalProducer<KafkaContext>>,
     pub pool: PgPool,
     pub config: Config,
-    pub client: reqwest::Client,
+    pub client: InternalClient,
     pub org_cache: Cache<i32, Option<Organization>>,
     rate_limits: RwLock<HashMap<String, Limiter>>,
 }
@@ -64,7 +64,7 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
 
-        let client = reqwest::Client::new();
+        let client = InternalClient::new(true)?;
 
         let org_cache = CacheBuilder::new(10_000)
             .time_to_live(Duration::from_secs(30))
