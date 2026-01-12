@@ -104,7 +104,7 @@ class TestAuthService:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
-                "client_id": "test_client_id_789",
+                "application_id": 789,
             }
         )
 
@@ -272,7 +272,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) - timedelta(hours=1),
                 "current_team_id": 456,
-                "client_id": "test_client_id_789",
+                "application_id": 789,
             }
         )
 
@@ -292,7 +292,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": "llm_gateway:read",
                 "expires": None,
                 "current_team_id": 456,
-                "client_id": "test_client_id_789",
+                "application_id": 789,
             }
         )
 
@@ -314,7 +314,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
-                "client_id": None,
+                "application_id": None,
             }
         )
 
@@ -343,7 +343,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": scope,
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
-                "client_id": "test_client_id_789",
+                "application_id": 789,
             }
         )
 
@@ -373,7 +373,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": scope,
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
-                "client_id": "test_client_id_789",
+                "application_id": 789,
             }
         )
 
@@ -395,7 +395,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
-                "client_id": "test_client_id_789",
+                "application_id": 789,
             }
         )
 
@@ -420,7 +420,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": None,
-                "client_id": "test_client_id_789",
+                "application_id": 789,
             }
         )
 

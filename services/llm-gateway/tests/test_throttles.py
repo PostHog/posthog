@@ -20,14 +20,14 @@ def make_user(
     team_id: int | None = 1,
     auth_method: str = "personal_api_key",
     scopes: list[str] | None = None,
-    client_id: str | None = None,
+    application_id: int | None = None,
 ) -> AuthenticatedUser:
     return AuthenticatedUser(
         user_id=user_id,
         team_id=team_id,
         auth_method=auth_method,
         scopes=scopes or ["llm_gateway:read"],
-        client_id=client_id,
+        application_id=application_id,
     )
 
 

@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 import litellm
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class TokenCounter:
@@ -13,7 +16,7 @@ class TokenCounter:
         try:
             return litellm.token_counter(model=model, messages=messages)
         except Exception:
-            # Fallback: estimate based on character count
+            logger.warning("token_counter_fallback", model=model)
             text = self._messages_to_text(messages)
             return len(text) // 4
 

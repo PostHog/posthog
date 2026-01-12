@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Final
 
+from cachetools import TTLCache
 from redis.asyncio import Redis
 
 from llm_gateway.rate_limiting.redis_limiter import TokenRateLimiter
@@ -99,10 +100,15 @@ class OutputTokenThrottle(TokenThrottle):
     """Base for output token throttles with reservation support."""
 
     limit_key = "output_tpm"
+    RESERVATION_TTL_SECONDS = 300  # 5 minutes - reservations expire if response never completes
+    RESERVATION_MAX_SIZE = 10_000  # Max concurrent requests tracked
 
     def __init__(self, redis: Redis[bytes] | None):
         super().__init__(redis)
-        self._reservations: dict[str, tuple[str, int, str]] = {}  # request_id -> (model, reserved, cache_key)
+        # TTLCache auto-expires entries after TTL, preventing memory leaks from abandoned requests
+        self._reservations: TTLCache[str, tuple[str, int, str]] = TTLCache(
+            maxsize=self.RESERVATION_MAX_SIZE, ttl=self.RESERVATION_TTL_SECONDS
+        )
 
     def _get_tokens(self, context: ThrottleContext) -> int | None:
         return context.max_output_tokens

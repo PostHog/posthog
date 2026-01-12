@@ -9,7 +9,7 @@ class AuthenticatedUser:
     auth_method: str
     scopes: list[str] | None = None
     token_expires_at: datetime | None = None
-    client_id: str | None = None
+    application_id: int | None = None
 
 
 def has_required_scope(scopes: list[str], required: str = "llm_gateway:read") -> bool:

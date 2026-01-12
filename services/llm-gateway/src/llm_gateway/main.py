@@ -5,7 +5,6 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 
 import asyncpg
 import structlog
@@ -31,12 +30,7 @@ from llm_gateway.rate_limiting.model_throttles import (
 )
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.tokenizer import TokenCounter
-
-request_id_var: ContextVar[str] = ContextVar("request_id", default="")
-
-
-def get_request_id() -> str:
-    return request_id_var.get()
+from llm_gateway.request_context import get_request_id, set_request_id
 
 
 def configure_logging() -> None:
@@ -70,7 +64,7 @@ def update_db_pool_metrics(pool: asyncpg.Pool | None) -> None:
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())[:8]
-        request_id_var.set(request_id)
+        set_request_id(request_id)
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
         start_time = time.monotonic()

@@ -170,6 +170,198 @@ class TestOutputTokenThrottle:
         assert "req-2" in throttle._reservations
 
 
+class TestOutputTokenAdjustment:
+    """Tests verifying that released tokens restore capacity for future requests."""
+
+    async def test_released_tokens_allow_subsequent_requests(self) -> None:
+        throttle = UserModelOutputTokenThrottle(redis=None)
+        # Fallback limit: 800K / 10 = 80K tokens
+
+        # Reserve all capacity
+        ctx1 = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=80_000,
+            request_id="req-1",
+        )
+        result = await throttle.allow_request(ctx1)
+        assert result.allowed is True
+
+        # Next request should be denied (capacity exhausted)
+        ctx2 = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=1000,
+            request_id="req-2",
+        )
+        result = await throttle.allow_request(ctx2)
+        assert result.allowed is False
+
+        # Adjust first request - only used 1000 tokens, release 79000
+        await throttle.adjust_after_response("req-1", 1000)
+
+        # Now the same request should succeed
+        result = await throttle.allow_request(ctx2)
+        assert result.allowed is True
+
+    async def test_exact_usage_releases_nothing(self) -> None:
+        throttle = UserModelOutputTokenThrottle(redis=None)
+        # Fallback limit: 80K tokens
+
+        # Reserve 40K
+        ctx1 = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=40_000,
+            request_id="req-1",
+        )
+        await throttle.allow_request(ctx1)
+
+        # Reserve another 40K (at limit now)
+        ctx2 = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=40_000,
+            request_id="req-2",
+        )
+        await throttle.allow_request(ctx2)
+
+        # Third request should be denied
+        ctx3 = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=1000,
+            request_id="req-3",
+        )
+        result = await throttle.allow_request(ctx3)
+        assert result.allowed is False
+
+        # Adjust first request with exact usage (no release)
+        await throttle.adjust_after_response("req-1", 40_000)
+
+        # Third request should still be denied
+        result = await throttle.allow_request(ctx3)
+        assert result.allowed is False
+
+    async def test_over_usage_does_not_break(self) -> None:
+        throttle = UserModelOutputTokenThrottle(redis=None)
+
+        ctx = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=1000,
+            request_id="req-1",
+        )
+        await throttle.allow_request(ctx)
+
+        # Edge case: actual > reserved (shouldn't happen but handle gracefully)
+        await throttle.adjust_after_response("req-1", 2000)
+
+        # Reservation should be removed, no crash
+        assert "req-1" not in throttle._reservations
+
+    async def test_partial_release_restores_partial_capacity(self) -> None:
+        throttle = UserModelOutputTokenThrottle(redis=None)
+        # Fallback limit: 80K tokens
+
+        # Reserve all capacity
+        ctx1 = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=80_000,
+            request_id="req-1",
+        )
+        await throttle.allow_request(ctx1)
+
+        # Release half (used 40K, release 40K)
+        await throttle.adjust_after_response("req-1", 40_000)
+
+        # Should allow a 40K request now
+        ctx2 = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=40_000,
+            request_id="req-2",
+        )
+        result = await throttle.allow_request(ctx2)
+        assert result.allowed is True
+
+        # But not another 40K (only 40K was released)
+        ctx3 = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=40_000,
+            request_id="req-3",
+        )
+        result = await throttle.allow_request(ctx3)
+        assert result.allowed is False
+
+    async def test_adjustment_is_model_specific(self) -> None:
+        throttle = UserModelOutputTokenThrottle(redis=None)
+
+        # Reserve all haiku capacity
+        ctx_haiku = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=80_000,
+            request_id="req-haiku",
+        )
+        await throttle.allow_request(ctx_haiku)
+
+        # Opus should have its own capacity (40K fallback for opus)
+        ctx_opus = make_context(
+            model="claude-3-opus",
+            max_output_tokens=40_000,
+            request_id="req-opus",
+        )
+        result = await throttle.allow_request(ctx_opus)
+        assert result.allowed is True
+
+        # Release haiku tokens
+        await throttle.adjust_after_response("req-haiku", 1000)
+
+        # Haiku should now have capacity again
+        ctx_haiku2 = make_context(
+            model="claude-3-5-haiku",
+            max_output_tokens=79_000,
+            request_id="req-haiku-2",
+        )
+        result = await throttle.allow_request(ctx_haiku2)
+        assert result.allowed is True
+
+    async def test_global_and_user_throttles_track_separately(self) -> None:
+        global_throttle = GlobalModelOutputTokenThrottle(redis=None)
+        user_throttle = UserModelOutputTokenThrottle(redis=None)
+
+        # Global limit: 800K * 10 / 10 = 800K
+        # User limit: 800K / 10 = 80K
+
+        user = make_user(user_id=1)
+
+        # User reserves all their capacity
+        ctx = make_context(
+            user=user,
+            model="claude-3-5-haiku",
+            max_output_tokens=80_000,
+            request_id="req-1",
+        )
+
+        # Both should allow
+        result = await global_throttle.allow_request(ctx)
+        assert result.allowed is True
+        result = await user_throttle.allow_request(ctx)
+        assert result.allowed is True
+
+        # User is at limit, global is not
+        ctx2 = make_context(
+            user=user,
+            model="claude-3-5-haiku",
+            max_output_tokens=1000,
+            request_id="req-2",
+        )
+        result = await global_throttle.allow_request(ctx2)
+        assert result.allowed is True
+        result = await user_throttle.allow_request(ctx2)
+        assert result.allowed is False
+
+        # Adjust user throttle
+        await user_throttle.adjust_after_response("req-1", 1000)
+
+        # Now user should have capacity
+        result = await user_throttle.allow_request(ctx2)
+        assert result.allowed is True
+
+
 class TestGlobalThrottles:
     async def test_global_input_scope(self) -> None:
         throttle = GlobalModelInputTokenThrottle(redis=None)

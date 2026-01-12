@@ -11,6 +11,7 @@ from llm_gateway.auth.service import AuthService, get_auth_service
 from llm_gateway.products.config import check_product_access
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
+from llm_gateway.request_context import get_request_id
 
 
 async def get_db_pool(request: Request) -> "asyncpg.Pool[asyncpg.Record]":  # noqa: UP037
@@ -74,7 +75,7 @@ async def enforce_product_access(
     allowed, error = check_product_access(
         product=product,
         auth_method=user.auth_method,
-        client_id=user.client_id,
+        application_id=user.application_id,
         model=model,
     )
 
@@ -113,7 +114,9 @@ async def enforce_throttles(
         model=model,
         input_tokens=input_tokens,
         max_output_tokens=max_output_tokens,
+        request_id=get_request_id() or None,
     )
+    request.state.throttle_context = context
     result = await runner.check(context)
 
     if not result.allowed:

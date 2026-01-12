@@ -150,7 +150,15 @@ class TokenRateLimiter:
 
         try:
             redis_key = f"ratelimit:{key}"
-            await self.redis.decrby(redis_key, tokens)
+            # Use Lua script to atomically decrement without going below 0
+            script = """
+            local current = redis.call('GET', KEYS[1])
+            if not current then return 0 end
+            local new_val = math.max(0, tonumber(current) - tonumber(ARGV[1]))
+            redis.call('SET', KEYS[1], new_val, 'KEEPTTL')
+            return new_val
+            """
+            await self.redis.eval(script, 1, redis_key, tokens)
         except Exception:
             logger.exception("redis_release_failed", key=key)
             self._fallback.release(key, float(tokens))

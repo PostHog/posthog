@@ -16,18 +16,18 @@ class TestGetProductConfig:
 
 class TestCheckProductAccess:
     @pytest.mark.parametrize(
-        "product,auth_method,client_id,model,expected_allowed,expected_error_contains",
+        "product,auth_method,application_id,model,expected_allowed,expected_error_contains",
         [
             # llm_gateway allows everything
             ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
-            ("llm_gateway", "oauth_access_token", "any_client", "gpt-4o", True, None),
+            ("llm_gateway", "oauth_access_token", 123, "gpt-4o", True, None),
             ("llm_gateway", "personal_api_key", None, None, True, None),
             # array requires OAuth and restricts models
             ("array", "personal_api_key", None, None, False, "requires OAuth"),
-            ("array", "oauth_access_token", "other_client", None, False, "not authorized"),
+            ("array", "oauth_access_token", 456, None, False, "not authorized"),
             # wizard allows API keys but has no OAuth clients configured
             ("wizard", "personal_api_key", None, "claude-3-opus", True, None),
-            ("wizard", "oauth_access_token", "other_client", None, False, "not authorized"),
+            ("wizard", "oauth_access_token", 789, None, False, "not authorized"),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -36,12 +36,12 @@ class TestCheckProductAccess:
         self,
         product: str,
         auth_method: str,
-        client_id: str | None,
+        application_id: int | None,
         model: str | None,
         expected_allowed: bool,
         expected_error_contains: str | None,
     ):
-        allowed, error = check_product_access(product, auth_method, client_id, model)
+        allowed, error = check_product_access(product, auth_method, application_id, model)
         assert allowed == expected_allowed
         if expected_error_contains:
             assert error is not None
@@ -61,6 +61,6 @@ class TestCheckProductAccess:
         # Since array has no OAuth clients configured, we need to test with llm_gateway
         # or modify the test to only test model matching logic
         # For now, let's test that model restriction error is returned
-        allowed, error = check_product_access("array", "oauth_access_token", "valid_client", model)
+        allowed, error = check_product_access("array", "oauth_access_token", 123, model)
         # Both fail because client isn't in allowlist, but we can verify the function runs
         assert allowed is False

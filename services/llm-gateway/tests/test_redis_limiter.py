@@ -14,9 +14,7 @@ class TestTokenRateLimiter:
             (1001, 1000, False),  # Over limit
         ],
     )
-    async def test_consume_without_redis(
-        self, tokens: int, limit: int, expected: bool
-    ) -> None:
+    async def test_consume_without_redis(self, tokens: int, limit: int, expected: bool) -> None:
         limiter = TokenRateLimiter(redis=None, limit=limit, window_seconds=60)
         fallback_limit = limit / IN_MEMORY_LIMIT_DIVIDER
 

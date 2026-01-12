@@ -21,7 +21,7 @@ class ThrottleRunner:
                 logger.warning(
                     "throttle_denied",
                     user_id=context.user.user_id,
-                    client_id=context.user.client_id,
+                    application_id=context.user.application_id,
                     product=context.product,
                     scope=scope,
                     status_code=result.status_code,
