@@ -35,7 +35,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
      */
     const [outputResultPath, setOutputResultPath] = useState(selectedNode?.data.output_variable?.result_path || '')
     useEffect(() => {
-        if (selectedNode) {
+        if (selectedNode?.data.output_variable?.key) {
             setWorkflowAction(selectedNode.data.id, {
                 ...selectedNode.data,
                 output_variable: {
