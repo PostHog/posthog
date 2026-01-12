@@ -71,20 +71,19 @@ export const getFormattedNodes = async (nodes: ModelNode[], edges: Edge[]): Prom
         })) as ElkExtendedEdge[],
     }
 
-    const layoutedGraph = await elk.layout(graph)
+    const laidOutGraph = await elk.layout(graph)
 
-    // Find the first node and use its position as the offset to center the graph
-    const firstNode = layoutedGraph.children?.[0]
+    // anchor to the first node for relative positioning of other nodes
+    const firstNode = laidOutGraph.children?.[0]
     const offsetX = firstNode?.x || 0
     const offsetY = firstNode?.y || 0
 
-    // Adjust all node positions relative to the first node
-    layoutedGraph.children?.forEach((node) => {
+    laidOutGraph.children?.forEach((node) => {
         node.x = (node.x || 0) - offsetX
         node.y = (node.y || 0) - offsetY
     })
 
-    return layoutedGraph.children?.map((node) => ({
+    return laidOutGraph.children?.map((node) => ({
         ...node,
         position: { x: node.x, y: node.y },
     })) as ModelNode[]

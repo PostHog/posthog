@@ -1,11 +1,8 @@
-import { useActions } from 'kea'
-
 import { IconDatabase, IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { DataModelingNodeType } from '~/types'
 
-import { dataModelingEditorLogic } from './dataModelingEditorLogic'
 import { CreateModelNodeType } from './types'
 
 const NODE_TYPE_COLORS: Record<DataModelingNodeType, string> = {
@@ -27,34 +24,24 @@ const NODES_TO_SHOW: CreateModelNodeType[] = [
     },
 ]
 
-function DraggableNodeButton({ node }: { node: CreateModelNodeType }): JSX.Element {
-    const { setNewDraggingNode } = useActions(dataModelingEditorLogic)
-
-    const onDragStart = (event: React.DragEvent): void => {
-        setNewDraggingNode(node)
-        event.dataTransfer.setData('application/reactflow', node.type)
-        event.dataTransfer.effectAllowed = 'move'
-    }
-
+function NodeTypeButton({ node }: { node: CreateModelNodeType }): JSX.Element {
     const color = NODE_TYPE_COLORS[node.type]
 
     return (
-        <div draggable onDragStart={onDragStart}>
-            <LemonButton
-                icon={
-                    <span style={{ color }}>
-                        <IconDatabase />
-                    </span>
-                }
-                sideIcon={<IconDrag />}
-                fullWidth
-            >
-                <div className="flex flex-col items-start flex-1">
-                    <span>{node.name}</span>
-                    {node.description && <span className="text-xs text-muted font-normal">{node.description}</span>}
-                </div>
-            </LemonButton>
-        </div>
+        <LemonButton
+            icon={
+                <span style={{ color }}>
+                    <IconDatabase />
+                </span>
+            }
+            sideIcon={<IconDrag />}
+            fullWidth
+        >
+            <div className="flex flex-col items-start flex-1">
+                <span>{node.name}</span>
+                {node.description && <span className="text-xs text-muted font-normal">{node.description}</span>}
+            </div>
+        </LemonButton>
     )
 }
 
@@ -70,7 +57,7 @@ export function DataModelingEditorPanel(): JSX.Element {
                     Node types <LemonDivider className="flex-1" />
                 </span>
                 {NODES_TO_SHOW.map((node, index) => (
-                    <DraggableNodeButton key={`${node.type}-${index}`} node={node} />
+                    <NodeTypeButton key={`${node.type}-${index}`} node={node} />
                 ))}
             </div>
         </div>

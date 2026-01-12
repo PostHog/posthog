@@ -44,8 +44,3 @@ export interface ModelNodeProps {
     data: ModelNodeData
     selected?: boolean
 }
-
-export interface DropzoneNodeProps {
-    id: string
-    data: { edge: { id: string; source: string; target: string } }
-}

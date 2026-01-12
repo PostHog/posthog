@@ -5,7 +5,6 @@ import {
     BackgroundVariant,
     Controls,
     Edge,
-    EdgeTypes,
     NodeTypes,
     ReactFlow,
     ReactFlowProvider,
@@ -18,26 +17,20 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { DataModelingEditorPanel } from './DataModelingEditorPanel'
 import { REACT_FLOW_NODE_TYPES } from './Nodes'
-import { REACT_FLOW_EDGE_TYPES } from './SmartEdge'
 import { dataModelingEditorLogic } from './dataModelingEditorLogic'
 import { ModelNode } from './types'
 
 function DataModelingEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
-
-    const { nodes, edges, dropzoneNodes } = useValues(dataModelingEditorLogic)
+    const { nodes, edges } = useValues(dataModelingEditorLogic)
     const {
         onEdgesChange,
         onNodesChange,
         setSelectedNodeId,
         setReactFlowInstance,
         onNodesDelete,
-        onDragStart,
-        onDragOver,
-        onDrop,
         setReactFlowWrapper,
     } = useActions(dataModelingEditorLogic)
-
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
     const reactFlowInstance = useReactFlow()
 
@@ -53,17 +46,13 @@ function DataModelingEditorContent(): JSX.Element {
         <div ref={reactFlowWrapper} className="w-full h-full">
             <ReactFlow<ModelNode, Edge>
                 fitView
-                nodes={[...nodes, ...(dropzoneNodes as unknown as ModelNode[])]}
+                nodes={[...nodes]}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodesDelete={onNodesDelete}
-                onDragStart={onDragStart}
-                onDragOver={onDragOver}
-                onDrop={onDrop}
                 onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
                 nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
-                edgeTypes={REACT_FLOW_EDGE_TYPES as EdgeTypes}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 onPaneClick={() => setSelectedNodeId(null)}
