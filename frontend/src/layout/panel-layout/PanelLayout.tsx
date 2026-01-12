@@ -125,7 +125,7 @@ export function PanelLayout({
                         : {}
                 }
             >
-                <PanelLayoutNavBar isSimplerAppLayout={isSimplerAppLayout}>
+                <PanelLayoutNavBar>
                     {activePanelIdentifier === 'Project' && (
                         <ProjectTree
                             root="project://"
@@ -170,10 +170,9 @@ export function PanelLayout({
                 }}
                 className={cn(
                     'z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 dark:bg-black/80 overlay-fade',
-                    !(isSimplerAppLayout && isMobileLayout && isLayoutNavbarVisibleForMobile) &&
-                        'pointer-events-none opacity-0'
+                    !(isMobileLayout && isLayoutNavbarVisibleForMobile) && 'pointer-events-none opacity-0'
                 )}
-                aria-hidden={!(isSimplerAppLayout && isMobileLayout && isLayoutNavbarVisibleForMobile)}
+                aria-hidden={!(isMobileLayout && isLayoutNavbarVisibleForMobile)}
             />
         </>
     )

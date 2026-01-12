@@ -76,13 +76,7 @@ const navBarStyles = cva({
     },
 })
 
-export function PanelLayoutNavBar({
-    children,
-    isSimplerAppLayout = false,
-}: {
-    children: React.ReactNode
-    isSimplerAppLayout?: boolean
-}): JSX.Element {
+export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const {
@@ -654,7 +648,7 @@ export function PanelLayoutNavBar({
 
                 {children}
 
-                {isMobileLayout && isLayoutNavbarVisible && !isLayoutPanelVisible && !isSimplerAppLayout && (
+                {isMobileLayout && isLayoutNavbarVisible && !isLayoutPanelVisible && (
                     <div
                         onClick={() => {
                             showLayoutNavBar(false)
@@ -664,7 +658,7 @@ export function PanelLayoutNavBar({
                     />
                 )}
 
-                {isMobileLayout && isLayoutNavbarVisible && isLayoutPanelVisible && !isSimplerAppLayout && (
+                {isMobileLayout && isLayoutNavbarVisible && isLayoutPanelVisible && (
                     <div
                         onClick={() => {
                             showLayoutPanel(false)
