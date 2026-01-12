@@ -8,49 +8,42 @@ from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, IN
 from .base import MarketingSourceAdapter, MetaAdsConfig, ValidationResult
 
 # Conversion action types to extract from Meta's actions array (counts)
-# Includes all meaningful conversion events: standard, omni (cross-channel), and offsite pixel events
+# Limited to actual business outcomes, not funnel/engagement metrics
 META_CONVERSION_ACTION_TYPES = [
-    # Purchase
+    # Purchase (standard, omni, pixel, mobile app)
     "purchase",
     "omni_purchase",
     "offsite_conversion.fb_pixel_purchase",
-    # Lead
+    "app_custom_event.fb_mobile_purchase",
+    # Lead (standard, omni, pixel, onsite forms/messenger)
     "lead",
     "omni_lead",
     "offsite_conversion.fb_pixel_lead",
-    # Registration
+    "onsite_conversion.lead_grouped",
+    # Registration (standard, omni, pixel, mobile app, Meta Leads integration)
     "complete_registration",
     "omni_complete_registration",
     "offsite_conversion.fb_pixel_complete_registration",
-    # Add to cart
-    "add_to_cart",
-    "omni_add_to_cart",
-    "offsite_conversion.fb_pixel_add_to_cart",
-    # Initiate checkout
-    "initiate_checkout",
-    "omni_initiate_checkout",
-    "offsite_conversion.fb_pixel_initiate_checkout",
+    "app_custom_event.fb_mobile_complete_registration",
+    "offsite_complete_registration_add_meta_leads",
     # App install
     "app_install",
     "omni_app_install",
     "mobile_app_install",
-    # Subscribe
+    # Subscribe (standard, omni, pixel)
     "subscribe",
     "omni_subscribe",
     "offsite_conversion.fb_pixel_subscribe",
-    # Add payment info
-    "add_payment_info",
-    "omni_add_payment_info",
-    "offsite_conversion.fb_pixel_add_payment_info",
 ]
 
 # Action types that have meaningful monetary values (for action_values array)
-# Limited to purchase/transaction events that carry revenue data
+# Limited to purchase/transaction events that carry actual revenue data
 META_CONVERSION_VALUE_ACTION_TYPES = [
     # Purchase (primary revenue events)
     "purchase",
     "omni_purchase",
     "offsite_conversion.fb_pixel_purchase",
+    "app_custom_event.fb_mobile_purchase",
     # Subscribe (recurring revenue)
     "subscribe",
     "omni_subscribe",
