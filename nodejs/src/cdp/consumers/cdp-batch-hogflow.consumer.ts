@@ -168,6 +168,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                 onPersonBatch: async (persons: { personId: string; distinctId: string }[]) => {
                     const batchInvocations = persons.map(({ personId, distinctId }) =>
                         this.createHogFlowInvocation({
+                            batchJobId: batchHogFlowRequest.batchJobId,
                             hogFlow,
                             team,
                             personId,
