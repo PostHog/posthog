@@ -63,7 +63,7 @@ dependencies = [
     "granian[uvloop,reload,pname]==2.5.5",
     "grimp==3.13",
     "gspread==6.2.1",
-    "hogql-parser==1.2.12",
+    "hogql-parser",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
     "kafka-python==2.0.6",
@@ -266,6 +266,7 @@ required-version = ">=0.7.0"
 
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
+hogql-parser = { path = "./common/hogql_parser" }
 
 
 [tool.black]

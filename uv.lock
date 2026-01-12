@@ -2687,14 +2687,7 @@ wheels = [
 [[package]]
 name = "hogql-parser"
 version = "1.2.12"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/9f/72/7841e88ae25ecfa97943fdd12ad80e51ad8bc05d165e7f5bcb3a2cb4d252/hogql_parser-1.2.12.tar.gz", hash = "sha256:d39e6787df46af84e510d462b413718536c1f1a97dd320b8aba82cecf2065862", size = 82028, upload-time = "2025-11-21T12:09:17.311Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3c/58/f42abd5d27832deaf3033dd04c52ef841fe5652b27ceb662cae1b7bcb2d1/hogql_parser-1.2.12-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:408349caddf73bdcb6ca8059850a21af3f70a2f4481504365a069cff34de3cf5", size = 552773, upload-time = "2025-11-21T12:09:05.457Z" },
-    { url = "https://files.pythonhosted.org/packages/c7/9c/cc9a9ef2bbff5587461016065da06471129e152abb78d9b2556362446519/hogql_parser-1.2.12-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:be4fff0d9e491fdc67dafc9559ecd44f214dd950f14c3c5f08a3d6f86f07ea4e", size = 536322, upload-time = "2025-11-21T12:09:06.681Z" },
-    { url = "https://files.pythonhosted.org/packages/2c/c8/e82eb04e4f0c2715c33d6b90ccc9bd906e0e509ddec5926546bf9ec8f57a/hogql_parser-1.2.12-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:ef4839d931d93f0be4049db2299d36c95b8285f7f1b9ccbe4f520d17a9f03b47", size = 3117257, upload-time = "2025-11-21T12:09:08.382Z" },
-    { url = "https://files.pythonhosted.org/packages/62/13/e7ee0d8986b090c8ce6b7baaf855317ec7e95a4447b5646f6a139c0a6ff1/hogql_parser-1.2.12-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:4d7964744e611e5491729b497612fc772435abf9f179532bcd4be84c486ee5ca", size = 3217742, upload-time = "2025-11-21T12:09:09.942Z" },
-]
+source = { directory = "common/hogql_parser" }
 
 [[package]]
 name = "hpack"
@@ -4691,7 +4684,7 @@ requires-dist = [
     { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
     { name = "grimp", specifier = "==3.13" },
     { name = "gspread", specifier = "==6.2.1" },
-    { name = "hogql-parser", specifier = "==1.2.12" },
+    { name = "hogql-parser", directory = "common/hogql_parser" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=9578c79f29635ee2c1d01b7979e89adab8383de2" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.0.6" },
