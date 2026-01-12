@@ -55,8 +55,12 @@ SHORT_TABLE_COLUMN_NAME = {
 
 def _clear_materialized_columns_cache(table: TablesWithMaterializedColumns) -> None:
     """Clear the cache for materialized columns after mutations."""
-    cache_key = f"materialized_columns:{table}"
+    cache_key = get_materialized_columns_cache_key(table)
     cache.delete(cache_key)
+
+
+def get_materialized_columns_cache_key(table: TablesWithMaterializedColumns) -> str:
+    return f"materialized_columns:v2:{table}"
 
 
 @dataclass
@@ -91,7 +95,7 @@ class MaterializedColumn:
     def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, bool, list[str]]]:
         refresh_cache = random.random() < 0.002  # we run around 50 of those queries per minute
         if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
-            cache_key: str = f"materialized_columns:{table}"
+            cache_key = get_materialized_columns_cache_key(table)
 
             try:
                 cached_result = cache.get(cache_key)
