@@ -88,14 +88,12 @@ def deserialize_hx_ast(hog_ast: dict) -> AST:
         if is_ast_subclass(field_type):
             if (field_type in (Expr, Constant)) and is_simple_value(value):
                 return Constant(value=value)
-            raise ValueError(
-                f"Invalid type for field expecting '{field_type.__name__}', " f"got '{type(value).__name__}'"
-            )
+            raise ValueError(f"Invalid type for field expecting '{field_type.__name__}', got '{type(value).__name__}'")
 
         if is_simple_value(value):
             return value
 
-        raise ValueError(f"Unexpected value of type '{type(value).__name__}' for field " f"expecting '{field_type}'")
+        raise ValueError(f"Unexpected value of type '{type(value).__name__}' for field expecting '{field_type}'")
 
     for key, value in hog_ast.items():
         if key == "__hx_ast":
@@ -117,5 +115,5 @@ def map_virtual_properties(e: ast.Expr):
         and e.chain[-1].startswith("$virt")
     ):
         # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table
-        return ast.Field(chain=e.chain[:-2] + [e.chain[-1]])
+        return ast.Field(chain=[*e.chain[:-2], e.chain[-1]])
     return e

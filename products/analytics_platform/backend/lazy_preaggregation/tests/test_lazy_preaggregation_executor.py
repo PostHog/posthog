@@ -617,9 +617,9 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
         assert sorted_results[1][0] == 2  # 2 unique users on Jan 2
 
         # Verify the preaggregation table was used in the generated SQL
-        assert result_with.clickhouse and (
-            "preaggregation_results" in result_with.clickhouse
-        ), "Expected preaggregation_results table in generated SQL"
+        assert result_with.clickhouse and ("preaggregation_results" in result_with.clickhouse), (
+            "Expected preaggregation_results table in generated SQL"
+        )
 
         # Verify preaggregation rows were created in the table
         preagg_results = sync_execute(

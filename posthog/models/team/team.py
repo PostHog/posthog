@@ -681,7 +681,7 @@ class Team(UUIDTClassicModel):
             {**person_query_params, **filter.hogql_context.values},
         )[0][0]
 
-    @lru_cache(maxsize=5)
+    @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
