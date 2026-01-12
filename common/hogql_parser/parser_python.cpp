@@ -1,6 +1,5 @@
 // parser_python.cpp - Python C Extension Bindings for HogQL Parser
 // This file provides Python bindings for the core parser (parser_core.cpp).
-// It converts between Python objects and JSON strings.
 
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
