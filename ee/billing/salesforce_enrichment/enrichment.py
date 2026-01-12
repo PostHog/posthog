@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from django.utils import timezone
 
 import posthoganalytics
+from simple_salesforce.format import format_soql
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
@@ -28,14 +29,15 @@ def _extract_domain(url: str | None) -> str | None:
     """Extract and normalize domain from URL or domain string.
 
     Returns:
-        Normalized domain (lowercase, no www prefix) or None if invalid
+        Normalized domain (lowercase, no www prefix, no port) or None if invalid
     """
     if not url:
         return None
 
     try:
         parsed = urlparse(url if url.startswith(("http://", "https://")) else f"https://{url}")
-        domain = parsed.netloc or url
+        # Use hostname to get domain without port, fallback to netloc if hostname is None
+        domain = parsed.hostname or parsed.netloc or url
     except Exception:
         domain = url
 
@@ -287,13 +289,9 @@ def bulk_update_salesforce_accounts(sf, update_records):
                     if errors:
                         error_msg = errors[0].get("message", "Unknown error")
                         error_fields = errors[0].get("fields", [])
-                        logger.exception(
-                            "Record update error", record_index=i + 1, error=error_msg, fields=error_fields
-                        )
+                        logger.error("Record update error", record_index=i + 1, error=error_msg, fields=error_fields)
                     else:
-                        logger.exception(
-                            "Record update error", record_index=i + 1, error="Unknown error", result=result
-                        )
+                        logger.error("Record update error", record_index=i + 1, error="Unknown error", result=result)
 
             total_success += batch_success
             total_errors += batch_errors
@@ -336,16 +334,17 @@ def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
         logger.info("Invalid domain provided", domain=domain)
         return []
 
-    # Escape single quotes to prevent SOQL injection (SOQL uses '' to escape ')
-    escaped_domain = normalized_domain.replace("'", "''")
-
-    # Query for all accounts matching the domain
-    query = f"""
-        SELECT Id, Name, Domain__c, CreatedDate
-        FROM Account
-        WHERE Domain__c LIKE '%{escaped_domain}%'
-        ORDER BY CreatedDate DESC
-    """
+    # Query pattern: exact match OR subdomain match (with leading dot)
+    # Matches: "example.com", "www.example.com", "api.example.com"
+    # Does NOT match: "notexample.com", "example.com.evil.com"
+    query = format_soql(
+        """SELECT Id, Name, Domain__c, CreatedDate
+           FROM Account
+           WHERE Domain__c = {} OR Domain__c LIKE '%{:like}'
+           ORDER BY CreatedDate DESC""",
+        normalized_domain,
+        f".{normalized_domain}",
+    )
 
     try:
         result = sf.query_all(query)
@@ -441,6 +440,283 @@ def _build_result(
     }
 
 
+def _fetch_updated_account_fields(
+    sf, accounts: list[dict[str, Any]], update_records: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Fetch updated fields from Salesforce accounts after update.
+
+    Dynamically queries only the fields that were actually sent in update_records,
+    avoiding errors from querying fields that don't exist in Salesforce.
+
+    Args:
+        sf: Salesforce client
+        accounts: List of account dicts with at least "Id" key
+        update_records: List of dicts we sent to Salesforce (to know which fields to fetch)
+
+    Returns:
+        List of dicts containing the updated fields for each account
+    """
+    logger = LOGGER.bind()
+
+    if not accounts or not update_records:
+        return []
+
+    account_ids = [acc["Id"] for acc in accounts]
+
+    # Collect all unique fields from update_records (excluding Id and attributes)
+    fields_to_fetch = {"Id", "Name", "Domain__c"}  # Always include these base fields
+    for record in update_records:
+        for field in record.keys():
+            if field not in ("Id", "attributes"):
+                fields_to_fetch.add(field)
+
+    fields_list = ", ".join(sorted(fields_to_fetch))
+
+    try:
+        query = format_soql(
+            f"SELECT {fields_list} FROM Account WHERE Id IN {{}}",
+            account_ids,
+        )
+        result = sf.query_all(query)
+
+        # Return records with only the fields we queried
+        return [{field: record.get(field) for field in fields_to_fetch} for record in result["records"]]
+    except Exception as e:
+        logger.warning(
+            "Failed to fetch updated account data",
+            account_ids=account_ids,
+            fields=fields_list,
+            error=str(e),
+        )
+        return []
+
+
+def _compare_update_with_fetched(
+    update_records: list[dict[str, Any]],
+    fetched_accounts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Compare what we sent to Salesforce with what we got back to detect mismatches.
+
+    Helps catch field name typos and update failures.
+
+    Args:
+        update_records: List of dicts we sent to Salesforce (from prepare_salesforce_update_data)
+        fetched_accounts: List of dicts fetched back from Salesforce after update
+
+    Returns:
+        Dict with comparison results including any mismatches found
+    """
+    logger = LOGGER.bind()
+
+    # Build lookup by account ID
+    fetched_by_id = {acc["Id"]: acc for acc in fetched_accounts}
+    update_by_id = {rec["Id"]: rec for rec in update_records}
+
+    mismatches = []
+    missing_accounts = []
+
+    for account_id, sent_data in update_by_id.items():
+        fetched_data = fetched_by_id.get(account_id)
+
+        if not fetched_data:
+            missing_accounts.append(account_id)
+            continue
+
+        account_mismatches = []
+        for field, sent_value in sent_data.items():
+            if field in ("Id", "attributes"):
+                continue
+
+            fetched_value = fetched_data.get(field)
+
+            # Check if field exists in fetched data
+            if field not in fetched_data:
+                account_mismatches.append(
+                    {
+                        "field": field,
+                        "issue": "field_not_in_response",
+                        "sent": sent_value,
+                        "hint": "Possible field name typo - field not returned by Salesforce",
+                    }
+                )
+            elif sent_value != fetched_value:
+                account_mismatches.append(
+                    {
+                        "field": field,
+                        "issue": "value_mismatch",
+                        "sent": sent_value,
+                        "fetched": fetched_value,
+                    }
+                )
+
+        if account_mismatches:
+            mismatches.append(
+                {
+                    "account_id": account_id,
+                    "mismatches": account_mismatches,
+                }
+            )
+
+    # Log warnings for any issues found
+    if mismatches:
+        logger.warning(
+            "Field mismatches detected between sent and fetched Salesforce data",
+            mismatch_count=len(mismatches),
+            mismatches=mismatches,
+        )
+
+    if missing_accounts:
+        logger.warning(
+            "Some accounts could not be fetched after update",
+            missing_count=len(missing_accounts),
+            missing_accounts=missing_accounts,
+        )
+
+    return {
+        "all_fields_match": len(mismatches) == 0 and len(missing_accounts) == 0,
+        "mismatches": mismatches,
+        "missing_accounts": missing_accounts,
+    }
+
+
+async def _enrich_specific_domain_debug(
+    domain: str,
+    chunk_number: int,
+    start_time: float,
+) -> dict[str, Any]:
+    """Debug mode: Enrich a specific domain and update all matching SF accounts.
+
+    Args:
+        domain: Already normalized domain to enrich
+        chunk_number: For result building
+        start_time: For result building
+
+    Returns:
+        Dict with enrichment results, summary, and Harmonic data
+    """
+    logger = LOGGER.bind(domain=domain, mode="debug")
+
+    # Query Salesforce for all accounts matching domain
+    accounts = get_salesforce_accounts_by_domain(domain)
+
+    if not accounts:
+        return {
+            **_build_result(chunk_number, start_time, records_processed=1),
+            "summary": {
+                "harmonic_data_found": False,
+                "salesforce_update_succeeded": False,
+                "salesforce_accounts_count": 0,
+                "domain": domain,
+                "error": "No Salesforce accounts found",
+            },
+            "error": f"No Salesforce accounts found for domain '{domain}'",
+        }
+
+    # Enrich with Harmonic API (once for the domain)
+    async with AsyncHarmonicClient() as harmonic_client:
+        harmonic_results = await harmonic_client.enrich_companies_batch([domain])
+        harmonic_result = harmonic_results[0] if harmonic_results else None
+
+        if not harmonic_result:
+            return {
+                **_build_result(chunk_number, start_time, records_processed=len(accounts)),
+                "summary": {
+                    "harmonic_data_found": False,
+                    "salesforce_update_succeeded": False,
+                    "salesforce_accounts_count": len(accounts),
+                    "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
+                    "domain": domain,
+                    "error": "No Harmonic data found",
+                },
+                "error": f"No Harmonic data found for domain '{domain}'",
+            }
+
+        # Transform Harmonic data
+        harmonic_data = transform_harmonic_data(harmonic_result)
+
+        if not harmonic_data:
+            return {
+                **_build_result(chunk_number, start_time, records_processed=len(accounts)),
+                "summary": {
+                    "harmonic_data_found": False,
+                    "salesforce_update_succeeded": False,
+                    "salesforce_accounts_count": len(accounts),
+                    "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
+                    "domain": domain,
+                    "error": "Failed to transform Harmonic data",
+                },
+                "error": f"Failed to transform Harmonic data for domain '{domain}'",
+            }
+
+        # Prepare Salesforce updates for all matching accounts
+        update_records = []
+        for account in accounts:
+            update_data = prepare_salesforce_update_data(account["Id"], harmonic_data)
+            if update_data:
+                update_records.append(update_data)
+
+        # Execute bulk update for all accounts
+        salesforce_updated = False
+        update_error = None
+        records_updated = 0
+        updated_salesforce_accounts = []
+        field_comparison = None
+
+        try:
+            if update_records:
+                sf = get_salesforce_client()
+                bulk_update_salesforce_accounts(sf, update_records)
+                salesforce_updated = True
+                records_updated = len(update_records)
+                logger.info(
+                    "Successfully updated Salesforce accounts",
+                    accounts_updated=records_updated,
+                )
+
+                updated_salesforce_accounts = _fetch_updated_account_fields(sf, accounts, update_records)
+
+                # Compare what we sent with what we got back to detect field mismatches
+                field_comparison = _compare_update_with_fetched(update_records, updated_salesforce_accounts)
+            else:
+                update_error = "Failed to prepare Salesforce update data for any accounts"
+        except Exception as e:
+            update_error = f"Salesforce update failed: {str(e)}"
+            logger.exception(
+                "Failed to update Salesforce",
+                accounts_count=len(accounts),
+                error=str(e),
+            )
+            capture_exception(e)
+
+        summary = {
+            "harmonic_data_found": True,
+            "salesforce_update_succeeded": salesforce_updated,
+            "salesforce_accounts_count": len(accounts),
+            "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
+            "accounts_updated": records_updated,
+            "domain": domain,
+            "all_fields_match": field_comparison["all_fields_match"] if field_comparison else None,
+        }
+        if update_error:
+            summary["error"] = update_error
+
+        return {
+            **_build_result(
+                chunk_number,
+                start_time,
+                records_processed=len(accounts),
+                records_enriched=1,
+                records_updated=records_updated,
+            ),
+            "summary": summary,
+            "enriched_data": harmonic_data,
+            "raw_harmonic_response": harmonic_result,
+            "updated_salesforce_accounts": updated_salesforce_accounts,
+            "field_comparison": field_comparison,
+            "error": update_error,
+        }
+
+
 async def enrich_accounts_chunked_async(
     chunk_number: int = 0,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
@@ -491,117 +767,7 @@ async def enrich_accounts_chunked_async(
                 "error": f"Domain '{domain}' is excluded (personal email domain)",
             }
 
-        # Query Salesforce for all accounts matching domain
-        accounts = get_salesforce_accounts_by_domain(domain)
-
-        if not accounts:
-            return {
-                **_build_result(chunk_number, start_time, records_processed=1),
-                "summary": {
-                    "harmonic_data_found": False,
-                    "salesforce_update_succeeded": False,
-                    "salesforce_accounts_count": 0,
-                    "domain": domain,
-                    "error": "No Salesforce accounts found",
-                },
-                "error": f"No Salesforce accounts found for domain '{domain}'",
-            }
-
-        # Enrich with Harmonic API (once for the domain)
-        async with AsyncHarmonicClient() as harmonic_client:
-            harmonic_results = await harmonic_client.enrich_companies_batch([domain])
-            harmonic_result = harmonic_results[0] if harmonic_results else None
-
-            if not harmonic_result:
-                return {
-                    **_build_result(chunk_number, start_time, records_processed=len(accounts)),
-                    "summary": {
-                        "harmonic_data_found": False,
-                        "salesforce_update_succeeded": False,
-                        "salesforce_accounts_count": len(accounts),
-                        "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
-                        "domain": domain,
-                        "error": "No Harmonic data found",
-                    },
-                    "error": f"No Harmonic data found for domain '{domain}'",
-                }
-
-            # Transform Harmonic data
-            harmonic_data = transform_harmonic_data(harmonic_result)
-
-            if not harmonic_data:
-                return {
-                    **_build_result(chunk_number, start_time, records_processed=len(accounts)),
-                    "summary": {
-                        "harmonic_data_found": False,
-                        "salesforce_update_succeeded": False,
-                        "salesforce_accounts_count": len(accounts),
-                        "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
-                        "domain": domain,
-                        "error": "Failed to transform Harmonic data",
-                    },
-                    "error": f"Failed to transform Harmonic data for domain '{domain}'",
-                }
-
-            # Prepare Salesforce updates for all matching accounts
-            update_records = []
-            for account in accounts:
-                update_data = prepare_salesforce_update_data(account["Id"], harmonic_data)
-                if update_data:
-                    update_records.append(update_data)
-
-            # Execute bulk update for all accounts
-            salesforce_updated = False
-            update_error = None
-            records_updated = 0
-
-            try:
-                if update_records:
-                    sf = get_salesforce_client()
-                    bulk_update_salesforce_accounts(sf, update_records)
-                    salesforce_updated = True
-                    records_updated = len(update_records)
-                    logger.info(
-                        "Debug mode: Successfully updated Salesforce accounts",
-                        accounts_updated=records_updated,
-                        domain=domain,
-                    )
-                else:
-                    update_error = "Failed to prepare Salesforce update data for any accounts"
-            except Exception as e:
-                update_error = f"Salesforce update failed: {str(e)}"
-                logger.exception(
-                    "Debug mode: Failed to update Salesforce",
-                    accounts_count=len(accounts),
-                    domain=domain,
-                    error=str(e),
-                )
-                capture_exception(e)
-
-            summary = {
-                "harmonic_data_found": True,
-                "salesforce_update_succeeded": salesforce_updated,
-                "salesforce_accounts_count": len(accounts),
-                "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
-                "accounts_updated": records_updated,
-                "domain": domain,
-            }
-            if update_error:
-                summary["error"] = update_error
-
-            return {
-                **_build_result(
-                    chunk_number,
-                    start_time,
-                    records_processed=len(accounts),
-                    records_enriched=1,
-                    records_updated=records_updated,
-                ),
-                "summary": summary,
-                "enriched_data": harmonic_data,
-                "raw_harmonic_response": harmonic_result,
-                "error": update_error,
-            }
+        return await _enrich_specific_domain_debug(domain, chunk_number, start_time)
 
     # Initialize Salesforce client
     try:

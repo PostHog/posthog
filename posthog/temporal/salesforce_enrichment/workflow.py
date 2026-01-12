@@ -169,6 +169,8 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
                 "records_updated": result.get("records_updated", 0),
                 "enriched_data": result.get("enriched_data"),
                 "raw_harmonic_response": result.get("raw_harmonic_response"),
+                "updated_salesforce_accounts": result.get("updated_salesforce_accounts", []),
+                "field_comparison": result.get("field_comparison"),
                 "salesforce_account_id": result.get("salesforce_account_id"),
                 "salesforce_account_name": result.get("salesforce_account_name"),
                 "salesforce_updated": result.get("salesforce_updated", False),
