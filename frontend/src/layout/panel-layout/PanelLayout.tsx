@@ -32,29 +32,16 @@ const panelLayoutStyles = cva({
             true: '',
             false: '',
         },
-        isSimplerAppLayout: {
-            true: '',
-            false: '',
-        },
     },
     compoundVariants: [
-        // New app-layout mobile: block, fixed positioning for slide animation
-        // Note: w-[var(--project-navbar-width)] overrides the base w-fit
-        {
-            isMobileLayout: true,
-            isSimplerAppLayout: true,
-            className: 'block fixed inset-y-0 left-0 w-[var(--project-navbar-width)]',
-        },
         // Old layout mobile: use hidden/block
         {
             isMobileLayout: true,
-            isSimplerAppLayout: false,
             isLayoutNavbarVisibleForMobile: true,
             className: 'block',
         },
         {
             isMobileLayout: true,
-            isSimplerAppLayout: false,
             isLayoutNavbarVisibleForMobile: false,
             className: 'hidden',
         },
@@ -73,13 +60,7 @@ const panelLayoutStyles = cva({
     ],
 })
 
-export function PanelLayout({
-    className,
-    isSimplerAppLayout = false,
-}: {
-    className?: string
-    isSimplerAppLayout?: boolean
-}): JSX.Element {
+export function PanelLayout({ className }: { className?: string }): JSX.Element {
     const {
         isLayoutPanelVisible,
         isLayoutNavbarVisibleForMobile,
@@ -103,7 +84,6 @@ export function PanelLayout({
                         isLayoutPanelVisible,
                         isMobileLayout,
                         isLayoutNavCollapsed,
-                        isSimplerAppLayout,
                     }),
                     className
                 )}
