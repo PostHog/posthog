@@ -44,9 +44,9 @@ export function Navigation({
     const { activeTabId } = useValues(sceneLogic)
     const simplerAppLayout = useFeatureFlag('SIMPLER_APP_LAYOUT')
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
-    // const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
+
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
         if (mainRef.current) {
@@ -55,12 +55,6 @@ export function Navigation({
             setMainContentRect(mainRef.current.getBoundingClientRect())
         }
     }, [mainRef, setMainContentRef, setMainContentRect])
-
-    useEffect(() => {
-        if (mainRef.current) {
-            setMainContentRef(mainRef)
-        }
-    }, [mainRef, setMainContentRef])
 
     if (mode !== 'full') {
         return (
