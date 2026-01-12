@@ -91,7 +91,7 @@ class UpsertDashboardTool(MaxTool):
 
     def is_dangerous_operation(self, action: UpsertDashboardAction) -> bool:
         """Update operations that replace or modify existing insights are dangerous."""
-        action: UpsertDashboardAction | None = kwargs.get("action")
+        if isinstance(action, UpdateDashboardToolArgs):
         if isinstance(action, UpdateDashboardToolArgs):
             return action.replace_insights is True or bool(action.update_insight_ids)
         return False
