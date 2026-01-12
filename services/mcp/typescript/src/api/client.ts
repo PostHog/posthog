@@ -64,6 +64,36 @@ import type {
     LogsQueryInput,
     LogsQueryResponse,
 } from '../schema/logs.js'
+import type { ActionResponse, CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
+import { ActionResponseSchema } from '../schema/actions.js'
+
+// Global search types
+export const SearchableEntitySchema = z.enum([
+    'insight',
+    'dashboard',
+    'experiment',
+    'feature_flag',
+    'notebook',
+    'action',
+    'cohort',
+    'event_definition',
+    'survey',
+])
+export type SearchableEntity = z.infer<typeof SearchableEntitySchema>
+
+export const SearchResultSchema = z.object({
+    type: z.string(),
+    result_id: z.string(),
+    extra_fields: z.record(z.any()),
+    rank: z.number().optional(),
+})
+export type SearchResult = z.infer<typeof SearchResultSchema>
+
+export const SearchResponseSchema = z.object({
+    results: z.array(SearchResultSchema),
+    counts: z.record(z.number().nullable()),
+})
+export type SearchResponse = z.infer<typeof SearchResponseSchema>
 import { LogAttributeValueSchema, LogsListAttributesResponseSchema, LogsQueryResponseSchema } from '../schema/logs.js'
 import type {
     CreateSurveyInput,
@@ -1411,6 +1441,161 @@ export class ApiClient {
                 const url = `${this.baseUrl}/api/projects/${projectId}/logs/values/?${searchParams}`
 
                 return this.fetchWithSchema(url, z.array(LogAttributeValueSchema))
+            },
+        }
+    }
+
+    actions({ projectId }: { projectId: string }): Endpoint {
+        return {
+            /**
+             * List all actions in the project
+             */
+            list: async ({ params }: { params?: ListActionsInput } = {}): Promise<Result<Array<ActionResponse>>> => {
+                const searchParams = new URLSearchParams()
+
+                if (params?.limit) {
+                    searchParams.append('limit', String(params.limit))
+                }
+                if (params?.offset) {
+                    searchParams.append('offset', String(params.offset))
+                }
+
+                const url = `${this.baseUrl}/api/projects/${projectId}/actions/${searchParams.toString() ? `?${searchParams}` : ''}`
+
+                const responseSchema = z.object({
+                    results: z.array(ActionResponseSchema),
+                })
+
+                const result = await this.fetchWithSchema(url, responseSchema)
+
+                if (result.success) {
+                    return { success: true, data: result.data.results }
+                }
+
+                return result
+            },
+
+            /**
+             * Get a single action by ID
+             */
+            get: async ({ actionId }: { actionId: number }): Promise<Result<ActionResponse>> => {
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                    ActionResponseSchema
+                )
+            },
+
+            /**
+             * Create a new action
+             */
+            create: async ({ data }: { data: CreateActionInput }): Promise<Result<ActionResponse>> => {
+                const body = {
+                    name: data.name,
+                    description: data.description,
+                    steps: data.steps,
+                    tags: data.tags,
+                    post_to_slack: data.post_to_slack ?? false,
+                    slack_message_format: data.slack_message_format,
+                }
+
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/actions/`,
+                    ActionResponseSchema,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    }
+                )
+            },
+
+            /**
+             * Update an existing action
+             */
+            update: async ({
+                actionId,
+                data,
+            }: {
+                actionId: number
+                data: UpdateActionInput
+            }): Promise<Result<ActionResponse>> => {
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                    ActionResponseSchema,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify(data),
+                    }
+                )
+            },
+
+            /**
+             * Soft delete an action (sets deleted=true)
+             */
+            delete: async ({
+                actionId,
+            }: {
+                actionId: number
+            }): Promise<Result<{ success: boolean; message: string }>> => {
+                try {
+                    const response = await fetch(
+                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
+                        {
+                            method: 'PATCH',
+                            headers: this.buildHeaders(),
+                            body: JSON.stringify({ deleted: true }),
+                        }
+                    )
+
+                    if (!response.ok) {
+                        throw new Error(`Failed to delete action: ${response.statusText}`)
+                    }
+
+                    return {
+                        success: true,
+                        data: {
+                            success: true,
+                            message: 'Action deleted successfully',
+                        },
+                    }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
+        }
+    }
+
+    /**
+     * Global search across PostHog entities
+     */
+    search({ projectId }: { projectId: string }): Endpoint {
+        return {
+            /**
+             * Search for entities by query string
+             * @param query - Search query (searches name/description fields)
+             * @param entities - Array of entity types to search (defaults to all if not specified)
+             */
+            query: async ({
+                query,
+                entities,
+            }: {
+                query: string
+                entities?: SearchableEntity[]
+            }): Promise<Result<SearchResponse>> => {
+                const searchParams = new URLSearchParams()
+
+                if (query) {
+                    searchParams.append('q', query)
+                }
+
+                if (entities && entities.length > 0) {
+                    for (const entity of entities) {
+                        searchParams.append('entities', entity)
+                    }
+                }
+
+                const url = `${this.baseUrl}/api/projects/${projectId}/search/${searchParams.toString() ? `?${searchParams}` : ''}`
+
+                return this.fetchWithSchema(url, SearchResponseSchema)
             },
         }
     }
