@@ -208,7 +208,11 @@ def temporary_migration_file(cache_path: Path, target_path: Path) -> Iterator[No
 
 @contextmanager
 def temporary_max_migration(migrations_dir: Path, migration_name: str) -> Iterator[None]:
-    """Context manager that temporarily updates max_migration.txt and restores it after."""
+    """Context manager that temporarily updates max_migration.txt and restores it after.
+
+    Only modifies the file if it already exists - creating it when absent could
+    confuse Django into thinking the app uses squashed migrations.
+    """
     max_migration_path = migrations_dir / "max_migration.txt"
     original_value = None
 
