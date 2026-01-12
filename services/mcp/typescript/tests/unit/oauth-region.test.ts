@@ -62,11 +62,17 @@ describe('OAuth Region Routing', () => {
                 requestUrl: 'https://mcp.posthog.com/mcp?features=flags&region=eu',
                 expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource?region=eu',
             },
+            {
+                name: 'normalizes uppercase region to lowercase for consistency',
+                requestUrl: 'https://mcp.posthog.com/mcp?region=EU',
+                expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource?region=eu',
+            },
         ]
 
         it.each(testCases)('$name', ({ requestUrl, expectedMetadataUrl }) => {
             const url = new URL(requestUrl)
-            const regionParam = url.searchParams.get('region')
+            // Normalize to lowercase for consistency with the metadata endpoint
+            const regionParam = url.searchParams.get('region')?.toLowerCase()
 
             const metadataUrl = new URL('/.well-known/oauth-protected-resource', requestUrl)
             if (regionParam) {

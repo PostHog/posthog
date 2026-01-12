@@ -291,24 +291,32 @@ export default {
         }
 
         // OAuth Protected Resource Metadata (RFC 9728)
-        // Tells MCP clients where to authenticate to get tokens
+        // This endpoint tells MCP clients where to authenticate to get tokens.
+        //
+        // OAuth flow for MCP:
+        // 1. Client connects to MCP server without a token
+        // 2. MCP returns 401 with WWW-Authenticate header pointing to this metadata endpoint
+        // 3. Client fetches this metadata to discover the authorization server
+        // 4. Client performs OAuth flow with PostHog (US or EU based on region param)
+        // 5. Client reconnects to MCP with the access token
         if (url.pathname === '/.well-known/oauth-protected-resource') {
             const resourceUrl = new URL(request.url)
             resourceUrl.pathname = '/'
             resourceUrl.search = ''
 
-            // Determine authorization server based on region param or CUSTOM_BASE_URL
-            // Users can specify region via query param: ?region=eu or ?region=us
-            // CUSTOM_BASE_URL is used for self-hosted instances
+            // Determine authorization server based on region param.
+            // The region param is set by the wizard based on user's cloud region selection.
+            // Invalid/unknown regions safely default to US.
             const regionParam = url.searchParams.get('region')?.toLowerCase()
             let authorizationServer: string
 
             if (CUSTOM_BASE_URL) {
+                // Self-hosted instances use CUSTOM_BASE_URL
                 authorizationServer = CUSTOM_BASE_URL
             } else if (regionParam === 'eu') {
                 authorizationServer = 'https://eu.posthog.com'
             } else {
-                // Default to US region
+                // Default to US for 'us', missing, or invalid region values
                 authorizationServer = 'https://us.posthog.com'
             }
 
@@ -333,9 +341,11 @@ export default {
         const sessionId = url.searchParams.get('sessionId')
 
         if (!token) {
-            // Build resource metadata URL with region param if specified
-            // This tells OAuth clients where to find the protected resource metadata
-            const regionParam = url.searchParams.get('region')
+            // Return 401 with WWW-Authenticate header per RFC 9728.
+            // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
+            // We preserve the region param so OAuth flows use the correct PostHog instance.
+            // Normalize to lowercase for consistency with the metadata endpoint.
+            const regionParam = url.searchParams.get('region')?.toLowerCase()
             const metadataUrl = new URL('/.well-known/oauth-protected-resource', request.url)
             if (regionParam) {
                 metadataUrl.searchParams.set('region', regionParam)
