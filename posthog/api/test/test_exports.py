@@ -1,6 +1,7 @@
-import time
+import asyncio
+import threading
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -968,8 +969,6 @@ class TestExportAssetCounters(APIBaseTest):
         expected_failure: float,
         expects_exception: bool,
     ) -> None:
-        from contextlib import nullcontext
-
         exception_context = pytest.raises(type(error)) if expects_exception and error else nullcontext()
 
         with (
@@ -1066,9 +1065,11 @@ class TestGenerateAssetsAsyncCounters:
     ) -> None:
         side_effect: Callable[..., None] | Exception | None
         if is_timeout:
+            # Use threading.Event.wait() for a blocking delay
+            blocking_event = threading.Event()
 
             def slow_export(*args: Any, **kwargs: Any) -> None:
-                time.sleep(10)
+                blocking_event.wait(timeout=5)
 
             side_effect = slow_export
         else:
@@ -1086,10 +1087,15 @@ class TestGenerateAssetsAsyncCounters:
 
             if is_timeout:
                 # Need > 2 min because export_timeout = (TEMPORAL_TASK_TIMEOUT_MINUTES * 60) - 120
-                # 2.05 gives 3-second timeout, slow_export sleeps for 10s to trigger timeout
+                # 2.05 gives 3-second timeout, slow_export sleeps for 5s to trigger timeout
                 settings.TEMPORAL_TASK_TIMEOUT_MINUTES = 2.05
 
             await subscription_utils.generate_assets_async(subscription, max_asset_count=1)
+
+            if is_timeout:
+                # Wait for the orphaned thread to wake up from sleep and process cancellation
+                # The mock sleeps for 5s, timeout fires after 3s, so we wait ~3s more for processing
+                await asyncio.sleep(4)
 
             success_after = self._get_success_counter_value()
             failed_after = self._get_failed_counter_value(failure_type)
