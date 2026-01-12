@@ -98,7 +98,6 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { DeleteFeatureFlagModal } from './DeleteFeatureFlagModal'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
@@ -110,7 +109,6 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { deleteFeatureFlagLogic } from './deleteFeatureFlagLogic'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
@@ -139,6 +137,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         restoreFeatureFlag,
+        deleteFeatureFlag,
         editFeatureFlag,
         loadFeatureFlag,
         createStaticCohort,
@@ -147,7 +146,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         updateFlag,
         saveFeatureFlag,
     } = useActions(featureFlagLogic)
-    const { showDeleteFeatureFlagModal } = useActions(deleteFeatureFlagLogic)
 
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
 
@@ -786,11 +784,18 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 if (featureFlag.deleted) {
                                                     restoreFeatureFlag(featureFlag)
                                                 } else {
-                                                    showDeleteFeatureFlagModal(
-                                                        featureFlag.id!,
-                                                        featureFlag.key,
-                                                        !!featureFlag.usage_dashboard
-                                                    )
+                                                    LemonDialog.open({
+                                                        title: 'Delete feature flag',
+                                                        description: `Are you sure you want to delete "${featureFlag.key}"?`,
+                                                        primaryButton: {
+                                                            children: 'Delete',
+                                                            status: 'danger',
+                                                            onClick: () => deleteFeatureFlag(featureFlag),
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    })
                                                 }
                                             }}
                                             disabledReasons={{
@@ -876,7 +881,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     setQuickSurveyVariantKey(null)
                 }}
             />
-            <DeleteFeatureFlagModal />
         </>
     )
 }
