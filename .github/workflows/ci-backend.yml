@@ -936,6 +936,13 @@ jobs:
                   fi
 
             # Post tests
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-backend-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
+                  path: junit.xml
+
             - name: Show docker compose logs on failure
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
@@ -1181,6 +1188,13 @@ jobs:
               run: |
                   pytest -m "async_migrations" --reruns 2 --reruns-delay 1
 
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-async-migrations
+                  path: junit.xml
+
     calculate-running-time:
         name: Calculate running time
         needs: [django, async-migrations]
@@ -1248,3 +1262,10 @@ jobs:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
               run: uv run pytest tests/ -v --tb=short
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-llm-gateway
+                  path: services/llm-gateway/junit.xml

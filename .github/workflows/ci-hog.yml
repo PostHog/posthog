@@ -121,6 +121,13 @@ jobs:
               run: |
                   pytest common/hogvm
 
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-hogvm
+                  path: junit.xml
+
             - name: Run HogVM TypeScript tests
               run: |
                   pnpm --filter=@posthog/hogvm install --frozen-lockfile
