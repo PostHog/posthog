@@ -11,7 +11,6 @@ import { IconPlus, IconX } from '@posthog/icons'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
@@ -77,7 +76,7 @@ export function SceneTabs(): JSX.Element {
     }
 
     return (
-        <div className="h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-primary lg:bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative">
+        <div className="h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-primary lg:bg-surface-tertiary z-[var(--z-top-navigation)] relative">
             {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive
@@ -99,16 +98,7 @@ export function SceneTabs(): JSX.Element {
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
                     strategy={horizontalListSortingStrategy}
                 >
-                    <ScrollableShadows
-                        direction="horizontal"
-                        className="w-full min-w-0"
-                        innerClassName={cn(
-                            'scene-tab-row min-w-0 gap-1 items-center flex w-full overflow-x-auto show-scrollbar-on-hover h-[var(--scene-layout-header-height)] lg:h-auto'
-                        )}
-                        style={{ WebkitOverflowScrolling: 'touch' }}
-                        styledScrollbars
-                        scrollRef={scrollRef}
-                    >
+                    <div className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto">
                         {tabs.map((tab, index) => {
                             const sortableId = getSortableId(tab, index)
                             const isLastPinned =
@@ -133,27 +123,26 @@ export function SceneTabs(): JSX.Element {
                                 </Fragment>
                             )
                         })}
-                    </ScrollableShadows>
-                    <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
-                        <Link
-                            to={urls.newTab()}
-                            data-attr="scene-tab-new-button"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                newTab()
-                            }}
-                            tooltip="New tab"
-                            tooltipCloseDelayMs={0}
-                            buttonProps={{
-                                size: 'sm',
-                                className:
-                                    'p-1 flex flex-row items-center gap-1 cursor-pointer rounded border-b z-20 ml-1',
-                                iconOnly: true,
-                            }}
-                        >
-                            <IconPlus className="!ml-0" fontSize={14} />
-                        </Link>
-                    </AppShortcut>
+                        <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
+                            <Link
+                                to={urls.newTab()}
+                                data-attr="scene-tab-new-button"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    newTab()
+                                }}
+                                tooltip="New tab"
+                                tooltipCloseDelayMs={0}
+                                buttonProps={{
+                                    size: 'sm',
+                                    className:
+                                        'p-1 flex flex-1 items-center gap-1 cursor-pointer rounded border-b z-20',
+                                }}
+                            >
+                                <IconPlus className="!ml-0" fontSize={14} />
+                            </Link>
+                        </AppShortcut>
+                    </div>
                 </SortableContext>
             </DndContext>
             <ConfigurePinnedTabsModal
@@ -199,7 +188,9 @@ function SortableSceneTab({
             style={style}
             {...attributes}
             {...listeners}
-            className={cn(isPinned ? 'w-[var(--button-height-sm)] shrink-0' : 'flex-1 min-w-[100px] max-w-[250px]')}
+            className={cn(
+                isPinned ? 'w-[var(--button-height-sm)] shrink-0' : 'w-full flex-1 min-w-[100px] max-w-[250px]'
+            )}
             data-tab-id={tab.id}
         >
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
@@ -307,12 +298,12 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                     variant="default"
                     hasSideActionRight
                     className={cn(
-                        'w-full order-first',
+                        'w-full order-first min-w-0',
                         'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 border border-transparent text-tertiary',
                         tab.active
-                            ? 'tab-active bg-[var(--scene-layout-background)] cursor-default text-primary border-primary rounded-b-none'
+                            ? 'tab-active bg-[var(--scene-layout-background)] cursor-default text-primary border-primary lg:rounded-b-none'
                             : 'cursor-pointer hover:text-primary z-20',
-                        firstTabActive && 'rounded-bl-none',
+                        firstTabActive && 'lg:rounded-bl-none',
                         'focus:outline-none',
                         isPinned && 'scene-tab--pinned justify-center pl-1 pr-1 gap-0',
                         className
@@ -359,12 +350,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             onFocus={(e) => e.target.select()}
                         />
                     ) : (
-                        <div
-                            className={cn(
-                                'scene-tab-title flex gap-1 flex-grow text-left truncate',
-                                tab.customTitle && 'italic'
-                            )}
-                        >
+                        <div className={cn('scene-tab-title text-left truncate min-w-0', tab.customTitle && 'italic')}>
                             {tab.customTitle || tab.title}
                         </div>
                     )}
@@ -373,7 +359,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
             {tab.active && (
                 <div
                     className={cn(
-                        'scene-tab-active-indicator',
+                        'scene-tab-active-indicator hidden lg:block',
                         index === 0 && 'scene-tab-active-indicator--first',
                         firstTabActive && 'scene-tab-indicator--active-first'
                     )}
