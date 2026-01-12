@@ -39,10 +39,12 @@ jobs:
                   cache: 'pnpm'
 
             - name: Clean up old browserslist branch
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   if git ls-remote --heads origin browserslist-update | grep browserslist-update; then
-                    echo "Deleting stale browserslist-update branch"
-                    git push origin --delete browserslist-update || true
+                    echo "Closing any existing PR from browserslist-update branch"
+                    gh pr close browserslist-update --delete-branch || true
                   fi
 
             - name: Update Browserslist database and create PR if applies
