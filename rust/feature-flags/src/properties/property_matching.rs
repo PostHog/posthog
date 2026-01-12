@@ -2097,7 +2097,7 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Invalid semver in filter value should return false
+        // Invalid semver in filter value should return an error (configuration error)
         let property_invalid_filter = PropertyFilter {
             key: "version".to_string(),
             value: Some(json!("invalid-semver")),
@@ -2107,12 +2107,12 @@ mod test_match_properties {
             negation: None,
         };
 
-        assert!(!match_property(
+        assert!(match_property(
             &property_invalid_filter,
             &HashMap::from([("version".to_string(), json!("1.0.0"))]),
             true
         )
-        .expect("expected match to exist"));
+        .is_err());
     }
 
     #[test]
