@@ -153,7 +153,7 @@ export class ApiClient {
                             : baseBackoffMs * Math.pow(2, attempt)
 
                         console.warn(
-                            `Rate limited (429) on ${url}. Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
+                            `Rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
                         )
                         await new Promise((resolve) => setTimeout(resolve, delayMs))
                         continue
