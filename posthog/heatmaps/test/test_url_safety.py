@@ -78,6 +78,16 @@ class TestUrlSafety:
             ("http://nas.home/files", True),
             ("http://server.priv/admin", True),
             ("http://app.intranet/login", True),
+            # IPv6 addresses
+            ("http://[::1]/", True),  # IPv6 loopback
+            ("http://[fe80::1]/", True),  # IPv6 link-local
+            ("http://[fd00::1]/", True),  # IPv6 unique local (private)
+            ("http://[fc00::1]/", True),  # IPv6 unique local (private)
+            ("http://[::ffff:127.0.0.1]/", True),  # IPv4-mapped IPv6 loopback
+            ("http://[::ffff:192.168.1.1]/", True),  # IPv4-mapped IPv6 private
+            ("http://[::ffff:10.0.0.1]/", True),  # IPv4-mapped IPv6 private
+            ("http://[2001:db8::1]/", True),  # Documentation/reserved range
+            ("http://[ff02::1]/", True),  # IPv6 multicast
         ],
     )
     def test_should_block_url(self, url, blocked):
