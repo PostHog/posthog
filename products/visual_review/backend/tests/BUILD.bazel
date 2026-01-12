@@ -5,7 +5,7 @@ load("@aspect_rules_py//py:defs.bzl", "py_test")
 py_test(
     name = "tests",
     srcs = glob(["test_*.py"]),
-    package_collisions = "warning",  # Some pypi packages include tests/ dirs
+    package_collisions = "ignore",  # Some pypi packages include tests/ dirs
     args = [
         # Only collect from this test directory, ignore everything else
         "products/visual_review/backend/tests/",
