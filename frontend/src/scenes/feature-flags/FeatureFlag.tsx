@@ -98,6 +98,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { DeleteFeatureFlagModal } from './DeleteFeatureFlagModal'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
@@ -109,7 +110,8 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { deleteFeatureFlagLogic } from './deleteFeatureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -136,7 +138,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
-        deleteFeatureFlag,
         restoreFeatureFlag,
         editFeatureFlag,
         loadFeatureFlag,
@@ -146,6 +147,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         updateFlag,
         saveFeatureFlag,
     } = useActions(featureFlagLogic)
+    const { showDeleteFeatureFlagModal } = useActions(deleteFeatureFlagLogic)
 
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
 
@@ -471,26 +473,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     )
                                 }}
                             </LemonField>
-                            {isNewFeatureFlag && (
-                                <LemonField name="_should_create_usage_dashboard">
-                                    {({ value, onChange }) => (
-                                        <div className="border rounded p-4">
-                                            <LemonCheckbox
-                                                id="create-usage-dashboard-checkbox"
-                                                label="Create usage dashboard"
-                                                onChange={() => onChange(!value)}
-                                                checked={value}
-                                                data-attr="create-usage-dashboard-checkbox"
-                                            />
-                                            <div className="text-secondary text-sm pl-7">
-                                                Automatically track how often this flag is called and what values are
-                                                returned. Creates a dashboard with call volume trends and variant
-                                                distribution insights.
-                                            </div>
-                                        </div>
-                                    )}
-                                </LemonField>
-                            )}
                             {!featureFlag.is_remote_configuration && (
                                 <LemonField name="ensure_experience_continuity">
                                     {({ value, onChange }) => (
@@ -804,21 +786,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 if (featureFlag.deleted) {
                                                     restoreFeatureFlag(featureFlag)
                                                 } else {
-                                                    LemonDialog.open({
-                                                        title: 'Delete feature flag?',
-                                                        description: `Are you sure you want to delete "${featureFlag.key}"?`,
-                                                        primaryButton: {
-                                                            children: 'Delete',
-                                                            status: 'danger',
-                                                            onClick: () => deleteFeatureFlag(featureFlag),
-                                                            size: 'small',
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                            type: 'tertiary',
-                                                            size: 'small',
-                                                        },
-                                                    })
+                                                    showDeleteFeatureFlagModal(
+                                                        featureFlag.id!,
+                                                        featureFlag.key,
+                                                        !!featureFlag.usage_dashboard
+                                                    )
                                                 }
                                             }}
                                             disabledReasons={{
@@ -904,6 +876,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     setQuickSurveyVariantKey(null)
                 }}
             />
+            <DeleteFeatureFlagModal />
         </>
     )
 }

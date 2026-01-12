@@ -399,6 +399,7 @@ class FeatureFlagSerializer(
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _should_create_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=True)
+    _should_delete_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=False)
 
     class Meta:
         model = FeatureFlag
@@ -438,6 +439,7 @@ class FeatureFlagSerializer(
             "last_called_at",
             "_create_in_folder",
             "_should_create_usage_dashboard",
+            "_should_delete_usage_dashboard",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -823,6 +825,8 @@ class FeatureFlagSerializer(
         )  # default to "feature_flags" if an alternative value is not provided
 
         should_create_usage_dashboard = validated_data.pop("_should_create_usage_dashboard")
+        # Pop delete field as well (not used in create, but must be removed before model instantiation)
+        validated_data.pop("_should_delete_usage_dashboard", None)
         self._update_filters(validated_data)
         encrypt_flag_payloads(validated_data)
 
@@ -901,6 +905,14 @@ class FeatureFlagSerializer(
             # This allows the original key to be reused while preserving referential integrity for deleted experiments
             if instance.experiment_set.filter(deleted=True).exists():
                 validated_data["key"] = f"{instance.key}:deleted:{instance.id}"
+
+            # Handle usage dashboard deletion if requested
+            should_delete_dashboard = validated_data.pop("_should_delete_usage_dashboard", False)
+            if should_delete_dashboard:
+                _delete_usage_dashboard(instance)
+        else:
+            # Pop the field even when not deleting to prevent it from being passed to the model
+            validated_data.pop("_should_delete_usage_dashboard", None)
 
         # First apply all transformations to validated_data
         validated_key = validated_data.get("key", None)
@@ -1137,6 +1149,37 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     feature_flag.save()
 
     return usage_dashboard
+
+
+def _delete_usage_dashboard(feature_flag: FeatureFlag) -> None:
+    """Soft-delete the usage dashboard and its insights when a flag is deleted."""
+    from posthog.models.dashboard_tile import DashboardTile
+    from posthog.models.insight import Insight
+
+    usage_dashboard = feature_flag.usage_dashboard
+    if not usage_dashboard:
+        return
+
+    # Soft-delete insights that only exist on this dashboard
+    insights_to_update = []
+    for tile in usage_dashboard.tiles.all():
+        if tile.insight and tile.insight.dashboard_tiles.count() == 1:
+            tile.insight.deleted = True
+            insights_to_update.append(tile.insight)
+
+    if insights_to_update:
+        Insight.objects.bulk_update(insights_to_update, ["deleted"])
+
+    # Soft-delete all tiles
+    DashboardTile.objects_including_soft_deleted.filter(dashboard=usage_dashboard).update(deleted=True)
+
+    # Soft-delete the dashboard
+    usage_dashboard.deleted = True
+    usage_dashboard.save(update_fields=["deleted"])
+
+    # Clear the reference on the feature flag
+    feature_flag.usage_dashboard = None
+    feature_flag.save(update_fields=["usage_dashboard"])
 
 
 def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> None:
