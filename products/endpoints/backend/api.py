@@ -1,9 +1,8 @@
 import re
 import builtins
 from datetime import timedelta
-from typing import Optional, Union, cast
+from typing import Union, cast
 
-from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -19,11 +18,13 @@ from rest_framework.response import Response
 from posthog.schema import (
     DataWarehouseSyncInterval,
     EndpointLastExecutionTimesRequest,
+    EndpointRefreshMode,
     EndpointRequest,
     EndpointRunRequest,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    ProductKey,
     QueryRequest,
     QueryStatus,
     QueryStatusResponse,
@@ -45,7 +46,6 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
-from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -53,7 +53,6 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -65,6 +64,11 @@ from products.data_warehouse.backend.models.external_data_schema import (
 from products.endpoints.backend.materialization import convert_insight_query_to_hogql
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
+from products.endpoints.backend.rate_limit import (
+    EndpointBurstThrottle,
+    EndpointSustainedThrottle,
+    clear_endpoint_materialization_cache,
+)
 
 from common.hogvm.python.utils import HogVMException
 
@@ -74,13 +78,37 @@ MAX_CACHE_AGE_SECONDS = 86400
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
 
-@extend_schema(tags=["endpoints"])
+def _endpoint_refresh_mode_to_refresh_type(mode: EndpointRefreshMode | None) -> RefreshType:
+    """
+    Map EndpointRefreshMode to RefreshType.
+
+    - cache -> blocking
+    - force/direct -> force_blocking (materialization bypass handled in _should_use_materialized_table)
+    """
+    if mode is None or mode == EndpointRefreshMode.CACHE:
+        return RefreshType.BLOCKING
+    return RefreshType.FORCE_BLOCKING
+
+
+@extend_schema(tags=[ProductKey.ENDPOINTS])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "list", "run", "versions", "version_detail", "openapi_spec"]
-    scope_object_write_actions: list[str] = ["create", "destroy", "update"]
+    scope_object_read_actions = [
+        "retrieve",
+        "list",
+        "run",
+        "versions",
+        "version_detail",
+        "openapi_spec",
+    ]
+    scope_object_write_actions: list[str] = [
+        "create",
+        "destroy",
+        "update",
+        "partial_update",
+    ]
     lookup_field = "name"
     queryset = Endpoint.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -90,20 +118,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return None  # We use Pydantic models instead
 
     def get_throttles(self):
-        return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
+        return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
 
-    def check_team_api_queries_concurrency(self):
-        cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-        if self.team:
-            new_val = self.team.organization.is_feature_available(AvailableFeature.API_QUERIES_CONCURRENCY)
-            cache.set(cache_key, new_val)
-            return new_val
-        return False
+    def _serialize_endpoint(self, endpoint: Endpoint, request: Request | None = None) -> dict:
+        url = None
+        ui_url = None
+        if request:
+            url = request.build_absolute_uri(endpoint.endpoint_path)
+            ui_path = f"/project/{endpoint.team_id}/endpoints/{endpoint.name}"
+            ui_url = request.build_absolute_uri(ui_path)
 
-    def _serialize_endpoint(self, endpoint: Endpoint) -> dict:
         result = {
             "id": str(endpoint.id),
             "name": endpoint.name,
@@ -113,6 +137,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "is_active": endpoint.is_active,
             "cache_age_seconds": endpoint.cache_age_seconds,
             "endpoint_path": endpoint.endpoint_path,
+            "url": url,
+            "ui_url": ui_url,
             "created_at": endpoint.created_at,
             "updated_at": endpoint.updated_at,
             "created_by": UserBasicSerializer(endpoint.created_by).data if hasattr(endpoint, "created_by") else None,
@@ -148,13 +174,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
         queryset = self.filter_queryset(self.get_queryset()).select_related("saved_query")
-        results = [self._serialize_endpoint(endpoint) for endpoint in queryset]
+        results = [self._serialize_endpoint(endpoint, request) for endpoint in queryset]
         return Response({"results": results})
 
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Retrieve an endpoint."""
         endpoint = get_object_or_404(Endpoint.objects.select_related("saved_query"), team=self.team, name=name)
-        return Response(self._serialize_endpoint(endpoint), status=status.HTTP_200_OK)
+        return Response(self._serialize_endpoint(endpoint, request), status=status.HTTP_200_OK)
 
     def _validate_cache_age_seconds(self, cache_age_seconds: float | None) -> None:
         """Validate cache_age_seconds is within allowed range."""
@@ -238,7 +264,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 team=self.team,
             )
 
-            return Response(self._serialize_endpoint(endpoint), status=status.HTTP_201_CREATED)
+            return Response(
+                self._serialize_endpoint(endpoint, request),
+                status=status.HTTP_201_CREATED,
+            )
 
         except Exception as e:
             capture_exception(
@@ -252,7 +281,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise ValidationError("Failed to create endpoint.")
 
     def validate_update_request(
-        self, data: EndpointRequest, endpoint: Endpoint | None = None, strict: bool = True
+        self,
+        data: EndpointRequest,
+        endpoint: Endpoint | None = None,
+        strict: bool = True,
     ) -> None:
         self._validate_cache_age_seconds(data.cache_age_seconds)
 
@@ -340,7 +372,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 detail=Detail(name=endpoint.name, changes=changes),
             )
 
-            return Response(self._serialize_endpoint(endpoint))
+            return Response(self._serialize_endpoint(endpoint, request))
 
         except Exception as e:
             capture_exception(
@@ -367,7 +399,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         saved_query = DataWarehouseSavedQuery.objects.filter(name=endpoint.name, team=self.team, deleted=False).first()
         if saved_query is None:
             saved_query = DataWarehouseSavedQuery(
-                name=endpoint.name, team=self.team, origin=DataWarehouseSavedQuery.Origin.ENDPOINT
+                name=endpoint.name,
+                team=self.team,
+                origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
             )
 
         hogql_query = convert_insight_query_to_hogql(endpoint.query, self.team)
@@ -390,6 +424,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             endpoint.saved_query.soft_delete()
             endpoint.saved_query = None
             endpoint.save()
+        clear_endpoint_materialization_cache(self.team_id, endpoint.name)
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
@@ -421,8 +456,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         - Not materialized
         - Materialization incomplete/failed
         - Materialized data is stale (older than sync frequency)
-        - User overrides present (variables, filters, query)
-        - Force refresh requested
+        - User overrides present (variables, query)
+        - 'direct' mode requested (explicitly bypass materialization)
         """
         if not endpoint.is_materialized or not endpoint.saved_query:
             return False
@@ -443,7 +478,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if data.variables:
             return False
 
-        if data.refresh in ["force_blocking"]:
+        # 'direct' mode explicitly bypasses materialization to run the original query
+        if data.refresh == EndpointRefreshMode.DIRECT:
             return False
 
         if data.query_override:
@@ -456,7 +492,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query_request_data: dict,
         client_query_id: str | None,
         request: Request,
-        variables_override: Optional[builtins.list[HogQLVariable]] = None,
+        variables_override: builtins.list[HogQLVariable] | None = None,
         cache_age_seconds: int | None = None,
         extra_result_fields: dict | None = None,
         debug: bool = False,
@@ -530,7 +566,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return last_refresh < saved_query.last_run_at
 
     def _execute_materialized_endpoint(
-        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request, debug: bool = False
+        self,
+        endpoint: Endpoint,
+        data: EndpointRunRequest,
+        request: Request,
+        debug: bool = False,
     ) -> Response:
         """Execute against a materialized table in S3."""
         try:
@@ -551,13 +591,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     raise ValidationError("Failed to apply property filters.")
 
             materialized_hogql_query = HogQLQuery(
-                query=select_query.to_hogql(), modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+                query=select_query.to_hogql(),
+                modifiers=HogQLQueryModifiers(useMaterializedViews=True),
             )
+
+            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
 
             query_request_data = {
                 "client_query_id": data.client_query_id,
                 "name": f"{endpoint.name}_materialized",
-                "refresh": data.refresh or RefreshType.BLOCKING,
+                "refresh": refresh_type,
                 "query": materialized_hogql_query.model_dump(),
             }
 
@@ -568,13 +611,21 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
 
             result = self._execute_query_and_respond(
-                query_request_data, data.client_query_id, request, extra_result_fields=extra_fields, debug=debug
+                query_request_data,
+                data.client_query_id,
+                request,
+                extra_result_fields=extra_fields,
+                debug=debug,
             )
 
             if self._is_cache_stale(result, saved_query):
                 query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
                 result = self._execute_query_and_respond(
-                    query_request_data, data.client_query_id, request, extra_result_fields=extra_fields, debug=debug
+                    query_request_data,
+                    data.client_query_id,
+                    request,
+                    extra_result_fields=extra_fields,
+                    debug=debug,
                 )
 
             return result
@@ -619,7 +670,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return variables_override
 
     def _execute_inline_endpoint(
-        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request, query: dict, debug: bool = False
+        self,
+        endpoint: Endpoint,
+        data: EndpointRunRequest,
+        request: Request,
+        query: dict,
+        debug: bool = False,
     ) -> Response:
         """Execute query directly against ClickHouse."""
         try:
@@ -627,12 +683,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             for query_field, value in insight_query_override.items():
                 query[query_field] = value
 
+            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
+
             variables_override = self._parse_variables(query, data.variables) if data.variables else None
             query_request_data = {
                 "client_query_id": data.client_query_id,
                 "filters_override": data.filters_override,
                 "name": endpoint.name,
-                "refresh": data.refresh,
+                "refresh": refresh_type,
                 "query": query,
             }
 
@@ -678,7 +736,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     version_number = int(version_param)
                 except (ValueError, TypeError):
                     return Response(
-                        {"error": f"Invalid version parameter: {version_param}"}, status=status.HTTP_400_BAD_REQUEST
+                        {"error": f"Invalid version parameter: {version_param}"},
+                        status=status.HTTP_400_BAD_REQUEST,
                     )
 
         version_obj = None
@@ -732,6 +791,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise ValidationError(
                 "Only query_override and filters_override are allowed when executing an Insight query"
             )
+        if data.refresh == EndpointRefreshMode.DIRECT and not endpoint.is_materialized:
+            raise ValidationError(
+                "'direct' refresh mode is only valid for materialized endpoints. "
+                "Use 'cache' or 'force' instead, or enable materialization on this endpoint."
+            )
 
     @extend_schema(
         description="Get the last execution times in the past 6 months for multiple endpoints.",
@@ -760,7 +824,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             names_list = ",".join(validated_names)
 
             query = HogQLQuery(
-                query=f"select name, max(query_start_time) as last_executed_at from query_log where name in ({names_list}) and endpoint like '%/endpoints/%' and query_start_time >= (today() - interval 6 month) group by name",
+                query=f"select name, max(query_start_time) as last_executed_at from query_log where name in ({names_list}) and endpoint like '%/endpoints/%' and is_personal_api_key_request and query_start_time >= (today() - interval 6 month) group by name",
                 name="get_endpoints_last_execution_times",
             )
             hogql_runner = HogQLQueryRunner(
@@ -832,10 +896,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         try:
             version_obj = endpoint.get_version(int(version_number))
         except EndpointVersion.DoesNotExist:
-            return Response({"error": f"Version {version_number} not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": f"Version {version_number} not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         if version_obj is None:
-            return Response({"error": f"Version {version_number} not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": f"Version {version_number} not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         return Response(self._serialize_endpoint_version(version_obj))
 

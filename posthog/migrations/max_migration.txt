@@ -1,1 +1,1 @@
-0953_create_core_event
+0969_add_oauth_is_verified

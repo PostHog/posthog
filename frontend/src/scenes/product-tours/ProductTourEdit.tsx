@@ -1,38 +1,26 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect, useMemo } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonInputSelect,
-    LemonSelect,
-    LemonSwitch,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
+import { featureFlagLogic as featureFlagSceneLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyDefinitionType, SurveyMatchType } from '~/types'
+import { ProductTourStep } from '~/types'
 
 import { AutoShowSection } from './components/AutoShowSection'
 import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { ProductTourCustomization } from './components/ProductTourCustomization'
+import { ProductTourStepsEditor } from './editor'
 import { ProductTourEditTab, productTourLogic } from './productTourLogic'
-
-function InlineCode({ text }: { text: string }): JSX.Element {
-    return <code className="border border-1 border-primary rounded-xs px-1 py-0.5 text-xs">{text}</code>
-}
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     const {
@@ -47,30 +35,8 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
         productTourLogic({ id })
     )
 
-    // Load recent URLs from property definitions
-    const { options } = useValues(propertyDefinitionsModel)
-    const { loadPropertyValues } = useActions(propertyDefinitionsModel)
-    const urlOptions = options['$current_url']
-
-    useEffect(() => {
-        if (urlOptions?.status !== 'loading' && urlOptions?.status !== 'loaded') {
-            loadPropertyValues({
-                endpoint: undefined,
-                type: PropertyDefinitionType.Event,
-                propertyKey: '$current_url',
-                newInput: '',
-                eventNames: [],
-                properties: [],
-            })
-        }
-    }, [urlOptions?.status, loadPropertyValues])
-
-    const urlMatchTypeOptions = useMemo(() => {
-        return Object.entries(SurveyMatchTypeLabels).map(([key, label]) => ({
-            label,
-            value: key as SurveyMatchType,
-        }))
-    }, [])
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showStepsEditor = featureFlags[FEATURE_FLAGS.PRODUCT_TOURS_RICH_TEXT]
 
     if (!productTour) {
         return <LemonSkeleton />
@@ -109,6 +75,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     onChange={(newTab) => setEditTab(newTab as ProductTourEditTab)}
                     tabs={[
                         { key: ProductTourEditTab.Configuration, label: 'Configuration' },
+                        ...(showStepsEditor ? [{ key: ProductTourEditTab.Steps, label: 'Steps' }] : []),
                         { key: ProductTourEditTab.Customization, label: 'Customization' },
                     ]}
                 />
@@ -130,77 +97,6 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                 onChange={(value) => setProductTourFormValue('description', value)}
                             />
                         </LemonField>
-
-                        <LemonDivider />
-
-                        <div>
-                            <h3 className="font-semibold mb-4">
-                                Tour URLs&nbsp;
-                                <Tooltip title="Tour will only display on URLs matching these conditions.">
-                                    <IconInfo />
-                                </Tooltip>
-                            </h3>
-                            <div className="flex gap-2">
-                                <LemonSelect
-                                    value={conditions.urlMatchType || SurveyMatchType.Contains}
-                                    onChange={(value) => {
-                                        setProductTourFormValue('content', {
-                                            ...productTourForm.content,
-                                            conditions: {
-                                                ...conditions,
-                                                urlMatchType: value,
-                                            },
-                                        })
-                                    }}
-                                    options={urlMatchTypeOptions}
-                                />
-                                <LemonInputSelect
-                                    className="flex-1"
-                                    mode="single"
-                                    value={conditions.url ? [conditions.url] : []}
-                                    onChange={(val) => {
-                                        setProductTourFormValue('content', {
-                                            ...productTourForm.content,
-                                            conditions: {
-                                                ...conditions,
-                                                url: val[0] || undefined,
-                                            },
-                                        })
-                                    }}
-                                    onInputChange={(newInput) => {
-                                        loadPropertyValues({
-                                            type: PropertyDefinitionType.Event,
-                                            endpoint: undefined,
-                                            propertyKey: '$current_url',
-                                            newInput: newInput.trim(),
-                                            eventNames: [],
-                                            properties: [],
-                                        })
-                                    }}
-                                    placeholder="e.g. /dashboard or https://example.com/app"
-                                    allowCustomValues
-                                    loading={urlOptions?.status === 'loading'}
-                                    options={(urlOptions?.values || []).map(({ name }) => ({
-                                        key: String(name),
-                                        label: String(name),
-                                        value: String(name),
-                                    }))}
-                                    data-attr="product-tour-url-input"
-                                />
-                            </div>
-                            {conditions.urlMatchType === SurveyMatchType.Exact && (
-                                <div className="flex flex-col gap-2 mt-2 text-secondary text-sm">
-                                    <p className="m-0">
-                                        When using <InlineCode text="= equals" />, trailing slashes will be removed
-                                        before URL comparison.
-                                    </p>
-                                    <p className="m-0">
-                                        Example: <InlineCode text="https://posthog.com/" /> will also match{' '}
-                                        <InlineCode text="https://posthog.com" />, and vice versa.
-                                    </p>
-                                </div>
-                            )}
-                        </div>
 
                         <LemonDivider />
 
@@ -235,7 +131,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                                     </Tooltip>
                                                 </h5>
                                                 <BindLogic
-                                                    logic={featureFlagLogic}
+                                                    logic={featureFlagSceneLogic}
                                                     props={{
                                                         id: productTour.internal_targeting_flag?.id
                                                             ? String(productTour.internal_targeting_flag.id)
@@ -266,8 +162,6 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                                     />
                                                 </BindLogic>
                                             </div>
-
-                                            <LemonDivider />
 
                                             <AutoShowSection
                                                 conditions={conditions}
@@ -305,6 +199,19 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                             </div>
                         </div>
                     </div>
+                )}
+
+                {editTab === ProductTourEditTab.Steps && (
+                    <ProductTourStepsEditor
+                        steps={productTourForm.content?.steps ?? []}
+                        appearance={productTourForm.content?.appearance}
+                        onChange={(steps: ProductTourStep[]) => {
+                            setProductTourFormValue('content', {
+                                ...productTourForm.content,
+                                steps,
+                            })
+                        }}
+                    />
                 )}
 
                 {editTab === ProductTourEditTab.Customization && (

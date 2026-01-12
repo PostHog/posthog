@@ -167,7 +167,11 @@ def is_domain_sso_enforced(request: HttpRequest):
 
 def is_sso_authentication_backend(request: HttpRequest):
     SSO_AUTHENTICATION_BACKENDS = []
-    NON_SSO_AUTHENTICATION_BACKENDS = ["axes.backends.AxesBackend", "django.contrib.auth.backends.ModelBackend"]
+    NON_SSO_AUTHENTICATION_BACKENDS = [
+        "axes.backends.AxesBackend",
+        "django.contrib.auth.backends.ModelBackend",
+        "posthog.auth.WebauthnBackend",
+    ]
 
     if not hasattr(request, "session"):
         return False

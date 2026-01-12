@@ -24,7 +24,7 @@ describe('RecipientPreferencesService', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
-        mockRecipientsManager = new RecipientsManagerService(hub)
+        mockRecipientsManager = new RecipientsManagerService(hub.postgres)
         mockRecipientsManagerGet = jest.spyOn(mockRecipientsManager, 'get')
         mockRecipientsManagerGetPreference = jest.spyOn(mockRecipientsManager, 'getPreference')
         mockRecipientsManagerGetAllMarketingMessagingPreference = jest.spyOn(

@@ -5,6 +5,7 @@ import {
     IconApps,
     IconBook,
     IconBug,
+    IconChat,
     IconCircleDashed,
     IconCode2,
     IconCursor,
@@ -267,6 +268,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     folder_open: {
         icon: <IconFolderOpen />,
+    },
+    conversations: {
+        icon: <IconChat />,
     },
 }
 

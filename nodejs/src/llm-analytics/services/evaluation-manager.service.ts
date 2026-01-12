@@ -1,7 +1,8 @@
-import { Hub, Team } from '../../types'
-import { PostgresUse } from '../../utils/db/postgres'
+import { Team } from '../../types'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
+import { PubSub } from '../../utils/pubsub'
 import { Evaluation, EvaluationInfo } from '../types'
 
 const EVALUATION_FIELDS = [
@@ -22,7 +23,10 @@ export class EvaluationManagerService {
     private lazyLoader: LazyLoader<Evaluation>
     private lazyLoaderByTeam: LazyLoader<EvaluationInfo[]>
 
-    constructor(private hub: Hub) {
+    constructor(
+        private postgres: PostgresRouter,
+        private pubSub: PubSub
+    ) {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'evaluation_manager_by_team',
             loader: async (teamIds) => await this.fetchTeamEvaluations(teamIds),
@@ -33,7 +37,7 @@ export class EvaluationManagerService {
             loader: async (ids) => await this.fetchEvaluations(ids),
         })
 
-        this.hub.pubSub.on<{ teamId: Team['id']; evaluationIds: Evaluation['id'][] }>(
+        this.pubSub.on<{ teamId: Team['id']; evaluationIds: Evaluation['id'][] }>(
             'reload-evaluations',
             ({ teamId, evaluationIds }) => {
                 logger.debug('⚡', '[PubSub] Reloading evaluations!', { teamId, evaluationIds })
@@ -99,7 +103,7 @@ export class EvaluationManagerService {
 
     private async fetchTeamEvaluations(teamIds: string[]): Promise<Record<string, EvaluationInfo[]>> {
         logger.debug('[EvaluationManager]', 'Fetching team evaluations', { teamIds })
-        const response = await this.hub.postgres.query<EvaluationInfo>(
+        const response = await this.postgres.query<EvaluationInfo>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id FROM llm_analytics_evaluation WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)`,
             [teamIds],
@@ -122,7 +126,7 @@ export class EvaluationManagerService {
     private async fetchEvaluations(ids: string[]): Promise<Record<string, Evaluation | undefined>> {
         logger.debug('[EvaluationManager]', 'Fetching evaluations', { ids })
 
-        const response = await this.hub.postgres.query<Evaluation>(
+        const response = await this.postgres.query<Evaluation>(
             PostgresUse.COMMON_READ,
             `SELECT ${EVALUATION_FIELDS.join(', ')} FROM llm_analytics_evaluation WHERE id = ANY($1)`,
             [ids],

@@ -30,6 +30,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
+    { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
     { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
@@ -42,6 +43,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
+    {
+        key: 'organization_integration',
+        objectName: 'Organization integration',
+        objectPlural: 'organization integrations',
+        disabledWhenProjectScoped: true,
+    },
     {
         key: 'organization_member',
         objectName: 'Organization member',
@@ -58,6 +65,7 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
+    { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
     { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
     {
@@ -79,6 +87,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
+    { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     {
         key: 'user',
         objectName: 'User',
@@ -121,6 +130,11 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'zapier',
         label: 'Zapier integration',
+        scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
+    },
+    {
+        value: 'n8n',
+        label: 'n8n integration',
         scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
     },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
