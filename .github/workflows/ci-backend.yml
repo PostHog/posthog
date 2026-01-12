@@ -204,6 +204,7 @@ jobs:
               uses: actions/cache@v4
               with:
                   path: |
+                      ~/.cargo/bin
                       ~/.rustup/toolchains
                       ~/.rustup/update-hashes
                       ~/.rustup/settings.toml
@@ -213,12 +214,13 @@ jobs:
 
             - name: Install Rust
               run: |
+                  set -e
                   if ! rustup toolchain list | grep -q '1.88.0'; then
                     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0 --profile minimal --component cargo
-                    echo "$HOME/.cargo/bin" >> $GITHUB_PATH
                   else
                     echo "Rust 1.88.0 already installed from cache"
                   fi
+                  echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
@@ -768,6 +770,7 @@ jobs:
               uses: actions/cache@v4
               with:
                   path: |
+                      ~/.cargo/bin
                       ~/.rustup/toolchains
                       ~/.rustup/update-hashes
                       ~/.rustup/settings.toml
@@ -779,12 +782,13 @@ jobs:
               if: needs.changes.outputs.backend == 'true'
               shell: bash
               run: |
+                  set -e
                   if ! rustup toolchain list | grep -q '1.88.0'; then
                     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0 --profile minimal --component cargo
-                    echo "$HOME/.cargo/bin" >> $GITHUB_PATH
                   else
                     echo "Rust 1.88.0 already installed from cache"
                   fi
+                  echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
             - name: Cache Rust dependencies
               if: needs.changes.outputs.backend == 'true'
@@ -1178,6 +1182,7 @@ jobs:
               uses: actions/cache@v4
               with:
                   path: |
+                      ~/.cargo/bin
                       ~/.rustup/toolchains
                       ~/.rustup/update-hashes
                       ~/.rustup/settings.toml
@@ -1187,12 +1192,13 @@ jobs:
 
             - name: Install Rust
               run: |
+                  set -e
                   if ! rustup toolchain list | grep -q '1.88.0'; then
                     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0 --profile minimal --component cargo
-                    echo "$HOME/.cargo/bin" >> $GITHUB_PATH
                   else
                     echo "Rust 1.88.0 already installed from cache"
                   fi
+                  echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
