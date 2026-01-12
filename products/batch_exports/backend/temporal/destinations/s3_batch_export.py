@@ -426,6 +426,9 @@ class ConcurrentS3Consumer(Consumer):
     ):
         super().__init__()
 
+        if not (aws_access_key_id or "").strip() or not (aws_secret_access_key or "").strip():
+            raise InvalidCredentialsError("AWS access key ID and secret access key are required")
+
         self.bucket = bucket
         self.region_name = region_name
         self.prefix = prefix
@@ -476,8 +479,6 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
     ):
-        if not (s3_inputs.aws_access_key_id or "").strip() or not (s3_inputs.aws_secret_access_key or "").strip():
-
         return cls(
             bucket=s3_inputs.bucket_name,
             region_name=s3_inputs.region,
