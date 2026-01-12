@@ -12,7 +12,6 @@
     position: absolute;
     right: -5px;
     bottom: -6px;
-    z-index: 11;
     width: calc(100% + 10px);
     height: 7px;
     background-color: var(--color-bg-primary);
