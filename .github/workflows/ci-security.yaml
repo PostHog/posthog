@@ -160,8 +160,21 @@ jobs:
                     --exclude ./rust/ \
                     .
 
+    semgrep-test-rules:
+        runs-on: ubuntu-latest
+        container:
+            image: returntocorp/semgrep
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Test custom Semgrep rules
+              run: |
+                  semgrep --test .semgrep/
+
     semgrep_checks:
-        needs: [semgrep-python, semgrep-go, semgrep-rust, semgrep-js, semgrep-general]
+        needs: [semgrep-python, semgrep-go, semgrep-rust, semgrep-js, semgrep-general, semgrep-test-rules]
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
         if: always()
@@ -186,6 +199,10 @@ jobs:
                   fi
                   if [[ "${{ needs.semgrep-general.result }}" != "success" && "${{ needs.semgrep-general.result }}" != "skipped" ]]; then
                     echo "semgrep-general did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-test-rules.result }}" != "success" && "${{ needs.semgrep-test-rules.result }}" != "skipped" ]]; then
+                    echo "semgrep-test-rules did not complete successfully."
                     exit 1
                   fi
 
