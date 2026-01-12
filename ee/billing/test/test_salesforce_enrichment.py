@@ -437,34 +437,35 @@ class TestSpecificDomainEnrichment(BaseTest):
                 "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
                 return_value=mock_accounts,
             ):
-                with patch(
-                    "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
-                ) as mock_bulk_update:
-                    result = await enrich_accounts_async(specific_domain="example.com")
+                with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client"):
+                    with patch(
+                        "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
+                    ) as mock_bulk_update:
+                        result = await enrich_accounts_async(specific_domain="example.com")
 
-                    # Check summary
-                    assert result["summary"]["harmonic_data_found"] is True
-                    assert result["summary"]["salesforce_update_succeeded"] is True
-                    assert result["summary"]["salesforce_accounts_count"] == 2
-                    assert result["summary"]["accounts_updated"] == 2
+                        # Check summary
+                        assert result["summary"]["harmonic_data_found"] is True
+                        assert result["summary"]["salesforce_update_succeeded"] is True
+                        assert result["summary"]["salesforce_accounts_count"] == 2
+                        assert result["summary"]["accounts_updated"] == 2
 
-                    # Check counts
-                    assert result["records_processed"] == 2
-                    assert result["records_enriched"] == 1
-                    assert result["records_updated"] == 2
+                        # Check counts
+                        assert result["records_processed"] == 2
+                        assert result["records_enriched"] == 1
+                        assert result["records_updated"] == 2
 
-                    # Check data
-                    assert result["enriched_data"] is not None
-                    assert result["enriched_data"]["company_info"]["name"] == "Example Corp"
-                    assert result["raw_harmonic_response"] == harmonic_response
+                        # Check data
+                        assert result["enriched_data"] is not None
+                        assert result["enriched_data"]["company_info"]["name"] == "Example Corp"
+                        assert result["raw_harmonic_response"] == harmonic_response
 
-                    # Verify Harmonic called once
-                    mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+                        # Verify Harmonic called once
+                        mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
 
-                    # Verify Salesforce bulk update called with 2 accounts
-                    mock_bulk_update.assert_called_once()
-                    update_records = mock_bulk_update.call_args[0][1]
-                    assert len(update_records) == 2
+                        # Verify Salesforce bulk update called with 2 accounts
+                        mock_bulk_update.assert_called_once()
+                        update_records = mock_bulk_update.call_args[0][1]
+                        assert len(update_records) == 2
 
     @pytest.mark.asyncio
     @freeze_time("2025-07-29T12:00:00Z")
@@ -554,19 +555,20 @@ class TestSpecificDomainEnrichment(BaseTest):
                 "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
                 return_value=mock_accounts,
             ) as mock_get_accounts:
-                with patch(
-                    "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
-                ) as mock_bulk_update:
-                    result = await enrich_accounts_async(specific_domain="example.com")
+                with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client"):
+                    with patch(
+                        "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
+                    ) as mock_bulk_update:
+                        result = await enrich_accounts_async(specific_domain="example.com")
 
-                    # Verify Salesforce was queried
-                    mock_get_accounts.assert_called_once_with("example.com")
+                        # Verify Salesforce was queried
+                        mock_get_accounts.assert_called_once_with("example.com")
 
-                    # Verify Salesforce was updated
-                    mock_bulk_update.assert_called_once()
+                        # Verify Salesforce was updated
+                        mock_bulk_update.assert_called_once()
 
-                    # Verify result
-                    assert result["summary"]["salesforce_update_succeeded"] is True
+                        # Verify result
+                        assert result["summary"]["salesforce_update_succeeded"] is True
 
     @pytest.mark.asyncio
     @freeze_time("2025-07-29T12:00:00Z")
@@ -588,34 +590,35 @@ class TestSpecificDomainEnrichment(BaseTest):
                 "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
                 return_value=mock_accounts,
             ):
-                with patch(
-                    "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
-                ) as mock_bulk_update:
-                    result = await enrich_accounts_async(specific_domain="example.com")
+                with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client"):
+                    with patch(
+                        "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
+                    ) as mock_bulk_update:
+                        result = await enrich_accounts_async(specific_domain="example.com")
 
-                    # Check summary shows all accounts
-                    assert result["summary"]["harmonic_data_found"] is True
-                    assert result["summary"]["salesforce_update_succeeded"] is True
-                    assert result["summary"]["salesforce_accounts_count"] == 3
-                    assert result["summary"]["accounts_updated"] == 3
-                    assert len(result["summary"]["salesforce_accounts"]) == 3
+                        # Check summary shows all accounts
+                        assert result["summary"]["harmonic_data_found"] is True
+                        assert result["summary"]["salesforce_update_succeeded"] is True
+                        assert result["summary"]["salesforce_accounts_count"] == 3
+                        assert result["summary"]["accounts_updated"] == 3
+                        assert len(result["summary"]["salesforce_accounts"]) == 3
 
-                    # Check counts reflect all accounts processed
-                    assert result["records_processed"] == 3
-                    assert result["records_enriched"] == 1  # Harmonic called once
-                    assert result["records_updated"] == 3  # All 3 accounts updated
+                        # Check counts reflect all accounts processed
+                        assert result["records_processed"] == 3
+                        assert result["records_enriched"] == 1  # Harmonic called once
+                        assert result["records_updated"] == 3  # All 3 accounts updated
 
-                    # Verify Harmonic called only once (efficient)
-                    mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+                        # Verify Harmonic called only once (efficient)
+                        mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
 
-                    # Verify all 3 accounts passed to bulk update
-                    mock_bulk_update.assert_called_once()
-                    update_records = mock_bulk_update.call_args[0][1]
-                    assert len(update_records) == 3
+                        # Verify all 3 accounts passed to bulk update
+                        mock_bulk_update.assert_called_once()
+                        update_records = mock_bulk_update.call_args[0][1]
+                        assert len(update_records) == 3
 
-                    # Verify each account ID is in the update batch
-                    updated_ids = {record["Id"] for record in update_records}
-                    assert updated_ids == {"001ACCOUNT1", "001ACCOUNT2", "001ACCOUNT3"}
+                        # Verify each account ID is in the update batch
+                        updated_ids = {record["Id"] for record in update_records}
+                        assert updated_ids == {"001ACCOUNT1", "001ACCOUNT2", "001ACCOUNT3"}
 
     @pytest.mark.asyncio
     @freeze_time("2025-07-29T12:00:00Z")
