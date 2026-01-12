@@ -243,9 +243,7 @@ pub fn match_property(
                     OperatorType::SemverGte => lhs >= rhs,
                     OperatorType::SemverLt => lhs < rhs,
                     OperatorType::SemverLte => lhs <= rhs,
-                    // Note: Build metadata is included in equality comparisons by the semver crate,
-                    // which differs from SemVer 2.0.0 precedence rules. Build metadata is not
-                    // currently supported (see to_semver_representation).
+                    // NB: Build metadata comparison is not currently supported (see to_semver_representation).
                     OperatorType::SemverEq => lhs == rhs,
                     OperatorType::SemverNeq => lhs != rhs,
                     _ => false,
