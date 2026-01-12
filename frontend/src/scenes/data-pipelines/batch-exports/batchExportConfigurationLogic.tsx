@@ -53,17 +53,9 @@ function validateBucketName(bucketName: string): string | undefined {
     return undefined
 }
 
-// For Azure container naming rules see:
-// https://learn.microsoft.com/en-us/rest/api/storageservices/naming-and-referencing-containers--blobs--and-metadata#container-names
 function validateAzureContainerName(name: string): string | undefined {
-    if (name.length < 3 || name.length > 63) {
-        return 'Container name must be 3-63 characters'
-    }
     if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(name) && name.length > 1) {
         return 'Must be lowercase letters, numbers, and hyphens; start and end with letter or number'
-    }
-    if (name.length === 1 && !/^[a-z0-9]$/.test(name)) {
-        return 'Must be a lowercase letter or number'
     }
     if (/--/.test(name)) {
         return 'Cannot contain consecutive hyphens'

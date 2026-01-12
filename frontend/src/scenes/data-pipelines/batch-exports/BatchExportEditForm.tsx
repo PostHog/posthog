@@ -807,6 +807,8 @@ export function BatchExportsEditFields({
                             {({ value, onChange }) => {
                                 const parquetCompressionOptions = [
                                     { value: 'zstd', label: 'zstd' },
+                                    { value: 'lz4', label: 'lz4' },
+                                    { value: 'snappy', label: 'snappy' },
                                     { value: 'gzip', label: 'gzip' },
                                     { value: 'brotli', label: 'brotli' },
                                     { value: null, label: 'No compression' },
