@@ -59,11 +59,11 @@ export class PersonsManagerService {
     public async streamMany({
         filters,
         options,
-        onPerson,
+        onPersonBatch,
     }: {
         filters: BatchPersonGetArgs
         options?: { limit?: number }
-        onPerson: ({ personId, distinctId }: { personId: string; distinctId: string }) => void
+        onPersonBatch: (personsBatch: { personId: string; distinctId: string }[]) => Promise<void>
     }): Promise<void> {
         const limit = options?.limit || 500
         let cursor: string | undefined = undefined
@@ -73,12 +73,12 @@ export class PersonsManagerService {
             options: { limit, cursor },
         })
         while (personBatch.length > 0) {
-            for (const personRow of personBatch) {
-                onPerson?.({
+            await onPersonBatch(
+                personBatch.map((personRow) => ({
                     personId: personRow.uuid,
                     distinctId: personRow.distinct_id,
-                })
-            }
+                }))
+            )
 
             // Skip another query if our page wasn't full
             if (personBatch.length < limit) {

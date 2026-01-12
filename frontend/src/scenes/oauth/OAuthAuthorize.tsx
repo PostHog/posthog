@@ -80,6 +80,16 @@ export const OAuthAuthorize = (): JSX.Element => {
                     <p className="text-muted mt-2">{oauthApplication.name} is requesting access to your data.</p>
                 </div>
 
+                {!oauthApplication.is_verified && (
+                    <div className="flex items-center gap-2 p-3 mb-4 bg-warning-highlight border border-warning rounded text-sm">
+                        <IconWarning className="text-warning shrink-0" />
+                        <span>
+                            <strong>Unverified application.</strong> This application has not been verified by PostHog.
+                            Only authorize if you trust the developer.
+                        </span>
+                    </div>
+                )}
+
                 <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
                     <div className="flex flex-col gap-6 bg-bg-light border border-border rounded p-6 shadow">
                         <ScopeAccessSelector
