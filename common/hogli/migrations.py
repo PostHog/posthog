@@ -152,6 +152,10 @@ def _fetch_and_cache_migration_from_git(app: str, name: str, branch: str) -> boo
     except ValueError:
         return False
 
+    # Validate branch name to prevent issues with special characters
+    if not re.match(r"^[a-zA-Z0-9/_.-]+$", branch):
+        return False
+
     # Try fetching from remote first (in case branch isn't checked out locally)
     for ref in [f"origin/{branch}", branch]:
         try:
