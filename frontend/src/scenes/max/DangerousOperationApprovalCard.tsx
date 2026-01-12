@@ -16,13 +16,51 @@ interface DangerousOperationApprovalCardProps {
     onResolved?: (approved: boolean) => void
 }
 
+function CompactStatusDisplay({
+    status,
+    isSharedThread,
+}: {
+    status: 'approved' | 'rejected' | 'auto_rejected'
+    isSharedThread: boolean
+}): JSX.Element {
+    const isApproved = status === 'approved'
+    const subject = isSharedThread ? 'User' : 'You'
+    const text = isApproved
+        ? `${subject} approved and executed this`
+        : status === 'auto_rejected'
+          ? `Skipped based on ${isSharedThread ? 'user' : 'your'} feedback`
+          : `${subject} declined this operation`
+
+    return (
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
+            <div className="transition-all duration-500 flex select-none text-default">
+                <div className="flex items-center justify-center size-5">
+                    <span className="inline-flex">
+                        <IconWarning />
+                    </span>
+                </div>
+                <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
+                    <div>
+                        <span className="inline-flex">{text}</span>
+                    </div>
+                    {isApproved ? (
+                        <IconCheck className="text-success size-3" />
+                    ) : (
+                        <IconX className="text-danger size-3" />
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export function DangerousOperationApprovalCard({
     operation,
     conversationId,
     onResolved,
 }: DangerousOperationApprovalCardProps): JSX.Element {
     const { tabId } = useValues(maxLogic)
-    const { effectiveApprovalStatuses } = useValues(maxThreadLogic({ conversationId, tabId }))
+    const { effectiveApprovalStatuses, isSharedThread } = useValues(maxThreadLogic({ conversationId, tabId }))
     const { continueAfterApproval, continueAfterRejection } = useActions(maxThreadLogic({ conversationId, tabId }))
 
     const resolvedStatus = effectiveApprovalStatuses[operation.proposalId]
@@ -49,6 +87,11 @@ export function DangerousOperationApprovalCard({
         onResolved?.(false)
     }
 
+    // Show compact display for resolved statuses
+    if (localStatus === 'approved' || localStatus === 'rejected' || localStatus === 'auto_rejected') {
+        return <CompactStatusDisplay status={localStatus} isSharedThread={isSharedThread} />
+    }
+
     return (
         <MessageTemplate type="ai" boxClassName="border-warning p-0 overflow-hidden text-xs">
             <div className="bg-warning-highlight p-2 border-b border-warning flex items-center gap-2">
@@ -63,13 +106,13 @@ export function DangerousOperationApprovalCard({
 
             <LemonDivider />
 
-            <div className="p-2 flex items-center justify-between">
+            <div className="p-2 pt-0 flex items-center justify-between">
                 {localStatus === 'pending' && (
                     <>
                         <span className="text-muted">Review the changes above before approving</span>
                         <div className="flex gap-2">
                             <LemonButton
-                                size="xxsmall"
+                                size="xsmall"
                                 type="secondary"
                                 status="danger"
                                 icon={<IconX />}
@@ -84,40 +127,11 @@ export function DangerousOperationApprovalCard({
                     </>
                 )}
 
-                {localStatus === 'approving' && (
+                {(localStatus === 'rejecting' || localStatus === 'approving') && (
                     <div className="flex items-center gap-2 text-muted ml-auto">
-                        <LemonButton size="small" type="primary" loading>
-                            Applying...
+                        <LemonButton size="xsmall" type="primary" loading>
+                            {localStatus === 'rejecting' ? 'Rejecting...' : 'Approving...'}
                         </LemonButton>
-                    </div>
-                )}
-
-                {localStatus === 'approved' && (
-                    <div className="flex items-center gap-2 text-success ml-auto">
-                        <IconCheck className="size-4" />
-                        <span className="text-sm font-medium">Changes applied</span>
-                    </div>
-                )}
-
-                {localStatus === 'rejecting' && (
-                    <div className="flex items-center gap-2 text-muted ml-auto">
-                        <LemonButton size="small" type="secondary" loading>
-                            Rejecting...
-                        </LemonButton>
-                    </div>
-                )}
-
-                {localStatus === 'rejected' && (
-                    <div className="flex items-center gap-2 text-muted ml-auto">
-                        <IconX className="size-4" />
-                        <span className="text-sm">Rejected</span>
-                    </div>
-                )}
-
-                {localStatus === 'auto_rejected' && (
-                    <div className="flex items-center gap-2 text-muted ml-auto">
-                        <IconX className="size-4" />
-                        <span className="text-sm">Rejected (with feedback)</span>
                     </div>
                 )}
             </div>
