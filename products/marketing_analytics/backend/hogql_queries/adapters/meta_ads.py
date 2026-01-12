@@ -36,20 +36,6 @@ META_CONVERSION_ACTION_TYPES = [
     "offsite_conversion.fb_pixel_subscribe",
 ]
 
-# Action types that have meaningful monetary values (for action_values array)
-# Limited to purchase/transaction events that carry actual revenue data
-META_CONVERSION_VALUE_ACTION_TYPES = [
-    # Purchase (primary revenue events)
-    "purchase",
-    "omni_purchase",
-    "offsite_conversion.fb_pixel_purchase",
-    "app_custom_event.fb_mobile_purchase",
-    # Subscribe (recurring revenue)
-    "subscribe",
-    "omni_subscribe",
-    "offsite_conversion.fb_pixel_subscribe",
-]
-
 
 class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     """
@@ -161,8 +147,8 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="SUM", args=[spend_float])
 
-    def _build_action_type_filter(self, action_types: list[str]) -> ast.Expr:
-        """Build filter condition for specified action types"""
+    def _build_action_type_filter(self) -> ast.Expr:
+        """Build filter condition for conversion action types"""
         return ast.Or(
             exprs=[
                 ast.CompareOperation(
@@ -172,7 +158,7 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                     op=ast.CompareOperationOp.Eq,
                     right=ast.Constant(value=action_type),
                 )
-                for action_type in action_types
+                for action_type in META_CONVERSION_ACTION_TYPES
             ]
         )
 
@@ -204,9 +190,7 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                         ast.Call(
                             name="arrayFilter",
                             args=[
-                                ast.Lambda(
-                                    args=["x"], expr=self._build_action_type_filter(META_CONVERSION_ACTION_TYPES)
-                                ),
+                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
                                 ast.Call(name="JSONExtractArrayRaw", args=[actions_non_null]),
                             ],
                         ),
@@ -246,9 +230,7 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                         ast.Call(
                             name="arrayFilter",
                             args=[
-                                ast.Lambda(
-                                    args=["x"], expr=self._build_action_type_filter(META_CONVERSION_VALUE_ACTION_TYPES)
-                                ),
+                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
                                 ast.Call(name="JSONExtractArrayRaw", args=[action_values_non_null]),
                             ],
                         ),
