@@ -632,8 +632,10 @@ mod tests {
             then.status(429);
         });
 
-        let resp = InternalClient::new(false).unwrap()
-            .get(&server.url("/export")).unwrap()
+        let resp = InternalClient::new(false)
+            .unwrap()
+            .get(&server.url("/export"))
+            .unwrap()
             .send()
             .await
             .unwrap();
@@ -674,8 +676,10 @@ mod tests {
             then.status(500);
         });
 
-        let resp = InternalClient::new(false).unwrap()
-            .get(&server.url("/export")).unwrap()
+        let resp = InternalClient::new(false)
+            .unwrap()
+            .get(&server.url("/export"))
+            .unwrap()
             .send()
             .await
             .unwrap();
@@ -714,7 +718,13 @@ mod tests {
             then.status(429).header("Retry-After", "2");
         });
 
-        let resp = InternalClient::new(false).unwrap().get(&server.url("/rl")).unwrap().send().await.unwrap();
+        let resp = InternalClient::new(false)
+            .unwrap()
+            .get(&server.url("/rl"))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
         // Clone headers from the actual response before turning it into an error
         let headers_clone = resp.headers().clone();
         let http_err = resp.error_for_status().unwrap_err();

@@ -3,13 +3,13 @@ use std::time;
 use std::{collections, iter};
 
 use chrono::Utc;
+use common_dns::{header, InternalClient};
 use futures::channel::oneshot::Canceled;
 use futures::future::join_all;
 use health::HealthHandle;
 use http::StatusCode;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use common_dns::{header, InternalClient};
 use serde_json::{json, Value};
 use tokio::sync;
 use tokio::time::{sleep, Duration};
@@ -1240,9 +1240,15 @@ mod tests {
         });
 
         let url = server.url("/echo");
-        let response = send_webhook(&localhost_client(), &method, &url, &headers, body.to_owned())
-            .await
-            .expect("send_webhook failed");
+        let response = send_webhook(
+            &localhost_client(),
+            &method,
+            &url,
+            &headers,
+            body.to_owned(),
+        )
+        .await
+        .expect("send_webhook failed");
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
@@ -1266,9 +1272,15 @@ mod tests {
         });
 
         let url = server.url("/fail");
-        let err = send_webhook(&localhost_client(), &method, &url, &headers, body.to_owned())
-            .await
-            .expect_err("request didn't fail when it should have failed");
+        let err = send_webhook(
+            &localhost_client(),
+            &method,
+            &url,
+            &headers,
+            body.to_owned(),
+        )
+        .await
+        .expect_err("request didn't fail when it should have failed");
 
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {
@@ -1299,9 +1311,15 @@ mod tests {
         });
 
         let url = server.url("/fail");
-        let err = send_webhook(&localhost_client(), &method, &url, &headers, body.to_owned())
-            .await
-            .expect_err("request didn't fail when it should have failed");
+        let err = send_webhook(
+            &localhost_client(),
+            &method,
+            &url,
+            &headers,
+            body.to_owned(),
+        )
+        .await
+        .expect_err("request didn't fail when it should have failed");
 
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {

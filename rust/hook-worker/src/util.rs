@@ -1,6 +1,6 @@
 use crate::error::WebhookResponseError;
-use futures::StreamExt;
 use common_dns::Response;
+use futures::StreamExt;
 
 pub async fn first_n_bytes_of_response(
     response: Response,

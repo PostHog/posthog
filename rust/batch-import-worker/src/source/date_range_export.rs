@@ -682,10 +682,7 @@ mod tests {
     async fn test_parse_retry_after_seconds() {
         // delta-seconds parse
         let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::RETRY_AFTER,
-            header::HeaderValue::from_static("120"),
-        );
+        headers.insert(header::RETRY_AFTER, header::HeaderValue::from_static("120"));
         let d = super::parse_retry_after_header(&headers).unwrap();
         assert_eq!(d.as_secs(), 120);
     }

@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use axum::async_trait;
 use base64::Engine;
-use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
 use common_dns::Url;
+use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
 
@@ -57,7 +57,7 @@ impl SourcemapProvider {
     pub fn new(config: &Config) -> Self {
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
         let connect_timeout = Duration::from_secs(config.sourcemap_connect_timeout_seconds);
-        
+
         if config.allow_internal_ips {
             warn!("Internal IPs are allowed, this is a security risk");
         }
@@ -246,9 +246,16 @@ async fn find_sourcemap_url(
     Err(JsResolveErr::NoSourcemap(final_url.to_string()).into())
 }
 
-async fn fetch_source_map(client: &common_dns::InternalClient, url: Url) -> Result<String, ResolveError> {
+async fn fetch_source_map(
+    client: &common_dns::InternalClient,
+    url: Url,
+) -> Result<String, ResolveError> {
     metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
-    let res = client.get(url.as_str())?.send().await.map_err(JsResolveErr::from)?;
+    let res = client
+        .get(url.as_str())?
+        .send()
+        .await
+        .map_err(JsResolveErr::from)?;
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
     let sourcemap = res.text().await.map_err(JsResolveErr::from)?;
     Ok(sourcemap)

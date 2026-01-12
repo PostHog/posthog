@@ -192,7 +192,12 @@ mod tests {
         });
 
         let client = InternalClient::new(false).unwrap();
-        let resp = client.get(&server.url("/rl")).unwrap().send().await.unwrap();
+        let resp = client
+            .get(&server.url("/rl"))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
         let http_err = resp.error_for_status().unwrap_err();
         let err = anyhow::Error::from(http_err);
         assert!(is_rate_limited_error(&err));
@@ -207,7 +212,12 @@ mod tests {
         });
 
         let client = InternalClient::new(false).unwrap();
-        let resp = client.get(&server.url("/err")).unwrap().send().await.unwrap();
+        let resp = client
+            .get(&server.url("/err"))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
         let http_err = resp.error_for_status().unwrap_err();
         let err = anyhow::Error::from(http_err);
         assert!(!is_rate_limited_error(&err));

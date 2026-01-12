@@ -378,10 +378,10 @@ impl SymbolSetRecord {
 mod test {
     use std::sync::Arc;
 
+    use common_dns::Url;
     use httpmock::MockServer;
     use mockall::predicate;
     use posthog_symbol_data::write_symbol_data;
-    use common_dns::Url;
     use sqlx::PgPool;
 
     use crate::{

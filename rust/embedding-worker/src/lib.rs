@@ -115,7 +115,10 @@ pub async fn generate_embedding(
     let response = context
         .client
         .post(model.model_url())?
-        .header("Authorization", format!("Bearer {}", context.config.openai_api_key))
+        .header(
+            "Authorization",
+            format!("Bearer {}", context.config.openai_api_key),
+        )
         .header("Content-Type", "application/json")
         .json(&model.construct_request_body(&text))
         .send()

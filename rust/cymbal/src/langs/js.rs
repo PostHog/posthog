@@ -1,5 +1,5 @@
-use common_types::error_tracking::FrameId;
 use common_dns::Url;
+use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition};
