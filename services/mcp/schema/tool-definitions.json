@@ -747,7 +747,7 @@
         "feature": "search",
         "summary": "Search for entities by name or description.",
         "title": "Search entities",
-        "required_scopes": [],
+        "required_scopes": ["project:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
