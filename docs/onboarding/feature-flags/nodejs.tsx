@@ -1,5 +1,4 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { ReactNode } from 'react'
 import { StepDefinition } from './js-web'
 
 export const getNodeJSSteps = (
