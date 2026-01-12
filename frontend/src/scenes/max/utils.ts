@@ -3,10 +3,10 @@ import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
+import { VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
     AgentMode,
     AnyAssistantGeneratedQuery,
-    AnyAssistantSupportedQuery,
     ArtifactContent,
     ArtifactContentType,
     ArtifactMessage,
@@ -17,27 +17,37 @@ import {
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
+    NotebookArtifactContent,
     NotebookUpdateMessage,
     RootAssistantMessage,
     SubagentUpdateEvent,
     VisualizationArtifactContent,
+    VisualizationItem,
 } from '~/queries/schema/schema-assistant-messages'
 import {
     DashboardFilter,
-    FunnelsQuery,
-    HogQLQuery,
+    DataVisualizationNode,
     HogQLVariable,
-    RetentionQuery,
-    TrendsQuery,
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'
 import { EnhancedToolCall } from './Thread'
 import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
-import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
+import {
+    MaxActionContext,
+    MaxContextType,
+    MaxDashboardContext,
+    MaxErrorTrackingIssueContext,
+    MaxEventContext,
+    MaxInsightContext,
+} from './maxTypes'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -51,6 +61,10 @@ export function isArtifactMessage(message: RootAssistantMessage | undefined | nu
 
 export function isVisualizationArtifactContent(content: ArtifactContent): content is VisualizationArtifactContent {
     return content.content_type === ArtifactContentType.Visualization
+}
+
+export function isNotebookArtifactContent(content: ArtifactContent): content is NotebookArtifactContent {
+    return content.content_type === ArtifactContentType.Notebook
 }
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {
@@ -109,19 +123,11 @@ export function threadEndsWithMultiQuestionForm(messages: RootAssistantMessage[]
     return false
 }
 
-export function castAssistantQuery(
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
-): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
-    if (isTrendsQuery(query)) {
-        return query
-    } else if (isFunnelsQuery(query)) {
-        return query
-    } else if (isRetentionQuery(query)) {
-        return query
-    } else if (isHogQLQuery(query)) {
-        return query
+export function castAssistantQuery(query: AnyAssistantGeneratedQuery | QuerySchemaRoot | null): QuerySchemaRoot | null {
+    if (query) {
+        return query as QuerySchemaRoot
     }
-    throw new Error(`Unsupported query type: ${query?.kind}`)
+    return null
 }
 
 export function formatConversationDate(updatedAt: string | null): string {
@@ -238,6 +244,17 @@ export const actionToMaxContextPayload = (action: ActionType): MaxActionContext 
     }
 }
 
+export const errorTrackingIssueToMaxContextPayload = (issue: {
+    id: string
+    name?: string | null
+}): MaxErrorTrackingIssueContext => {
+    return {
+        type: MaxContextType.ERROR_TRACKING_ISSUE,
+        id: issue.id,
+        name: issue.name,
+    }
+}
+
 export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
     return {
         label,
@@ -284,4 +301,17 @@ export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
         }
     }
     return null
+}
+
+export const visualizationTypeToQuery = (
+    visualization: VisualizationItem | VisualizationArtifactContent | VisualizationBlock
+): QuerySchema | null => {
+    const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
+    if (isHogQLQuery(source)) {
+        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
+    }
+    if (isInsightQueryNode(source)) {
+        return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
+    }
+    return source
 }

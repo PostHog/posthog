@@ -203,6 +203,8 @@ def run_backup_test(
         if job_config.incremental:
             # Create a base backup and insert more data for the incremental backup
             cluster.any_host(partial(create_backup, bucket_name=bucket_name)).result()
+            # Flush logs to ensure backup status is recorded before checking it
+            cluster.any_host(create_backup_log_table).result()
             cluster.any_host(insert_data).result()
 
         # Execute the job

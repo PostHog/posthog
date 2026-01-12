@@ -20,8 +20,8 @@ use crate::{
     },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     utils::test_utils::{
-        insert_flags_for_team_in_redis, setup_pg_reader_client, setup_pg_writer_client,
-        setup_redis_client, TestContext,
+        insert_flags_for_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
+        setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader, TestContext,
     },
 };
 use axum::http::HeaderMap;
@@ -190,6 +190,7 @@ async fn test_evaluate_feature_flags() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -280,6 +281,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -446,7 +448,7 @@ fn test_decode_form_data_kludges() {
 
     for (input, should_succeed) in test_cases {
         let body = Bytes::from(input);
-        let result = decoding::decode_form_data(body, None);
+        let result = decoding::decode_form_data(body, None, None);
 
         if should_succeed {
             assert!(result.is_ok(), "Failed to decode: {input}");
@@ -480,7 +482,7 @@ fn test_handle_unencoded_form_data_with_emojis() {
     let base64 = general_purpose::STANDARD.encode(json.to_string());
     let body = Bytes::from(format!("data={base64}"));
 
-    let result = decoding::decode_form_data(body, None);
+    let result = decoding::decode_form_data(body, None, None);
     assert!(result.is_ok(), "Failed to decode emoji content");
 
     let request = result.unwrap();
@@ -507,7 +509,7 @@ fn test_decode_base64_encoded_form_data_with_emojis() {
     let base64 = general_purpose::STANDARD.encode(json.to_string());
     let body = Bytes::from(format!("data={base64}"));
 
-    let result = decoding::decode_form_data(body, Some(Compression::Base64));
+    let result = decoding::decode_form_data(body, Some(Compression::Base64), None);
     assert!(result.is_ok(), "Failed to decode emoji content");
 
     let request = result.unwrap();
@@ -527,22 +529,22 @@ fn test_decode_form_data_compression_types() {
     let body = Bytes::from(input);
 
     // Base64 compression should work
-    let result = decoding::decode_form_data(body.clone(), Some(Compression::Base64));
+    let result = decoding::decode_form_data(body.clone(), Some(Compression::Base64), None);
     assert!(result.is_ok());
 
     // No compression should work
-    let result = decoding::decode_form_data(body.clone(), None);
+    let result = decoding::decode_form_data(body.clone(), None, None);
     assert!(result.is_ok());
 
     // Gzip compression should fail
-    let result = decoding::decode_form_data(body.clone(), Some(Compression::Gzip));
+    let result = decoding::decode_form_data(body.clone(), Some(Compression::Gzip), None);
     assert!(matches!(
         result,
         Err(FlagError::RequestDecodingError(msg)) if msg.contains("not supported")
     ));
 
     // Unsupported compression should fail
-    let result = decoding::decode_form_data(body, Some(Compression::Unsupported));
+    let result = decoding::decode_form_data(body, Some(Compression::Unsupported), None);
     assert!(matches!(
         result,
         Err(FlagError::RequestDecodingError(msg)) if msg.contains("Unsupported")
@@ -562,7 +564,7 @@ fn test_decode_form_data_malformed_input() {
 
     for input in test_cases {
         let body = Bytes::from(input);
-        let result = decoding::decode_form_data(body, None);
+        let result = decoding::decode_form_data(body, None, None);
         assert!(
             result.is_err(),
             "Expected error for malformed input: {input}",
@@ -574,7 +576,7 @@ fn test_decode_form_data_malformed_input() {
 fn test_decode_form_data_real_world_payload() {
     let input = "data=eyJ0b2tlbiI6InNUTUZQc0ZoZFAxU3NnIiwiZGlzdGluY3RfaWQiOiIkcG9zdGhvZ19jb29raWVsZXNzIiwiZ3JvdXBzIjp7fSwicGVyc29uX3Byb3BlcnRpZXMiOnsiJGluaXRpYWxfcmVmZXJyZXIiOiIkZGlyZWN0IiwiJGluaXRpYWxfcmVmZXJyaW5nX2RvbWFpbiI6IiRkaXJlY3QiLCIkaW5pdGlhbF9jdXJyZW50X3VybCI6Imh0dHBzOi8vcG9zdGhvZy5jb20vIiwiJGluaXRpYWxfaG9zdCI6InBvc3Rob2cuY29tIiwiJGluaXRpYWxfcGF0aG5hbWUiOiIvIiwiJGluaXRpYWxfdXRtX3NvdXJjZSI6bnVsbCwiJGluaXRpYWxfdXRtX21lZGl1bSI6bnVsbCwiJGluaXRpYWxfdXRtX2NhbXBhaWduIjpudWxsLCIkaW5pdGlhbF91dG1fY29udGVudCI6bnVsbCwiJGluaXRpYWxfdXRtX3Rlcm0iOm51bGwsIiRpbml0aWFsX2dhZF9zb3VyY2UiOm51bGwsIiRpbml0aWFsX21jX2NpZCI6bnVsbCwiJGluaXRpYWxfZ2NsaWQiOm51bGwsIiRpbml0aWFsX2djbHNyYyI6bnVsbCwiJGluaXRpYWxfZGNsaWQiOm51bGwsIiRpbml0aWFsX2dicmFpZCI6bnVsbCwiJGluaXRpYWxfd2JyYWlkIjpudWxsLCIkaW5pdGlhbF9mYmNsaWQiOm51bGwsIiRpbml0aWFsX21zY2xraWQiOm51bGwsIiRpbml0aWFsX3R3Y2xpZCI6bnVsbCwiJGluaXRpYWxfbGlfZmF0X2lkIjpudWxsLCIkaW5pdGlhbF9pZ3NoaWQiOm51bGwsIiRpbml0aWFsX3R0Y2xpZCI6bnVsbCwiJGluaXRpYWxfcmR0X2NpZCI6bnVsbCwiJGluaXRpYWxfZXBpayI6bnVsbCwiJGluaXRpYWxfcWNsaWQiOm51bGwsIiRpbml0aWFsX3NjY2lkIjpudWxsLCIkaW5pdGlhbF9pcmNsaWQiOm51bGwsIiRpbml0aWFsX19reCI6bnVsbCwic3F1ZWFrRW1haWwiOiJsdWNhc0Bwb3N0aG9nLmNvbSIsInNxdWVha1VzZXJuYW1lIjoibHVjYXNAcG9zdGhvZy5jb20iLCJzcXVlYWtDcmVhdGVkQXQiOiIyMDI0LTEyLTE2VDE1OjU5OjAzLjQ1MVoiLCJzcXVlYWtQcm9maWxlSWQiOjMyMzg3LCJzcXVlYWtGaXJzdE5hbWUiOiJMdWNhcyIsInNxdWVha0xhc3ROYW1lIjoiRmFyaWEiLCJzcXVlYWtCaW9ncmFwaHkiOiJIb3cgZG8gcGVvcGxlIGRlc2NyaWJlIG1lOlxuXG4tIFNvbWV0aW1lcyBvYnNlc3NpdmVcbi0gT3Zlcmx5IG9wdGltaXN0aWNcbi0gTG9va3MgYXQgc2NyZWVucyBmb3Igd2F5IHRvbyBtYW55IGhvdXJzXG5cblllYWgsIEkgZ290IGFkZGljdGVkIHRvIGNvbXB1dGVycyBwcmV0dHkgeW91bmcgZHVlIHRvIFRpYmlhIGFuZCBSYWduYXJvayBPbmxpbmUg7aC97biFXG5cblRoYXQncyBhY3R1YWxseSBob3cgSSBsZWFybmVkIHRvIHNwZWFrIGVuZ2xpc2ghXG5cbkFueXdheSwgSSdtIEx1Y2FzLCBhIEJyYXppbGlhbiBlbmdpbmVlciB3aG8gbG92ZXMgY29kaW5nLCBhbmltYWxzLCBib29rcyBhbmQgbmF0dXJlLiBbTXkgZnVsbCBhYm91dCBwYWdlIGlzIGhlcmVdKGh0dHBzOi8vbHVjYXNmYXJpYS5kZXYvYWJvdXQpLlxuXG5JIGFsc28gW3B1Ymxpc2ggYSBuZXdzbGV0dGVyXShodHRwOi8vbmV3c2xldHRlci5uYWdyaW5nYS5kZXYvKSBmb3IgQnJhemlsaWFuIGVuZ2luZWVycywgaWYgeW91J3JlIGxvb2tpbmcgdG8gZ2V0IHNvbWUgY2FyZWVyIGluc2lnaHRzLlxuXG5JIGRvbid0IGtub3cgaG93IGRpZCBJIGdldCBoZXJlLCBidXQgSSdsbCB0cnkgbXkgYmVzdCB0byB0ZWFjaCB5b3UgZXZlcnl0aGluZyBJIGxlYXJuIGFsb25nIHRoZSB3YXkuIiwic3F1ZWFrQ29tcGFueSI6bnVsbCwic3F1ZWFrQ29tcGFueVJvbGUiOiJQcm9kdWN0IEVuZ2luZWVyIiwic3F1ZWFrR2l0aHViIjoiaHR0cHM6Ly9naXRodWIuY29tL2x1Y2FzaGVyaXF1ZXMiLCJzcXVlYWtMaW5rZWRJbiI6Imh0dHBzOi8vd3d3LmxpbmtlZGluLmNvbS9pbi9sdWNhcy1mYXJpYS8iLCJzcXVlYWtMb2NhdGlvbiI6IkJyYXppbCIsInNxdWVha1R3aXR0ZXIiOiJodHRwczovL3guY29tL29uZWx1Y2FzZmFyaWEiLCJzcXVlYWtXZWJzaXRlIjoiaHR0cHM6Ly9sdWNhc2ZhcmlhLmRldi8ifSwidGltZXpvbmUiOiJBbWVyaWNhL1Nhb19QYXVsbyJ9";
     let body = Bytes::from(input);
-    let result = decoding::decode_form_data(body, Some(Compression::Base64));
+    let result = decoding::decode_form_data(body, Some(Compression::Base64), None);
 
     assert!(result.is_ok(), "Failed to decode real world payload");
     let request = result.unwrap();
@@ -683,6 +685,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -786,6 +789,7 @@ async fn test_evaluate_feature_flags_details() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -939,6 +943,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         groups: Some(groups),
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1029,6 +1034,7 @@ async fn test_long_distinct_id() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1155,13 +1161,13 @@ fn test_decode_request_content_types() {
 async fn test_fetch_and_filter_flags() {
     let redis_client = setup_redis_client(None).await;
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
     let flag_service = FlagService::new(
         redis_client.clone(),
-        None, // No dedicated flags Redis in tests
         reader.clone(),
-        432000, // team_cache_ttl_seconds
-        432000, // flags_cache_ttl_seconds
-        crate::config::DEFAULT_TEST_CONFIG.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();

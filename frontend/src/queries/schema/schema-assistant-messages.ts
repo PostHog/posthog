@@ -2,17 +2,19 @@ import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import type { Category, NotebookInfo } from '~/types'
-import { InsightShortId } from '~/types'
+import type { InsightShortId } from '~/types'
 
-import {
+import { DocumentBlock } from './schema-assistant-artifacts'
+import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
-import {
+import type {
     FunnelsQuery,
     HogQLQuery,
+    QuerySchema,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMRRQuery,
@@ -23,6 +25,9 @@ import {
 
 // re-export MaxBillingContext to make it available in the schema
 export type { MaxBillingContext }
+
+// re-export QuerySchema to make it available in the schema
+export type AssistantQuerySchema = QuerySchema
 
 // Define ProsemirrorJSONContent locally to avoid exporting the TipTap type into schema.json
 // which leads to improper type naming
@@ -82,6 +87,7 @@ export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
     ui_context?: MaxUIContext
+    trace_id?: string
 }
 
 export interface AssistantFormOption {
@@ -173,24 +179,20 @@ export type AnyAssistantGeneratedQuery =
     | AssistantRetentionQuery
     | AssistantHogQLQuery
 
-/**
- * The union type with all supported base queries for the assistant.
- */
-export type AnyAssistantSupportedQuery =
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | HogQLQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsTopCustomersQuery
-
 export interface VisualizationItem {
     /** @default '' */
     query: string
     plan?: string
-    answer: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    answer:
+        | AnyAssistantGeneratedQuery
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
     initiator?: string
 }
 
@@ -272,13 +274,18 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
 
 export interface VisualizationArtifactContent {
     content_type: ArtifactContentType.Visualization
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    query: AnyAssistantGeneratedQuery | AssistantQuerySchema
     name?: string | null
     description?: string | null
+    plan?: string | null
 }
 
 export interface NotebookArtifactContent {
     content_type: ArtifactContentType.Notebook
+    /** Structured blocks for the notebook content */
+    blocks: DocumentBlock[]
+    /** Title for the notebook */
+    title?: string | null
 }
 
 export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
@@ -349,21 +356,18 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
 
 export type AssistantTool =
     | 'search_session_recordings'
-    | 'generate_hogql_query'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
-    | 'create_and_query_insight'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'create_message_template'
     | 'filter_error_tracking_issues'
+    | 'search_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
-    | 'error_tracking_explain_issue'
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'session_summarization'
     | 'create_dashboard'
     | 'edit_current_dashboard'
     | 'read_taxonomy'
@@ -389,11 +393,13 @@ export type AssistantTool =
     | 'create_insight'
     | 'create_form'
     | 'task'
+    | 'upsert_dashboard'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
+    ErrorTracking = 'error_tracking',
 }
 
 export enum SlashCommandName {
@@ -449,6 +455,7 @@ export enum AssistantNavigateUrl {
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
     WebAnalyticsHealth = 'webAnalyticsHealth',
+    WebAnalyticsLive = 'webAnalyticsLive',
     Persons = 'persons',
 }
 

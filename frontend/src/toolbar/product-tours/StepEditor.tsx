@@ -1,16 +1,27 @@
 import { JSONContent } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { renderProductTourPreview } from 'posthog-js/dist/product-tours-preview'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import { IconChevronRight, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconCursorClick, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { TOUR_STEP_MAX_WIDTH, TOUR_STEP_MIN_WIDTH } from 'scenes/product-tours/editor/ProductTourStepsEditor'
+import { StepContentEditor } from 'scenes/product-tours/editor/StepContentEditor'
+import { SurveyStepEditor } from 'scenes/product-tours/editor/SurveyStepEditor'
 
+import { toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
 import { ElementRect } from '~/toolbar/types'
 import { elementToActionStep } from '~/toolbar/utils'
+import {
+    PRODUCT_TOUR_STEP_WIDTHS,
+    ProductTourProgressionTriggerType,
+    ProductTourStepWidth,
+    ProductTourSurveyQuestion,
+} from '~/types'
 
-import { ToolbarEditor, ToolbarRichTextEditor } from './ToolbarRichTextEditor'
 import { productToursLogic } from './productToursLogic'
 
 const DEFAULT_STEP_CONTENT: JSONContent = {
@@ -94,62 +105,163 @@ function calculatePosition(
     return { left, top }
 }
 
-export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
-    const { editingStep, selectedElement, dataAttributes, inspectingElement, editingModalStep } =
+export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elementNotFound?: boolean }): JSX.Element {
+    const { editingStep, selectedElement, dataAttributes, editingStepIndex, editingStepType } =
         useValues(productToursLogic)
-    const { confirmStep, cancelStep, removeStep } = useActions(productToursLogic)
+    const { confirmStep, cancelEditing, removeStep, changeStepElement } = useActions(productToursLogic)
 
-    const [richEditor, setRichEditor] = useState<ToolbarEditor | null>(null)
+    const [stepContent, setStepContent] = useState<JSONContent | null>(editingStep?.content ?? DEFAULT_STEP_CONTENT)
     const editorRef = useRef<HTMLDivElement>(null)
+    const surveyPreviewRef = useRef<HTMLDivElement>(null)
     const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
     const [selector, setSelector] = useState('')
     const [showAdvanced, setShowAdvanced] = useState(false)
 
-    const editorWidth = 320
-    const padding = 16
-    const isModalStep = editingModalStep || !rect
+    // Progression trigger state (for element steps)
+    const [progressionTrigger, setProgressionTrigger] = useState<ProductTourProgressionTriggerType>('button')
 
-    // Initialize selector from editingStep or derive from selectedElement
+    // Survey step state - managed by SurveyStepEditor
+    const [surveyConfig, setSurveyConfig] = useState<ProductTourSurveyQuestion | undefined>(editingStep?.survey)
+
+    const [editorWidth, setEditorWidth] = useState(() => {
+        const existingWidth = editingStep?.maxWidth
+        if (typeof existingWidth === 'number') {
+            return existingWidth
+        }
+        if (existingWidth && existingWidth in PRODUCT_TOUR_STEP_WIDTHS) {
+            return PRODUCT_TOUR_STEP_WIDTHS[existingWidth as ProductTourStepWidth]
+        }
+        return PRODUCT_TOUR_STEP_WIDTHS.default
+    })
+    const [isResizing, setIsResizing] = useState(false)
+
+    const isElementStep = editingStepType === 'element'
+    const isModalStep = editingStepType === 'modal'
+    const isSurveyStep = editingStepType === 'survey'
+    const padding = 16
+
+    const handleResizeStart = useCallback(
+        (e: React.MouseEvent) => {
+            e.preventDefault()
+            setIsResizing(true)
+            const startX = e.clientX
+            const startWidth = editorWidth
+
+            const handleMouseMove = (moveEvent: MouseEvent): void => {
+                const deltaX = moveEvent.clientX - startX
+                const newWidth = Math.min(TOUR_STEP_MAX_WIDTH, Math.max(TOUR_STEP_MIN_WIDTH, startWidth + deltaX))
+                setEditorWidth(newWidth)
+            }
+
+            const handleMouseUp = (): void => {
+                setIsResizing(false)
+                document.removeEventListener('mousemove', handleMouseMove)
+                document.removeEventListener('mouseup', handleMouseUp)
+            }
+
+            document.addEventListener('mousemove', handleMouseMove)
+            document.addEventListener('mouseup', handleMouseUp)
+        },
+        [editorWidth]
+    )
+
     useEffect(() => {
         if (editingStep) {
-            // Existing step - use its selector (even if empty for modal steps)
-            setSelector(editingStep.selector)
-        } else if (selectedElement) {
-            // New element step - derive selector from element
+            const existingWidth = editingStep.maxWidth
+            if (typeof existingWidth === 'number') {
+                setEditorWidth(existingWidth)
+            } else if (existingWidth && existingWidth in PRODUCT_TOUR_STEP_WIDTHS) {
+                setEditorWidth(PRODUCT_TOUR_STEP_WIDTHS[existingWidth as ProductTourStepWidth])
+            } else {
+                setEditorWidth(PRODUCT_TOUR_STEP_WIDTHS.default)
+            }
+        }
+    }, [editingStep?.id, editingStep?.maxWidth])
+
+    // Initialize selector and progressionTrigger from selectedElement or editingStep
+    useEffect(() => {
+        if (selectedElement) {
+            // Fresh element selection (new step OR changing element) - always derive from element
             const actionStep = elementToActionStep(selectedElement, dataAttributes)
             setSelector(actionStep.selector ?? '')
+            // Preserve progressionTrigger if editing existing step, otherwise default to button
+            setProgressionTrigger(editingStep?.progressionTrigger ?? 'button')
+        } else if (editingStep) {
+            // Existing step with no new selection - use saved values
+            setSelector(editingStep.selector ?? '')
+            setProgressionTrigger(editingStep.progressionTrigger ?? 'button')
         } else {
-            // New modal step - no selector
+            // New modal/survey step - no selector
             setSelector('')
+            setProgressionTrigger('button')
         }
     }, [editingStep, selectedElement, dataAttributes])
 
-    useLayoutEffect(() => {
-        if (isModalStep) {
-            // Center the editor for modal steps
-            setPosition({
-                left: Math.max(padding, (window.innerWidth - editorWidth) / 2),
-                top: Math.max(padding, window.innerHeight / 3),
+    // Initialize survey config from existing step
+    useEffect(() => {
+        setSurveyConfig(editingStep?.survey)
+    }, [editingStep?.id])
+
+    // Render survey preview using product tour's native survey rendering
+    useEffect(() => {
+        if (isSurveyStep && surveyPreviewRef.current && surveyConfig) {
+            renderProductTourPreview({
+                step: {
+                    id: 'preview',
+                    type: 'survey',
+                    content: null,
+                    survey: surveyConfig,
+                    progressionTrigger: 'button',
+                },
+                parentElement: surveyPreviewRef.current,
+                stepIndex: 0,
+                totalSteps: 1,
             })
-        } else if (editorRef.current && rect) {
+        }
+    }, [isSurveyStep, surveyConfig])
+
+    // Position element steps near target (when element is visible)
+    useLayoutEffect(() => {
+        if (!isModalStep && !isSurveyStep && !elementNotFound && editorRef.current && rect) {
             const editorHeight = editorRef.current.offsetHeight
             setPosition(calculatePosition(rect, editorWidth, editorHeight, padding, 'right'))
         }
-    }, [rect, isModalStep])
+    }, [rect, isModalStep, isSurveyStep, elementNotFound, editorWidth])
 
-    // Update editor when editing a different step
+    // Center modal/survey steps, or element steps when element not found
+    const shouldCenter = isModalStep || isSurveyStep || elementNotFound
     useLayoutEffect(() => {
-        if (richEditor) {
-            richEditor.setContent(editingStep?.content ?? DEFAULT_STEP_CONTENT)
+        if (!shouldCenter) {
+            return
         }
-    }, [editingStep, richEditor])
 
-    const getContent = (): JSONContent | null => {
-        if (!richEditor) {
-            return null
+        const centerEditor = (): void => {
+            const editorHeight = editorRef.current?.offsetHeight || 0
+            setPosition({
+                left: Math.max(padding, (window.innerWidth - editorWidth) / 2),
+                top: Math.max(padding, (window.innerHeight - editorHeight) / 2),
+            })
         }
-        return richEditor.isEmpty() ? null : richEditor.getJSON()
-    }
+
+        centerEditor()
+
+        const observer = new ResizeObserver(centerEditor)
+        if (editorRef.current) {
+            observer.observe(editorRef.current)
+        }
+
+        window.addEventListener('resize', centerEditor)
+
+        return () => {
+            observer.disconnect()
+            window.removeEventListener('resize', centerEditor)
+        }
+    }, [shouldCenter, editorWidth])
+
+    // Update content state when editing a different step
+    useEffect(() => {
+        setStepContent(editingStep?.content ?? DEFAULT_STEP_CONTENT)
+    }, [editingStep?.id])
 
     const style: React.CSSProperties = {
         position: 'fixed',
@@ -158,9 +270,14 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
         ...(position ?? { left: 0, top: 0 }),
     }
 
+    const stepTypeLabel = isSurveyStep ? 'survey' : isModalStep ? 'modal' : 'element'
     const actionLabel = editingStep
-        ? `Editing Step ${inspectingElement! + 1}${!editingStep.selector ? ' (Modal)' : ''}`
-        : `Adding new ${isModalStep ? 'modal ' : ''}step`
+        ? `Editing step ${editingStepIndex! + 1} (${stepTypeLabel})`
+        : `Adding ${stepTypeLabel} step`
+
+    const getSurveyConfig = (): ProductTourSurveyQuestion | undefined => {
+        return isSurveyStep ? surveyConfig : undefined
+    }
 
     return (
         <div
@@ -175,6 +292,34 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
                 boxShadow: '0 4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)',
             }}
         >
+            <div
+                onMouseDown={handleResizeStart}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    position: 'absolute',
+                    top: 0,
+                    right: -4,
+                    width: 8,
+                    height: '100%',
+                    cursor: 'ew-resize',
+                    zIndex: 10,
+                }}
+                title={`Width: ${editorWidth}px (drag to resize)`}
+            />
+            {isResizing && (
+                <div
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        right: 0,
+                        width: 3,
+                        height: '100%',
+                        backgroundColor: '#1d4aff',
+                        borderRadius: '0 4px 4px 0',
+                    }}
+                />
+            )}
             {/* Header showing current action */}
             <div
                 className="text-white text-xs font-medium px-3 py-1.5"
@@ -184,48 +329,123 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
                 {actionLabel}
             </div>
 
-            <div className="p-4 space-y-3">
-                <ToolbarRichTextEditor
-                    initialContent={editingStep?.content ?? DEFAULT_STEP_CONTENT}
-                    onCreate={setRichEditor}
-                    minRows={3}
-                />
-
-                <div className="space-y-1">
-                    <button
-                        type="button"
-                        onClick={() => setShowAdvanced(!showAdvanced)}
-                        className="flex items-center gap-1 text-xs text-muted hover:text-default transition-colors"
-                    >
-                        <IconChevronRight
-                            className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
-                        />
-                        Advanced
-                        {!showAdvanced && selector && (
-                            <span className="font-mono text-[10px] ml-1 truncate max-w-[150px]">({selector})</span>
-                        )}
-                    </button>
-                    {showAdvanced && (
-                        <>
-                            <LemonInput
-                                value={selector}
-                                onChange={setSelector}
-                                placeholder="CSS selector (e.g., #my-button)"
-                                size="small"
-                                fullWidth
-                                className="font-mono text-xs"
-                            />
-                            <span className="font-mono text-muted text-xs">(leave blank to show step as modal)</span>
-                        </>
-                    )}
+            {/* Warning when element not found */}
+            {elementNotFound && (
+                <div className="px-3 py-2 bg-warning-highlight text-warning-dark text-xs">
+                    Target element not visible on this page
                 </div>
+            )}
+
+            <div className="p-4 space-y-3">
+                {/* Rich text editor for non-survey steps */}
+                {!isSurveyStep && (
+                    <StepContentEditor
+                        content={stepContent}
+                        onChange={setStepContent}
+                        uploadImage={toolbarUploadMedia}
+                        placeholder="Type '/' for commands, or start writing..."
+                        compact
+                    />
+                )}
+
+                {/* Survey configuration */}
+                {isSurveyStep && (
+                    <div className="space-y-3">
+                        <SurveyStepEditor survey={surveyConfig} onChange={setSurveyConfig} />
+
+                        {/* Survey preview */}
+                        <div className="pt-2">
+                            <div className="text-[10px] text-muted uppercase tracking-wide mb-2">Preview</div>
+                            <div
+                                ref={surveyPreviewRef}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ minHeight: 100 }}
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {/* Element step: change element button */}
+                {isElementStep && editingStep && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconCursorClick />}
+                        onClick={() => changeStepElement()}
+                        fullWidth
+                    >
+                        Change element
+                    </LemonButton>
+                )}
+
+                {/* Advanced section - only for element/modal steps */}
+                {!isSurveyStep && (
+                    <div className="space-y-1">
+                        <button
+                            type="button"
+                            onClick={() => setShowAdvanced(!showAdvanced)}
+                            className="flex items-center gap-1 text-xs text-muted hover:text-default transition-colors"
+                        >
+                            <IconChevronRight
+                                className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+                            />
+                            Advanced
+                        </button>
+                        {showAdvanced && (
+                            <div className="space-y-3 pt-1">
+                                {isElementStep && (
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium">CSS selector</label>
+                                        <LemonInput
+                                            value={selector}
+                                            onChange={setSelector}
+                                            placeholder="CSS selector (e.g., #my-button)"
+                                            size="small"
+                                            fullWidth
+                                            className="font-mono text-xs"
+                                        />
+                                    </div>
+                                )}
+                                {isElementStep && (
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium">Advance action</label>
+                                        <LemonRadio
+                                            value={progressionTrigger}
+                                            onChange={setProgressionTrigger}
+                                            options={[
+                                                { value: 'button', label: 'Next button' },
+                                                { value: 'click', label: 'Element click' },
+                                            ]}
+                                            orientation="horizontal"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 <div className="flex items-center justify-between">
                     <div className="flex gap-2 pt-1">
-                        <LemonButton type="secondary" size="small" onClick={() => cancelStep()}>
+                        <LemonButton type="secondary" size="small" onClick={() => cancelEditing()}>
                             Cancel
                         </LemonButton>
-                        <LemonButton type="primary" size="small" onClick={() => confirmStep(getContent(), selector)}>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={() =>
+                                confirmStep(
+                                    stepContent,
+                                    isElementStep ? selector : undefined,
+                                    getSurveyConfig(),
+                                    isElementStep ? progressionTrigger : undefined,
+                                    editorWidth
+                                )
+                            }
+                            disabledReason={
+                                isSurveyStep && !surveyConfig?.questionText?.trim() ? 'Enter a question' : undefined
+                            }
+                        >
                             Done
                         </LemonButton>
                     </div>
@@ -235,9 +455,8 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
                         status="danger"
                         size="small"
                         onClick={() => {
-                            if (inspectingElement !== null) {
-                                removeStep(inspectingElement)
-                                cancelStep()
+                            if (editingStepIndex !== null) {
+                                removeStep(editingStepIndex)
                             }
                         }}
                         tooltip="Delete this step"

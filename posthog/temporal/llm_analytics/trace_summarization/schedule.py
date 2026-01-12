@@ -8,6 +8,8 @@ from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, Sch
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
+    COORDINATOR_SCHEDULE_ID,
+    COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
@@ -25,25 +27,25 @@ async def create_batch_trace_summarization_schedule(client: Client):
     """
     batch_trace_summarization_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            "batch-trace-summarization-coordinator",
+            COORDINATOR_WORKFLOW_NAME,
             BatchTraceSummarizationCoordinatorInputs(
                 max_traces=DEFAULT_MAX_TRACES_PER_WINDOW,
                 batch_size=DEFAULT_BATCH_SIZE,
                 mode=DEFAULT_MODE,
                 window_minutes=DEFAULT_WINDOW_MINUTES,
             ),
-            id="batch-trace-summarization-coordinator-schedule",
+            id=COORDINATOR_SCHEDULE_ID,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS))]),
     )
 
-    if await a_schedule_exists(client, "batch-trace-summarization-schedule"):
-        await a_update_schedule(client, "batch-trace-summarization-schedule", batch_trace_summarization_schedule)
+    if await a_schedule_exists(client, COORDINATOR_SCHEDULE_ID):
+        await a_update_schedule(client, COORDINATOR_SCHEDULE_ID, batch_trace_summarization_schedule)
     else:
         await a_create_schedule(
             client,
-            "batch-trace-summarization-schedule",
+            COORDINATOR_SCHEDULE_ID,
             batch_trace_summarization_schedule,
             trigger_immediately=False,
         )

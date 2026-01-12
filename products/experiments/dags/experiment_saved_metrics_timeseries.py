@@ -16,7 +16,9 @@ import dagster
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
-from posthog.dags.common import JobOwners
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tags_context
+from posthog.dags.common import JobOwners, dagster_tags
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
@@ -39,6 +41,7 @@ EXPERIMENT_SAVED_METRICS_PARTITIONS_NAME = "experiment_saved_metrics"
 experiment_saved_metrics_partitions_def = dagster.DynamicPartitionsDefinition(
     name=EXPERIMENT_SAVED_METRICS_PARTITIONS_NAME
 )
+
 
 # =============================================================================
 # Asset
@@ -113,8 +116,11 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
             metric=metric_obj,
         )
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team, user_facing=False)
-        result = query_runner._calculate()
+        with tags_context(dagster=dagster_tags(context)):
+            query_runner = ExperimentQueryRunner(
+                query=experiment_query, team=experiment.team, user_facing=False, workload=Workload.OFFLINE
+            )
+            result = query_runner._calculate()
 
         result = remove_step_sessions_from_experiment_result(result)
 
@@ -249,13 +255,13 @@ def _get_experiment_saved_metrics_timeseries(context: dagster.SensorEvaluationCo
     experiment_saved_metrics = []
 
     # Query experiments that are eligible for timeseries analysis (running experiments only)
-    # Exclude experiments running for longer than 3 months to avoid continuously recalculating
+    # Exclude experiments running for longer than 30 days to avoid continuously recalculating
     # likely stale experiments. Users can still manually backfill those.
     experiments = Experiment.objects.filter(
         deleted=False,
-        stats_config__timeseries=True,
+        scheduling_config__timeseries=True,
         start_date__isnull=False,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=90),
+        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
         end_date__isnull=True,
     ).prefetch_related("experimenttosavedmetric_set__saved_metric")
 
@@ -285,6 +291,7 @@ experiment_saved_metrics_timeseries_job = dagster.define_asset_job(
     name="experiment_saved_metrics_timeseries_job",
     selection=[experiment_saved_metrics_timeseries],
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 4}),
 )
 
 

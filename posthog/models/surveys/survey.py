@@ -243,6 +243,10 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     headline_summary = models.TextField(blank=True, null=True)
     headline_response_count = models.PositiveIntegerField(null=True, blank=True)
 
+    # AI-generated per-question summaries
+    # Format: { [questionId]: { summary: string, responseCount: number, generatedAt: string } }
+    question_summaries = models.JSONField(blank=True, null=True)
+
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(
         models.BooleanField(
@@ -258,6 +262,50 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Survey"]:
         base_qs = cls.objects.filter(team=team)
         return cls._filter_unfiled_queryset(base_qs, team, type="survey", ref_field="id")
+
+    @classmethod
+    def get_internal_flag_ids(
+        cls,
+        *,
+        team_id: int | None = None,
+        project_id: int | None = None,
+        using: str = "default",
+    ) -> set[int]:
+        """
+        Get IDs of all internally-managed survey flags.
+
+        These flags (targeting_flag, internal_targeting_flag, internal_response_sampling_flag)
+        are auto-generated for surveys and use operators not supported by local evaluation.
+        They should be excluded from certain operations like local evaluation and flag lists.
+        See GitHub issue #43631.
+
+        Note: The user-created `linked_flag` is NOT included since it's user-managed.
+
+        Args:
+            team_id: Filter by team ID (use for team-scoped queries)
+            project_id: Filter by project ID (use for project-scoped queries)
+            using: Database alias to use (e.g., "default" or "replica")
+
+        Returns:
+            Set of feature flag IDs linked to surveys
+        """
+        if team_id is not None:
+            queryset = cls.objects.db_manager(using).filter(team_id=team_id)
+        elif project_id is not None:
+            queryset = cls.objects.db_manager(using).filter(team__project_id=project_id)
+        else:
+            raise ValueError("Either team_id or project_id must be provided")
+
+        return {
+            flag_id
+            for row in queryset.values_list(
+                "targeting_flag_id",
+                "internal_targeting_flag_id",
+                "internal_response_sampling_flag_id",
+            )
+            for flag_id in row
+            if flag_id is not None
+        }
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -392,7 +440,11 @@ surveys_hypercache = HyperCache(
 @receiver(post_save, sender=Survey)
 @receiver(post_delete, sender=Survey)
 def survey_changed(sender, instance: "Survey", **kwargs):
+    from posthog.tasks.feature_flags import update_team_flags_cache
     from posthog.tasks.surveys import update_team_surveys_cache
 
     # Defer task execution until after the transaction commits
+    # Update both survey cache and flag cache since survey-linked flags are
+    # excluded from local evaluation (GitHub issue #43631)
     transaction.on_commit(lambda: update_team_surveys_cache.delay(instance.team_id))
+    transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))

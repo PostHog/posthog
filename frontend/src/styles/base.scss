@@ -1096,6 +1096,9 @@
     }
 
     .input-like {
+        --input-ring-color: var(--color-bg-fill-highlight-75);
+        --input-ring-size: 3px;
+
         border-radius: var(--radius);
         outline: 0 solid transparent;
         box-shadow: 0 0 0 0 transparent;
@@ -1108,7 +1111,7 @@
 
         &:not([disabled]):focus-visible,
         &:not([disabled]):focus-within {
-            box-shadow: 0 0 0 3px var(--color-bg-fill-highlight-75);
+            box-shadow: 0 0 0 var(--input-ring-size) var(--input-ring-color);
         }
     }
 
@@ -1809,11 +1812,13 @@
                 animation: Logomark__jump calc(var(--logomark-airtime) * 25) cubic-bezier(0.6, 0, 0.2, 0.8) infinite;
             }
 
+            // Delay one after the other to create a nice jump effect
+            // Delay in reverse order because we want the head to jump first (it's last on SVG)
             @for $i from 1 through 4 {
                 > *:nth-child(#{$i}) {
                     // Dividing by 15 just because it feels good
                     animation-delay: calc(
-                        var(--logomark-airtime) / 15 / calc(sqrt(var(--logomark-jump-magnitude))) * ($i - 1)
+                        var(--logomark-airtime) / 15 / calc(sqrt(var(--logomark-jump-magnitude))) * (4 - ($i - 1))
                     );
                 }
             }
@@ -1826,7 +1831,7 @@
             }
 
             2% {
-                transform: translateY(calc(-10px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
             }
 
             4% {
@@ -1843,7 +1848,7 @@
             }
 
             22% {
-                transform: translateY(calc(-10px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
             }
         }
 

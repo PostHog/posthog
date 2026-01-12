@@ -9,6 +9,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { DataWarehouseSyncInterval } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
+import { endpointSceneLogic } from '../endpointSceneLogic'
 
 interface EndpointConfigurationProps {
     tabId: string
@@ -50,16 +51,10 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
 }
 
 export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
-    const { setCacheAge, setSyncFrequency, setIsMaterialized, loadMaterializationStatus } = useActions(
-        endpointLogic({ tabId })
-    )
-    const {
-        endpoint,
-        cacheAge,
-        syncFrequency,
-        isMaterialized: localIsMaterialized,
-        materializationStatusLoading,
-    } = useValues(endpointLogic({ tabId }))
+    const { loadMaterializationStatus } = useActions(endpointLogic({ tabId }))
+    const { endpoint, materializationStatusLoading } = useValues(endpointLogic({ tabId }))
+    const { setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(endpointSceneLogic({ tabId }))
+    const { cacheAge, syncFrequency, isMaterialized: localIsMaterialized } = useValues(endpointSceneLogic({ tabId }))
 
     if (!endpoint) {
         return <></>
@@ -75,7 +70,10 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
     }
 
     return (
-        <SceneSection title="Configure this endpoint">
+        <SceneSection
+            title="Configure this endpoint"
+            description="If your use case does not require real-time data, consider materializing your endpoint resulting in faster response times, at the cost of slightly less fresh data."
+        >
             <div className="flex flex-col gap-4 max-w-2xl">
                 <LemonField.Pure
                     label="Cache age"

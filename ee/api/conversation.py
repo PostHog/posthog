@@ -10,6 +10,7 @@ import pydantic
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
@@ -101,7 +102,11 @@ class MessageSerializer(MessageMinimalSerializer):
         if data["content"] is not None:
             try:
                 message = HumanMessage.model_validate(
-                    {"content": data["content"], "ui_context": data.get("ui_context")}
+                    {
+                        "content": data["content"],
+                        "ui_context": data.get("ui_context"),
+                        "trace_id": str(data["trace_id"]) if data.get("trace_id") else None,
+                    }
                 )
             except pydantic.ValidationError:
                 if settings.DEBUG:
@@ -129,8 +134,9 @@ class MessageSerializer(MessageMinimalSerializer):
         return data
 
 
+@extend_schema(tags=["max"])
 class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "conversation"
     serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"

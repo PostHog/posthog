@@ -10,6 +10,7 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -259,6 +260,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         return SharePasswordSerializer(obj.share_passwords.filter(is_active=True), many=True).data
 
 
+@extend_schema(tags=["core"])
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "sharing_configuration"
     scope_object_write_actions = [
@@ -637,6 +639,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             if request.method == "GET" and not is_jwt_authenticated:
                 exported_data["type"] = "unlock"
+
+                settings_data = getattr(resource, "settings", {}) or {}
+                if settings_data.get("whitelabel") and resource.team.organization.is_feature_available(
+                    AvailableFeature.WHITE_LABELLING
+                ):
+                    exported_data["whitelabel"] = True
+
                 # Don't include app_context in the initial unlock page for security
                 # It will be provided after authentication
                 return render_template(

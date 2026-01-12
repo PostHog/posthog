@@ -71,7 +71,7 @@ jobs:
             shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: changes
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -132,11 +132,10 @@ jobs:
         runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -185,14 +184,13 @@ jobs:
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version: 3.12.12
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -212,10 +210,10 @@ jobs:
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -224,7 +222,7 @@ jobs:
             # with exit code 134 _after passing_ all tests
             # this appears to fix it
             # absolute wild tbh https://stackoverflow.com/a/75503402
-            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
+            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
 
             - name: Install plugin_transpiler
               shell: bash
@@ -272,17 +270,6 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Get pnpm cache directory path
-              id: pnpm-cache-dir
-              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v4
-              id: pnpm-cache
-              with:
-                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-playwright-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-playwright-
-
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
@@ -312,7 +299,7 @@ jobs:
                   echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
@@ -432,7 +419,7 @@ jobs:
 
             - name: Upload screenshot patch
               if: steps.create-patch.outputs.has-changes == 'true'
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: playwright-patch
                   path: /tmp/patches/playwright-patch.patch
@@ -446,7 +433,7 @@ jobs:
 
             - name: Archive test artifacts
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: playwright-test-results-${{ matrix.segment }}
                   path: |
@@ -490,7 +477,7 @@ jobs:
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
             - name: Capture running time to PostHog
               if: github.repository == 'PostHog/posthog'
-              uses: PostHog/posthog-github-action@v0.1
+              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
@@ -503,15 +490,23 @@ jobs:
         needs: [playwright, detect-snapshot-mode, changes]
         if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         steps:
-            - uses: actions/checkout@v4
+            # Use GitHub app token so Actions run after commiting updated snapshots
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - uses: actions/checkout@v6
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  token: ${{ steps.app-token.outputs.token || github.token }}
 
             - name: Download screenshot patches
               id: download-patches
               continue-on-error: true
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   pattern: playwright-patch
                   path: /tmp/screenshot-patches/
@@ -550,7 +545,7 @@ jobs:
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  github-token: ${{ steps.app-token.outputs.token || github.token }}
 
     # Job to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-screenshots to prevent auto-merge before commits complete

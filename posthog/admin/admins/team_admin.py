@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import tempfile
+import dataclasses
 from datetime import timedelta
 
 from django.conf import settings
@@ -21,7 +22,7 @@ from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMar
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import cache_key_for_team_token
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -30,6 +31,11 @@ from posthog.temporal.export_recording.types import ExportRecordingInput
 from posthog.temporal.import_recording.types import ImportRecordingInput
 
 logger = get_logger()
+
+
+@dataclasses.dataclass(frozen=True)
+class ReplayActivityContext(ActivityContextBase):
+    reason: str
 
 
 class TeamAdmin(admin.ModelAdmin):
@@ -217,6 +223,7 @@ class TeamAdmin(admin.ModelAdmin):
     def export_individual_replay(self, team: Team):
         if not team.pk:
             return "-"
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/posthog/team/export_individual_replay.html",
@@ -233,6 +240,7 @@ class TeamAdmin(admin.ModelAdmin):
     def import_individual_replay(self, team: Team):
         if not team.pk:
             return "-"
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/posthog/team/import_individual_replay.html",
@@ -249,6 +257,7 @@ class TeamAdmin(admin.ModelAdmin):
         if not team.pk:
             return "-"
 
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/posthog/team/remote_config_cache_actions.html",
@@ -364,6 +373,7 @@ class TeamAdmin(admin.ModelAdmin):
                     name=f"Session replay {session_id}",
                     short_id=session_id,
                     type="admin_export",
+                    context=ReplayActivityContext(reason=reason),
                 ),
             )
 
@@ -380,7 +390,7 @@ class TeamAdmin(admin.ModelAdmin):
             )
             messages.error(request, f"Export failed: {e}")
 
-        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+        return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
 
     def view_cache(self, request, object_id):
         team = Team.objects.get(pk=object_id)
@@ -481,6 +491,7 @@ class TeamAdmin(admin.ModelAdmin):
                 detail=Detail(
                     name=f"Session replay import from {import_file.name}",
                     type="admin_import",
+                    context=ReplayActivityContext(reason=reason),
                 ),
             )
 
@@ -496,7 +507,7 @@ class TeamAdmin(admin.ModelAdmin):
             )
             messages.error(request, f"Import failed: {e}")
 
-        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+        return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
 
     def export_history_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)

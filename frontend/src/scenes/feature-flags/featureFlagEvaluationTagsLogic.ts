@@ -1,86 +1,77 @@
-import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
 import type { featureFlagEvaluationTagsLogicType } from './featureFlagEvaluationTagsLogicType'
+import { featureFlagLogic } from './featureFlagLogic'
 
 export interface FeatureFlagEvaluationTagsLogicProps {
+    flagId?: number | string | null
+    /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
+    context: 'sidebar' | 'form' | 'static'
     tags: string[]
     evaluationTags: string[]
-    flagId?: number | string | null
 }
 
 export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogicType>([
-    path((key) => ['scenes', 'feature-flags', 'featureFlagEvaluationTagsLogic', key]),
+    path(['scenes', 'feature-flags', 'featureFlagEvaluationTagsLogic']),
     props({} as FeatureFlagEvaluationTagsLogicProps),
-    key((props) => props.flagId || 'new'),
-    actions({
-        setEditingTags: (editing: boolean) => ({ editing }),
-        setShowEvaluationOptions: (show: boolean) => ({ show }),
-        setDraftTags: (tags: string[]) => ({ tags }),
-        setDraftEvaluationTags: (evaluationTags: string[]) => ({ evaluationTags }),
-    }),
-    reducers(() => ({
-        editingTags: [false as boolean, { setEditingTags: (_, { editing }) => editing }],
-        showEvaluationOptions: [false as boolean, { setShowEvaluationOptions: (_, { show }) => show }],
-        draftTags: [
-            null as string[] | null,
-            {
-                setDraftTags: (_, { tags }) => tags,
-                setEditingTags: (state, { editing }) => (editing ? state : null),
-            },
-        ],
-        draftEvaluationTags: [
-            null as string[] | null,
-            {
-                setDraftEvaluationTags: (_, { evaluationTags }) => evaluationTags,
-                setEditingTags: (state, { editing }) => (editing ? state : null),
-            },
-        ],
-    })),
-    selectors({
-        selectedTags: [
-            (s) => [s.editingTags, s.draftTags, (_, props) => props.tags],
-            (editingTags, draftTags, propsTags): string[] =>
-                editingTags && draftTags !== null ? draftTags : propsTags || [],
-        ],
-        selectedEvaluationTags: [
-            (s) => [s.editingTags, s.draftEvaluationTags, (_, props) => props.evaluationTags],
-            (editingTags, draftEvaluationTags, propsEvaluationTags): string[] =>
-                editingTags && draftEvaluationTags !== null ? draftEvaluationTags : propsEvaluationTags || [],
-        ],
-    }),
-    listeners(({ actions, values, props }) => ({
-        setDraftTags: () => {
-            if (values.draftTags && values.draftTags.length === 0 && values.showEvaluationOptions) {
-                actions.setShowEvaluationOptions(false)
-            }
+    key((props) => `${props.flagId ?? 'new'}-${props.context}`),
 
-            // Remove evaluation tags that are no longer in the main tags list
-            if (values.draftTags && values.draftEvaluationTags) {
-                const validEvaluationTags = values.draftEvaluationTags.filter(
-                    (tag) => values.draftTags && values.draftTags.includes(tag)
-                )
-                if (validEvaluationTags.length !== values.draftEvaluationTags.length) {
-                    actions.setDraftEvaluationTags(validEvaluationTags)
-                }
-            }
-        },
-        setEditingTags: ({ editing }) => {
-            if (editing) {
-                // When entering edit mode, initialize drafts from current props
-                actions.setDraftTags(props.tags || [])
-                actions.setDraftEvaluationTags(props.evaluationTags || [])
-            } else {
-                // Clear drafts when exiting edit mode
-                actions.setDraftTags(null as any)
-                actions.setDraftEvaluationTags(null as any)
-            }
-        },
+    actions({
+        setIsEditing: (isEditing: boolean) => ({ isEditing }),
+        setLocalTags: (tags: string[]) => ({ tags }),
+        setLocalEvaluationTags: (evaluationTags: string[]) => ({ evaluationTags }),
+        saveTagsAndEvaluationTags: true,
+        cancelEditing: true,
+    }),
+
+    reducers(({ props }) => ({
+        isEditing: [
+            false,
+            {
+                setIsEditing: (_, { isEditing }) => isEditing,
+                saveTagsAndEvaluationTags: () => false,
+                cancelEditing: () => false,
+            },
+        ],
+        localTags: [
+            props.tags ?? ([] as string[]),
+            {
+                setLocalTags: (_, { tags }) => tags,
+                cancelEditing: () => props.tags ?? [],
+            },
+        ],
+        localEvaluationTags: [
+            props.evaluationTags ?? ([] as string[]),
+            {
+                setLocalEvaluationTags: (_, { evaluationTags }) => evaluationTags,
+                cancelEditing: () => props.evaluationTags ?? [],
+            },
+        ],
     })),
-    events(({ actions }) => ({
-        beforeUnmount: () => {
-            // Reset state when component unmounts to ensure fresh state for next mount
-            actions.setEditingTags(false)
-            actions.setShowEvaluationOptions(false)
+
+    propsChanged(({ actions, props, values }, oldProps) => {
+        // Only sync from props when not editing - if props change during editing, we preserve the user's local edits.
+        // Reference equality is intentional: parent components should pass new array
+        // references when data changes (standard React immutability pattern).
+        if (!values.isEditing) {
+            if (props.tags !== oldProps.tags) {
+                actions.setLocalTags(props.tags)
+            }
+            if (props.evaluationTags !== oldProps.evaluationTags) {
+                actions.setLocalEvaluationTags(props.evaluationTags)
+            }
+        }
+    }),
+
+    listeners(({ props, values }) => ({
+        saveTagsAndEvaluationTags: () => {
+            const { flagId } = props
+            if (typeof flagId === 'number') {
+                featureFlagLogic({ id: flagId }).actions.saveFeatureFlag({
+                    tags: values.localTags,
+                    evaluation_tags: values.localEvaluationTags,
+                })
+            }
         },
     })),
 ])

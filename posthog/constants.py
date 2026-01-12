@@ -168,7 +168,6 @@ OFFSET = "offset"
 LIMIT = "limit"
 PERIOD = "period"
 STICKINESS_DAYS = "stickiness_days"
-FORMULA = "formula"
 ENTITY_ID = "entity_id"
 ENTITY_TYPE = "entity_type"
 ENTITY_MATH = "entity_math"
@@ -375,6 +374,11 @@ LOGIN_METHODS = [
         "key": "saml",
         "display": "SAML",
         "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+    },
+    {
+        "key": "passkey",
+        "display": "Passkey",
+        "backends": ["posthog.auth.WebauthnBackend"],
     },
 ]
 

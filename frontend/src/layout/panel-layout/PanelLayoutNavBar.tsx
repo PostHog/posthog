@@ -17,20 +17,19 @@ import {
     IconShortcut,
     IconSidebarClose,
     IconSidebarOpen,
+    IconSparkles,
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { appShortcutLogic } from 'lib/components/AppShortcuts/appShortcutLogic'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -44,7 +43,6 @@ import {
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -62,6 +60,7 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
+import { RecentItemsMenu } from './ProjectTree/menus/RecentItemsMenu'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
@@ -103,10 +102,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
-    const { preflight } = useValues(preflightLogic)
-    const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
-    const { appShortcutMenuOpen } = useValues(appShortcutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const isAiUx = useFeatureFlag('AI_UX')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -153,6 +150,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
             return true
         }
+        if (itemIdentifier === 'ai' && currentPath.startsWith('/ai')) {
+            return true
+        }
 
         return false
     }
@@ -177,6 +177,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         collapsedTooltip?: React.ReactNode | [React.ReactNode, React.ReactNode] // Open and closed tooltips
         documentationUrl?: string
     }[] = [
+        ...(isAiUx
+            ? [
+                  {
+                      identifier: 'ai',
+                      label: 'PostHog AI',
+                      icon: <IconSparkles />,
+                      to: urls.ai(),
+                      onClick: () => handleStaticNavbarItemClick(urls.ai(), true),
+                      collapsedTooltip: 'PostHog AI',
+                  },
+              ]
+            : []),
         {
             identifier: 'ProjectHomepage',
             label: 'Home',
@@ -217,18 +229,22 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: 'Activity',
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
-        {
-            identifier: 'Products',
-            label: 'All apps',
-            icon: <IconApps />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Products')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open products', 'Close products'],
-        },
+        ...(featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
+            ? []
+            : [
+                  {
+                      identifier: 'Products',
+                      label: 'All apps',
+                      icon: <IconApps />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Products')
+                          }
+                      },
+                      showChevron: true,
+                      collapsedTooltip: ['Open products', 'Close products'],
+                  },
+              ]),
         {
             identifier: 'DataManagement',
             label: 'Data management',
@@ -279,6 +295,22 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             showChevron: true,
             collapsedTooltip: ['Open project tree', 'Close project tree'],
         },
+        ...(featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
+            ? [
+                  {
+                      identifier: 'Products',
+                      label: 'All apps',
+                      icon: <IconApps />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Products')
+                          }
+                      },
+                      showChevron: true,
+                      collapsedTooltip: ['Open products', 'Close products'],
+                  },
+              ]
+            : []),
     ].filter(Boolean)
 
     return (
@@ -329,6 +361,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 }}
                                 iconOnly={isLayoutNavCollapsed}
                             />
+
+                            <RecentItemsMenu />
                         </div>
                     </div>
 
@@ -479,47 +513,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
                             <NavPanelAdvertisement />
 
-                            <AppShortcut
-                                name="Search"
-                                keybind={[keyBinds.search]}
-                                intent="Search"
-                                interaction="click"
-                                asChild
-                            >
-                                {/* Button is hidden, keep to register shortcut */}
-                                <ButtonPrimitive
-                                    className="hidden"
-                                    aria-hidden="true"
-                                    onClick={() => {
-                                        if (
-                                            removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()
-                                        ) {
-                                            handleSearchClick()
-                                        } else {
-                                            router.actions.push(urls.newTab())
-                                        }
-                                    }}
-                                />
-                            </AppShortcut>
-
-                            <AppShortcut
-                                name="ToggleShortcutMenu"
-                                keybind={[keyBinds.toggleShortcutMenu, keyBinds.toggleShortcutMenuFallback]}
-                                intent="Toggle shortcut menu"
-                                interaction="click"
-                                asChild
-                            >
-                                {/* Button is hidden, keep to register shortcut */}
-                                <ButtonPrimitive
-                                    iconOnly={isLayoutNavCollapsed}
-                                    tooltip={isLayoutNavCollapsed ? 'Open shortcut menu' : undefined}
-                                    tooltipPlacement="right"
-                                    onClick={() => setAppShortcutMenuOpen(!appShortcutMenuOpen)}
-                                    menuItem={!isLayoutNavCollapsed}
-                                    className="hidden"
-                                />
-                            </AppShortcut>
-
                             <ButtonPrimitive
                                 iconOnly={isLayoutNavCollapsed}
                                 tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
@@ -558,34 +551,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     {!isLayoutNavCollapsed && 'Quick start'}
                                 </ButtonPrimitive>
                             )}
-                            {(user?.is_staff ||
-                                user?.is_impersonated ||
-                                preflight?.is_debug ||
-                                preflight?.instance_preferences?.debug_queries) && (
-                                <AppShortcut
-                                    name="DebugClickhouseQueries"
-                                    keybind={[['command', 'option', 'tab']]}
-                                    intent="Debug clickhouse queries"
-                                    interaction="click"
-                                    asChild
-                                >
-                                    {/* Button is hidden, keep to register shortcut */}
-                                    <ButtonPrimitive
-                                        menuItem={!isLayoutNavCollapsed}
-                                        onClick={() => {
-                                            openCHQueriesDebugModal()
-                                        }}
-                                        iconOnly={isLayoutNavCollapsed}
-                                        tooltip={isLayoutNavCollapsed ? 'Debug CH queries' : undefined}
-                                        tooltipPlacement="right"
-                                        data-attr="menu-item-debug-ch-queries"
-                                        className="hidden"
-                                    >
-                                        <IconDatabase />
-                                        {!isLayoutNavCollapsed && 'Debug CH queries'}
-                                    </ButtonPrimitive>
-                                </AppShortcut>
-                            )}
 
                             <Link
                                 buttonProps={{
@@ -609,26 +574,33 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 {!isLayoutNavCollapsed && 'Toolbar'}
                             </Link>
 
-                            <Link
-                                buttonProps={{
-                                    menuItem: !isLayoutNavCollapsed,
-                                    className: 'group',
-                                    iconOnly: isLayoutNavCollapsed,
-                                    active: isStaticNavItemActive('Settings'),
-                                }}
-                                to={urls.settings('project')}
-                                onClick={() => {
-                                    handleStaticNavbarItemClick(urls.settings('project'), true)
-                                }}
-                                tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
-                                tooltipPlacement="right"
-                                data-attr="menu-item-settings"
+                            <AppShortcut
+                                name="Settings"
+                                keybind={[['command', 'option', 's']]}
+                                intent="Open settings"
+                                interaction="click"
                             >
-                                <span className="flex text-tertiary group-hover:text-primary">
-                                    <IconGear />
-                                </span>
-                                {!isLayoutNavCollapsed && 'Settings'}
-                            </Link>
+                                <Link
+                                    buttonProps={{
+                                        menuItem: !isLayoutNavCollapsed,
+                                        className: 'group',
+                                        iconOnly: isLayoutNavCollapsed,
+                                        active: isStaticNavItemActive('Settings'),
+                                    }}
+                                    to={urls.settings('project')}
+                                    onClick={() => {
+                                        handleStaticNavbarItemClick(urls.settings('project'), true)
+                                    }}
+                                    tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
+                                    tooltipPlacement="right"
+                                    data-attr="menu-item-settings"
+                                >
+                                    <span className="flex text-tertiary group-hover:text-primary">
+                                        <IconGear />
+                                    </span>
+                                    {!isLayoutNavCollapsed && 'Settings'}
+                                </Link>
+                            </AppShortcut>
 
                             <AccountMenu
                                 align="end"

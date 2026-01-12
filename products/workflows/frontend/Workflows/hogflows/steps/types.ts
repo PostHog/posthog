@@ -31,7 +31,7 @@ const _commonActionFields = {
     output_variable: z // The Hogflow-level variable to store the output of this action into
         .object({
             key: z.string(),
-            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'body.user.id'
         })
         .optional()
         .nullable(),
@@ -123,6 +123,14 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
+        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
+        // Future: recurring schedule fields can be added here
+    }),
+    z.object({
+        type: z.literal('batch'),
+        filters: z.object({
+            properties: z.array(z.any()),
+        }),
         scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
         // Future: recurring schedule fields can be added here
     }),
@@ -274,4 +282,5 @@ export interface HogflowTestResult {
     logs?: LogEntry[]
     nextActionId: string | null
     errors?: string[]
+    variables?: Record<string, any>
 }

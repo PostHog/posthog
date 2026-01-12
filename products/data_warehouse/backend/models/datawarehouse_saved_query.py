@@ -241,13 +241,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
+            # KLUDGE: Should accept this as a parameter to avoid rebuilding it everytime this is called
+            database=Database.create_for(self.team.pk),
         )
-        node = parse_select(self.query["query"])
-        context.database = Database.create_for(context.team_id)
 
-        node = resolve_types(node, context, dialect="clickhouse")
+        node = parse_select(self.query["query"])
+        resolved_node = resolve_types(node, context, dialect="clickhouse")
+
         table_collector = S3TableVisitor()
-        table_collector.visit(node)
+        table_collector.visit(resolved_node)
 
         return list(table_collector.tables)
 
@@ -265,9 +267,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             parsed = urlparse(settings.BUCKET_URL)
             bucket_name = parsed.netloc
 
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None

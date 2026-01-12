@@ -533,6 +533,30 @@ class RunSQLAnalyzer(OperationAnalyzer):
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL})""",
             )
 
+        # Bare ADD CONSTRAINT without NOT VALID or USING INDEX - needs warning
+        # (Safe patterns like NOT VALID and USING INDEX are checked above and return early,
+        # but being explicit here makes the logic clearer)
+        if (
+            re.search(r"\bADD\s+CONSTRAINT\b", sql, re.IGNORECASE)
+            and "NOT VALID" not in sql
+            and "USING INDEX" not in sql
+        ):
+            return OperationRisk(
+                type=self.operation_type,
+                score=4,
+                reason="ADD CONSTRAINT without NOT VALID locks table during validation",
+                details={"sql": sql},
+                guidance=f"""Use NOT VALID pattern to avoid table locks:
+
+1. Add constraint with NOT VALID (instant, no table scan):
+   ALTER TABLE ... ADD CONSTRAINT ... NOT VALID
+
+2. Validate in separate migration (non-blocking):
+   ALTER TABLE ... VALIDATE CONSTRAINT ...
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-constraints)""",
+            )
+
         # Check for metadata-only operations (safe and instant)
         if "COMMENT ON" in sql:
             return OperationRisk(
@@ -550,7 +574,8 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 details={"sql": sql},
             )
 
-        if "DROP" in sql:
+        # Check for actual DROP TABLE/COLUMN statements (not just "DROP" anywhere like ON COMMIT DROP)
+        if re.search(r"\bDROP\s+(TABLE|COLUMN)\b", sql, re.IGNORECASE):
             # Check for DROP COLUMN first (before DROP TABLE check)
             # ALTER TABLE ... DROP COLUMN can contain both "TABLE" and "DROP" keywords
             # Use regex to verify it's actually ALTER TABLE ... DROP COLUMN (not just "COLUMN" in table name)

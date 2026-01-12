@@ -41,7 +41,7 @@ PROVIDER_ERRORS = Counter(
 ACTIVE_STREAMS = Gauge(
     "llm_gateway_active_streams",
     "Currently active streaming connections",
-    labelnames=["provider"],
+    labelnames=["provider", "model"],
 )
 
 DB_POOL_SIZE = Gauge(
@@ -55,6 +55,53 @@ PROVIDER_LATENCY = Histogram(
     "Latency to LLM provider API (excludes streaming time)",
     labelnames=["provider", "model"],
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+)
+
+AUTH_CACHE_HITS = Counter(
+    "llm_gateway_auth_cache_hits_total",
+    "Auth cache hits",
+    labelnames=["auth_type"],
+)
+
+AUTH_CACHE_MISSES = Counter(
+    "llm_gateway_auth_cache_misses_total",
+    "Auth cache misses",
+    labelnames=["auth_type"],
+)
+
+AUTH_INVALID = Counter(
+    "llm_gateway_auth_invalid_total",
+    "Invalid authentication attempts",
+    labelnames=["auth_type"],
+)
+
+REDIS_FALLBACK = Counter(
+    "llm_gateway_redis_fallback_total",
+    "Redis rate limiter fallback events",
+)
+
+STREAMING_CLIENT_DISCONNECT = Counter(
+    "llm_gateway_streaming_client_disconnect_total",
+    "Client disconnected during streaming",
+    labelnames=["provider", "model"],
+)
+
+TIME_TO_FIRST_CHUNK = Histogram(
+    "llm_gateway_time_to_first_chunk_seconds",
+    "Time to first chunk for streaming requests",
+    labelnames=["provider", "model"],
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
+)
+
+CONCURRENT_REQUESTS = Gauge(
+    "llm_gateway_concurrent_requests",
+    "Current in-flight requests",
+    labelnames=["provider", "model"],
+)
+
+DB_POOL_EXHAUSTED = Counter(
+    "llm_gateway_db_pool_exhausted_total",
+    "Database pool exhaustion events",
 )
 
 

@@ -568,6 +568,7 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String, -- The actual text content that was embedded
+      metadata String, -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
@@ -580,7 +581,6 @@
   CREATE TABLE IF NOT EXISTS kafka_precalculated_events
   (
       team_id Int64,
-      evaluation_timestamp DateTime64(6),
       distinct_id String,
       person_id UUID,
       condition String,
@@ -588,25 +588,6 @@
       source String
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_prefiltered_events', kafka_group_name = 'clickhouse_prefiltered_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
-  
-  '''
-# ---
-# name: test_create_kafka_table_with_different_kafka_host[kafka_session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      
-      
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_recording_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -855,13 +836,62 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings', cityHash64(document_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'partitioned_sharded_posthog_document_embeddings', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[distributed_posthog_document_embeddings_text_embedding_3_large_3072]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_posthog_document_embeddings_text_embedding_3_large_3072
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_text_embedding_3_large_3072', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[distributed_posthog_document_embeddings_text_embedding_3_small_1536]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_posthog_document_embeddings_text_embedding_3_small_1536
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id))
   
   '''
 # ---
@@ -1916,6 +1946,7 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String, -- The actual text content that was embedded
+      metadata String, -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
@@ -1928,7 +1959,6 @@
   CREATE TABLE IF NOT EXISTS kafka_precalculated_events
   (
       team_id Int64,
-      evaluation_timestamp DateTime64(6),
       distinct_id String,
       person_id UUID,
       condition String,
@@ -1936,25 +1966,6 @@
       source String
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_prefiltered_events', kafka_group_name = 'clickhouse_prefiltered_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
-  
-  '''
-# ---
-# name: test_create_table_query[kafka_session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      
-      
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_recording_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -2040,6 +2051,43 @@
   _offset
   FROM posthog_test.kafka_log_entries
   
+  '''
+# ---
+# name: test_create_table_query[partitioned_sharded_posthog_document_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS partitioned_sharded_posthog_document_embeddings
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
+      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
+      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
+      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_partitioned_sharded_posthog_document_embeddings _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.partitioned_sharded_posthog_document_embeddings', '{replica}', inserted_at)
+  
+      -- This index assumes:
+      --  - people will /always/ provide a date range
+      --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
+      --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
+      
   '''
 # ---
 # name: test_create_table_query[performance_events]
@@ -2452,6 +2500,30 @@
   
   '''
 # ---
+# name: test_create_table_query[posthog_document_embeddings_kafka_to_buffer_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_document_embeddings_kafka_to_buffer_mv
+  TO writable_posthog_document_embeddings_buffer
+  AS SELECT
+  team_id,
+  product,
+  document_type,
+  model_name,
+  rendering,
+  document_id,
+  timestamp,
+  _timestamp as inserted_at,
+  coalesce(content, '') as content,
+  coalesce(metadata, '{}') as metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.kafka_posthog_document_embeddings
+  
+  '''
+# ---
 # name: test_create_table_query[posthog_document_embeddings_mv]
   '''
   
@@ -2467,11 +2539,60 @@
   timestamp,
   _timestamp as inserted_at,
   coalesce(content, '') as content,
+  coalesce(metadata, '{}') as metadata,
   embedding,
   _timestamp,
   _offset,
   _partition
   FROM posthog_test.kafka_posthog_document_embeddings
+  
+  '''
+# ---
+# name: test_create_table_query[posthog_document_embeddings_text_embedding_3_large_3072_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_document_embeddings_text_embedding_3_large_3072_mv
+  TO writable_posthog_document_embeddings_text_embedding_3_large_3072
+  AS SELECT
+  team_id,
+  product,
+  document_type,
+  rendering,
+  document_id,
+  timestamp,
+  inserted_at,
+  content,
+  metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.sharded_posthog_document_embeddings_buffer
+  WHERE model_name = 'text-embedding-3-large-3072'
+  
+  '''
+# ---
+# name: test_create_table_query[posthog_document_embeddings_text_embedding_3_small_1536_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_document_embeddings_text_embedding_3_small_1536_mv
+  TO writable_posthog_document_embeddings_text_embedding_3_small_1536
+  AS SELECT
+  team_id,
+  product,
+  document_type,
+  rendering,
+  document_id,
+  timestamp,
+  inserted_at,
+  content,
+  metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.sharded_posthog_document_embeddings_buffer
+  WHERE model_name = 'text-embedding-3-small-1536'
   
   '''
 # ---
@@ -2499,7 +2620,7 @@
   CREATE MATERIALIZED VIEW IF NOT EXISTS precalculated_events_mv TO writable_precalculated_events
   AS SELECT
       team_id,
-      toDate(evaluation_timestamp) AS date,
+      toDate(_timestamp) AS date,
       distinct_id,
       person_id,
       condition,
@@ -2586,6 +2707,7 @@
       lc_org_id String,
       team_id Int64, -- renamed from lc_team_id, no longer an alias
       lc_user_id Int64,
+      lc_is_impersonated Bool,
       lc_session_id String,
   
       lc_dashboard_id Int64,
@@ -2699,6 +2821,7 @@
       JSONExtractString(log_comment, 'org_id') as lc_org_id,
       JSONExtractInt(log_comment, 'team_id') as team_id,
       JSONExtractInt(log_comment, 'user_id') as lc_user_id,
+      JSONExtractBool(log_comment, 'is_impersonated') as lc_is_impersonated,
       JSONExtractString(log_comment, 'session_id') as lc_session_id,
   
       JSONExtractInt(log_comment, 'dashboard_id') as lc_dashboard_id,
@@ -3322,48 +3445,6 @@
   
   '''
 # ---
-# name: test_create_table_query[session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot', events_summary Array(String) COMMENT 'column_materializer::events_summary', click_count Int8 COMMENT 'column_materializer::click_count', keypress_count Int8 COMMENT 'column_materializer::keypress_count', timestamps_summary Array(DateTime64(6, 'UTC')) COMMENT 'column_materializer::timestamps_summary', first_event_timestamp Nullable(DateTime64(6, 'UTC')) COMMENT 'column_materializer::first_event_timestamp', last_event_timestamp Nullable(DateTime64(6, 'UTC')) COMMENT 'column_materializer::last_event_timestamp', urls Array(String) COMMENT 'column_materializer::urls'
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
-  
-  '''
-# ---
-# name: test_create_table_query[session_recording_events_mv]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS session_recording_events_mv ON CLUSTER 'posthog'
-  TO posthog_test.writable_session_recording_events
-  AS SELECT
-  uuid,
-  timestamp,
-  team_id,
-  distinct_id,
-  session_id,
-  window_id,
-  snapshot_data,
-  created_at,
-  _timestamp,
-  _offset
-  FROM posthog_test.kafka_session_recording_events
-  
-  '''
-# ---
 # name: test_create_table_query[session_replay_events]
   '''
   
@@ -3911,37 +3992,90 @@
   
   '''
 # ---
-# name: test_create_table_query[sharded_posthog_document_embeddings]
+# name: test_create_table_query[sharded_posthog_document_embeddings_buffer]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_buffer
   (
       team_id Int64,
-      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
-      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
-      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
-      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
-      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
-      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
-      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
-      content String DEFAULT '', -- The actual text content that was embedded
-      embedding Array(Float64) -- The embedding itself
-      
+      product LowCardinality(String),
+      document_type LowCardinality(String),
+      model_name LowCardinality(String),  -- Used for filtering in model-specific MVs
+      rendering LowCardinality(String),
+      document_id String,
+      timestamp DateTime64(3, 'UTC'),
+      inserted_at DateTime64(3, 'UTC'),
+      content String DEFAULT '',
+      metadata String DEFAULT '{}',
+      embedding Array(Float64)
       
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
-      , INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings _timestamp TYPE minmax GRANULARITY 3
-      
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings', '{replica}', inserted_at)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_buffer', '{replica}', inserted_at)
+  PARTITION BY toDate(inserted_at)
+  ORDER BY (inserted_at, model_name, cityHash64(document_id))
+  TTL inserted_at + INTERVAL 1 DAY
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
   
-      -- This index assumes:
-      --  - people will /always/ provide a date range
-      --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
-      --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
-      ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
-      SETTINGS index_granularity = 512
+  '''
+# ---
+# name: test_create_table_query[sharded_posthog_document_embeddings_text_embedding_3_large_3072]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_text_embedding_3_large_3072
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  , INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_large_3072 _timestamp TYPE minmax GRANULARITY 3, CONSTRAINT embedding_dimension_check CHECK length(embedding) = 3072
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_large_3072', '{replica}', inserted_at)
+  
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
+      
+  '''
+# ---
+# name: test_create_table_query[sharded_posthog_document_embeddings_text_embedding_3_small_1536]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_text_embedding_3_small_1536
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  , INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_small_1536 _timestamp TYPE minmax GRANULARITY 3, CONSTRAINT embedding_dimension_check CHECK length(embedding) = 1536
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_small_1536', '{replica}', inserted_at)
+  
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
       
   '''
 # ---
@@ -4196,35 +4330,6 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
-  
-  '''
-# ---
-# name: test_create_table_query[sharded_session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
-      
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-      , INDEX kafka_timestamp_minmax_sharded_session_recording_events _timestamp TYPE minmax GRANULARITY 3
-      
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_recording_events', '{replica}', _timestamp)
-  PARTITION BY toYYYYMMDD(timestamp)
-  ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-  
-  SETTINGS index_granularity=512
   
   '''
 # ---
@@ -5184,13 +5289,87 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings', cityHash64(document_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'partitioned_sharded_posthog_document_embeddings', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_posthog_document_embeddings_buffer]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_posthog_document_embeddings_buffer
+  (
+      team_id Int64,
+      product LowCardinality(String),
+      document_type LowCardinality(String),
+      model_name LowCardinality(String),  -- Used for filtering in model-specific MVs
+      rendering LowCardinality(String),
+      document_id String,
+      timestamp DateTime64(3, 'UTC'),
+      inserted_at DateTime64(3, 'UTC'),
+      content String DEFAULT '',
+      metadata String DEFAULT '{}',
+      embedding Array(Float64)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_buffer', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_posthog_document_embeddings_text_embedding_3_large_3072]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_posthog_document_embeddings_text_embedding_3_large_3072
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_text_embedding_3_large_3072', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_posthog_document_embeddings_text_embedding_3_small_1536]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_posthog_document_embeddings_text_embedding_3_small_1536
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id))
   
   '''
 # ---
@@ -5399,28 +5578,6 @@
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
-  
-  '''
-# ---
-# name: test_create_table_query[writable_session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS writable_session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -5835,6 +5992,43 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[partitioned_sharded_posthog_document_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS partitioned_sharded_posthog_document_embeddings
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
+      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
+      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
+      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_partitioned_sharded_posthog_document_embeddings _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.partitioned_sharded_posthog_document_embeddings', '{replica}', inserted_at)
+  
+      -- This index assumes:
+      --  - people will /always/ provide a date range
+      --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
+      --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
+      
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[person]
   '''
   
@@ -6133,6 +6327,7 @@
       lc_org_id String,
       team_id Int64, -- renamed from lc_team_id, no longer an alias
       lc_user_id Int64,
+      lc_is_impersonated Bool,
       lc_session_id String,
   
       lc_dashboard_id Int64,
@@ -6492,37 +6687,90 @@
   
   '''
 # ---
-# name: test_create_table_query_replicated_and_storage[sharded_posthog_document_embeddings]
+# name: test_create_table_query_replicated_and_storage[sharded_posthog_document_embeddings_buffer]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_buffer
   (
       team_id Int64,
-      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket, you'd use this to ask clickhouse "what kind of documents do I have embeddings for, related to session replay"
-      document_type LowCardinality(String), -- The type of document this is an embedding for, e.g. "issue_fingerprint", "session_summary", "task_update" etc.
-      model_name LowCardinality(String), -- The name of the model used to generate this embedding. Includes embedding dimensionality, appended as e.g. "text-embedding-3-small-1024"
-      rendering LowCardinality(String), -- How the document was rendered to text, e.g. "with_error_message", "as_html" etc. Use "plain" if it was already text.
-      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
-      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
-      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
-      content String DEFAULT '', -- The actual text content that was embedded
-      embedding Array(Float64) -- The embedding itself
-      
+      product LowCardinality(String),
+      document_type LowCardinality(String),
+      model_name LowCardinality(String),  -- Used for filtering in model-specific MVs
+      rendering LowCardinality(String),
+      document_id String,
+      timestamp DateTime64(3, 'UTC'),
+      inserted_at DateTime64(3, 'UTC'),
+      content String DEFAULT '',
+      metadata String DEFAULT '{}',
+      embedding Array(Float64)
       
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
-      , INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings _timestamp TYPE minmax GRANULARITY 3
-      
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings', '{replica}', inserted_at)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_buffer', '{replica}', inserted_at)
+  PARTITION BY toDate(inserted_at)
+  ORDER BY (inserted_at, model_name, cityHash64(document_id))
+  TTL inserted_at + INTERVAL 1 DAY
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
   
-      -- This index assumes:
-      --  - people will /always/ provide a date range
-      --  - "show me documents of type X by any model" will be more common than "show me all documents by model X"
-      --  - Documents with the same ID whose timestamp is in the same day are the same document, and the later inserted one should be retained
-      ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
-      SETTINGS index_granularity = 512
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_posthog_document_embeddings_text_embedding_3_large_3072]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_text_embedding_3_large_3072
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  , INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_large_3072 _timestamp TYPE minmax GRANULARITY 3, CONSTRAINT embedding_dimension_check CHECK length(embedding) = 3072
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_large_3072', '{replica}', inserted_at)
+  
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
+      
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_posthog_document_embeddings_text_embedding_3_small_1536]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_posthog_document_embeddings_text_embedding_3_small_1536
+  (
+      team_id Int64,
+      product LowCardinality(String), -- Like "error tracking" or "session replay" - basically a bucket
+      document_type LowCardinality(String), -- The type of document this is an embedding for
+      rendering LowCardinality(String), -- How the document was rendered to text
+      document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
+      timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time
+      inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted
+      content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
+      embedding Array(Float64) -- The embedding itself
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  , INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_small_1536 _timestamp TYPE minmax GRANULARITY 3, CONSTRAINT embedding_dimension_check CHECK length(embedding) = 1536
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_small_1536', '{replica}', inserted_at)
+  
+      PARTITION BY toMonday(timestamp)
+      ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id))
+      TTL timestamp + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
       
   '''
 # ---
@@ -6777,35 +7025,6 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
-  
-  '''
-# ---
-# name: test_create_table_query_replicated_and_storage[sharded_session_recording_events]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
-      
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-      , INDEX kafka_timestamp_minmax_sharded_session_recording_events _timestamp TYPE minmax GRANULARITY 3
-      
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_recording_events', '{replica}', _timestamp)
-  PARTITION BY toYYYYMMDD(timestamp)
-  ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-  
-  SETTINGS index_granularity=512
   
   '''
 # ---

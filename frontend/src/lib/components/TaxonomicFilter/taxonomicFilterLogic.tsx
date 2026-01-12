@@ -233,6 +233,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.hideBehavioralCohorts],
             (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
+        endpointFilters: [
+            () => [(_, props) => props.endpointFilters],
+            (endpointFilters: Record<string, any>) => endpointFilters,
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeam,
@@ -247,6 +251,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventOrdering,
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
+                s.endpointFilters,
             ],
             (
                 currentTeam: TeamType,
@@ -260,7 +265,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
-                hideBehavioralCohorts: boolean
+                hideBehavioralCohorts: boolean,
+                endpointFilters: Record<string, any> | undefined
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -342,16 +348,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Data Warehouse Table',
                         getIcon: () => <IconServer />,
                     },
-                    {
-                        name: 'Data warehouse properties',
-                        searchPlaceholder: 'data warehouse properties',
-                        type: TaxonomicFilterGroupType.DataWarehouseProperties,
-                        options: schemaColumns,
-                        getName: (col: DatabaseSchemaField) => col.name,
-                        getValue: (col: DatabaseSchemaField) => col.name,
-                        getPopoverHeader: () => 'Data Warehouse Column',
-                        getIcon: () => <IconServer />,
-                    },
+                    ...(schemaColumns.length > 0
+                        ? [
+                              {
+                                  name: 'Data warehouse properties',
+                                  searchPlaceholder: 'data warehouse properties',
+                                  type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                                  options: schemaColumns,
+                                  getName: (col: DatabaseSchemaField) => col.name,
+                                  getValue: (col: DatabaseSchemaField) => col.name,
+                                  getPopoverHeader: () => 'Data Warehouse Column',
+                                  getIcon: () => <IconServer />,
+                              },
+                          ]
+                        : []),
                     {
                         name: 'Extended person properties',
                         searchPlaceholder: 'extended person properties',
@@ -587,12 +597,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Log attributes',
                         searchPlaceholder: 'attributes',
                         type: TaxonomicFilterGroupType.LogAttributes,
-                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, { attribute_type: 'log' })
-                            .url,
+                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
+                            attribute_type: 'log',
+                            ...endpointFilters,
+                        }).url,
                         valuesEndpoint: (key) =>
                             combineUrl(`api/environments/${projectId}/logs/values`, {
                                 attribute_type: 'log',
                                 key: key,
+                                ...endpointFilters,
                             }).url,
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
@@ -604,11 +617,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.LogResourceAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
                             attribute_type: 'resource',
+                            ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
                             combineUrl(`api/environments/${projectId}/logs/values`, {
                                 attribute_type: 'resource',
                                 key: key,
+                                ...endpointFilters,
                             }).url,
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
@@ -869,8 +884,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         taxonomicGroupTypes: [
             (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
-            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
-                groupTypes || taxonomicGroups.map((g) => g.type),
+            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] => {
+                const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
+                const resolvedGroupTypes = groupTypes || taxonomicGroups.map((group) => group.type)
+                return resolvedGroupTypes.filter((groupType) => availableGroupTypes.has(groupType))
+            },
         ],
         groupAnalyticsTaxonomicGroupNames: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],

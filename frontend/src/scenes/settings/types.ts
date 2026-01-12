@@ -47,6 +47,7 @@ export type SettingSectionId =
     | 'organization-authentication'
     | 'organization-proxy'
     | 'organization-security'
+    | 'organization-approvals'
     | 'organization-danger-zone'
     | 'organization-billing'
     | 'organization-startup-program'
@@ -61,6 +62,7 @@ export type SettingSectionId =
 
 export type SettingId =
     | 'replay-triggers'
+    | 'replay-integrations'
     | 'display-name'
     | 'snippet'
     | 'authorized-urls'
@@ -101,6 +103,7 @@ export type SettingId =
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
+    | 'integration-linear'
     | 'integration-github'
     | 'integration-other'
     | 'integration-ip-allowlist'
@@ -123,6 +126,7 @@ export type SettingId =
     | 'details'
     | 'change-password'
     | '2fa'
+    | 'passkeys'
     | 'personal-api-keys'
     | 'notifications'
     | 'feature-previews'
@@ -162,6 +166,8 @@ export type SettingId =
     | 'activity-log-notifications'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
+    | 'approval-policies'
+    | 'change-requests'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

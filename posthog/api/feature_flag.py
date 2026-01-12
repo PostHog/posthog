@@ -20,7 +20,7 @@ from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
-from posthog.schema import PropertyOperator
+from posthog.schema import ProductKey, PropertyOperator
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.dashboards.dashboard import Dashboard
@@ -31,6 +31,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.approvals.decorators import approval_gate
+from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import (
     PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
@@ -856,6 +858,7 @@ class FeatureFlagSerializer(
 
         return instance
 
+    @approval_gate(["feature_flag.enable", "feature_flag.disable"])
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         # This is a workaround to ensure update works when called from a scheduled task.
@@ -1024,6 +1027,7 @@ class FeatureFlagSerializer(
     def _find_dependent_flags(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all active flags that depend on the given flag."""
         return list(
+            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
             FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
             .exclude(id=flag_to_check.id)
             .extra(
@@ -1358,7 +1362,9 @@ def _evaluate_flags_with_fallback(
         return get_all_feature_flags(team, distinct_id, groups)
 
 
+@extend_schema(tags=[ProductKey.FEATURE_FLAGS])
 class FeatureFlagViewSet(
+    ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
@@ -1386,27 +1392,30 @@ class FeatureFlagViewSet(
                 if filters[key] == "STALE":
                     # Get flags that are at least 30 days old and active
                     # This is an approximation - the serializer will compute the exact status
+                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
                     queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
                         # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
+                        # Note: Must use fully qualified table name (posthog_featureflag.filters) to avoid
+                        # ambiguity when Django joins other tables that also have a 'filters' column (e.g. Experiment)
                         where=[
                             """
                             (
                                 (
                                     EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                     )
-                                    AND (filters->'multivariate' IS NULL OR jsonb_array_length(filters->'multivariate'->'variants') = 0)
+                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
                                 )
                                 OR
                                 (
                                     EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(filters->'multivariate'->'variants') AS variant
+                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
                                         WHERE variant->>'rollout_percentage' = '100'
                                     )
                                     AND EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                     )
@@ -1415,14 +1424,14 @@ class FeatureFlagViewSet(
                                 -- Multivariate that has a condition that overrides with a specific variant and the rollout_percentage is 100
                                 (
                                     EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                         AND elem->'variant' IS NOT NULL
                                     )
-                                    AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
+                                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
                                 )
-                                OR (filters IS NULL OR filters = '{}'::jsonb)
+                                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
                             )
                             """
                         ]
@@ -1529,19 +1538,12 @@ class FeatureFlagViewSet(
                 )
             )
 
-            survey_targeting_flags = Survey.objects.filter(
-                team__project_id=self.project_id, targeting_flag__isnull=False
-            ).values_list("targeting_flag_id", flat=True)
-            survey_internal_targeting_flags = Survey.objects.filter(
-                team__project_id=self.project_id, internal_targeting_flag__isnull=False
-            ).values_list("internal_targeting_flag_id", flat=True)
+            survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
             product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
                 team__project_id=self.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
-            queryset = (
-                queryset.exclude(Q(id__in=survey_targeting_flags))
-                .exclude(Q(id__in=survey_internal_targeting_flags))
-                .exclude(Q(id__in=product_tour_internal_targeting_flags))
+            queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(
+                Q(id__in=product_tour_internal_targeting_flags)
             )
 
             # add additional filters provided by the client

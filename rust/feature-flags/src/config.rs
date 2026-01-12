@@ -340,42 +340,6 @@ pub struct Config {
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
 
-    /// Redis TTL for team cache entries in seconds
-    ///
-    /// Controls how long team data is cached in Redis before expiring.
-    /// This prevents indefinite cache growth and ensures stale data is refreshed.
-    ///
-    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
-    /// Environment variable: TEAM_CACHE_TTL_SECONDS
-    ///
-    /// Common values:
-    /// - 3600 (1 hour) - For frequently changing team data
-    /// - 86400 (1 day) - For moderate refresh rate
-    /// - 432000 (5 days) - Default, balances performance and freshness
-    ///
-    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
-    #[envconfig(from = "TEAM_CACHE_TTL_SECONDS", default = "432000")]
-    pub team_cache_ttl_seconds: u64,
-
-    /// Redis TTL for feature flags cache entries in seconds
-    ///
-    /// Controls how long feature flag data is cached in Redis before expiring.
-    /// This prevents indefinite cache growth and ensures flag changes are visible
-    /// within a reasonable time.
-    ///
-    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
-    /// Environment variable: FLAGS_CACHE_TTL_SECONDS
-    ///
-    /// Common values:
-    /// - 300 (5 minutes) - For rapid flag development/testing
-    /// - 3600 (1 hour) - For frequently changing flags
-    /// - 86400 (1 day) - For stable flag deployments
-    /// - 432000 (5 days) - Default, balances performance and freshness
-    ///
-    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
-    #[envconfig(from = "FLAGS_CACHE_TTL_SECONDS", default = "432000")]
-    pub flags_cache_ttl_seconds: u64,
-
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
@@ -475,6 +439,20 @@ pub struct Config {
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_ip_rate_limit_log_only: FlexBool,
 
+    // How often to clean up stale rate limiter entries (seconds)
+    // The governor crate's keyed rate limiters accumulate entries for every unique key.
+    // Without periodic cleanup, this leads to unbounded memory growth.
+    // This interval controls how often retain_recent() is called to remove stale entries.
+    #[envconfig(from = "RATE_LIMITER_CLEANUP_INTERVAL_SECS", default = "60")]
+    pub rate_limiter_cleanup_interval_secs: u64,
+
+    // Experience continuity optimization
+    // When enabled, skip hash key override lookups for flags that don't need them:
+    // - Flags at 100% rollout with no multivariate variants OR where a single variant is at 100%
+    // These flags return the same value regardless of user bucketing, so the lookup is wasted work.
+    #[envconfig(from = "OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS", default = "true")]
+    pub optimize_experience_continuity_lookups: FlexBool,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -573,8 +551,6 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
             cache_ttl_seconds: 300,
-            team_cache_ttl_seconds: 432000,
-            flags_cache_ttl_seconds: 432000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,
@@ -603,8 +579,10 @@ impl Config {
             flags_ip_replenish_rate: 100.0,
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
+            rate_limiter_cleanup_interval_secs: 60,
             redis_compression_enabled: FlexBool(true),
             redis_client_retry_count: 3,
+            optimize_experience_continuity_lookups: FlexBool(true),
         }
     }
 

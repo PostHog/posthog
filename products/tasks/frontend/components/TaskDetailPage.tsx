@@ -5,6 +5,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { urls } from 'scenes/urls'
 
 import {
     ScenePanel,
@@ -25,7 +26,7 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskLoading, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll } = useValues(sceneLogic)
+    const { task, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll } = useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
 
     if (!task) {
@@ -86,7 +87,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                                         key={run.id}
                                         run={run}
                                         isSelected={run.id === selectedRunId}
-                                        onClick={() => setSelectedRunId(run.id)}
+                                        onClick={() => setSelectedRunId(run.id, taskId)}
                                     />
                                 ))}
                             </div>
@@ -99,15 +100,20 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 name={task?.title}
                 description={task?.description}
                 resourceType={{ type: 'task' }}
-                isLoading={taskLoading}
+                isLoading={false}
                 canEdit={false}
+                forceBackTo={{
+                    key: 'tasks',
+                    name: 'Tasks',
+                    path: urls.taskTracker(),
+                }}
                 actions={
                     <div className="flex items-center gap-2">
                         <LemonButton
                             type="secondary"
                             size="small"
                             icon={<IconExternal />}
-                            onClick={() => window.open(`posthog-array://task/${task.id}`, '_blank')}
+                            onClick={() => window.open(`array://task/${task.id}`, '_blank')}
                         >
                             Open in Array
                         </LemonButton>

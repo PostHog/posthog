@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -23,13 +24,19 @@ import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './work
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
     logic: workflowSceneLogic,
-    paramsToProps: ({ params: { id, tab } }) => ({ id: id || 'new', tab: tab || 'workflow' }),
+    paramsToProps: ({ params: { id, tab } }) => ({
+        id: id || 'new',
+        tab: tab || 'workflow',
+    }),
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { currentTab } = useValues(workflowSceneLogic)
+    const { searchParams } = useValues(router)
+    const templateId = searchParams.templateId as string | undefined
+    const editTemplateId = searchParams.editTemplateId as string | undefined
 
-    const logic = workflowLogic(props)
+    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
     const { workflowLoading, workflow, originalWorkflow } = useValues(logic)
 
     if (!originalWorkflow && workflowLoading) {
@@ -84,7 +91,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     ]
 
     return (
-        <SceneContent className="flex flex-col">
+        <SceneContent className="flex flex-col grow">
             <WorkflowSceneHeader {...props} />
             {/* Only show Logs and Metrics tabs if the workflow has already been created */}
             {!props.id || props.id === 'new' ? (
@@ -95,6 +102,9 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                     onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                     tabs={tabs}
                     sceneInset
+                    className={clsx({
+                        'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
+                    })}
                 />
             )}
         </SceneContent>

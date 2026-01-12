@@ -1,8 +1,8 @@
 import re
+import builtins
 from datetime import timedelta
 from typing import Union, cast
 
-from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -18,11 +18,13 @@ from rest_framework.response import Response
 from posthog.schema import (
     DataWarehouseSyncInterval,
     EndpointLastExecutionTimesRequest,
+    EndpointRefreshMode,
     EndpointRequest,
     EndpointRunRequest,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    ProductKey,
     QueryRequest,
     QueryStatus,
     QueryStatusResponse,
@@ -44,7 +46,6 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
-from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -52,7 +53,6 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -61,16 +61,36 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from products.endpoints.backend.materialization import convert_insight_query_to_hogql
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
+from products.endpoints.backend.rate_limit import (
+    EndpointBurstThrottle,
+    EndpointSustainedThrottle,
+    clear_endpoint_materialization_cache,
+)
 
 from common.hogvm.python.utils import HogVMException
 
 MIN_CACHE_AGE_SECONDS = 300
 MAX_CACHE_AGE_SECONDS = 86400
 
+ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
-@extend_schema(tags=["endpoints"])
+
+def _endpoint_refresh_mode_to_refresh_type(mode: EndpointRefreshMode | None) -> RefreshType:
+    """
+    Map EndpointRefreshMode to RefreshType.
+
+    - cache -> blocking
+    - force/direct -> force_blocking (materialization bypass handled in _should_use_materialized_table)
+    """
+    if mode is None or mode == EndpointRefreshMode.CACHE:
+        return RefreshType.BLOCKING
+    return RefreshType.FORCE_BLOCKING
+
+
+@extend_schema(tags=[ProductKey.ENDPOINTS])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
@@ -86,18 +106,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return None  # We use Pydantic models instead
 
     def get_throttles(self):
-        return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
-
-    def check_team_api_queries_concurrency(self):
-        cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-        if self.team:
-            new_val = self.team.organization.is_feature_available(AvailableFeature.API_QUERIES_CONCURRENCY)
-            cache.set(cache_key, new_val)
-            return new_val
-        return False
+        return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
 
     def _serialize_endpoint(self, endpoint: Endpoint) -> dict:
         result = {
@@ -172,9 +181,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             if name is not None or strict:
                 raise ValidationError("Endpoint must have a name.")
             return
-        if not isinstance(name, str) or not re.fullmatch(r"^[a-zA-Z0-9_-]{1,128}$", name):
+        if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
             raise ValidationError(
-                "Endpoint name must be alphanumeric characters, hyphens, underscores, or spaces, "
+                "Endpoint name must start with a letter, contain only alphanumeric characters, hyphens, or underscores, "
                 "and be between 1 and 128 characters long."
             )
 
@@ -211,7 +220,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 created_by=cast(User, request.user),
             )
 
-            # Activity log: created
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -357,7 +365,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         sync_frequency: DataWarehouseSyncInterval,
         request: Request,
     ) -> None:
-        """Enable materialization for an endpoint."""
         can_mat, reason = endpoint.can_materialize()
         if not can_mat:
             raise ValidationError(f"Cannot materialize endpoint: {reason}")
@@ -368,7 +375,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 name=endpoint.name, team=self.team, origin=DataWarehouseSavedQuery.Origin.ENDPOINT
             )
 
-        saved_query.query = endpoint.query
+        hogql_query = convert_insight_query_to_hogql(endpoint.query, self.team)
+        saved_query.query = hogql_query
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
         saved_query.sync_frequency_interval = (
@@ -387,6 +395,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             endpoint.saved_query.soft_delete()
             endpoint.saved_query = None
             endpoint.save()
+        clear_endpoint_materialization_cache(self.team_id, endpoint.name)
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
@@ -418,8 +427,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         - Not materialized
         - Materialization incomplete/failed
         - Materialized data is stale (older than sync frequency)
-        - User overrides present (variables, filters, query)
-        - Force refresh requested
+        - User overrides present (variables, query)
+        - 'direct' mode requested (explicitly bypass materialization)
         """
         if not endpoint.is_materialized or not endpoint.saved_query:
             return False
@@ -440,7 +449,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if data.variables:
             return False
 
-        if data.refresh in ["force_blocking"]:
+        # 'direct' mode explicitly bypasses materialization to run the original query
+        if data.refresh == EndpointRefreshMode.DIRECT:
             return False
 
         if data.query_override:
@@ -453,8 +463,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query_request_data: dict,
         client_query_id: str | None,
         request: Request,
+        variables_override: builtins.list[HogQLVariable] | None = None,
         cache_age_seconds: int | None = None,
         extra_result_fields: dict | None = None,
+        debug: bool = False,
     ) -> Response:
         """Shared query execution logic."""
         merged_data = self.get_model(query_request_data, QueryRequest)
@@ -471,6 +483,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         result = process_query_model(
             self.team,
             query,
+            variables_override=variables_override,
             execution_mode=execution_mode,
             query_id=client_query_id,
             user=cast(User, request.user),
@@ -483,6 +496,24 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         if isinstance(result, dict) and extra_result_fields:
             result.update(extra_result_fields)
+
+        if not debug:
+            debug_fields_to_remove = [
+                "calculation_trigger",
+                "cache_key",
+                "explain",
+                "modifiers",
+                "resolved_date_range",
+                "timings",
+                "hogql",
+            ]
+
+            for field in debug_fields_to_remove:
+                result.pop(field, None)
+
+        if "results" in result:
+            results_value = result.pop("results")
+            result = {"results": results_value, **result}
 
         response_status = (
             status.HTTP_202_ACCEPTED
@@ -506,7 +537,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return last_refresh < saved_query.last_run_at
 
     def _execute_materialized_endpoint(
-        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request
+        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request, debug: bool = False
     ) -> Response:
         """Execute against a materialized table in S3."""
         try:
@@ -530,10 +561,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query=select_query.to_hogql(), modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
 
+            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
+
             query_request_data = {
                 "client_query_id": data.client_query_id,
                 "name": f"{endpoint.name}_materialized",
-                "refresh": data.refresh or RefreshType.BLOCKING,
+                "refresh": refresh_type,
                 "query": materialized_hogql_query.model_dump(),
             }
 
@@ -544,13 +577,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
 
             result = self._execute_query_and_respond(
-                query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
+                query_request_data, data.client_query_id, request, extra_result_fields=extra_fields, debug=debug
             )
 
             if self._is_cache_stale(result, saved_query):
                 query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
                 result = self._execute_query_and_respond(
-                    query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
+                    query_request_data, data.client_query_id, request, extra_result_fields=extra_fields, debug=debug
                 )
 
             return result
@@ -567,32 +600,35 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
             raise
 
-    def _parse_variables(self, query: dict[str, dict], variables: dict[str, str]) -> dict[str, dict] | None:
+    def _parse_variables(
+        self, query: dict[str, dict], variables: dict[str, str]
+    ) -> builtins.list[HogQLVariable] | None:
         query_variables = query.get("variables", None)
         if not query_variables:
             return None
 
-        variables_override = {}
-        for variable_code_name, variable_value in variables.items():
+        variables_override = []
+        for request_variable_code_name, request_variable_value in variables.items():
             variable_id = None
-            for query_variable_value in query_variables.values():
-                if query_variable_value.get("code_name", None) == variable_code_name:
-                    variable_id = query_variable_value.get("variableId")
-                    break
+            for query_variable_id, query_variable_value in query_variables.items():
+                if query_variable_value.get("code_name", None) == request_variable_code_name:
+                    variable_id = query_variable_id
 
             if variable_id is None:
-                raise ValidationError(f"Variable '{variable_code_name}' not found in query")
+                raise ValidationError(f"Variable '{request_variable_code_name}' not found in query")
 
-            variables_override[variable_id] = HogQLVariable(
-                variableId=variable_id,
-                code_name=variable_code_name,
-                value=variable_value,
-                isNull=True if variable_value is None else None,
-            ).model_dump()
+            variables_override.append(
+                HogQLVariable(
+                    variableId=variable_id,
+                    code_name=request_variable_code_name,
+                    value=request_variable_value,
+                    isNull=True if request_variable_value is None else None,
+                )
+            )
         return variables_override
 
     def _execute_inline_endpoint(
-        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request, query: dict
+        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request, query: dict, debug: bool = False
     ) -> Response:
         """Execute query directly against ClickHouse."""
         try:
@@ -600,18 +636,24 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             for query_field, value in insight_query_override.items():
                 query[query_field] = value
 
+            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
+
             variables_override = self._parse_variables(query, data.variables) if data.variables else None
             query_request_data = {
                 "client_query_id": data.client_query_id,
                 "filters_override": data.filters_override,
                 "name": endpoint.name,
-                "refresh": data.refresh,
+                "refresh": refresh_type,
                 "query": query,
-                "variables_override": variables_override,
             }
 
             return self._execute_query_and_respond(
-                query_request_data, data.client_query_id, request, cache_age_seconds=endpoint.cache_age_seconds
+                query_request_data,
+                data.client_query_id,
+                request,
+                variables_override=variables_override,
+                cache_age_seconds=endpoint.cache_age_seconds,
+                debug=debug,
             )
 
         except Exception as e:
@@ -666,19 +708,28 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         # Only the latest version is materialized
         use_materialized = version_number is None and self._should_use_materialized_table(endpoint, data)
 
+        debug = data.debug or False
+
         try:
             if use_materialized:
-                result = self._execute_materialized_endpoint(endpoint, data, request)
+                result = self._execute_materialized_endpoint(endpoint, data, request, debug=debug)
             else:
                 # Use version's query if available, otherwise use endpoint.query
-                query_to_use = version_obj.query if version_obj else endpoint.query.copy()
-                result = self._execute_inline_endpoint(endpoint, data, request, query_to_use)
+                query_to_use = (version_obj.query if version_obj else endpoint.query).copy()
+                result = self._execute_inline_endpoint(endpoint, data, request, query_to_use, debug=debug)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError("An internal error occurred.", getattr(e, "code_name", None))
         except ResolutionError:
             raise ValidationError("An internal error occurred while resolving the query.")
         except ConcurrencyLimitExceeded:
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
+
+        if get_query_tag_value("access_method") == "personal_api_key":
+            now = timezone.now()
+            if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > timedelta(hours=1)):
+                endpoint.last_executed_at = now
+                endpoint.save(update_fields=["last_executed_at"])
+
         if version_obj and isinstance(result.data, dict):
             result.data["endpoint_version"] = version_obj.version
             result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
@@ -691,6 +742,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if endpoint.query.get("kind") != "HogQLQuery" and data.variables:
             raise ValidationError(
                 "Only query_override and filters_override are allowed when executing an Insight query"
+            )
+        if data.refresh == EndpointRefreshMode.DIRECT and not endpoint.is_materialized:
+            raise ValidationError(
+                "'direct' refresh mode is only valid for materialized endpoints. "
+                "Use 'cache' or 'force' instead, or enable materialization on this endpoint."
             )
 
     @extend_schema(
@@ -712,11 +768,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     status=200,
                 )
 
-            quoted_names = [f"'{name}'" for name in names]
-            names_list = ",".join(quoted_names)
+            validated_names = []
+            for name in names:
+                if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
+                    raise ValidationError(f"Invalid endpoint name: {name}")
+                validated_names.append(f"'{name}'")
+            names_list = ",".join(validated_names)
 
             query = HogQLQuery(
-                query=f"select name, max(query_start_time) as last_executed_at from query_log where name in ({names_list}) and endpoint like '%/endpoints/%' and query_start_time >= (today() - interval 6 month) group by name",
+                query=f"select name, max(query_start_time) as last_executed_at from query_log where name in ({names_list}) and endpoint like '%/endpoints/%' and is_personal_api_key_request and query_start_time >= (today() - interval 6 month) group by name",
                 name="get_endpoints_last_execution_times",
             )
             hogql_runner = HogQLQueryRunner(

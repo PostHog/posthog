@@ -10,53 +10,58 @@ from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, I
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
-
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.tool import MaxSubtool
 
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE
+
+EXCLUDE_FROM_DISPLAY: dict[str, set[str]] = {
+    "insight": {"query"},
+}
+"""Fields to exclude from display output per entity type (they're still used for search ranking)."""
 
 ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
         "klass": Insight,
         "search_fields": {"name": "A", "description": "C", "query_metadata": "B"},
         "extra_fields": ["name", "description", "query_metadata", "query"],
+        "filters": {"deleted": False, "saved": True},
     },
     "dashboard": {
         "klass": Dashboard,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+        "filters": {"deleted": False},
     },
     "experiment": {
         "klass": Experiment,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+        "filters": {"deleted": False},
     },
     "feature_flag": {
         "klass": FeatureFlag,
         "search_fields": {"key": "A", "name": "C"},
         "extra_fields": ["key", "name"],
+        "filters": {"deleted": False},
     },
     "action": {
         "klass": Action,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+        "filters": {"deleted": False},
     },
     "cohort": {
         "klass": Cohort,
         "search_fields": {"name": "A", "description": "C", "filters": "B"},
         "extra_fields": ["name", "description", "filters"],
+        "filters": {"deleted": False},
     },
     "survey": {
         "klass": Survey,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
-    },
-    "error_tracking_issue": {
-        "klass": ErrorTrackingIssue,
-        "search_fields": {"name": "A", "description": "B"},
-        "extra_fields": ["name", "description"],
+        "filters": {"archived": False},
     },
 }
 """
@@ -75,7 +80,6 @@ class FTSKind(StrEnum):
     FEATURE_FLAGS = "feature_flags"
     NOTEBOOKS = "notebooks"
     SURVEYS = "surveys"
-    ERROR_TRACKING_ISSUES = "error_tracking_issues"
     ALL = "all"
 
 
@@ -88,7 +92,6 @@ SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[FTSKind, str] = {
     FTSKind.ACTIONS: "action",
     FTSKind.COHORTS: "cohort",
     FTSKind.SURVEYS: "survey",
-    FTSKind.ERROR_TRACKING_ISSUES: "error_tracking_issue",
 }
 
 
@@ -148,8 +151,6 @@ class EntitySearchTool(MaxSubtool):
                 return f"{base_url}/cohorts/{result_id}"
             case "survey":
                 return f"{base_url}/surveys/{result_id}"
-            case "error_tracking_issue":
-                return f"{base_url}/error_tracking/{result_id}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")
 
@@ -167,12 +168,16 @@ class EntitySearchTool(MaxSubtool):
         result_id = result["result_id"]
         extra_fields = result.get("extra_fields", {})
 
+        # Filter out fields that shouldn't be displayed
+        exclude_fields = EXCLUDE_FROM_DISPLAY.get(entity_type, set())
+        display_extra_fields = {k: v for k, v in extra_fields.items() if k not in exclude_fields}
+
         result_dict = {
             "name": extra_fields.get("name", f"{entity_type.upper()} {result_id}"),
             "type": entity_type.title(),
-            "id": result_id,
+            f"{entity_type}_id": result_id,
             "url": self._build_url(entity_type, result_id),
-            "extra_fields": extra_fields,
+            "extra_fields": display_extra_fields,
         }
 
         cleaned_dict = self._omit_none_values(result_dict)
