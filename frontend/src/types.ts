@@ -1678,6 +1678,7 @@ export interface SessionRecordingExternalReference {
     external_url: string
     title: string
     issue_id: string
+    metadata?: Record<string, string>
 }
 
 export interface SessionRecordingType {
