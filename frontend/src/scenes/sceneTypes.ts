@@ -115,6 +115,7 @@ export enum Scene {
     ReplayPlaylist = 'ReplayPlaylist',
     ReplaySettings = 'ReplaySettings',
     ReplaySingle = 'ReplaySingle',
+    ReplayKiosk = 'ReplayKiosk',
     RevenueAnalytics = 'RevenueAnalytics',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
