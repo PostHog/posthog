@@ -304,8 +304,8 @@ order by count() desc
         title: 'Insight',
         search: 'insight saved existing browse',
         icon: <IconGraph color="currentColor" />,
-        command: (chain) => {
-            addInsightsToNotebookModalLogic.actions.toggleIsAddInsightsToNotebookModalOpen()
+        command: (chain, pos) => {
+            addInsightsToNotebookModalLogic.actions.openModal(pos)
             return chain
         },
     },
