@@ -903,8 +903,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$has_recording": {
             "label": "Has recording",
-            "description": "Whether a session recording exists for this event's session",
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
             "system": True,
+            "virtual": True,
         },
         "$cymbal_errors": {
             "label": "Exception processing errors",
