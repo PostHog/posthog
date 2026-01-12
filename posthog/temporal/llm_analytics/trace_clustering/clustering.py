@@ -7,6 +7,7 @@ from sklearn.cluster import HDBSCAN, KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
+from umap import UMAP
 
 from posthog.temporal.llm_analytics.trace_clustering.models import HDBSCANResult, KMeansResult
 
