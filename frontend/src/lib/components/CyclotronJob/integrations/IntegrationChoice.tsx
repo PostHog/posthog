@@ -4,6 +4,7 @@ import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
@@ -35,6 +36,7 @@ export function IntegrationChoice({
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal } = useActions(integrationsLogic)
+    const workflowsPushNotificationsEnabled = useFeatureFlag('WORKFLOWS_PUSH_NOTIFICATIONS')
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -99,7 +101,7 @@ export function IntegrationChoice({
                               {
                                   onClick: () => uploadKey(kind),
                                   label:
-                                      kind === 'firebase'
+                                      kind === 'firebase' && workflowsPushNotificationsEnabled
                                           ? 'Upload Firebase service account .json key file'
                                           : 'Upload Google Cloud .json key file',
                               },
