@@ -426,13 +426,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if destination_type == BatchExportDestination.Destination.S3:
             # we already validate the required inputs in BatchExportDestinationSerializer::validate
             # so here we just ensure that the inputs are not empty
-            required_non_empty_inputs = [
+            required_non_empty_inputs = (
                 "bucket_name",
                 "region",
                 "prefix",
                 "aws_access_key_id",
                 "aws_secret_access_key",
-            ]
+            )
             empty_inputs = []
             for required_input in required_non_empty_inputs:
                 value = config.get(required_input)
