@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 
 from posthog.schema import DataWarehouseNode, DataWarehousePropertyFilter, DateRange, EventsNode, FunnelsQuery
+from posthog.types import AnyPropertyFilter
 
 from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -188,7 +189,9 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert "posthog_test_test_table_1_id_with_nulls must not be NULL" in str(exc_info.value)
 
         # nulls can be filtered to make the query work
-        not_null_filter = [DataWarehousePropertyFilter(key="id_with_nulls", operator="is_set", value="is_set")]
+        not_null_filter: list[AnyPropertyFilter] = [
+            DataWarehousePropertyFilter(key="id_with_nulls", operator="is_set", value="is_set")
+        ]
         funnels_query.series[0].properties = not_null_filter
         funnels_query.series[1].properties = not_null_filter
 
