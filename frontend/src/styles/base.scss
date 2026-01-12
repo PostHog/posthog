@@ -1538,6 +1538,7 @@
     .storybook-test-runner {
         &.storybook-test-runner--fullscreen {
             height: auto;
+
             // Ensure minimum viewport height while allowing content to expand beyond
             // Using min-height instead of height: fit-content to prevent shorter-than-viewport screenshots
             min-height: 100vh;
