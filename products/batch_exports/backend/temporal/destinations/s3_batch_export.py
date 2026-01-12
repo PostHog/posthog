@@ -476,8 +476,7 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
     ):
-        if not s3_inputs.aws_access_key_id or not s3_inputs.aws_secret_access_key:
-            raise InvalidCredentialsError("AWS access key ID and secret access key are required")
+        if not (s3_inputs.aws_access_key_id or "").strip() or not (s3_inputs.aws_secret_access_key or "").strip():
 
         return cls(
             bucket=s3_inputs.bucket_name,
