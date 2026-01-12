@@ -145,11 +145,11 @@ pub struct WebhookJobError {
     pub details: app_metrics::ErrorDetails,
 }
 
-/// Webhook jobs boil down to an HTTP request, so it's useful to have a way to convert from &reqwest::Error.
+/// Webhook jobs boil down to an HTTP request, so it's useful to have a way to convert from &RequestError.
 /// For the convertion we check all possible error types with the associated is_* methods provided by reqwest.
 /// Some precision may be lost as our app_metrics::ErrorType does not support the same number of variants.
-impl From<&common_dns::reqwest::Error> for WebhookJobError {
-    fn from(error: &common_dns::reqwest::Error) -> Self {
+impl From<&common_dns::RequestError> for WebhookJobError {
+    fn from(error: &common_dns::RequestError) -> Self {
         if error.is_timeout() {
             WebhookJobError::new_timeout(&error.to_string())
         } else if error.is_status() {

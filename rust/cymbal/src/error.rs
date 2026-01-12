@@ -202,8 +202,8 @@ impl From<FrameError> for UnhandledError {
     }
 }
 
-impl From<common_dns::reqwest::Error> for JsResolveErr {
-    fn from(e: common_dns::reqwest::Error) -> Self {
+impl From<common_dns::RequestError> for JsResolveErr {
+    fn from(e: common_dns::RequestError) -> Self {
         if e.is_timeout() {
             return JsResolveErr::Timeout(e.to_string());
         }
@@ -224,6 +224,24 @@ impl From<common_dns::reqwest::Error> for JsResolveErr {
 
         // Fallback for any other errors
         JsResolveErr::NetworkError(e.to_string())
+    }
+}
+
+impl From<common_dns::ClientError> for JsResolveErr {
+    fn from(e: common_dns::ClientError) -> Self {
+        match e {
+            common_dns::ClientError::NoPublicIPv4(err) => {
+                JsResolveErr::NetworkError(err.to_string())
+            }
+            common_dns::ClientError::InvalidUrl(err) => JsResolveErr::NetworkError(err.to_string()),
+            common_dns::ClientError::Request(err) => JsResolveErr::from(err),
+        }
+    }
+}
+
+impl From<common_dns::ClientError> for ResolveError {
+    fn from(e: common_dns::ClientError) -> Self {
+        ResolveError::ResolutionError(JsResolveErr::from(e).into())
     }
 }
 

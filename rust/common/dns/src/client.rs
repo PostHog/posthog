@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use reqwest::redirect::Policy;
 use thiserror::Error;
@@ -26,22 +27,55 @@ pub enum ClientError {
     Request(#[from] reqwest::Error),
 }
 
-/// A wrapper around reqwest::Client that optionally validates URLs to prevent SSRF attacks.
-///
-/// When `secure` is true:
-/// - Blocks requests to raw private/internal IP addresses
-/// - Blocks DNS resolution to private/internal IP addresses  
-/// - Blocks redirects to raw private/internal IP addresses
-pub struct InternalClient {
-    inner: reqwest::Client,
+/// Builder for InternalClient
+pub struct InternalClientBuilder {
     secure: bool,
+    timeout: Option<Duration>,
+    connect_timeout: Option<Duration>,
+    default_headers: reqwest::header::HeaderMap,
 }
 
-impl InternalClient {
-    pub fn new(secure: bool) -> Result<Self, ClientError> {
+impl InternalClientBuilder {
+    pub fn new(secure: bool) -> Self {
+        Self {
+            secure,
+            timeout: None,
+            connect_timeout: None,
+            default_headers: reqwest::header::HeaderMap::new(),
+        }
+    }
+
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
+        self.connect_timeout = Some(timeout);
+        self
+    }
+
+    pub fn default_headers(mut self, headers: reqwest::header::HeaderMap) -> Self {
+        self.default_headers = headers;
+        self
+    }
+
+    pub fn build(self) -> Result<InternalClient, ClientError> {
         let mut builder = reqwest::Client::builder();
 
-        if secure {
+        if let Some(timeout) = self.timeout {
+            builder = builder.timeout(timeout);
+        }
+
+        if let Some(connect_timeout) = self.connect_timeout {
+            builder = builder.connect_timeout(connect_timeout);
+        }
+
+        if !self.default_headers.is_empty() {
+            builder = builder.default_headers(self.default_headers);
+        }
+
+        if self.secure {
             builder = builder
                 .dns_resolver(Arc::new(PublicIPv4Resolver {}))
                 .redirect(Policy::custom(|attempt| {
@@ -53,10 +87,32 @@ impl InternalClient {
                 }));
         }
 
-        Ok(Self {
+        Ok(InternalClient {
             inner: builder.build()?,
-            secure,
+            secure: self.secure,
         })
+    }
+}
+
+/// A wrapper around reqwest::Client that optionally validates URLs to prevent SSRF attacks.
+///
+/// When `secure` is true:
+/// - Blocks requests to raw private/internal IP addresses
+/// - Blocks DNS resolution to private/internal IP addresses
+/// - Blocks redirects to raw private/internal IP addresses
+#[derive(Clone)]
+pub struct InternalClient {
+    inner: reqwest::Client,
+    secure: bool,
+}
+
+impl InternalClient {
+    pub fn new(secure: bool) -> Result<Self, ClientError> {
+        InternalClientBuilder::new(secure).build()
+    }
+
+    pub fn builder(secure: bool) -> InternalClientBuilder {
+        InternalClientBuilder::new(secure)
     }
 
     fn validate_url(&self, url: &str) -> Result<(), ClientError> {
@@ -112,8 +168,10 @@ impl InternalClient {
     pub fn execute(
         &self,
         request: reqwest::Request,
-    ) -> Result<impl std::future::Future<Output = Result<reqwest::Response, reqwest::Error>>, ClientError>
-    {
+    ) -> Result<
+        impl std::future::Future<Output = Result<reqwest::Response, reqwest::Error>>,
+        ClientError,
+    > {
         self.validate_url(request.url().as_str())?;
         Ok(self.inner.execute(request))
     }
@@ -143,7 +201,11 @@ mod tests {
     #[tokio::test]
     async fn secure_client_blocks_localhost_hostname() {
         let client = InternalClient::new(true).expect("failed to build client");
-        let result = client.get("http://localhost:9999/test").unwrap().send().await;
+        let result = client
+            .get("http://localhost:9999/test")
+            .unwrap()
+            .send()
+            .await;
 
         assert!(result.is_err());
         let err_str = format!("{:?}", result.unwrap_err());

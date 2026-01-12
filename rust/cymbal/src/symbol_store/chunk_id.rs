@@ -206,7 +206,7 @@ mod test {
     use common_types::ClickHouseEvent;
     use mockall::predicate;
     use posthog_symbol_data::write_symbol_data;
-    use common_dns::reqwest::Url;
+    use common_dns::Url;
     use sqlx::PgPool;
     use uuid::Uuid;
 

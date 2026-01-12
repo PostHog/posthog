@@ -1,9 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use axum::async_trait;
 use base64::Engine;
 use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
-use common_dns::reqwest::Url;
+use common_dns::Url;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
 
@@ -19,7 +19,7 @@ use crate::{
 use super::{Fetcher, Parser};
 
 pub struct SourcemapProvider {
-    pub client: common_dns::reqwest::Client,
+    pub client: common_dns::InternalClient,
 }
 
 // Sigh. Later we can be smarter here to only do the parse once, but it involves
@@ -57,17 +57,17 @@ impl SourcemapProvider {
     pub fn new(config: &Config) -> Self {
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
         let connect_timeout = Duration::from_secs(config.sourcemap_connect_timeout_seconds);
-        let mut client = common_dns::reqwest::Client::builder()
-            .timeout(timeout)
-            .connect_timeout(connect_timeout);
-
-        if !config.allow_internal_ips {
-            client = client.dns_resolver(Arc::new(common_dns::PublicIPv4Resolver {}));
-        } else {
+        
+        if config.allow_internal_ips {
             warn!("Internal IPs are allowed, this is a security risk");
         }
 
-        let client = client.build().unwrap();
+        // Secure mode blocks internal IPs
+        let client = common_dns::InternalClient::builder(!config.allow_internal_ips)
+            .timeout(timeout)
+            .connect_timeout(connect_timeout)
+            .build()
+            .unwrap();
 
         Self { client }
     }
@@ -135,7 +135,7 @@ impl Parser for SourcemapProvider {
 }
 
 async fn find_sourcemap_url(
-    client: &common_dns::reqwest::Client,
+    client: &common_dns::InternalClient,
     start: Url,
 ) -> Result<(SourceMappingUrl, String), ResolveError> {
     info!("Fetching script source from {}", start);
@@ -143,7 +143,7 @@ async fn find_sourcemap_url(
     // If this request fails, we cannot resolve the frame, and hand this error to the frames
     // failure-case handling.
     let res = client
-        .get(start.clone())
+        .get(start.as_str())?
         .send()
         .await
         .map_err(JsResolveErr::from)?;
@@ -232,9 +232,11 @@ async fn find_sourcemap_url(
     // the start URL, with `.map` appended. We don't actually fetch the body here, just see if the URL resolves to a 200
     let mut test_url = start; // Move the `start` into `test_url`, since we don't need it anymore, making it mutable
     test_url.set_path(&(test_url.path().to_owned() + ".map"));
-    if let Ok(res) = client.head(test_url.clone()).send().await {
-        if res.status().is_success() {
-            return Ok((res.url().clone().into(), body));
+    if let Ok(request) = client.head(test_url.as_str()) {
+        if let Ok(res) = request.send().await {
+            if res.status().is_success() {
+                return Ok((res.url().clone().into(), body));
+            }
         }
     }
 
@@ -244,9 +246,9 @@ async fn find_sourcemap_url(
     Err(JsResolveErr::NoSourcemap(final_url.to_string()).into())
 }
 
-async fn fetch_source_map(client: &common_dns::reqwest::Client, url: Url) -> Result<String, ResolveError> {
+async fn fetch_source_map(client: &common_dns::InternalClient, url: Url) -> Result<String, ResolveError> {
     metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
-    let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
+    let res = client.get(url.as_str())?.send().await.map_err(JsResolveErr::from)?;
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
     let sourcemap = res.text().await.map_err(JsResolveErr::from)?;
     Ok(sourcemap)
@@ -389,7 +391,7 @@ mod test {
             then.status(200).body(MINIFIED);
         });
 
-        let client = common_dns::reqwest::Client::new();
+        let client = common_dns::InternalClient::new(false).unwrap();
         let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
         let (res, _) = find_sourcemap_url(&client, url).await.unwrap();
 
@@ -477,7 +479,7 @@ mod test {
             then.status(200).body(data_url_example);
         });
 
-        let client = common_dns::reqwest::Client::new();
+        let client = common_dns::InternalClient::new(false).unwrap();
         let url = server
             .url("/static/inline_sourcemap_example.js")
             .parse()

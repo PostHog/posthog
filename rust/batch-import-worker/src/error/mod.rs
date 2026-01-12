@@ -41,7 +41,7 @@ pub fn get_user_message(error: &anyhow::Error) -> String {
 pub struct RateLimitedError {
     pub retry_after: Option<Duration>,
     #[source]
-    pub source: common_dns::reqwest::Error,
+    pub source: common_dns::RequestError,
 }
 
 /// Extracts a Retry-After duration if a RateLimitedError is present in the error chain
@@ -67,7 +67,7 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
         return true;
     }
 
-    if let Some(reqwest_err) = error.downcast_ref::<common_dns::reqwest::Error>() {
+    if let Some(reqwest_err) = error.downcast_ref::<common_dns::RequestError>() {
         if reqwest_err.status().is_some_and(|s| s.as_u16() == 429) {
             return true;
         }
@@ -75,7 +75,7 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
 
     let mut source = error.source();
     while let Some(err) = source {
-        if let Some(reqwest_err) = err.downcast_ref::<common_dns::reqwest::Error>() {
+        if let Some(reqwest_err) = err.downcast_ref::<common_dns::RequestError>() {
             if reqwest_err.status().is_some_and(|s| s.as_u16() == 429) {
                 return true;
             }
@@ -89,7 +89,7 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
 mod tests {
     use super::*;
     use anyhow::anyhow;
-    use common_dns::reqwest::Client;
+    use common_dns::InternalClient;
     use httpmock::MockServer;
 
     #[test]
@@ -191,8 +191,8 @@ mod tests {
             then.status(429);
         });
 
-        let client = Client::new();
-        let resp = client.get(server.url("/rl")).send().await.unwrap();
+        let client = InternalClient::new(false).unwrap();
+        let resp = client.get(&server.url("/rl")).unwrap().send().await.unwrap();
         let http_err = resp.error_for_status().unwrap_err();
         let err = anyhow::Error::from(http_err);
         assert!(is_rate_limited_error(&err));
@@ -206,8 +206,8 @@ mod tests {
             then.status(500);
         });
 
-        let client = Client::new();
-        let resp = client.get(server.url("/err")).send().await.unwrap();
+        let client = InternalClient::new(false).unwrap();
+        let resp = client.get(&server.url("/err")).unwrap().send().await.unwrap();
         let http_err = resp.error_for_status().unwrap_err();
         let err = anyhow::Error::from(http_err);
         assert!(!is_rate_limited_error(&err));

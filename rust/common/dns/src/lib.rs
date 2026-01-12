@@ -8,10 +8,18 @@ use tokio::task::spawn_blocking;
 
 mod client;
 
-pub use client::{ClientError, InternalClient};
+pub use client::{ClientError, InternalClient, InternalClientBuilder};
 
-// Re-export reqwest types for convenience
-pub use reqwest::{self, Method, Request, RequestBuilder, Response};
+// Re-export reqwest types that callers need to work with responses and requests
+pub use reqwest::header;
+pub use reqwest::Body;
+pub use reqwest::Error as RequestError;
+pub use reqwest::Method;
+pub use reqwest::Request;
+pub use reqwest::RequestBuilder;
+pub use reqwest::Response;
+pub use reqwest::StatusCode;
+pub use reqwest::Url;
 
 pub struct NoPublicIPv4Error;
 

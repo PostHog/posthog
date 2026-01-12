@@ -1,15 +1,15 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use anyhow::Error;
 use async_trait::async_trait;
-use common_dns::reqwest::Client;
+use common_dns::InternalClient;
 use tracing::warn;
 
 use super::DataSource;
 
 pub struct UrlList {
     pub urls: Vec<String>,
-    pub client: Client,
+    pub client: InternalClient,
     pub retries: usize,
 }
 
@@ -21,15 +21,10 @@ impl UrlList {
         retries: usize,
         validate_urls: bool,
     ) -> Result<Self, Error> {
-        let resolver = Arc::new(common_dns::PublicIPv4Resolver {});
-
-        let mut client = Client::builder().timeout(timeout);
-
-        if !allow_internal_ips {
-            client = client.dns_resolver(resolver);
-        }
-
-        let client = client.build()?;
+        // Use secure mode when internal IPs should be blocked
+        let client = InternalClient::builder(!allow_internal_ips)
+            .timeout(timeout)
+            .build()?;
 
         let source = Self {
             urls,
@@ -51,7 +46,7 @@ impl UrlList {
     async fn assert_valid_url(&self, url: &str) -> Result<(), Error> {
         let response = self
             .client
-            .head(url)
+            .head(url)?
             .send()
             .await?
             .error_for_status()
@@ -92,7 +87,7 @@ impl UrlList {
 
         let response = self
             .client
-            .get(key)
+            .get(key)?
             .header("Range", format!("bytes={}-{}", offset, offset + size - 1))
             .send()
             .await?
@@ -119,7 +114,7 @@ impl DataSource for UrlList {
 
         // For some reason calling `content_length()` doesn't work properly here, so we don't do that
         self.client
-            .head(key)
+            .head(key)?
             .send()
             .await?
             .headers()

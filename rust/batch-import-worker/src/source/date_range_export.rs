@@ -4,8 +4,7 @@ use crate::extractor::{ExtractedPartData, PartExtractor};
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use common_dns::reqwest::header::HeaderMap;
-use common_dns::reqwest::{Client, Error as ReqwestError};
+use common_dns::{header, InternalClient, RequestError as ReqwestError};
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tempfile::TempDir;
 use tokio::{
@@ -43,8 +42,8 @@ fn extract_client_request_error(error: &ReqwestError) -> String {
 }
 
 // Parse Retry-After header per RFC7231: either delta-seconds or HTTP-date
-pub(crate) fn parse_retry_after_header(headers: &HeaderMap) -> Option<Duration> {
-    let value = headers.get(common_dns::reqwest::header::RETRY_AFTER)?;
+pub(crate) fn parse_retry_after_header(headers: &header::HeaderMap) -> Option<Duration> {
+    let value = headers.get(header::RETRY_AFTER)?;
     let s = value.to_str().ok()?;
 
     if let Ok(seconds) = s.trim().parse::<u64>() {
@@ -161,7 +160,8 @@ impl DateRangeExportSourceBuilder {
             current = next;
         }
 
-        let client = Client::builder()
+        // TODO: Consider making secure mode configurable
+        let client = InternalClient::builder(false)
             .timeout(self.timeout)
             .build()
             .map_err(|e| Error::msg(e.to_string()))?;
@@ -187,7 +187,7 @@ impl DateRangeExportSourceBuilder {
 pub struct DateRangeExportSource {
     pub base_url: String,
     pub intervals: Vec<(DateTime<Utc>, DateTime<Utc>)>,
-    pub client: Client,
+    pub client: InternalClient,
     pub retries: usize,
     pub retry_delay: Duration,
     pub extractor: Arc<dyn PartExtractor>,
@@ -312,7 +312,7 @@ impl DateRangeExportSource {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<ExtractedPartData, Error> {
-        let mut request = self.client.get(&self.base_url).query(&[
+        let mut request = self.client.get(&self.base_url)?.query(&[
             (&self.start_qp, start.format(&self.date_format).to_string()),
             (&self.end_qp, end.format(&self.date_format).to_string()),
         ]);
@@ -327,11 +327,11 @@ impl DateRangeExportSource {
             AuthConfig::MixpanelAuth { secret_key } => request.basic_auth(secret_key, None::<&str>),
         };
 
-        let mut headers = common_dns::reqwest::header::HeaderMap::new();
+        let mut headers = header::HeaderMap::new();
         for (key, value) in &self.headers {
             if let (Ok(header_name), Ok(header_value)) = (
-                common_dns::reqwest::header::HeaderName::from_bytes(key.as_bytes()),
-                common_dns::reqwest::header::HeaderValue::from_str(value),
+                header::HeaderName::from_bytes(key.as_bytes()),
+                header::HeaderValue::from_str(value),
             ) {
                 headers.insert(header_name, header_value);
             }
@@ -681,10 +681,10 @@ mod tests {
     #[tokio::test]
     async fn test_parse_retry_after_seconds() {
         // delta-seconds parse
-        let mut headers = common_dns::reqwest::header::HeaderMap::new();
+        let mut headers = header::HeaderMap::new();
         headers.insert(
-            common_dns::reqwest::header::RETRY_AFTER,
-            common_dns::reqwest::header::HeaderValue::from_static("120"),
+            header::RETRY_AFTER,
+            header::HeaderValue::from_static("120"),
         );
         let d = super::parse_retry_after_header(&headers).unwrap();
         assert_eq!(d.as_secs(), 120);
@@ -696,10 +696,10 @@ mod tests {
         let future = httpdate::fmt_http_date(
             std::time::SystemTime::now() + std::time::Duration::from_secs(90),
         );
-        let mut headers = common_dns::reqwest::header::HeaderMap::new();
+        let mut headers = header::HeaderMap::new();
         headers.insert(
-            common_dns::reqwest::header::RETRY_AFTER,
-            common_dns::reqwest::header::HeaderValue::from_str(&future).unwrap(),
+            header::RETRY_AFTER,
+            header::HeaderValue::from_str(&future).unwrap(),
         );
         let d = super::parse_retry_after_header(&headers).unwrap();
         assert!(d.as_secs() <= 90 && d.as_secs() > 0);
