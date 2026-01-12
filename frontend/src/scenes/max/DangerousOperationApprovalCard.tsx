@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ApprovalCardUIStatus, DangerousOperationResponse } from '~/queries/schema/schema-assistant-messages'
 
@@ -14,6 +14,44 @@ interface DangerousOperationApprovalCardProps {
     onResolved?: (approved: boolean) => void
 }
 
+function CompactStatusDisplay({
+    status,
+    isSharedThread,
+}: {
+    status: 'approved' | 'rejected' | 'auto_rejected'
+    isSharedThread: boolean
+}): JSX.Element {
+    const isApproved = status === 'approved'
+    const subject = isSharedThread ? 'User' : 'You'
+    const text = isApproved
+        ? `${subject} approved and executed this`
+        : status === 'auto_rejected'
+          ? `Skipped based on ${isSharedThread ? 'user' : 'your'} feedback`
+          : `${subject} declined this operation`
+
+    return (
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 text-xs">
+            <div className="transition-all duration-500 flex select-none text-default">
+                <div className="flex items-center justify-center size-5">
+                    <span className="inline-flex">
+                        <IconWarning />
+                    </span>
+                </div>
+                <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
+                    <div>
+                        <span className="inline-flex">{text}</span>
+                    </div>
+                    {isApproved ? (
+                        <IconCheck className="text-success size-3" />
+                    ) : (
+                        <IconX className="text-danger size-3" />
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export function DangerousOperationApprovalCard({
     operation,
     onResolved,
@@ -23,7 +61,7 @@ export function DangerousOperationApprovalCard({
 
     // Use maxThreadLogic without explicit key to connect to the already-mounted instance
     // This ensures we receive the same state updates as the parent Thread component
-    const { effectiveApprovalStatuses } = useValues(maxThreadLogic)
+    const { effectiveApprovalStatuses, isSharedThread } = useValues(maxThreadLogic)
     const { continueAfterApproval, continueAfterRejection } = useActions(maxThreadLogic)
 
     const resolvedStatus = effectiveApprovalStatuses[operation.proposalId]
@@ -56,27 +94,32 @@ export function DangerousOperationApprovalCard({
         onResolved?.(false)
     }
 
+    // Show compact display for resolved statuses
+    if (displayStatus === 'approved' || displayStatus === 'rejected' || displayStatus === 'auto_rejected') {
+        return <CompactStatusDisplay status={displayStatus} isSharedThread={isSharedThread} />
+    }
+
     return (
-        <MessageTemplate type="ai" boxClassName="border-warning p-0 overflow-hidden">
-            <div className="bg-warning-highlight px-4 py-2 border-b border-warning flex items-center gap-2">
-                <IconWarning className="text-warning size-4" />
-                <span className="font-medium text-sm">Approval required</span>
+        <MessageTemplate type="ai" boxClassName="border-warning p-0 overflow-hidden text-xs">
+            <div className="bg-warning-highlight p-2 border-b border-warning flex items-center gap-2">
+                <IconWarning className="text-warning size-3" />
+                <span className="font-medium">Approval required</span>
             </div>
 
-            <div className="p-4">
-                <p className="text-sm text-secondary mb-3">This operation will make the following changes:</p>
-                <pre className="text-sm bg-bg-light p-3 rounded whitespace-pre-wrap font-mono m-0">
-                    {operation.preview}
-                </pre>
+            <div className="p-2 pb-0">
+                <p className="text-secondary mb-3">This operation will make the following changes:</p>
+                <pre className="bg-bg-light rounded whitespace-pre-wrap font-mono m-0">{operation.preview}</pre>
             </div>
 
-            <div className="px-4 py-3 bg-bg-light border-t flex items-center justify-between">
+            <LemonDivider />
+
+            <div className="p-2 pt-0 flex items-center justify-between">
                 {displayStatus === 'pending' && (
                     <>
-                        <span className="text-xs text-muted">Review the changes above before approving</span>
+                        <span className="text-muted">Review the changes above before approving</span>
                         <div className="flex gap-2">
                             <LemonButton
-                                size="small"
+                                size="xsmall"
                                 type="secondary"
                                 status="danger"
                                 icon={<IconX />}
@@ -84,47 +127,18 @@ export function DangerousOperationApprovalCard({
                             >
                                 Reject
                             </LemonButton>
-                            <LemonButton size="small" type="primary" icon={<IconCheck />} onClick={handleApprove}>
+                            <LemonButton size="xsmall" type="primary" icon={<IconCheck />} onClick={handleApprove}>
                                 Approve
                             </LemonButton>
                         </div>
                     </>
                 )}
 
-                {displayStatus === 'approving' && (
+                {(displayStatus === 'rejecting' || displayStatus === 'approving') && (
                     <div className="flex items-center gap-2 text-muted ml-auto">
-                        <LemonButton size="small" type="primary" loading>
-                            Applying...
+                        <LemonButton size="xsmall" type="primary" loading>
+                            {displayStatus === 'rejecting' ? 'Rejecting...' : 'Approving...'}
                         </LemonButton>
-                    </div>
-                )}
-
-                {displayStatus === 'approved' && (
-                    <div className="flex items-center gap-2 text-success ml-auto">
-                        <IconCheck className="size-4" />
-                        <span className="text-sm font-medium">Changes applied</span>
-                    </div>
-                )}
-
-                {displayStatus === 'rejecting' && (
-                    <div className="flex items-center gap-2 text-muted ml-auto">
-                        <LemonButton size="small" type="secondary" loading>
-                            Rejecting...
-                        </LemonButton>
-                    </div>
-                )}
-
-                {displayStatus === 'rejected' && (
-                    <div className="flex items-center gap-2 text-muted ml-auto">
-                        <IconX className="size-4" />
-                        <span className="text-sm">Rejected</span>
-                    </div>
-                )}
-
-                {displayStatus === 'auto_rejected' && (
-                    <div className="flex items-center gap-2 text-muted ml-auto">
-                        <IconX className="size-4" />
-                        <span className="text-sm">Rejected (with feedback)</span>
                     </div>
                 )}
             </div>
