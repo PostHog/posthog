@@ -10,8 +10,11 @@ from ee.models.scim_provisioned_user import SCIMProvisionedUser
 from .auth import generate_scim_token
 
 PII_FIELDS = {"userName", "displayName", "givenName", "familyName", "value", "display", "formatted"}
-EMAIL_PATTERN = re.compile(r"^[^@]+@[^@]+\.[^@]+$")
 FILTER_QUOTED_VALUE = re.compile(r'"([^"]*)"')
+
+
+def _looks_like_email(value: str) -> bool:
+    return "@" in value and "." in value.rpartition("@")[2]
 
 
 def mask_string(value: str) -> str:
@@ -33,7 +36,7 @@ def mask_pii_value(value: Any) -> Any:
     """Mask a single PII value"""
     if not isinstance(value, str) or not value:
         return value
-    if EMAIL_PATTERN.match(value):
+    if _looks_like_email(value):
         return mask_email(value)
     return mask_string(value)
 
