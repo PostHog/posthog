@@ -559,7 +559,7 @@ class TestUserTwoFactorSessionIntegration(TestCase):
 
         for i in range(3):
             response = client.post("/api/login/token/", {"token": "123456"})
-            self.assertEqual(response.status_code, 400, f"Request {i+1} should not be throttled")
+            self.assertEqual(response.status_code, 400, f"Request {i + 1} should not be throttled")
 
         response = client.post("/api/login/token/", {"token": "123456"})
         self.assertEqual(response.status_code, 429)

@@ -1155,7 +1155,7 @@ def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], has
 
                     insert_query = f"""
                         INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                        VALUES {', '.join(values_placeholders)}
+                        VALUES {", ".join(values_placeholders)}
                         ON CONFLICT DO NOTHING
                     """
                     cursor.execute(insert_query, params)

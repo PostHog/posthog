@@ -28,7 +28,7 @@ class TestTeamMetadataCache(BaseTest):
     def test_get_and_update_team_metadata(self, mock_hypercache):
         """Test basic cache read and write operations."""
         # Mock the cache to return metadata
-        mock_metadata: dict[str, Any] = {field: None for field in TEAM_METADATA_FIELDS}
+        mock_metadata: dict[str, Any] = dict.fromkeys(TEAM_METADATA_FIELDS)
         mock_metadata.update({"id": self.team.id, "name": self.team.name})
         mock_hypercache.get_from_cache.return_value = mock_metadata
         mock_hypercache.update_cache.return_value = True
