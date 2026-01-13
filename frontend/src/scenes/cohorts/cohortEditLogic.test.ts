@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import {
@@ -870,14 +871,21 @@ describe('cohortEditLogic', () => {
                 name: 'Static Cohort (static copy)',
             }
 
-            jest.spyOn(api.cohorts, 'duplicate').mockResolvedValue(duplicatedCohort)
+            jest.spyOn(api, 'create').mockResolvedValue(duplicatedCohort)
 
             await expectLogic(logic, () => {
                 logic.actions.setCohort(staticCohort)
                 logic.actions.duplicateCohort(true)
             }).toFinishAllListeners()
 
-            expect(api.cohorts.duplicate).toHaveBeenCalledWith(1)
+            expect(api.create).toHaveBeenCalledWith('api/cohort', {
+                is_static: true,
+                name: 'Static Cohort (static copy)',
+                query: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT person_id FROM static_cohort_people WHERE cohort_id = 1',
+                },
+            })
         })
 
         it('duplicate dynamic cohort as static', async () => {
@@ -897,14 +905,21 @@ describe('cohortEditLogic', () => {
                 is_static: true,
             }
 
-            jest.spyOn(api.cohorts, 'duplicate').mockResolvedValue(duplicatedCohort)
+            jest.spyOn(api, 'create').mockResolvedValue(duplicatedCohort)
 
             await expectLogic(logic, () => {
                 logic.actions.setCohort(dynamicCohort)
                 logic.actions.duplicateCohort(true)
             }).toFinishAllListeners()
 
-            expect(api.cohorts.duplicate).toHaveBeenCalledWith(1)
+            expect(api.create).toHaveBeenCalledWith('api/cohort', {
+                is_static: true,
+                name: 'Dynamic Cohort (static copy)',
+                query: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT person_id FROM cohort_people WHERE cohort_id = 1',
+                },
+            })
         })
 
         it('duplicate dynamic cohort as dynamic', async () => {

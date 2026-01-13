@@ -159,7 +159,7 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         # ArtifactRefMessage must always be enriched with content, regardless of nesting level
         if isinstance(message, ArtifactRefMessage):
             try:
-                enriched_message = await self._artifact_manager.aget_enriched_message(message)
+                enriched_message = await self._artifact_manager.aenrich_message(message)
             except (ValueError, KeyError) as e:
                 logger.warning("Failed to enrich ArtifactMessage", error=str(e), artifact_id=message.artifact_id)
                 enriched_message = None

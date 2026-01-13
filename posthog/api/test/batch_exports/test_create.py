@@ -698,6 +698,40 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
         assert response.json()["detail"] == expected_error_message
 
 
+def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, temporal, organization, team, user):
+    """Test creating a BatchExport with S3 destination validates that expected inputs are not empty."""
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "events/",
+            "aws_access_key_id": "",
+            "aws_secret_access_key": "",
+            "file_format": "JSONLines",
+            "compression": "gzip",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-s3-bucket",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "The following inputs are empty: ['aws_access_key_id', 'aws_secret_access_key']"
+
+
 @pytest.mark.parametrize(
     "type,config,expected_error_message",
     [
@@ -1071,6 +1105,102 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == "Integration is not a Databricks integration."
+
+
+def test_creating_azure_blob_batch_export_fails_if_feature_flag_is_not_enabled(
+    client: HttpClient,
+    team,
+    user,
+):
+    """Test that creating an Azure Blob batch export fails if the feature flag is not enabled."""
+    destination_data = {
+        "type": "AzureBlob",
+        "config": {
+            "container_name": "test-container",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-azure-blob-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        return_value=False,
+    ):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+    assert "Azure Blob Storage batch exports are not enabled for this team." in response.json()["detail"]
+
+
+@pytest.fixture
+def azure_blob_integration(team, user):
+    """Create an Azure Blob integration."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.AZURE_BLOB,
+        integration_id="my-storage-account",
+        config={},
+        sensitive_config={
+            "connection_string": "DefaultEndpointsProtocol=https;AccountName=my-storage-account;AccountKey=my-key;EndpointSuffix=core.windows.net"
+        },
+        created_by=user,
+    )
+
+
+def test_creating_azure_blob_batch_export_using_integration(
+    client: HttpClient, temporal, organization, team, user, azure_blob_integration
+):
+    """Test that we can create an Azure Blob batch export using an integration."""
+    destination_data = {
+        "type": "AzureBlob",
+        "config": {
+            "container_name": "test-container",
+            "prefix": "test-prefix/",
+        },
+        "integration": azure_blob_integration.id,
+    }
+
+    batch_export_data = {
+        "name": "my-azure-blob-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        return_value=True,
+    ):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    data = response.json()
+    assert data["destination"]["type"] == "AzureBlob"
+    assert data["destination"]["config"]["container_name"] == "test-container"
+    assert data["destination"]["config"]["prefix"] == "test-prefix/"
+    assert data["interval"] == "hour"
+
+    temporal_schedule = describe_schedule(temporal, data["id"])
+    assert temporal_schedule is not None
+    assert temporal_schedule.schedule is not None
+    assert isinstance(temporal_schedule.schedule.action, ScheduleActionStartWorkflow)
+    assert temporal_schedule.schedule.action.workflow == "azure-blob-export"
 
 
 @pytest.mark.parametrize(

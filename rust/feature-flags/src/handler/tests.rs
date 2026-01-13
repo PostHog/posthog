@@ -21,7 +21,7 @@ use crate::{
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     utils::test_utils::{
         insert_flags_for_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
-        setup_pg_writer_client, setup_redis_client, TestContext,
+        setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader, TestContext,
     },
 };
 use axum::http::HeaderMap;
@@ -190,6 +190,7 @@ async fn test_evaluate_feature_flags() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -280,6 +281,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -683,6 +685,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -786,6 +789,7 @@ async fn test_evaluate_feature_flags_details() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -939,6 +943,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         groups: Some(groups),
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1029,6 +1034,7 @@ async fn test_long_distinct_id() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        optimize_experience_continuity_lookups: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1155,11 +1161,12 @@ fn test_decode_request_content_types() {
 async fn test_fetch_and_filter_flags() {
     let redis_client = setup_redis_client(None).await;
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
     let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
     let flag_service = FlagService::new(
         redis_client.clone(),
         reader.clone(),
-        432000, // team_cache_ttl_seconds
+        team_hypercache_reader,
         hypercache_reader,
     );
     let context = TestContext::new(None).await;

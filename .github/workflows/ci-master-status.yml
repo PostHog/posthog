@@ -69,7 +69,10 @@ jobs:
                         ref: sha
                       });
                       core.setOutput('short_sha', sha.substring(0, 7));
-                      core.setOutput('message', commit.commit.message.split('\n')[0].substring(0, 50));
+                      const message = commit.commit.message.split('\n')[0].substring(0, 50);
+                      // Escape quotes and backslashes for YAML
+                      const escapedMessage = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                      core.setOutput('message', escapedMessage);
                       core.setOutput('author', commit.author?.login || commit.commit.author.name);
                       core.setOutput('url', commit.html_url);
 
@@ -230,6 +233,20 @@ jobs:
             # ============ CACHE ============
             # Use unique keys to avoid race conditions where concurrent runs
             # delete the cache before saving (see logs showing "Cache not found")
+
+            - name: Delete old caches on new incident
+              if: steps.process.outputs.delete_old_caches == 'true'
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Delete ALL old incident caches to prevent divergent cache branches
+                  # This ensures the new incident cache becomes the single source of truth
+                  echo "Deleting old incident caches..."
+                  gh cache list --key master-ci-incident- --json id,key -q '.[] | "\(.id) \(.key)"' | while read id key; do
+                    echo "Deleting cache: $key"
+                    gh cache delete "$id" || true
+                  done
 
             - name: Save incident to cache
               if: steps.process.outputs.save_cache == 'true'

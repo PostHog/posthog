@@ -286,7 +286,12 @@ export function Login(): JSX.Element {
                     </div>
                 )}
                 {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                    <SocialLoginButtons caption="Or log in with" topDivider lastUsedProvider={lastLoginMethod} />
+                    <SocialLoginButtons
+                        caption="Or log in with"
+                        topDivider
+                        lastUsedProvider={lastLoginMethod}
+                        showPasskey
+                    />
                 )}
             </div>
         </BridgePage>

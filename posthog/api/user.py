@@ -81,6 +81,8 @@ from posthog.user_permissions import UserPermissions
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
+NUM_2FA_BACKUP_CODES = 10
+
 logger = structlog.get_logger(__name__)
 
 
@@ -353,6 +355,7 @@ class UserSerializer(serializers.ModelSerializer):
         instance = cast(User, super().update(instance, validated_data))
 
         if password:
+            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated in validate_password_change above)
             instance.set_password(password)
             instance.save()
             update_session_auth_hash(self.context["request"], instance)
@@ -683,7 +686,7 @@ class UserViewSet(
 
         # Generate new backup codes
         backup_codes = []
-        for _ in range(5):  # Generate 5 backup codes
+        for _ in range(NUM_2FA_BACKUP_CODES):
             token = StaticToken.random_token()
             static_device.token_set.create(token=token)
             backup_codes.append(token)

@@ -7,6 +7,67 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const RoleAtOrganizationEnumApi = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const NullEnumApi = {} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+}
 
 /**
  * * `default` - Default
@@ -24,11 +85,21 @@ export const CreationModeEnumApi = {
     unlisted: 'unlisted',
 } as const
 
+/**
+ * * `21` - Everyone in the project can edit
+ * `37` - Only those invited to this dashboard can edit
+ */
+export type DashboardRestrictionLevelApi =
+    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
+
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardRestrictionLevelApi = {
     NUMBER_21: 21,
     NUMBER_37: 37,
 } as const
+
+export type EffectiveRestrictionLevelEnumApi =
+    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EffectiveRestrictionLevelEnumApi = {
@@ -36,11 +107,218 @@ export const EffectiveRestrictionLevelEnumApi = {
     NUMBER_37: 37,
 } as const
 
+export type EffectivePrivilegeLevelEnumApi =
+    (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
+
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EffectivePrivilegeLevelEnumApi = {
     NUMBER_21: 21,
     NUMBER_37: 37,
 } as const
+
+/**
+ * Serializer mixin that resolves appropriate response for tags depending on license.
+ */
+export interface DashboardBasicApi {
+    readonly id: number
+    /** @nullable */
+    readonly name: string | null
+    readonly description: string
+    readonly pinned: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly last_accessed_at: string | null
+    /** @nullable */
+    readonly last_viewed_at: string | null
+    readonly is_shared: boolean
+    readonly deleted: boolean
+    readonly creation_mode: CreationModeEnumApi
+    tags?: unknown[]
+    readonly restriction_level: DashboardRestrictionLevelApi
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    readonly access_control_version: string
+    /** @nullable */
+    readonly last_refresh: string | null
+    readonly team_id: number
+}
+
+export interface PaginatedDashboardBasicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardBasicApi[]
+}
+
+export type DashboardApiFilters = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type DashboardApiVariables = { [key: string]: unknown } | null | null
+
+/**
+ * @nullable
+ */
+export type DashboardApiPersistedFilters = { [key: string]: unknown } | null | null
+
+/**
+ * @nullable
+ */
+export type DashboardApiPersistedVariables = { [key: string]: unknown } | null | null
+
+export type DashboardApiTilesItem = { [key: string]: unknown }
+
+/**
+ * Serializer mixin that resolves appropriate response for tags depending on license.
+ */
+export interface DashboardApi {
+    readonly id: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    last_accessed_at?: string | null
+    /** @nullable */
+    readonly last_viewed_at: string | null
+    readonly is_shared: boolean
+    deleted?: boolean
+    readonly creation_mode: CreationModeEnumApi
+    readonly filters: DashboardApiFilters
+    /** @nullable */
+    readonly variables: DashboardApiVariables
+    breakdown_colors?: unknown
+    /** @nullable */
+    data_color_theme_id?: number | null
+    tags?: unknown[]
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    restriction_level?: DashboardRestrictionLevelApi
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    readonly access_control_version: string
+    /** @nullable */
+    last_refresh?: string | null
+    /** @nullable */
+    readonly persisted_filters: DashboardApiPersistedFilters
+    /** @nullable */
+    readonly persisted_variables: DashboardApiPersistedVariables
+    readonly team_id: number
+    /** @nullable */
+    readonly tiles: readonly DashboardApiTilesItem[] | null
+    use_template?: string
+    /** @nullable */
+    use_dashboard?: number | null
+    delete_insights?: boolean
+    _create_in_folder?: string
+}
+
+export interface SharingConfigurationApi {
+    readonly created_at: string
+    enabled?: boolean
+    /** @nullable */
+    readonly access_token: string | null
+    settings?: unknown
+    password_required?: boolean
+    readonly share_passwords: string
+}
+
+export type PatchedDashboardApiFilters = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type PatchedDashboardApiVariables = { [key: string]: unknown } | null | null
+
+/**
+ * @nullable
+ */
+export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null | null
+
+/**
+ * @nullable
+ */
+export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null | null
+
+export type PatchedDashboardApiTilesItem = { [key: string]: unknown }
+
+/**
+ * Serializer mixin that resolves appropriate response for tags depending on license.
+ */
+export interface PatchedDashboardApi {
+    readonly id?: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    pinned?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /** @nullable */
+    last_accessed_at?: string | null
+    /** @nullable */
+    readonly last_viewed_at?: string | null
+    readonly is_shared?: boolean
+    deleted?: boolean
+    readonly creation_mode?: CreationModeEnumApi
+    readonly filters?: PatchedDashboardApiFilters
+    /** @nullable */
+    readonly variables?: PatchedDashboardApiVariables
+    breakdown_colors?: unknown
+    /** @nullable */
+    data_color_theme_id?: number | null
+    tags?: unknown[]
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    restriction_level?: DashboardRestrictionLevelApi
+    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+    readonly access_control_version?: string
+    /** @nullable */
+    last_refresh?: string | null
+    /** @nullable */
+    readonly persisted_filters?: PatchedDashboardApiPersistedFilters
+    /** @nullable */
+    readonly persisted_variables?: PatchedDashboardApiPersistedVariables
+    readonly team_id?: number
+    /** @nullable */
+    readonly tiles?: readonly PatchedDashboardApiTilesItem[] | null
+    use_template?: string
+    /** @nullable */
+    use_dashboard?: number | null
+    delete_insights?: boolean
+    _create_in_folder?: string
+}
 
 /**
  * * `image/png` - image/png
@@ -68,6 +346,119 @@ export const ExportFormatEnumApi = {
 } as const
 
 /**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    export_format: ExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: string
+    export_context?: unknown
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+}
+
+export interface PaginatedExportedAssetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExportedAssetApi[]
+}
+
+export interface FileSystemApi {
+    readonly id: string
+    path: string
+    /** @nullable */
+    readonly depth: number | null
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    meta?: unknown
+    /** @nullable */
+    shortcut?: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly last_viewed_at: string | null
+}
+
+export interface PaginatedFileSystemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemApi[]
+}
+
+export interface PatchedFileSystemApi {
+    readonly id?: string
+    path?: string
+    /** @nullable */
+    readonly depth?: number | null
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    meta?: unknown
+    /** @nullable */
+    shortcut?: boolean | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly last_viewed_at?: string | null
+}
+
+export interface GroupApi {
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    group_type_index: number
+    /** @maxLength 400 */
+    group_key: string
+    group_properties?: unknown
+    readonly created_at: string
+}
+
+export interface PaginatedGroupListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: GroupApi[]
+}
+
+export interface CreateGroupApi {
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    group_type_index: number
+    /** @maxLength 400 */
+    group_key: string
+    group_properties?: unknown
+}
+
+/**
  * * `slack` - Slack
  * `salesforce` - Salesforce
  * `hubspot` - Hubspot
@@ -90,11 +481,12 @@ export const ExportFormatEnumApi = {
  * `clickup` - Clickup
  * `vercel` - Vercel
  * `databricks` - Databricks
+ * `azure-blob` - Azure Blob
  */
-export type KindEnumApi = (typeof KindEnumApi)[keyof typeof KindEnumApi]
+export type Kind7b5EnumApi = (typeof Kind7b5EnumApi)[keyof typeof Kind7b5EnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const KindEnumApi = {
+export const Kind7b5EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -117,7 +509,30 @@ export const KindEnumApi = {
     clickup: 'clickup',
     vercel: 'vercel',
     databricks: 'databricks',
+    'azure-blob': 'azure-blob',
 } as const
+
+/**
+ * Standard Integration serializer.
+ */
+export interface IntegrationApi {
+    readonly id: number
+    kind: Kind7b5EnumApi
+    config?: unknown
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly errors: string
+    readonly display_name: string
+}
+
+export interface PaginatedIntegrationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: IntegrationApi[]
+}
 
 /**
  * * `email` - Email
@@ -171,6 +586,200 @@ export const ByweekdayEnumApi = {
     sunday: 'sunday',
 } as const
 
+/**
+ * Standard Subscription serializer.
+ */
+export interface SubscriptionApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    target_type: TargetTypeEnumApi
+    target_value: string
+    frequency: FrequencyEnumApi
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    interval?: number
+    /** @nullable */
+    byweekday?: ByweekdayEnumApi[] | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    bysetpos?: number | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+    start_date: string
+    /** @nullable */
+    until_date?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    deleted?: boolean
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    title?: string | null
+    readonly summary: string
+    /** @nullable */
+    readonly next_delivery_date: string | null
+    /** @nullable */
+    invite_message?: string | null
+}
+
+export interface PaginatedSubscriptionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SubscriptionApi[]
+}
+
+/**
+ * Standard Subscription serializer.
+ */
+export interface PatchedSubscriptionApi {
+    readonly id?: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    target_type?: TargetTypeEnumApi
+    target_value?: string
+    frequency?: FrequencyEnumApi
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    interval?: number
+    /** @nullable */
+    byweekday?: ByweekdayEnumApi[] | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    bysetpos?: number | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+    start_date?: string
+    /** @nullable */
+    until_date?: string | null
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    deleted?: boolean
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    title?: string | null
+    readonly summary?: string
+    /** @nullable */
+    readonly next_delivery_date?: string | null
+    /** @nullable */
+    invite_message?: string | null
+}
+
+export interface OrganizationDomainApi {
+    readonly id: string
+    /** @maxLength 128 */
+    domain: string
+    /** Determines whether a domain is verified or not. */
+    readonly is_verified: boolean
+    /** @nullable */
+    readonly verified_at: string | null
+    readonly verification_challenge: string
+    jit_provisioning_enabled?: boolean
+    /** @maxLength 28 */
+    sso_enforcement?: string
+    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
+    readonly has_saml: boolean
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_entity_id?: string | null
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_acs_url?: string | null
+    /** @nullable */
+    saml_x509_cert?: string | null
+    /** Returns whether SCIM is configured and enabled for this domain. */
+    readonly has_scim: boolean
+    scim_enabled?: boolean
+    /** @nullable */
+    readonly scim_base_url: string | null
+    /** @nullable */
+    readonly scim_bearer_token: string | null
+}
+
+export interface PaginatedOrganizationDomainListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationDomainApi[]
+}
+
+export interface PatchedOrganizationDomainApi {
+    readonly id?: string
+    /** @maxLength 128 */
+    domain?: string
+    /** Determines whether a domain is verified or not. */
+    readonly is_verified?: boolean
+    /** @nullable */
+    readonly verified_at?: string | null
+    readonly verification_challenge?: string
+    jit_provisioning_enabled?: boolean
+    /** @maxLength 28 */
+    sso_enforcement?: string
+    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
+    readonly has_saml?: boolean
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_entity_id?: string | null
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_acs_url?: string | null
+    /** @nullable */
+    saml_x509_cert?: string | null
+    /** Returns whether SCIM is configured and enabled for this domain. */
+    readonly has_scim?: boolean
+    scim_enabled?: boolean
+    /** @nullable */
+    readonly scim_base_url?: string | null
+    /** @nullable */
+    readonly scim_bearer_token?: string | null
+}
+
+/**
+ * * `1` - member
+ * `8` - administrator
+ * `15` - owner
+ */
+export type OrganizationMembershipLevelApi =
+    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const OrganizationMembershipLevelApi = {
     NUMBER_1: 1,
@@ -178,12 +787,78 @@ export const OrganizationMembershipLevelApi = {
     NUMBER_15: 15,
 } as const
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EffectiveMembershipLevelEnumApi = {
-    NUMBER_1: 1,
-    NUMBER_8: 8,
-    NUMBER_15: 15,
-} as const
+export interface OrganizationInviteApi {
+    readonly id: string
+    /** @maxLength 254 */
+    target_email: string
+    /** @maxLength 30 */
+    first_name?: string
+    readonly emailing_attempt_made: boolean
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevelApi
+    /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
+    readonly is_expired: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    message?: string | null
+    /** List of team IDs and corresponding access levels to private projects. */
+    private_project_access?: unknown
+    send_email?: boolean
+    combine_pending_invites?: boolean
+}
+
+export interface PaginatedOrganizationInviteListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationInviteApi[]
+}
+
+export interface OrganizationMemberApi {
+    readonly id: string
+    readonly user: UserBasicApi
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevelApi
+    readonly joined_at: string
+    readonly updated_at: string
+    readonly is_2fa_enabled: boolean
+    readonly has_social_auth: boolean
+    readonly last_login: string
+}
+
+export interface PaginatedOrganizationMemberListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationMemberApi[]
+}
+
+export interface PatchedOrganizationMemberApi {
+    readonly id?: string
+    readonly user?: UserBasicApi
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevelApi
+    readonly joined_at?: string
+    readonly updated_at?: string
+    readonly is_2fa_enabled?: boolean
+    readonly has_social_auth?: boolean
+    readonly last_login?: string
+}
 
 /**
  * * `Africa/Abidjan` - Africa/Abidjan
@@ -1386,6 +2061,47 @@ export const TimezoneEnumApi = {
 } as const
 
 /**
+ * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
+passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
+backward compatibility of the REST API.
+Do not use this in greenfield endpoints!
+ */
+export interface ProjectBackwardCompatBasicApi {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: TimezoneEnumApi
+    readonly access_control: boolean
+}
+
+export interface PaginatedProjectBackwardCompatBasicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ProjectBackwardCompatBasicApi[]
+}
+
+export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
+
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const EffectiveMembershipLevelEnumApi = {
+    NUMBER_1: 1,
+    NUMBER_8: 8,
+    NUMBER_15: 15,
+} as const
+
+/**
  * * `0` - Sunday
  * `1` - Monday
  */
@@ -1396,11 +2112,6 @@ export const WeekStartDayEnumApi = {
     NUMBER_0: 0,
     NUMBER_1: 1,
 } as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnumApi = {} as const
 
 /**
  * * `b2b` - B2B
@@ -1416,12 +2127,274 @@ export const BusinessModelEnumApi = {
     other: 'other',
 } as const
 
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+/**
+ * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
+passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
+backward compatibility of the REST API.
+Do not use this in greenfield endpoints!
+ */
+export interface ProjectBackwardCompatApi {
+    readonly id: number
+    readonly organization: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at: string
+    readonly effective_membership_level: EffectiveMembershipLevelEnumApi
+    readonly has_group_types: boolean
+    readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
+    /** @nullable */
+    readonly live_events_token: string | null
+    readonly updated_at: string
+    readonly uuid: string
+    readonly api_token: string
+    app_urls?: (string | null)[]
+    /**
+     * @maxLength 500
+     * @nullable
+     */
+    slack_incoming_webhook?: string | null
+    anonymize_ips?: boolean
+    completed_snippet_onboarding?: boolean
+    readonly ingested_event: boolean
+    test_account_filters?: unknown
+    /** @nullable */
+    test_account_filters_default_checked?: boolean | null
+    path_cleaning_filters?: unknown
+    is_demo?: boolean
+    timezone?: TimezoneEnumApi
+    data_attributes?: unknown
+    /** @nullable */
+    person_display_name_properties?: string[] | null
+    correlation_config?: unknown
+    /** @nullable */
+    autocapture_opt_out?: boolean | null
+    /** @nullable */
+    autocapture_exceptions_opt_in?: boolean | null
+    /** @nullable */
+    autocapture_web_vitals_opt_in?: boolean | null
+    autocapture_web_vitals_allowed_metrics?: unknown
+    autocapture_exceptions_errors_to_ignore?: unknown
+    /** @nullable */
+    capture_console_log_opt_in?: boolean | null
+    /** @nullable */
+    capture_performance_opt_in?: boolean | null
+    session_recording_opt_in?: boolean
+    /**
+     * @nullable
+     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+     */
+    session_recording_sample_rate?: string | null
+    /**
+     * @minimum 0
+     * @maximum 30000
+     * @nullable
+     */
+    session_recording_minimum_duration_milliseconds?: number | null
+    session_recording_linked_flag?: unknown
+    session_recording_network_payload_capture_config?: unknown
+    session_recording_masking_config?: unknown
+    session_replay_config?: unknown
+    survey_config?: unknown
+    access_control?: boolean
+    /**
+     * @minimum -32768
+     * @maximum 32767
+     */
+    week_start_day?: WeekStartDayEnumApi | NullEnumApi
+    /** @nullable */
+    primary_dashboard?: number | null
+    /** @nullable */
+    live_events_columns?: string[] | null
+    /** @nullable */
+    recording_domains?: (string | null)[] | null
+    readonly person_on_events_querying_enabled: string
+    /** @nullable */
+    inject_web_apps?: boolean | null
+    extra_settings?: unknown
+    modifiers?: unknown
+    readonly default_modifiers: string
+    has_completed_onboarding_for?: unknown
+    /** @nullable */
+    surveys_opt_in?: boolean | null
+    /** @nullable */
+    heatmaps_opt_in?: boolean | null
+    readonly product_intents: string
+    /** @nullable */
+    flags_persistence_default?: boolean | null
+    /** @nullable */
+    readonly secret_api_token: string | null
+    /** @nullable */
+    readonly secret_api_token_backup: string | null
+    /** @nullable */
+    receive_org_level_activity_logs?: boolean | null
+    /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnumApi = {
-    '': '',
-} as const
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other */
+    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi
+    /** @nullable */
+    conversations_enabled?: boolean | null
+    conversations_settings?: unknown
+}
+
+export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
+
+/**
+ * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
+passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
+backward compatibility of the REST API.
+Do not use this in greenfield endpoints!
+ */
+export interface PatchedProjectBackwardCompatApi {
+    readonly id?: number
+    readonly organization?: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at?: string
+    readonly effective_membership_level?: EffectiveMembershipLevelEnumApi
+    readonly has_group_types?: boolean
+    readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
+    /** @nullable */
+    readonly live_events_token?: string | null
+    readonly updated_at?: string
+    readonly uuid?: string
+    readonly api_token?: string
+    app_urls?: (string | null)[]
+    /**
+     * @maxLength 500
+     * @nullable
+     */
+    slack_incoming_webhook?: string | null
+    anonymize_ips?: boolean
+    completed_snippet_onboarding?: boolean
+    readonly ingested_event?: boolean
+    test_account_filters?: unknown
+    /** @nullable */
+    test_account_filters_default_checked?: boolean | null
+    path_cleaning_filters?: unknown
+    is_demo?: boolean
+    timezone?: TimezoneEnumApi
+    data_attributes?: unknown
+    /** @nullable */
+    person_display_name_properties?: string[] | null
+    correlation_config?: unknown
+    /** @nullable */
+    autocapture_opt_out?: boolean | null
+    /** @nullable */
+    autocapture_exceptions_opt_in?: boolean | null
+    /** @nullable */
+    autocapture_web_vitals_opt_in?: boolean | null
+    autocapture_web_vitals_allowed_metrics?: unknown
+    autocapture_exceptions_errors_to_ignore?: unknown
+    /** @nullable */
+    capture_console_log_opt_in?: boolean | null
+    /** @nullable */
+    capture_performance_opt_in?: boolean | null
+    session_recording_opt_in?: boolean
+    /**
+     * @nullable
+     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+     */
+    session_recording_sample_rate?: string | null
+    /**
+     * @minimum 0
+     * @maximum 30000
+     * @nullable
+     */
+    session_recording_minimum_duration_milliseconds?: number | null
+    session_recording_linked_flag?: unknown
+    session_recording_network_payload_capture_config?: unknown
+    session_recording_masking_config?: unknown
+    session_replay_config?: unknown
+    survey_config?: unknown
+    access_control?: boolean
+    /**
+     * @minimum -32768
+     * @maximum 32767
+     */
+    week_start_day?: WeekStartDayEnumApi | NullEnumApi
+    /** @nullable */
+    primary_dashboard?: number | null
+    /** @nullable */
+    live_events_columns?: string[] | null
+    /** @nullable */
+    recording_domains?: (string | null)[] | null
+    readonly person_on_events_querying_enabled?: string
+    /** @nullable */
+    inject_web_apps?: boolean | null
+    extra_settings?: unknown
+    modifiers?: unknown
+    readonly default_modifiers?: string
+    has_completed_onboarding_for?: unknown
+    /** @nullable */
+    surveys_opt_in?: boolean | null
+    /** @nullable */
+    heatmaps_opt_in?: boolean | null
+    readonly product_intents?: string
+    /** @nullable */
+    flags_persistence_default?: boolean | null
+    /** @nullable */
+    readonly secret_api_token?: string | null
+    /** @nullable */
+    readonly secret_api_token_backup?: string | null
+    /** @nullable */
+    receive_org_level_activity_logs?: boolean | null
+    /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other */
+    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi
+    /** @nullable */
+    conversations_enabled?: boolean | null
+    conversations_settings?: unknown
+}
+
+export interface RoleApi {
+    readonly id: string
+    /** @maxLength 200 */
+    name: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly members: string
+    readonly is_default: string
+}
+
+export interface PaginatedRoleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RoleApi[]
+}
+
+export interface PatchedRoleApi {
+    readonly id?: string
+    /** @maxLength 200 */
+    name?: string
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly members?: string
+    readonly is_default?: string
+}
 
 /**
  * * `USR` - user
@@ -1453,1333 +2426,6 @@ export const AnnotationScopeEnumApi = {
     recording: 'recording',
 } as const
 
-/**
- * * `static` - static
- * `person_property` - person_property
- * `behavioral` - behavioral
- * `realtime` - realtime
- * `analytical` - analytical
- */
-export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CohortTypeEnumApi = {
-    static: 'static',
-    person_property: 'person_property',
-    behavioral: 'behavioral',
-    realtime: 'realtime',
-    analytical: 'analytical',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DashboardTemplateScopeEnumApi = {
-    team: 'team',
-    global: 'global',
-    feature_flag: 'feature_flag',
-} as const
-
-/**
- * * `DateTime` - DateTime
- * `String` - String
- * `Numeric` - Numeric
- * `Boolean` - Boolean
- * `Duration` - Duration
- */
-export type PropertyType549EnumApi = (typeof PropertyType549EnumApi)[keyof typeof PropertyType549EnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyType549EnumApi = {
-    DateTime: 'DateTime',
-    String: 'String',
-    Numeric: 'Numeric',
-    Boolean: 'Boolean',
-    Duration: 'Duration',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyDefinitionTypeEnumApi = {
-    NUMBER_1: 1,
-    NUMBER_2: 2,
-    NUMBER_3: 3,
-    NUMBER_4: 4,
-} as const
-
-/**
- * * `FeatureFlag` - feature flag
- */
-export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ModelNameEnumApi = {
-    FeatureFlag: 'FeatureFlag',
-} as const
-
-/**
- * * `daily` - daily
- * `weekly` - weekly
- * `monthly` - monthly
- */
-export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RecurrenceIntervalEnumApi = {
-    daily: 'daily',
-    weekly: 'weekly',
-    monthly: 'monthly',
-} as const
-
-/**
- * * `disabled` - disabled
- * `toolbar` - toolbar
- */
-export type ToolbarModeEnumApi = (typeof ToolbarModeEnumApi)[keyof typeof ToolbarModeEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ToolbarModeEnumApi = {
-    disabled: 'disabled',
-    toolbar: 'toolbar',
-} as const
-
-/**
- * * `light` - Light
- * `dark` - Dark
- * `system` - System
- */
-export type ThemeModeEnumApi = (typeof ThemeModeEnumApi)[keyof typeof ThemeModeEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ThemeModeEnumApi = {
-    light: 'light',
-    dark: 'dark',
-    system: 'system',
-} as const
-
-/**
- * * `above` - Above
- * `below` - Below
- * `hidden` - Hidden
- */
-export type ShortcutPositionEnumApi = (typeof ShortcutPositionEnumApi)[keyof typeof ShortcutPositionEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ShortcutPositionEnumApi = {
-    above: 'above',
-    below: 'below',
-    hidden: 'hidden',
-} as const
-
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
-
-export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MembershipLevelEnumApi = {
-    NUMBER_1: 1,
-    NUMBER_8: 8,
-    NUMBER_15: 15,
-} as const
-
-/**
- * * `0` - none
- * `3` - config
- * `6` - install
- * `9` - root
- */
-export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PluginsAccessLevelEnumApi = {
-    NUMBER_0: 0,
-    NUMBER_3: 3,
-    NUMBER_6: 6,
-    NUMBER_9: 9,
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DefaultExperimentStatsMethodEnumApi = {
-    bayesian: 'bayesian',
-    frequentist: 'frequentist',
-} as const
-
-/**
- * * `21` - Everyone in the project can edit
- * `37` - Only those invited to this dashboard can edit
- */
-export type DashboardRestrictionLevelApi =
-    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
-
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
-
-export type EffectivePrivilegeLevelEnumApi =
-    (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
-
-/**
- * * `1` - member
- * `8` - administrator
- * `15` - owner
- */
-export type OrganizationMembershipLevelApi =
-    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
-
-export type EffectiveMembershipLevelEnumApi =
-    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
-
-/**
- * * `team` - Only team
- * `global` - Global
- * `feature_flag` - Feature Flag
- */
-export type DashboardTemplateScopeEnumApi =
-    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
-
-/**
- * * `1` - event
- * `2` - person
- * `3` - group
- * `4` - session
- */
-export type PropertyDefinitionTypeEnumApi =
-    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
-
-/**
- * * `bayesian` - Bayesian
- * `frequentist` - Frequentist
- */
-export type DefaultExperimentStatsMethodEnumApi =
-    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
-
-export interface PaginatedDashboardBasicListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DashboardBasicApi[]
-}
-
-export type DashboardApiFilters = { [key: string]: unknown }
-
-/**
- * @nullable
- */
-export type DashboardApiVariables = { [key: string]: unknown } | null
-
-/**
- * @nullable
- */
-export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
-
-/**
- * @nullable
- */
-export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
-
-export type DashboardApiTilesItem = { [key: string]: unknown }
-
-/**
- * Serializer mixin that resolves appropriate response for tags depending on license.
- */
-export interface DashboardApi {
-    readonly id: number
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    description?: string
-    pinned?: boolean
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    last_accessed_at?: string | null
-    /** @nullable */
-    readonly last_viewed_at: string | null
-    readonly is_shared: boolean
-    deleted?: boolean
-    readonly creation_mode: CreationModeEnumApi
-    readonly filters: DashboardApiFilters
-    /** @nullable */
-    readonly variables: DashboardApiVariables
-    breakdown_colors?: unknown
-    /** @nullable */
-    data_color_theme_id?: number | null
-    tags?: unknown[]
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    restriction_level?: DashboardRestrictionLevelApi
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
-    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level: string | null
-    readonly access_control_version: string
-    /** @nullable */
-    last_refresh?: string | null
-    /** @nullable */
-    readonly persisted_filters: DashboardApiPersistedFilters
-    /** @nullable */
-    readonly persisted_variables: DashboardApiPersistedVariables
-    readonly team_id: number
-    /** @nullable */
-    readonly tiles: readonly DashboardApiTilesItem[] | null
-    use_template?: string
-    /** @nullable */
-    use_dashboard?: number | null
-    delete_insights?: boolean
-    _create_in_folder?: string
-}
-
-/**
- * @nullable
- */
-export type SharingConfigurationApiSettings = unknown | null
-
-export interface SharingConfigurationApi {
-    readonly created_at: string
-    enabled?: boolean
-    /** @nullable */
-    readonly access_token: string | null
-    /** @nullable */
-    settings?: SharingConfigurationApiSettings
-    password_required?: boolean
-    readonly share_passwords: string
-}
-
-export type PatchedDashboardApiFilters = { [key: string]: unknown }
-
-/**
- * @nullable
- */
-export type PatchedDashboardApiVariables = { [key: string]: unknown } | null
-
-/**
- * @nullable
- */
-export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null
-
-/**
- * @nullable
- */
-export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null
-
-export type PatchedDashboardApiTilesItem = { [key: string]: unknown }
-
-/**
- * Serializer mixin that resolves appropriate response for tags depending on license.
- */
-export interface PatchedDashboardApi {
-    readonly id?: number
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    description?: string
-    pinned?: boolean
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    /** @nullable */
-    last_accessed_at?: string | null
-    /** @nullable */
-    readonly last_viewed_at?: string | null
-    readonly is_shared?: boolean
-    deleted?: boolean
-    readonly creation_mode?: CreationModeEnumApi
-    readonly filters?: PatchedDashboardApiFilters
-    /** @nullable */
-    readonly variables?: PatchedDashboardApiVariables
-    breakdown_colors?: unknown
-    /** @nullable */
-    data_color_theme_id?: number | null
-    tags?: unknown[]
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    restriction_level?: DashboardRestrictionLevelApi
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
-    readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level?: string | null
-    readonly access_control_version?: string
-    /** @nullable */
-    last_refresh?: string | null
-    /** @nullable */
-    readonly persisted_filters?: PatchedDashboardApiPersistedFilters
-    /** @nullable */
-    readonly persisted_variables?: PatchedDashboardApiPersistedVariables
-    readonly team_id?: number
-    /** @nullable */
-    readonly tiles?: readonly PatchedDashboardApiTilesItem[] | null
-    use_template?: string
-    /** @nullable */
-    use_dashboard?: number | null
-    delete_insights?: boolean
-    _create_in_folder?: string
-}
-
-export interface PaginatedExportedAssetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExportedAssetApi[]
-}
-
-/**
- * @nullable
- */
-export type ExportedAssetApiExportContext = unknown | null
-
-/**
- * Standard ExportedAsset serializer that doesn't return content.
- */
-export interface ExportedAssetApi {
-    readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    export_format: ExportFormatEnumApi
-    readonly created_at: string
-    readonly has_content: string
-    /** @nullable */
-    export_context?: ExportedAssetApiExportContext
-    readonly filename: string
-    /** @nullable */
-    readonly expires_after: string | null
-    /** @nullable */
-    readonly exception: string | null
-}
-
-export interface PaginatedFileSystemListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: FileSystemApi[]
-}
-
-/**
- * @nullable
- */
-export type FileSystemApiMeta = unknown | null
-
-export interface FileSystemApi {
-    readonly id: string
-    path: string
-    /** @nullable */
-    readonly depth: number | null
-    /** @maxLength 100 */
-    type?: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /** @nullable */
-    href?: string | null
-    /** @nullable */
-    meta?: FileSystemApiMeta
-    /** @nullable */
-    shortcut?: boolean | null
-    readonly created_at: string
-    /** @nullable */
-    readonly last_viewed_at: string | null
-}
-
-/**
- * @nullable
- */
-export type PatchedFileSystemApiMeta = unknown | null
-
-export interface PatchedFileSystemApi {
-    readonly id?: string
-    path?: string
-    /** @nullable */
-    readonly depth?: number | null
-    /** @maxLength 100 */
-    type?: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /** @nullable */
-    href?: string | null
-    /** @nullable */
-    meta?: PatchedFileSystemApiMeta
-    /** @nullable */
-    shortcut?: boolean | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly last_viewed_at?: string | null
-}
-
-export interface PaginatedGroupListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: GroupApi[]
-}
-
-/**
- * @nullable
- */
-export type CreateGroupApiGroupProperties = unknown | null
-
-export interface CreateGroupApi {
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    group_type_index: number
-    /** @maxLength 400 */
-    group_key: string
-    /** @nullable */
-    group_properties?: CreateGroupApiGroupProperties
-}
-
-export interface GroupApi {
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    group_type_index: number
-    /** @maxLength 400 */
-    group_key: string
-    group_properties?: unknown
-    readonly created_at: string
-}
-
-export interface PaginatedIntegrationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: IntegrationApi[]
-}
-
-/**
- * Standard Integration serializer.
- */
-export interface IntegrationApi {
-    readonly id: number
-    kind: KindEnumApi
-    config?: unknown
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly errors: string
-    readonly display_name: string
-}
-
-export interface PaginatedSubscriptionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SubscriptionApi[]
-}
-
-/**
- * Standard Subscription serializer.
- */
-export interface SubscriptionApi {
-    readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    target_type: TargetTypeEnumApi
-    target_value: string
-    frequency: FrequencyEnumApi
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    interval?: number
-    /** @nullable */
-    byweekday?: ByweekdayEnumApi[] | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    bysetpos?: number | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    count?: number | null
-    start_date: string
-    /** @nullable */
-    until_date?: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    deleted?: boolean
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    title?: string | null
-    readonly summary: string
-    /** @nullable */
-    readonly next_delivery_date: string | null
-    /** @nullable */
-    invite_message?: string | null
-}
-
-/**
- * Standard Subscription serializer.
- */
-export interface PatchedSubscriptionApi {
-    readonly id?: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    target_type?: TargetTypeEnumApi
-    target_value?: string
-    frequency?: FrequencyEnumApi
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    interval?: number
-    /** @nullable */
-    byweekday?: ByweekdayEnumApi[] | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    bysetpos?: number | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    count?: number | null
-    start_date?: string
-    /** @nullable */
-    until_date?: string | null
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    deleted?: boolean
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    title?: string | null
-    readonly summary?: string
-    /** @nullable */
-    readonly next_delivery_date?: string | null
-    /** @nullable */
-    invite_message?: string | null
-}
-
-export interface PaginatedOrganizationDomainListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationDomainApi[]
-}
-
-export interface OrganizationDomainApi {
-    readonly id: string
-    /** @maxLength 128 */
-    domain: string
-    /** Determines whether a domain is verified or not. */
-    readonly is_verified: boolean
-    /** @nullable */
-    readonly verified_at: string | null
-    readonly verification_challenge: string
-    jit_provisioning_enabled?: boolean
-    /** @maxLength 28 */
-    sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml: boolean
-    /**
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /** @nullable */
-    saml_x509_cert?: string | null
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim: boolean
-    scim_enabled?: boolean
-    /** @nullable */
-    readonly scim_base_url: string | null
-    /** @nullable */
-    readonly scim_bearer_token: string | null
-}
-
-export interface PatchedOrganizationDomainApi {
-    readonly id?: string
-    /** @maxLength 128 */
-    domain?: string
-    /** Determines whether a domain is verified or not. */
-    readonly is_verified?: boolean
-    /** @nullable */
-    readonly verified_at?: string | null
-    readonly verification_challenge?: string
-    jit_provisioning_enabled?: boolean
-    /** @maxLength 28 */
-    sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml?: boolean
-    /**
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /** @nullable */
-    saml_x509_cert?: string | null
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim?: boolean
-    scim_enabled?: boolean
-    /** @nullable */
-    readonly scim_base_url?: string | null
-    /** @nullable */
-    readonly scim_bearer_token?: string | null
-}
-
-export interface PaginatedOrganizationInviteListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationInviteApi[]
-}
-
-/**
- * List of team IDs and corresponding access levels to private projects.
- * @nullable
- */
-export type OrganizationInviteApiPrivateProjectAccess = unknown | null
-
-export interface OrganizationInviteApi {
-    readonly id: string
-    /** @maxLength 254 */
-    target_email: string
-    /** @maxLength 30 */
-    first_name?: string
-    readonly emailing_attempt_made: boolean
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
-    /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
-    readonly is_expired: boolean
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-    /** @nullable */
-    message?: string | null
-    /**
-     * List of team IDs and corresponding access levels to private projects.
-     * @nullable
-     */
-    private_project_access?: OrganizationInviteApiPrivateProjectAccess
-    send_email?: boolean
-    combine_pending_invites?: boolean
-}
-
-export interface PaginatedOrganizationMemberListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationMemberApi[]
-}
-
-export interface OrganizationMemberApi {
-    readonly id: string
-    readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
-    readonly joined_at: string
-    readonly updated_at: string
-    readonly is_2fa_enabled: boolean
-    readonly has_social_auth: boolean
-    readonly last_login: string
-}
-
-export interface PatchedOrganizationMemberApi {
-    readonly id?: string
-    readonly user?: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
-    readonly joined_at?: string
-    readonly updated_at?: string
-    readonly is_2fa_enabled?: boolean
-    readonly has_social_auth?: boolean
-    readonly last_login?: string
-}
-
-export interface PaginatedProjectBackwardCompatBasicListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ProjectBackwardCompatBasicApi[]
-}
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiEffectiveMembershipLevel = EffectiveMembershipLevelEnumApi | null
-
-export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiPathCleaningFilters = unknown | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiCorrelationConfig = unknown | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiAutocaptureWebVitalsAllowedMetrics = unknown | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiAutocaptureExceptionsErrorsToIgnore = unknown | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiSessionRecordingLinkedFlag = unknown | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiSessionRecordingNetworkPayloadCaptureConfig = unknown | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiSessionRecordingMaskingConfig = unknown | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiSessionReplayConfig = unknown | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiSurveyConfig = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ProjectBackwardCompatApiWeekStartDay = { ...WeekStartDayEnumApi, ...NullEnumApi } as const
-/**
- * @minimum -32768
- * @maximum 32767
- * @nullable
- */
-export type ProjectBackwardCompatApiWeekStartDay =
-    | (typeof ProjectBackwardCompatApiWeekStartDay)[keyof typeof ProjectBackwardCompatApiWeekStartDay]
-    | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiExtraSettings = unknown | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiModifiers = unknown | null
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatApiHasCompletedOnboardingFor = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ProjectBackwardCompatApiBusinessModel = {
-    ...BusinessModelEnumApi,
-    ...BlankEnumApi,
-    ...NullEnumApi,
-} as const
-/**
- * Whether this project serves B2B or B2C customers, used to optimize the UI layout.
-
-* `b2b` - B2B
-* `b2c` - B2C
-* `other` - Other
- * @nullable
- */
-export type ProjectBackwardCompatApiBusinessModel =
-    | (typeof ProjectBackwardCompatApiBusinessModel)[keyof typeof ProjectBackwardCompatApiBusinessModel]
-    | null
-
-/**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
- */
-export interface ProjectBackwardCompatApi {
-    readonly id: number
-    readonly organization: string
-    /**
-     * @minLength 1
-     * @maxLength 200
-     */
-    name?: string
-    /**
-     * @maxLength 1000
-     * @nullable
-     */
-    product_description?: string | null
-    readonly created_at: string
-    /** @nullable */
-    readonly effective_membership_level: ProjectBackwardCompatApiEffectiveMembershipLevel
-    readonly has_group_types: boolean
-    readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
-    /** @nullable */
-    readonly live_events_token: string | null
-    readonly updated_at: string
-    readonly uuid: string
-    readonly api_token: string
-    app_urls?: (string | null)[]
-    /**
-     * @maxLength 500
-     * @nullable
-     */
-    slack_incoming_webhook?: string | null
-    anonymize_ips?: boolean
-    completed_snippet_onboarding?: boolean
-    readonly ingested_event: boolean
-    test_account_filters?: unknown
-    /** @nullable */
-    test_account_filters_default_checked?: boolean | null
-    /** @nullable */
-    path_cleaning_filters?: ProjectBackwardCompatApiPathCleaningFilters
-    is_demo?: boolean
-    timezone?: TimezoneEnumApi
-    data_attributes?: unknown
-    /** @nullable */
-    person_display_name_properties?: string[] | null
-    /** @nullable */
-    correlation_config?: ProjectBackwardCompatApiCorrelationConfig
-    /** @nullable */
-    autocapture_opt_out?: boolean | null
-    /** @nullable */
-    autocapture_exceptions_opt_in?: boolean | null
-    /** @nullable */
-    autocapture_web_vitals_opt_in?: boolean | null
-    /** @nullable */
-    autocapture_web_vitals_allowed_metrics?: ProjectBackwardCompatApiAutocaptureWebVitalsAllowedMetrics
-    /** @nullable */
-    autocapture_exceptions_errors_to_ignore?: ProjectBackwardCompatApiAutocaptureExceptionsErrorsToIgnore
-    /** @nullable */
-    capture_console_log_opt_in?: boolean | null
-    /** @nullable */
-    capture_performance_opt_in?: boolean | null
-    session_recording_opt_in?: boolean
-    /**
-     * @nullable
-     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-     */
-    session_recording_sample_rate?: string | null
-    /**
-     * @minimum 0
-     * @maximum 30000
-     * @nullable
-     */
-    session_recording_minimum_duration_milliseconds?: number | null
-    /** @nullable */
-    session_recording_linked_flag?: ProjectBackwardCompatApiSessionRecordingLinkedFlag
-    /** @nullable */
-    session_recording_network_payload_capture_config?: ProjectBackwardCompatApiSessionRecordingNetworkPayloadCaptureConfig
-    /** @nullable */
-    session_recording_masking_config?: ProjectBackwardCompatApiSessionRecordingMaskingConfig
-    /** @nullable */
-    session_replay_config?: ProjectBackwardCompatApiSessionReplayConfig
-    /** @nullable */
-    survey_config?: ProjectBackwardCompatApiSurveyConfig
-    access_control?: boolean
-    /**
-     * @minimum -32768
-     * @maximum 32767
-     * @nullable
-     */
-    week_start_day?: ProjectBackwardCompatApiWeekStartDay
-    /** @nullable */
-    primary_dashboard?: number | null
-    /** @nullable */
-    live_events_columns?: string[] | null
-    /** @nullable */
-    recording_domains?: (string | null)[] | null
-    readonly person_on_events_querying_enabled: string
-    /** @nullable */
-    inject_web_apps?: boolean | null
-    /** @nullable */
-    extra_settings?: ProjectBackwardCompatApiExtraSettings
-    /** @nullable */
-    modifiers?: ProjectBackwardCompatApiModifiers
-    readonly default_modifiers: string
-    /** @nullable */
-    has_completed_onboarding_for?: ProjectBackwardCompatApiHasCompletedOnboardingFor
-    /** @nullable */
-    surveys_opt_in?: boolean | null
-    /** @nullable */
-    heatmaps_opt_in?: boolean | null
-    readonly product_intents: string
-    /** @nullable */
-    flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token: string | null
-    /** @nullable */
-    readonly secret_api_token_backup: string | null
-    /** @nullable */
-    receive_org_level_activity_logs?: boolean | null
-    /**
-   * Whether this project serves B2B or B2C customers, used to optimize the UI layout.
-
-* `b2b` - B2B
-* `b2c` - B2C
-* `other` - Other
-   * @nullable
-   */
-    business_model?: ProjectBackwardCompatApiBusinessModel
-}
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiEffectiveMembershipLevel = EffectiveMembershipLevelEnumApi | null
-
-export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiPathCleaningFilters = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiCorrelationConfig = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiAutocaptureWebVitalsAllowedMetrics = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiAutocaptureExceptionsErrorsToIgnore = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiSessionRecordingLinkedFlag = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiSessionRecordingNetworkPayloadCaptureConfig = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiSessionRecordingMaskingConfig = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiSessionReplayConfig = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiSurveyConfig = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedProjectBackwardCompatApiWeekStartDay = { ...WeekStartDayEnumApi, ...NullEnumApi } as const
-/**
- * @minimum -32768
- * @maximum 32767
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiWeekStartDay =
-    | (typeof PatchedProjectBackwardCompatApiWeekStartDay)[keyof typeof PatchedProjectBackwardCompatApiWeekStartDay]
-    | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiExtraSettings = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiModifiers = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiHasCompletedOnboardingFor = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedProjectBackwardCompatApiBusinessModel = {
-    ...BusinessModelEnumApi,
-    ...BlankEnumApi,
-    ...NullEnumApi,
-} as const
-/**
- * Whether this project serves B2B or B2C customers, used to optimize the UI layout.
-
-* `b2b` - B2B
-* `b2c` - B2C
-* `other` - Other
- * @nullable
- */
-export type PatchedProjectBackwardCompatApiBusinessModel =
-    | (typeof PatchedProjectBackwardCompatApiBusinessModel)[keyof typeof PatchedProjectBackwardCompatApiBusinessModel]
-    | null
-
-/**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
- */
-export interface PatchedProjectBackwardCompatApi {
-    readonly id?: number
-    readonly organization?: string
-    /**
-     * @minLength 1
-     * @maxLength 200
-     */
-    name?: string
-    /**
-     * @maxLength 1000
-     * @nullable
-     */
-    product_description?: string | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly effective_membership_level?: PatchedProjectBackwardCompatApiEffectiveMembershipLevel
-    readonly has_group_types?: boolean
-    readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
-    /** @nullable */
-    readonly live_events_token?: string | null
-    readonly updated_at?: string
-    readonly uuid?: string
-    readonly api_token?: string
-    app_urls?: (string | null)[]
-    /**
-     * @maxLength 500
-     * @nullable
-     */
-    slack_incoming_webhook?: string | null
-    anonymize_ips?: boolean
-    completed_snippet_onboarding?: boolean
-    readonly ingested_event?: boolean
-    test_account_filters?: unknown
-    /** @nullable */
-    test_account_filters_default_checked?: boolean | null
-    /** @nullable */
-    path_cleaning_filters?: PatchedProjectBackwardCompatApiPathCleaningFilters
-    is_demo?: boolean
-    timezone?: TimezoneEnumApi
-    data_attributes?: unknown
-    /** @nullable */
-    person_display_name_properties?: string[] | null
-    /** @nullable */
-    correlation_config?: PatchedProjectBackwardCompatApiCorrelationConfig
-    /** @nullable */
-    autocapture_opt_out?: boolean | null
-    /** @nullable */
-    autocapture_exceptions_opt_in?: boolean | null
-    /** @nullable */
-    autocapture_web_vitals_opt_in?: boolean | null
-    /** @nullable */
-    autocapture_web_vitals_allowed_metrics?: PatchedProjectBackwardCompatApiAutocaptureWebVitalsAllowedMetrics
-    /** @nullable */
-    autocapture_exceptions_errors_to_ignore?: PatchedProjectBackwardCompatApiAutocaptureExceptionsErrorsToIgnore
-    /** @nullable */
-    capture_console_log_opt_in?: boolean | null
-    /** @nullable */
-    capture_performance_opt_in?: boolean | null
-    session_recording_opt_in?: boolean
-    /**
-     * @nullable
-     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-     */
-    session_recording_sample_rate?: string | null
-    /**
-     * @minimum 0
-     * @maximum 30000
-     * @nullable
-     */
-    session_recording_minimum_duration_milliseconds?: number | null
-    /** @nullable */
-    session_recording_linked_flag?: PatchedProjectBackwardCompatApiSessionRecordingLinkedFlag
-    /** @nullable */
-    session_recording_network_payload_capture_config?: PatchedProjectBackwardCompatApiSessionRecordingNetworkPayloadCaptureConfig
-    /** @nullable */
-    session_recording_masking_config?: PatchedProjectBackwardCompatApiSessionRecordingMaskingConfig
-    /** @nullable */
-    session_replay_config?: PatchedProjectBackwardCompatApiSessionReplayConfig
-    /** @nullable */
-    survey_config?: PatchedProjectBackwardCompatApiSurveyConfig
-    access_control?: boolean
-    /**
-     * @minimum -32768
-     * @maximum 32767
-     * @nullable
-     */
-    week_start_day?: PatchedProjectBackwardCompatApiWeekStartDay
-    /** @nullable */
-    primary_dashboard?: number | null
-    /** @nullable */
-    live_events_columns?: string[] | null
-    /** @nullable */
-    recording_domains?: (string | null)[] | null
-    readonly person_on_events_querying_enabled?: string
-    /** @nullable */
-    inject_web_apps?: boolean | null
-    /** @nullable */
-    extra_settings?: PatchedProjectBackwardCompatApiExtraSettings
-    /** @nullable */
-    modifiers?: PatchedProjectBackwardCompatApiModifiers
-    readonly default_modifiers?: string
-    /** @nullable */
-    has_completed_onboarding_for?: PatchedProjectBackwardCompatApiHasCompletedOnboardingFor
-    /** @nullable */
-    surveys_opt_in?: boolean | null
-    /** @nullable */
-    heatmaps_opt_in?: boolean | null
-    readonly product_intents?: string
-    /** @nullable */
-    flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token?: string | null
-    /** @nullable */
-    readonly secret_api_token_backup?: string | null
-    /** @nullable */
-    receive_org_level_activity_logs?: boolean | null
-    /**
-   * Whether this project serves B2B or B2C customers, used to optimize the UI layout.
-
-* `b2b` - B2B
-* `b2c` - B2C
-* `other` - Other
-   * @nullable
-   */
-    business_model?: PatchedProjectBackwardCompatApiBusinessModel
-}
-
-export interface PaginatedRoleListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: RoleApi[]
-}
-
-export interface RoleApi {
-    readonly id: string
-    /** @maxLength 200 */
-    name: string
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly members: string
-    readonly is_default: string
-}
-
-export interface PatchedRoleApi {
-    readonly id?: string
-    /** @maxLength 200 */
-    name?: string
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly members?: string
-    readonly is_default?: string
-}
-
-export interface PaginatedAnnotationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: AnnotationApi[]
-}
-
 export interface AnnotationApi {
     readonly id: number
     /**
@@ -2808,6 +2454,15 @@ export interface AnnotationApi {
     readonly updated_at: string
     deleted?: boolean
     scope?: AnnotationScopeEnumApi
+}
+
+export interface PaginatedAnnotationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AnnotationApi[]
 }
 
 export interface PatchedAnnotationApi {
@@ -2840,91 +2495,23 @@ export interface PatchedAnnotationApi {
     scope?: AnnotationScopeEnumApi
 }
 
-export interface PaginatedCohortListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CohortApi[]
-}
-
 /**
- * Filters for the cohort. Examples:
-
-        # Behavioral filter (performed event)
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "OR",
-                    "values": [{
-                        "key": "address page viewed",
-                        "type": "behavioral",
-                        "value": "performed_event",
-                        "negation": false,
-                        "event_type": "events",
-                        "time_value": "30",
-                        "time_interval": "day"
-                    }]
-                }]
-            }
-        }
-
-        # Person property filter
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "AND",
-                    "values": [{
-                        "key": "promoCodes",
-                        "type": "person",
-                        "value": ["1234567890"],
-                        "negation": false,
-                        "operator": "exact"
-                    }]
-                }]
-            }
-        }
-
-        # Cohort filter
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "AND",
-                    "values": [{
-                        "key": "id",
-                        "type": "cohort",
-                        "value": 8814,
-                        "negation": false
-                    }]
-                }]
-            }
-        }
- * @nullable
+ * * `static` - static
+ * `person_property` - person_property
+ * `behavioral` - behavioral
+ * `realtime` - realtime
+ * `analytical` - analytical
  */
-export type CohortApiFilters = unknown | null
-
-/**
- * @nullable
- */
-export type CohortApiQuery = unknown | null
+export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CohortApiCohortType = { ...CohortTypeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * Type of cohort based on filter complexity
-
-* `static` - static
-* `person_property` - person_property
-* `behavioral` - behavioral
-* `realtime` - realtime
-* `analytical` - analytical
- * @nullable
- */
-export type CohortApiCohortType = (typeof CohortApiCohortType)[keyof typeof CohortApiCohortType] | null
+export const CohortTypeEnumApi = {
+    static: 'static',
+    person_property: 'person_property',
+    behavioral: 'behavioral',
+    realtime: 'realtime',
+    analytical: 'analytical',
+} as const
 
 export interface CohortApi {
     readonly id: number
@@ -2937,8 +2524,7 @@ export interface CohortApi {
     description?: string
     groups?: unknown
     deleted?: boolean
-    /**
-   * Filters for the cohort. Examples:
+    /** Filters for the cohort. Examples:
 
         # Behavioral filter (performed event)
         {
@@ -2990,12 +2576,9 @@ export interface CohortApi {
                     }]
                 }]
             }
-        }
-   * @nullable
-   */
-    filters?: CohortApiFilters
-    /** @nullable */
-    query?: CohortApiQuery
+        } */
+    filters?: unknown
+    query?: unknown
     readonly is_calculating: boolean
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -3008,100 +2591,27 @@ export interface CohortApi {
     /** @nullable */
     readonly count: number | null
     is_static?: boolean
-    /**
-   * Type of cohort based on filter complexity
+    /** Type of cohort based on filter complexity
 
 * `static` - static
 * `person_property` - person_property
 * `behavioral` - behavioral
 * `realtime` - realtime
-* `analytical` - analytical
-   * @nullable
-   */
-    cohort_type?: CohortApiCohortType
+* `analytical` - analytical */
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi
     readonly experiment_set: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]
 }
 
-/**
- * Filters for the cohort. Examples:
-
-        # Behavioral filter (performed event)
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "OR",
-                    "values": [{
-                        "key": "address page viewed",
-                        "type": "behavioral",
-                        "value": "performed_event",
-                        "negation": false,
-                        "event_type": "events",
-                        "time_value": "30",
-                        "time_interval": "day"
-                    }]
-                }]
-            }
-        }
-
-        # Person property filter
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "AND",
-                    "values": [{
-                        "key": "promoCodes",
-                        "type": "person",
-                        "value": ["1234567890"],
-                        "negation": false,
-                        "operator": "exact"
-                    }]
-                }]
-            }
-        }
-
-        # Cohort filter
-        {
-            "properties": {
-                "type": "OR",
-                "values": [{
-                    "type": "AND",
-                    "values": [{
-                        "key": "id",
-                        "type": "cohort",
-                        "value": 8814,
-                        "negation": false
-                    }]
-                }]
-            }
-        }
- * @nullable
- */
-export type PatchedCohortApiFilters = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedCohortApiQuery = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedCohortApiCohortType = { ...CohortTypeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * Type of cohort based on filter complexity
-
-* `static` - static
-* `person_property` - person_property
-* `behavioral` - behavioral
-* `realtime` - realtime
-* `analytical` - analytical
- * @nullable
- */
-export type PatchedCohortApiCohortType =
-    | (typeof PatchedCohortApiCohortType)[keyof typeof PatchedCohortApiCohortType]
-    | null
+export interface PaginatedCohortListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CohortApi[]
+}
 
 export interface PatchedCohortApi {
     readonly id?: number
@@ -3114,8 +2624,7 @@ export interface PatchedCohortApi {
     description?: string
     groups?: unknown
     deleted?: boolean
-    /**
-   * Filters for the cohort. Examples:
+    /** Filters for the cohort. Examples:
 
         # Behavioral filter (performed event)
         {
@@ -3167,12 +2676,9 @@ export interface PatchedCohortApi {
                     }]
                 }]
             }
-        }
-   * @nullable
-   */
-    filters?: PatchedCohortApiFilters
-    /** @nullable */
-    query?: PatchedCohortApiQuery
+        } */
+    filters?: unknown
+    query?: unknown
     readonly is_calculating?: boolean
     readonly created_by?: UserBasicApi
     /** @nullable */
@@ -3185,17 +2691,14 @@ export interface PatchedCohortApi {
     /** @nullable */
     readonly count?: number | null
     is_static?: boolean
-    /**
-   * Type of cohort based on filter complexity
+    /** Type of cohort based on filter complexity
 
 * `static` - static
 * `person_property` - person_property
 * `behavioral` - behavioral
 * `realtime` - realtime
-* `analytical` - analytical
-   * @nullable
-   */
-    cohort_type?: PatchedCohortApiCohortType
+* `analytical` - analytical */
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi
     readonly experiment_set?: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]
@@ -3211,24 +2714,6 @@ export interface PatchedRemovePersonRequestApi {
     person_id?: string
 }
 
-export interface PaginatedCommentListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CommentApi[]
-}
-
-/**
- * @nullable
- */
-export type CommentApiRichContent = unknown | null
-
-/**
- * @nullable
- */
-export type CommentApiItemContext = unknown | null
-
 export interface CommentApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -3238,8 +2723,7 @@ export interface CommentApi {
     slug?: string
     /** @nullable */
     content?: string | null
-    /** @nullable */
-    rich_content?: CommentApiRichContent
+    rich_content?: unknown
     readonly version: number
     readonly created_at: string
     /**
@@ -3247,23 +2731,20 @@ export interface CommentApi {
      * @nullable
      */
     item_id?: string | null
-    /** @nullable */
-    item_context?: CommentApiItemContext
+    item_context?: unknown
     /** @maxLength 79 */
     scope: string
     /** @nullable */
     source_comment?: string | null
 }
 
-/**
- * @nullable
- */
-export type PatchedCommentApiRichContent = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedCommentApiItemContext = unknown | null
+export interface PaginatedCommentListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CommentApi[]
+}
 
 export interface PatchedCommentApi {
     readonly id?: string
@@ -3274,8 +2755,7 @@ export interface PatchedCommentApi {
     slug?: string
     /** @nullable */
     content?: string | null
-    /** @nullable */
-    rich_content?: PatchedCommentApiRichContent
+    rich_content?: unknown
     readonly version?: number
     readonly created_at?: string
     /**
@@ -3283,46 +2763,27 @@ export interface PatchedCommentApi {
      * @nullable
      */
     item_id?: string | null
-    /** @nullable */
-    item_context?: PatchedCommentApiItemContext
+    item_context?: unknown
     /** @maxLength 79 */
     scope?: string
     /** @nullable */
     source_comment?: string | null
 }
 
-export interface PaginatedDashboardTemplateListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DashboardTemplateApi[]
-}
-
 /**
- * @nullable
+ * * `team` - Only team
+ * `global` - Global
+ * `feature_flag` - Feature Flag
  */
-export type DashboardTemplateApiDashboardFilters = unknown | null
-
-/**
- * @nullable
- */
-export type DashboardTemplateApiTiles = unknown | null
-
-/**
- * @nullable
- */
-export type DashboardTemplateApiVariables = unknown | null
+export type DashboardTemplateScopeEnumApi =
+    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DashboardTemplateApiScope = { ...DashboardTemplateScopeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type DashboardTemplateApiScope =
-    | (typeof DashboardTemplateApiScope)[keyof typeof DashboardTemplateApiScope]
-    | null
+export const DashboardTemplateScopeEnumApi = {
+    team: 'team',
+    global: 'global',
+    feature_flag: 'feature_flag',
+} as const
 
 export interface DashboardTemplateApi {
     readonly id: string
@@ -3336,14 +2797,11 @@ export interface DashboardTemplateApi {
      * @nullable
      */
     dashboard_description?: string | null
-    /** @nullable */
-    dashboard_filters?: DashboardTemplateApiDashboardFilters
+    dashboard_filters?: unknown
     /** @nullable */
     tags?: string[] | null
-    /** @nullable */
-    tiles?: DashboardTemplateApiTiles
-    /** @nullable */
-    variables?: DashboardTemplateApiVariables
+    tiles?: unknown
+    variables?: unknown
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -3357,39 +2815,19 @@ export interface DashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id: number | null
-    /** @nullable */
-    scope?: DashboardTemplateApiScope
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi
     /** @nullable */
     availability_contexts?: string[] | null
 }
 
-/**
- * @nullable
- */
-export type PatchedDashboardTemplateApiDashboardFilters = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedDashboardTemplateApiTiles = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedDashboardTemplateApiVariables = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedDashboardTemplateApiScope = {
-    ...DashboardTemplateScopeEnumApi,
-    ...BlankEnumApi,
-    ...NullEnumApi,
-} as const
-/**
- * @nullable
- */
-export type PatchedDashboardTemplateApiScope =
-    | (typeof PatchedDashboardTemplateApiScope)[keyof typeof PatchedDashboardTemplateApiScope]
-    | null
+export interface PaginatedDashboardTemplateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardTemplateApi[]
+}
 
 export interface PatchedDashboardTemplateApi {
     readonly id?: string
@@ -3403,14 +2841,11 @@ export interface PatchedDashboardTemplateApi {
      * @nullable
      */
     dashboard_description?: string | null
-    /** @nullable */
-    dashboard_filters?: PatchedDashboardTemplateApiDashboardFilters
+    dashboard_filters?: unknown
     /** @nullable */
     tags?: string[] | null
-    /** @nullable */
-    tiles?: PatchedDashboardTemplateApiTiles
-    /** @nullable */
-    variables?: PatchedDashboardTemplateApiVariables
+    tiles?: unknown
+    variables?: unknown
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -3424,10 +2859,51 @@ export interface PatchedDashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id?: number | null
-    /** @nullable */
-    scope?: PatchedDashboardTemplateApiScope
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi
     /** @nullable */
     availability_contexts?: string[] | null
+}
+
+/**
+ * * `DateTime` - DateTime
+ * `String` - String
+ * `Numeric` - Numeric
+ * `Boolean` - Boolean
+ * `Duration` - Duration
+ */
+export type PropertyType549EnumApi = (typeof PropertyType549EnumApi)[keyof typeof PropertyType549EnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PropertyType549EnumApi = {
+    DateTime: 'DateTime',
+    String: 'String',
+    Numeric: 'Numeric',
+    Boolean: 'Boolean',
+    Duration: 'Duration',
+} as const
+
+/**
+ * * `1` - event
+ * `2` - person
+ * `3` - group
+ * `4` - session
+ */
+export type PropertyDefinitionTypeEnumApi =
+    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PropertyDefinitionTypeEnumApi = {
+    NUMBER_1: 1,
+    NUMBER_2: 2,
+    NUMBER_3: 3,
+    NUMBER_4: 4,
+} as const
+
+export interface PropertyDefinitionApi {
+    readonly id: string
+    readonly name: string
+    readonly property_type: PropertyType549EnumApi | NullEnumApi
+    readonly type: PropertyDefinitionTypeEnumApi
 }
 
 export interface PaginatedPropertyDefinitionListApi {
@@ -3439,36 +2915,6 @@ export interface PaginatedPropertyDefinitionListApi {
     results: PropertyDefinitionApi[]
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyDefinitionApiPropertyType = { ...PropertyType549EnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type PropertyDefinitionApiPropertyType =
-    | (typeof PropertyDefinitionApiPropertyType)[keyof typeof PropertyDefinitionApiPropertyType]
-    | null
-
-export interface PropertyDefinitionApi {
-    readonly id: string
-    readonly name: string
-    /** @nullable */
-    readonly property_type: PropertyDefinitionApiPropertyType
-    readonly type: PropertyDefinitionTypeEnumApi
-}
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedPropertyDefinitionApiPropertyType = {
-    ...PropertyType549EnumApi,
-    ...BlankEnumApi,
-    ...NullEnumApi,
-} as const
-/**
- * @nullable
- */
-export type PatchedPropertyDefinitionApiPropertyType =
-    | (typeof PatchedPropertyDefinitionApiPropertyType)[keyof typeof PatchedPropertyDefinitionApiPropertyType]
-    | null
-
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
  */
@@ -3477,33 +2923,34 @@ export interface PatchedPropertyDefinitionApi {
     /** @maxLength 400 */
     name?: string
     is_numerical?: boolean
-    /** @nullable */
-    property_type?: PatchedPropertyDefinitionApiPropertyType
+    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi
     tags?: unknown[]
     readonly is_seen_on_filtered_events?: string
 }
 
-export interface PaginatedScheduledChangeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ScheduledChangeApi[]
-}
+/**
+ * * `FeatureFlag` - feature flag
+ */
+export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ScheduledChangeApiRecurrenceInterval = {
-    ...RecurrenceIntervalEnumApi,
-    ...BlankEnumApi,
-    ...NullEnumApi,
+export const ModelNameEnumApi = {
+    FeatureFlag: 'FeatureFlag',
 } as const
+
 /**
- * @nullable
+ * * `daily` - daily
+ * `weekly` - weekly
+ * `monthly` - monthly
  */
-export type ScheduledChangeApiRecurrenceInterval =
-    | (typeof ScheduledChangeApiRecurrenceInterval)[keyof typeof ScheduledChangeApiRecurrenceInterval]
-    | null
+export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const RecurrenceIntervalEnumApi = {
+    daily: 'daily',
+    weekly: 'weekly',
+    monthly: 'monthly',
+} as const
 
 export interface ScheduledChangeApi {
     readonly id: number
@@ -3524,26 +2971,21 @@ export interface ScheduledChangeApi {
     readonly created_by: UserBasicApi
     readonly updated_at: string
     is_recurring?: boolean
-    /** @nullable */
-    recurrence_interval?: ScheduledChangeApiRecurrenceInterval
+    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi
     /** @nullable */
     readonly last_executed_at: string | null
     /** @nullable */
     end_date?: string | null
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedScheduledChangeApiRecurrenceInterval = {
-    ...RecurrenceIntervalEnumApi,
-    ...BlankEnumApi,
-    ...NullEnumApi,
-} as const
-/**
- * @nullable
- */
-export type PatchedScheduledChangeApiRecurrenceInterval =
-    | (typeof PatchedScheduledChangeApiRecurrenceInterval)[keyof typeof PatchedScheduledChangeApiRecurrenceInterval]
-    | null
+export interface PaginatedScheduledChangeListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ScheduledChangeApi[]
+}
 
 export interface PatchedScheduledChangeApi {
     readonly id?: number
@@ -3564,55 +3006,209 @@ export interface PatchedScheduledChangeApi {
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
     is_recurring?: boolean
-    /** @nullable */
-    recurrence_interval?: PatchedScheduledChangeApiRecurrenceInterval
+    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi
     /** @nullable */
     readonly last_executed_at?: string | null
     /** @nullable */
     end_date?: string | null
 }
 
-export interface PaginatedUserListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: UserApi[]
+/**
+ * * `disabled` - disabled
+ * `toolbar` - toolbar
+ */
+export type ToolbarModeEnumApi = (typeof ToolbarModeEnumApi)[keyof typeof ToolbarModeEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ToolbarModeEnumApi = {
+    disabled: 'disabled',
+    toolbar: 'toolbar',
+} as const
+
+/**
+ * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+Also used for nested serializers.
+ */
+export interface TeamBasicApi {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    /**
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
+     */
+    readonly project_id: number
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: TimezoneEnumApi
+    readonly access_control: boolean
 }
 
+export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const MembershipLevelEnumApi = {
+    NUMBER_1: 1,
+    NUMBER_8: 8,
+    NUMBER_15: 15,
+} as const
+
+/**
+ * * `0` - none
+ * `3` - config
+ * `6` - install
+ * `9` - root
+ */
+export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PluginsAccessLevelEnumApi = {
+    NUMBER_0: 0,
+    NUMBER_3: 3,
+    NUMBER_6: 6,
+    NUMBER_9: 9,
+} as const
+
+/**
+ * * `bayesian` - Bayesian
+ * `frequentist` - Frequentist
+ */
+export type DefaultExperimentStatsMethodEnumApi =
+    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const DefaultExperimentStatsMethodEnumApi = {
+    bayesian: 'bayesian',
+    frequentist: 'frequentist',
+} as const
+
+export type OrganizationApiTeamsItem = { [key: string]: unknown }
+
+export type OrganizationApiProjectsItem = { [key: string]: unknown }
+
+export interface OrganizationApi {
+    readonly id: string
+    /** @maxLength 64 */
+    name: string
+    /** @pattern ^[-a-zA-Z0-9_]+$ */
+    readonly slug: string
+    /** @nullable */
+    logo_media_id?: string | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly membership_level: MembershipLevelEnumApi
+    readonly plugins_access_level: PluginsAccessLevelEnumApi
+    readonly teams: readonly OrganizationApiTeamsItem[]
+    readonly projects: readonly OrganizationApiProjectsItem[]
+    /** @nullable */
+    readonly available_product_features: readonly unknown[] | null
+    is_member_join_email_enabled?: boolean
+    readonly metadata: string
+    /** @nullable */
+    readonly customer_id: string | null
+    /** @nullable */
+    enforce_2fa?: boolean | null
+    /** @nullable */
+    members_can_invite?: boolean | null
+    members_can_use_personal_api_keys?: boolean
+    allow_publicly_shared_resources?: boolean
+    readonly member_count: string
+    /** @nullable */
+    is_ai_data_processing_approved?: boolean | null
+    /** Default statistical method for new experiments in this organization.
+
+* `bayesian` - Bayesian
+* `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi
+    /** Default setting for 'Discard client IP data' for new projects in this organization. */
+    default_anonymize_ips?: boolean
+    /**
+     * ID of the role to automatically assign to new members joining the organization
+     * @nullable
+     */
+    default_role_id?: string | null
+    /**
+     * Set this to 'No' to temporarily disable an organization.
+     * @nullable
+     */
+    readonly is_active: boolean | null
+    /**
+     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+     * @nullable
+     */
+    readonly is_not_active_reason: string | null
+}
+
+/**
+ * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
+Also used for nested serializers.
+ */
+export interface OrganizationBasicApi {
+    readonly id: string
+    /** @maxLength 64 */
+    name: string
+    /**
+     * @maxLength 48
+     * @pattern ^[-a-zA-Z0-9_]+$
+     */
+    slug: string
+    /** @nullable */
+    readonly logo_media_id: string | null
+    readonly membership_level: MembershipLevelEnumApi
+    members_can_use_personal_api_keys?: boolean
+    /**
+     * Set this to 'No' to temporarily disable an organization.
+     * @nullable
+     */
+    is_active?: boolean | null
+    /**
+     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+     * @maxLength 200
+     * @nullable
+     */
+    is_not_active_reason?: string | null
+}
+
+export interface ScenePersonalisationBasicApi {
+    /** @maxLength 200 */
+    scene: string
+    /** @nullable */
+    dashboard?: number | null
+}
+
+/**
+ * * `light` - Light
+ * `dark` - Dark
+ * `system` - System
+ */
+export type ThemeModeEnumApi = (typeof ThemeModeEnumApi)[keyof typeof ThemeModeEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ThemeModeEnumApi = {
+    light: 'light',
+    dark: 'dark',
+    system: 'system',
+} as const
+
+/**
+ * * `above` - Above
+ * `below` - Below
+ * `hidden` - Hidden
+ */
+export type ShortcutPositionEnumApi = (typeof ShortcutPositionEnumApi)[keyof typeof ShortcutPositionEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ShortcutPositionEnumApi = {
+    above: 'above',
+    below: 'below',
+    hidden: 'hidden',
+} as const
+
 export type UserApiNotificationSettings = { [key: string]: unknown }
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserApiToolbarMode = { ...ToolbarModeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type UserApiToolbarMode = (typeof UserApiToolbarMode)[keyof typeof UserApiToolbarMode] | null
-
-/**
- * @nullable
- */
-export type UserApiHasSeenProductIntroFor = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserApiThemeMode = { ...ThemeModeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type UserApiThemeMode = (typeof UserApiThemeMode)[keyof typeof UserApiThemeMode] | null
-
-/**
- * @nullable
- */
-export type UserApiHedgehogConfig = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserApiShortcutPosition = { ...ShortcutPositionEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type UserApiShortcutPosition = (typeof UserApiShortcutPosition)[keyof typeof UserApiShortcutPosition] | null
 
 export interface UserApi {
     readonly date_joined: string
@@ -3634,8 +3230,7 @@ export interface UserApi {
     anonymize_data?: boolean | null
     /** @nullable */
     allow_impersonation?: boolean | null
-    /** @nullable */
-    toolbar_mode?: UserApiToolbarMode
+    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | NullEnumApi
     readonly has_password: boolean
     readonly id: number
     /** Designates whether the user can log into this admin site. */
@@ -3658,56 +3253,26 @@ export interface UserApi {
     readonly is_2fa_enabled: boolean
     readonly has_social_auth: boolean
     readonly has_sso_enforcement: boolean
-    /** @nullable */
-    has_seen_product_intro_for?: UserApiHasSeenProductIntroFor
+    has_seen_product_intro_for?: unknown
     readonly scene_personalisation: readonly ScenePersonalisationBasicApi[]
-    /** @nullable */
-    theme_mode?: UserApiThemeMode
-    /** @nullable */
-    hedgehog_config?: UserApiHedgehogConfig
+    theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi
+    hedgehog_config?: unknown
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
-    /** @nullable */
-    shortcut_position?: UserApiShortcutPosition
+    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
 }
 
+export interface PaginatedUserListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UserApi[]
+}
+
 export type PatchedUserApiNotificationSettings = { [key: string]: unknown }
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedUserApiToolbarMode = { ...ToolbarModeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type PatchedUserApiToolbarMode =
-    | (typeof PatchedUserApiToolbarMode)[keyof typeof PatchedUserApiToolbarMode]
-    | null
-
-/**
- * @nullable
- */
-export type PatchedUserApiHasSeenProductIntroFor = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedUserApiThemeMode = { ...ThemeModeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type PatchedUserApiThemeMode = (typeof PatchedUserApiThemeMode)[keyof typeof PatchedUserApiThemeMode] | null
-
-/**
- * @nullable
- */
-export type PatchedUserApiHedgehogConfig = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedUserApiShortcutPosition = { ...ShortcutPositionEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type PatchedUserApiShortcutPosition =
-    | (typeof PatchedUserApiShortcutPosition)[keyof typeof PatchedUserApiShortcutPosition]
-    | null
 
 export interface PatchedUserApi {
     readonly date_joined?: string
@@ -3729,8 +3294,7 @@ export interface PatchedUserApi {
     anonymize_data?: boolean | null
     /** @nullable */
     allow_impersonation?: boolean | null
-    /** @nullable */
-    toolbar_mode?: PatchedUserApiToolbarMode
+    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | NullEnumApi
     readonly has_password?: boolean
     readonly id?: number
     /** Designates whether the user can log into this admin site. */
@@ -3753,268 +3317,14 @@ export interface PatchedUserApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly has_sso_enforcement?: boolean
-    /** @nullable */
-    has_seen_product_intro_for?: PatchedUserApiHasSeenProductIntroFor
+    has_seen_product_intro_for?: unknown
     readonly scene_personalisation?: readonly ScenePersonalisationBasicApi[]
-    /** @nullable */
-    theme_mode?: PatchedUserApiThemeMode
-    /** @nullable */
-    hedgehog_config?: PatchedUserApiHedgehogConfig
+    theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi
+    hedgehog_config?: unknown
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
-    /** @nullable */
-    shortcut_position?: PatchedUserApiShortcutPosition
+    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
-}
-
-/**
- * Serializer mixin that resolves appropriate response for tags depending on license.
- */
-export interface DashboardBasicApi {
-    readonly id: number
-    /** @nullable */
-    readonly name: string | null
-    readonly description: string
-    readonly pinned: boolean
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly last_accessed_at: string | null
-    /** @nullable */
-    readonly last_viewed_at: string | null
-    readonly is_shared: boolean
-    readonly deleted: boolean
-    readonly creation_mode: CreationModeEnumApi
-    tags?: unknown[]
-    readonly restriction_level: DashboardRestrictionLevelApi
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
-    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level: string | null
-    readonly access_control_version: string
-    /** @nullable */
-    readonly last_refresh: string | null
-    readonly team_id: number
-}
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * @nullable
- */
-export type UserBasicApiRoleAtOrganization =
-    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
-    | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    /** @nullable */
-    role_at_organization?: UserBasicApiRoleAtOrganization
-}
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatBasicApiHasCompletedOnboardingFor = unknown | null
-
-/**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
- */
-export interface ProjectBackwardCompatBasicApi {
-    readonly id: number
-    readonly uuid: string
-    readonly organization: string
-    readonly api_token: string
-    readonly name: string
-    readonly completed_snippet_onboarding: boolean
-    /** @nullable */
-    readonly has_completed_onboarding_for: ProjectBackwardCompatBasicApiHasCompletedOnboardingFor
-    readonly ingested_event: boolean
-    readonly is_demo: boolean
-    readonly timezone: TimezoneEnumApi
-    readonly access_control: boolean
-}
-
-/**
- * @nullable
- */
-export type TeamBasicApiHasCompletedOnboardingFor = unknown | null
-
-/**
- * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
-Also used for nested serializers.
- */
-export interface TeamBasicApi {
-    readonly id: number
-    readonly uuid: string
-    readonly organization: string
-    /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
-     */
-    readonly project_id: number
-    readonly api_token: string
-    readonly name: string
-    readonly completed_snippet_onboarding: boolean
-    /** @nullable */
-    readonly has_completed_onboarding_for: TeamBasicApiHasCompletedOnboardingFor
-    readonly ingested_event: boolean
-    readonly is_demo: boolean
-    readonly timezone: TimezoneEnumApi
-    readonly access_control: boolean
-}
-
-/**
- * @nullable
- */
-export type OrganizationApiMembershipLevel = MembershipLevelEnumApi | null
-
-export type OrganizationApiTeamsItem = { [key: string]: unknown }
-
-export type OrganizationApiProjectsItem = { [key: string]: unknown }
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OrganizationApiDefaultExperimentStatsMethod = {
-    ...DefaultExperimentStatsMethodEnumApi,
-    ...BlankEnumApi,
-    ...NullEnumApi,
-} as const
-/**
- * Default statistical method for new experiments in this organization.
-
-* `bayesian` - Bayesian
-* `frequentist` - Frequentist
- * @nullable
- */
-export type OrganizationApiDefaultExperimentStatsMethod =
-    | (typeof OrganizationApiDefaultExperimentStatsMethod)[keyof typeof OrganizationApiDefaultExperimentStatsMethod]
-    | null
-
-export interface OrganizationApi {
-    readonly id: string
-    /** @maxLength 64 */
-    name: string
-    /** @pattern ^[-a-zA-Z0-9_]+$ */
-    readonly slug: string
-    /** @nullable */
-    logo_media_id?: string | null
-    readonly created_at: string
-    readonly updated_at: string
-    /** @nullable */
-    readonly membership_level: OrganizationApiMembershipLevel
-    readonly plugins_access_level: PluginsAccessLevelEnumApi
-    readonly teams: readonly OrganizationApiTeamsItem[]
-    readonly projects: readonly OrganizationApiProjectsItem[]
-    /** @nullable */
-    readonly available_product_features: readonly unknown[] | null
-    is_member_join_email_enabled?: boolean
-    readonly metadata: string
-    /** @nullable */
-    readonly customer_id: string | null
-    /** @nullable */
-    enforce_2fa?: boolean | null
-    /** @nullable */
-    members_can_invite?: boolean | null
-    members_can_use_personal_api_keys?: boolean
-    allow_publicly_shared_resources?: boolean
-    readonly member_count: string
-    /** @nullable */
-    is_ai_data_processing_approved?: boolean | null
-    /**
-   * Default statistical method for new experiments in this organization.
-
-* `bayesian` - Bayesian
-* `frequentist` - Frequentist
-   * @nullable
-   */
-    default_experiment_stats_method?: OrganizationApiDefaultExperimentStatsMethod
-    /** Default setting for 'Discard client IP data' for new projects in this organization. */
-    default_anonymize_ips?: boolean
-    /**
-     * ID of the role to automatically assign to new members joining the organization
-     * @nullable
-     */
-    default_role_id?: string | null
-    /**
-     * Set this to 'No' to temporarily disable an organization.
-     * @nullable
-     */
-    readonly is_active: boolean | null
-    /**
-     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
-     * @nullable
-     */
-    readonly is_not_active_reason: string | null
-}
-
-/**
- * @nullable
- */
-export type OrganizationBasicApiMembershipLevel = MembershipLevelEnumApi | null
-
-/**
- * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
-Also used for nested serializers.
- */
-export interface OrganizationBasicApi {
-    readonly id: string
-    /** @maxLength 64 */
-    name: string
-    /**
-     * @maxLength 48
-     * @pattern ^[-a-zA-Z0-9_]+$
-     */
-    slug: string
-    /** @nullable */
-    readonly logo_media_id: string | null
-    /** @nullable */
-    readonly membership_level: OrganizationBasicApiMembershipLevel
-    members_can_use_personal_api_keys?: boolean
-    /**
-     * Set this to 'No' to temporarily disable an organization.
-     * @nullable
-     */
-    is_active?: boolean | null
-    /**
-     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
-     * @maxLength 200
-     * @nullable
-     */
-    is_not_active_reason?: string | null
-}
-
-export interface ScenePersonalisationBasicApi {
-    /** @maxLength 200 */
-    scene: string
-    /** @nullable */
-    dashboard?: number | null
 }
 
 export type EnvironmentsDashboardsListParams = {
@@ -4614,7 +3924,7 @@ export type GroupsUpdatePropertyCreateParams = {
     group_type_index: number
 }
 
-export type IntegrationsListParams = {
+export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.
      */

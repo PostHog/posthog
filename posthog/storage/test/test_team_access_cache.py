@@ -208,9 +208,9 @@ class TestTeamAccessCacheIntegration(TestCase):
         expected_all_access_key = hash_key_value("test_all_access_key", mode="sha256")
 
         # The key with "*" scope should be in the cache
-        assert (
-            expected_all_access_key in hashed_tokens
-        ), "Personal API key with '*' (all access) scope should be included in cache"
+        assert expected_all_access_key in hashed_tokens, (
+            "Personal API key with '*' (all access) scope should be included in cache"
+        )
 
     def test_warm_team_token_cache_with_scoped_all_access(self):
         """Test that team-scoped personal API keys with '*' scope are included in cache."""
@@ -761,7 +761,7 @@ class TestWarmUserTeamsCacheTask(TestCase):
         org = Organization.objects.create(name=f"Test Org {description}")
         teams = []
         for i in range(max(1, num_teams)):  # Create at least 1 team even if user has no keys
-            team = Team.objects.create(organization=org, name=f"Team {i+1}")
+            team = Team.objects.create(organization=org, name=f"Team {i + 1}")
             teams.append(team)
 
         user = User.objects.create(email=f"test_{description}@example.com", is_active=True)
@@ -860,12 +860,12 @@ class TestWarmUserTeamsCacheTask(TestCase):
         cache3_before = team_access_tokens_hypercache.get_from_cache(team3.api_token)
         assert cache2_before is not None, "Cache should exist for team2"
         assert cache3_before is not None, "Cache should exist for team3"
-        assert (
-            unscoped_key.secure_value not in cache2_before["hashed_tokens"]
-        ), "Unscoped key should NOT be in team2 before joining"
-        assert (
-            unscoped_key.secure_value not in cache3_before["hashed_tokens"]
-        ), "Unscoped key should NOT be in team3 before joining"
+        assert unscoped_key.secure_value not in cache2_before["hashed_tokens"], (
+            "Unscoped key should NOT be in team2 before joining"
+        )
+        assert unscoped_key.secure_value not in cache3_before["hashed_tokens"], (
+            "Unscoped key should NOT be in team3 before joining"
+        )
         assert scoped_key.secure_value not in cache2_before["hashed_tokens"], "Scoped key should NOT be in team2"
         assert scoped_key.secure_value not in cache3_before["hashed_tokens"], "Scoped key should NOT be in team3"
 
@@ -877,12 +877,12 @@ class TestWarmUserTeamsCacheTask(TestCase):
         cache3_after = team_access_tokens_hypercache.get_from_cache(team3.api_token)
         assert cache2_after is not None, "Cache should exist for team2"
         assert cache3_after is not None, "Cache should exist for team3"
-        assert (
-            unscoped_key.secure_value in cache2_after["hashed_tokens"]
-        ), "Unscoped key should be in team2 after joining"
-        assert (
-            unscoped_key.secure_value in cache3_after["hashed_tokens"]
-        ), "Unscoped key should be in team3 after joining"
+        assert unscoped_key.secure_value in cache2_after["hashed_tokens"], (
+            "Unscoped key should be in team2 after joining"
+        )
+        assert unscoped_key.secure_value in cache3_after["hashed_tokens"], (
+            "Unscoped key should be in team3 after joining"
+        )
         assert scoped_key.secure_value not in cache2_after["hashed_tokens"], "Scoped key should still NOT be in team2"
         assert scoped_key.secure_value not in cache3_after["hashed_tokens"], "Scoped key should still NOT be in team3"
 
@@ -951,9 +951,9 @@ class TestWarmUserTeamsCacheTask(TestCase):
             assert cached_data is not None, f"Cache should still exist for {team.api_token}"
             hashed_tokens = cached_data["hashed_tokens"]
 
-            assert (
-                key_to_remove.secure_value not in hashed_tokens
-            ), f"Removed user's key should NOT be in {team.name} cache"
+            assert key_to_remove.secure_value not in hashed_tokens, (
+                f"Removed user's key should NOT be in {team.name} cache"
+            )
             assert key_to_keep.secure_value in hashed_tokens, f"Kept user's key should still be in {team.name} cache"
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
@@ -1048,15 +1048,15 @@ class TestWarmUserTeamsCacheTask(TestCase):
         assert cached_data_team2 is not None, "Cache should exist for team2"
         assert cached_data_other is not None, "Cache should exist for other team"
 
-        assert (
-            key1_to_delete.secure_value not in cached_data_team1["hashed_tokens"]
-        ), "Deleted key1 should NOT be in team1"
-        assert (
-            key1_to_delete.secure_value not in cached_data_team2["hashed_tokens"]
-        ), "Deleted key1 should NOT be in team2"
-        assert (
-            key1_to_delete.secure_value not in cached_data_other["hashed_tokens"]
-        ), "Deleted key1 should NOT be in other team"
+        assert key1_to_delete.secure_value not in cached_data_team1["hashed_tokens"], (
+            "Deleted key1 should NOT be in team1"
+        )
+        assert key1_to_delete.secure_value not in cached_data_team2["hashed_tokens"], (
+            "Deleted key1 should NOT be in team2"
+        )
+        assert key1_to_delete.secure_value not in cached_data_other["hashed_tokens"], (
+            "Deleted key1 should NOT be in other team"
+        )
         assert key2_scoped.secure_value in cached_data_team1["hashed_tokens"], "Key2 should still be in team1"
         assert key3_keep.secure_value in cached_data_team1["hashed_tokens"], "Key3 should still be in team1"
         assert key3_keep.secure_value in cached_data_team2["hashed_tokens"], "Key3 should still be in team2"
@@ -1978,12 +1978,12 @@ class TestSignalHandlerCacheWarming(TestCase):
 
         assert cache1_after is not None, "Cache should still exist for team1"
         assert cache2_after is not None, "Cache should still exist for team2"
-        assert (
-            key.secure_value not in cache1_after["hashed_tokens"]
-        ), "Deactivated user's key should be REMOVED from team1 cache"
-        assert (
-            key.secure_value not in cache2_after["hashed_tokens"]
-        ), "Deactivated user's key should be REMOVED from team2 cache"
+        assert key.secure_value not in cache1_after["hashed_tokens"], (
+            "Deactivated user's key should be REMOVED from team1 cache"
+        )
+        assert key.secure_value not in cache2_after["hashed_tokens"], (
+            "Deactivated user's key should be REMOVED from team2 cache"
+        )
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_user_activation_adds_api_keys_to_cache_end_to_end(self, mock_on_commit):
@@ -2028,12 +2028,12 @@ class TestSignalHandlerCacheWarming(TestCase):
 
         assert cache1_before is not None, "Cache should exist for team1"
         assert cache2_before is not None, "Cache should exist for team2"
-        assert (
-            key.secure_value not in cache1_before["hashed_tokens"]
-        ), "Inactive user's key should NOT be in team1 cache"
-        assert (
-            key.secure_value not in cache2_before["hashed_tokens"]
-        ), "Inactive user's key should NOT be in team2 cache"
+        assert key.secure_value not in cache1_before["hashed_tokens"], (
+            "Inactive user's key should NOT be in team1 cache"
+        )
+        assert key.secure_value not in cache2_before["hashed_tokens"], (
+            "Inactive user's key should NOT be in team2 cache"
+        )
 
         # Load user from DB to set _original_is_active (simulates real Django behavior)
         user = User.objects.get(pk=user.pk)
