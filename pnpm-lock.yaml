@@ -1636,8 +1636,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.318.2
-        version: 1.318.2
+        specifier: 1.319.0
+        version: 1.319.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -6875,9 +6875,6 @@ packages:
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
-
-  '@posthog/types@1.318.2':
-    resolution: {integrity: sha512-/4m1DStpyaZStTJJ4b7RyftnFoSM/IWmVBTiWvdm2e2I8A8W3D4+YY7YkTpPtTinRZEhDQEZFjhlHdDgNCiNuA==}
 
   '@posthog/types@1.319.0':
     resolution: {integrity: sha512-jHvs5PhDfPjqDToecgtBWADW+sVox4ezD9LIYbcP72CIMzHVZcKJD5upq6RDchTEvX5gV+qy2SNyPPrsuLpcMg==}
@@ -17029,9 +17026,6 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.318.2:
-    resolution: {integrity: sha512-M5C/3HYlyNaqmCIwgGkmJLcGt5MREwsllwGLAOO3nMYhrWSjEuJnEzenplHxa/4UgwvhR4121ErzRHgK67qq1A==}
-
   posthog-js@1.319.0:
     resolution: {integrity: sha512-0LFqLEhZzA8s1TrhYxsKsKmYV0n3FpNrWaT8rMjL87TRXtpy3XtsvbZKa97X6MFly5CK9CdhgKSNNyX7j12MrQ==}
 
@@ -24013,7 +24007,7 @@ snapshots:
     dependencies:
       lodash.camelcase: 4.3.0
       long: 5.2.4
-      protobufjs: 7.5.3
+      protobufjs: 7.5.4
       yargs: 17.7.2
 
   '@hapi/hoek@9.3.0': {}
@@ -24273,7 +24267,7 @@ snapshots:
     dependencies:
       '@jest/fake-timers': 30.0.5
       '@jest/types': 30.0.5
-      '@types/node': 22.15.17
+      '@types/node': 22.18.8
       jest-mock: 30.0.5
 
   '@jest/expect-utils@29.7.0':
@@ -24311,7 +24305,7 @@ snapshots:
     dependencies:
       '@jest/types': 30.0.5
       '@sinonjs/fake-timers': 13.0.5
-      '@types/node': 22.15.17
+      '@types/node': 22.18.8
       jest-message-util: 30.0.5
       jest-mock: 30.0.5
       jest-util: 30.0.5
@@ -26585,8 +26579,6 @@ snapshots:
       mitt: 3.0.0
 
   '@posthog/siphash@1.1.1': {}
-
-  '@posthog/types@1.318.2': {}
 
   '@posthog/types@1.319.0': {}
 
@@ -30037,7 +30029,7 @@ snapshots:
 
   '@types/cross-spawn@6.0.2':
     dependencies:
-      '@types/node': 25.0.3
+      '@types/node': 22.18.8
 
   '@types/css-font-loading-module@0.0.7': {}
 
@@ -30257,7 +30249,7 @@ snapshots:
 
   '@types/graceful-fs@4.1.6':
     dependencies:
-      '@types/node': 22.15.17
+      '@types/node': 22.18.8
 
   '@types/hast@2.3.4':
     dependencies:
@@ -30568,7 +30560,7 @@ snapshots:
   '@types/request@2.48.13':
     dependencies:
       '@types/caseless': 0.12.5
-      '@types/node': 22.15.17
+      '@types/node': 22.18.8
       '@types/tough-cookie': 4.0.2
       form-data: 2.5.5
 
@@ -30583,7 +30575,7 @@ snapshots:
   '@types/send@0.17.4':
     dependencies:
       '@types/mime': 1.3.5
-      '@types/node': 25.0.3
+      '@types/node': 22.18.8
 
   '@types/serve-static@1.15.5':
     dependencies:
@@ -30593,7 +30585,7 @@ snapshots:
 
   '@types/set-cookie-parser@2.4.2':
     dependencies:
-      '@types/node': 22.15.17
+      '@types/node': 22.18.8
 
   '@types/snowflake-sdk@1.6.12':
     dependencies:
@@ -30649,7 +30641,7 @@ snapshots:
 
   '@types/wait-on@5.3.1':
     dependencies:
-      '@types/node': 25.0.3
+      '@types/node': 22.18.8
 
   '@types/whatwg-mimetype@3.0.2': {}
 
@@ -35693,7 +35685,7 @@ snapshots:
       '@jest/expect': 30.0.5
       '@jest/test-result': 30.0.5
       '@jest/types': 30.0.5
-      '@types/node': 22.15.17
+      '@types/node': 22.18.8
       chalk: 4.1.2
       co: 4.6.0
       dedent: 1.6.0
@@ -36048,7 +36040,7 @@ snapshots:
       '@jest/environment': 30.0.5
       '@jest/fake-timers': 30.0.5
       '@jest/types': 30.0.5
-      '@types/node': 22.15.17
+      '@types/node': 22.18.8
       jest-mock: 30.0.5
       jest-util: 30.0.5
       jest-validate: 30.0.5
@@ -36493,7 +36485,7 @@ snapshots:
 
   jest-worker@30.0.5:
     dependencies:
-      '@types/node': 22.15.17
+      '@types/node': 22.18.8
       '@ungap/structured-clone': 1.3.0
       jest-util: 30.0.5
       merge-stream: 2.0.0
@@ -39503,17 +39495,6 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.318.2:
-    dependencies:
-      '@posthog/core': 1.9.1
-      '@posthog/types': 1.318.2
-      core-js: 3.40.0
-      dompurify: 3.3.1
-      fflate: 0.4.8
-      preact: 10.28.2
-      query-selector-shadow-dom: 1.0.1
-      web-vitals: 4.2.4
-
   posthog-js@1.319.0:
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -39749,7 +39730,7 @@ snapshots:
 
   proto3-json-serializer@2.0.2:
     dependencies:
-      protobufjs: 7.5.3
+      protobufjs: 7.5.4
 
   protobufjs@7.5.3:
     dependencies:
@@ -39778,7 +39759,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.0
-      '@types/node': 22.15.17
+      '@types/node': 22.18.8
       long: 5.3.2
 
   protocol-buffers-schema@3.6.0: {}

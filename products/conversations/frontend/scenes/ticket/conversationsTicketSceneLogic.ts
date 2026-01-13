@@ -119,7 +119,7 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                     let displayName = 'Customer'
                     if (message.created_by) {
                         displayName =
-                            `${message.created_by.first_name} ${message.created_by.last_name}`.trim() ||
+                            [message.created_by.first_name, message.created_by.last_name].filter(Boolean).join(' ') ||
                             message.created_by.email
                     } else if (authorType === 'customer') {
                         displayName = ticket?.anonymous_traits?.name || ticket?.anonymous_traits?.email || 'Customer'

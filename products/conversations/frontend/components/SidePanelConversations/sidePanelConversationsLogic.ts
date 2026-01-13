@@ -33,7 +33,7 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
         loadTickets: true,
         selectTicket: (ticketId: string) => ({ ticketId }),
         loadMessages: (ticketId: string) => ({ ticketId }),
-        sendMessage: (content: string) => ({ content }),
+        sendMessage: (content: string, onSuccess?: () => void) => ({ content, onSuccess }),
         markAsRead: (ticketId: string) => ({ ticketId }),
         goBack: true,
         startNewConversation: true,
@@ -154,7 +154,7 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
                 actions.setMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content }) => {
+        sendMessage: async ({ content, onSuccess }) => {
             actions.setMessageSending(true)
             try {
                 // If we're in "new" view, force creation of a new ticket
@@ -185,10 +185,13 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
                     // Reload messages to show the new one
                     actions.loadMessages(response.ticket_id)
                     lemonToast.success('Message sent!')
+                    // Call success callback to clear input
+                    onSuccess?.()
                 }
             } catch (e) {
                 console.error('Failed to send message:', e)
                 lemonToast.error('Failed to send message. Please try again.')
+                // Don't call onSuccess - keep the message in the input
             } finally {
                 actions.setMessageSending(false)
             }
