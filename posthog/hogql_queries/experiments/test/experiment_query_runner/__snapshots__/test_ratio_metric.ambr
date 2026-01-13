@@ -181,7 +181,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            avg(accurateCastOrNull(combined_events.numerator_value, 'Float64')) AS numerator_value,
+            coalesce(avg(accurateCastOrNull(combined_events.numerator_value, 'Float64')), 0) AS numerator_value,
             accurateCastOrNull(count(DISTINCT multiIf(and(ifNull(equals(toTypeName(combined_events.denominator_value), 'UUID'), 0), ifNull(equals(reinterpretAsUInt128(combined_events.denominator_value), 0), 0)), NULL, ifNull(equals(toString(combined_events.denominator_value), ''), 0), NULL, combined_events.denominator_value)), 'Float64') AS denominator_value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,

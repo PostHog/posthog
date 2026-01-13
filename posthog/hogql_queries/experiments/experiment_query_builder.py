@@ -1166,11 +1166,12 @@ class ExperimentQueryBuilder:
                 ))"""
             )
         elif math_type == ExperimentMetricMathType.MIN:
-            return parse_expr(f"min(toFloat({column_ref}))")
+            # Outer coalesce ensures 0 (not NULL) when entity has no events of this type
+            return parse_expr(f"coalesce(min(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.MAX:
-            return parse_expr(f"max(toFloat({column_ref}))")
+            return parse_expr(f"coalesce(max(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.AVG:
-            return parse_expr(f"avg(toFloat({column_ref}))")
+            return parse_expr(f"coalesce(avg(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
