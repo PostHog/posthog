@@ -71,12 +71,12 @@ jobs:
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
+              env:
+                  # Bust cache key due to OpenSSL assembly corruption (2026-01-13)
+                  SCCACHE_GHA_CACHE_TO: sccache-rust-build-v2-20260113
+                  SCCACHE_GHA_CACHE_FROM: sccache-rust-build-v2-20260113
               run: |
                   echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
-                  # Clear sccache to fix OpenSSL assembly corruption (2026-01-13)
-                  sccache --stop-server || true
-                  rm -rf ~/.cache/sccache || true
                   sccache --start-server
 
             - name: Run cargo build
@@ -250,12 +250,12 @@ jobs:
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
+              env:
+                  # Bust cache key due to OpenSSL assembly corruption (2026-01-13)
+                  SCCACHE_GHA_CACHE_TO: sccache-rust-lint-v2-20260113
+                  SCCACHE_GHA_CACHE_FROM: sccache-rust-lint-v2-20260113
               run: |
                   echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
-                  # Clear sccache to fix OpenSSL assembly corruption (2026-01-13)
-                  sccache --stop-server || true
-                  rm -rf ~/.cache/sccache || true
                   sccache --start-server
 
             - name: Check format
