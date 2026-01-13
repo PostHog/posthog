@@ -1,5 +1,5 @@
 import re
-from typing import Literal, Optional, TypeGuard, cast
+from typing import Literal, TypeGuard, cast
 
 from django.db import models
 from django.db.models import Q
@@ -234,30 +234,95 @@ def _expr_to_compare_op(
             right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
         )
     elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
+        # Use if() to check for null before comparison to avoid incorrect HogVM behavior with null values.
+        # Pattern: if(property IS NOT NULL, property < value, false)
+        #
+        # Without this wrapper, null comparisons can return incorrect results in HogVM bytecode,
+        # matching people who don't have the property when they shouldn't match.
+        # The if() short-circuits evaluation, only running the comparison if property is not null.
+        #
+        # Note: The ClickHouse printer will add additional ifNull() wrapping around the comparison
+        # for SQL queries, so this does not change the SQL index usage compared to the original code.
+        return ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=expr, right=ast.Constant(value=None)),
+                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value)),
+                ast.Constant(value=False),
+            ],
+        )
     elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
+        # Use if() to check for null before comparison (see LT operator for explanation)
+        return ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=expr, right=ast.Constant(value=None)),
+                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value)),
+                ast.Constant(value=False),
+            ],
+        )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
-        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
+        # Use if() to check for null before comparison (see LT operator for explanation)
+        return ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=expr, right=ast.Constant(value=None)),
+                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value)),
+                ast.Constant(value=False),
+            ],
+        )
     elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
-        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+        # Use if() to check for null before comparison (see LT operator for explanation)
+        return ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=expr, right=ast.Constant(value=None)),
+                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value)),
+                ast.Constant(value=False),
+            ],
+        )
     elif operator == PropertyOperator.BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
-        return ast.And(
-            exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value[1])),
-            ]
+        # Use if() to check for null before comparisons (see LT operator for explanation)
+        return ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=expr, right=ast.Constant(value=None)),
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value[1])
+                        ),
+                    ]
+                ),
+                ast.Constant(value=False),
+            ],
         )
     elif operator == PropertyOperator.NOT_BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
-        return ast.Or(
-            exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])),
-            ]
+        # For NOT_BETWEEN: null values should match (return true)
+        # Pattern: if(property IS NULL, true, property < min OR property > max)
+        return ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=expr, right=ast.Constant(value=None)),
+                ast.Constant(value=True),  # null values match NOT_BETWEEN
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])
+                        ),
+                    ]
+                ),
+            ],
         )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
         return ast.CompareOperation(
@@ -400,7 +465,7 @@ def property_to_expr(
         return parse_expr(property.key)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        operator = cast(PropertyOperator | None, property.operator) or PropertyOperator.EXACT
         value = property.value
         if isinstance(property.value, list):
             if len(property.value) > 1:
@@ -452,7 +517,7 @@ def property_to_expr(
             or (property.type == "revenue_analytics" and scope != "revenue_analytics")
         ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        operator = cast(PropertyOperator | None, property.operator) or PropertyOperator.EXACT
         value = property.value
 
         if property.type == "person" and scope != "person":
@@ -630,7 +695,7 @@ def property_to_expr(
         if scope == "person":
             raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")
         value = property.value
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        operator = cast(PropertyOperator | None, property.operator) or PropertyOperator.EXACT
         if isinstance(value, list):
             if len(value) == 1:
                 value = value[0]
@@ -716,7 +781,7 @@ def property_to_expr(
     )
 
 
-def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
+def action_to_expr(action: Action, events_alias: str | None = None) -> ast.Expr:
     steps = action.steps
 
     if len(steps) == 0:
