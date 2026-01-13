@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,6 +145,53 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 			} else {
 				assert.NoError(t, err, tt.description)
 			}
+		})
+	}
+}
+
+func TestStreamEventsHandler_IncludePropertiesValidation(t *testing.T) {
+	viper.Set("jwt.secret", "test-secret-for-handlers")
+
+	logger := echo.New().Logger
+	subChan := make(chan events.Subscription, 10)
+	filter := &events.Filter{
+		UnSubChan: make(chan events.Subscription, 10),
+	}
+	handler := StreamEventsHandler(logger, subChan, filter)
+
+	validToken := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+		"team_id":   123,
+		"api_token": "valid-token",
+	})
+
+	tests := []struct {
+		name        string
+		queryParams string
+	}{
+		{
+			name:        "too many properties",
+			queryParams: "?includeProperties=" + strings.Repeat("p,", 100) + "p",
+		},
+		{
+			name:        "property name too long",
+			queryParams: "?includeProperties=" + strings.Repeat("a", 501),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/events"+tt.queryParams, nil)
+			req.Header.Set("Authorization", "Bearer "+validToken)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := handler(c)
+
+			require.Error(t, err)
+			httpErr, ok := err.(*echo.HTTPError)
+			require.True(t, ok, "error should be an HTTPError")
+			assert.Equal(t, http.StatusBadRequest, httpErr.Code)
 		})
 	}
 }
