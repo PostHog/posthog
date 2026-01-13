@@ -7,8 +7,11 @@ from posthog.hogql import ast
 from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, INTEGRATION_PRIMARY_SOURCE
 from .base import MarketingSourceAdapter, MetaAdsConfig, ValidationResult
 
-# Purchase action types to extract from Meta's actions/action_values arrays
-META_PURCHASE_ACTION_TYPES = ["omni_purchase", "purchase"]
+# Purchase action types - omni_purchase is preferred as it's the comprehensive metric
+# that includes all purchase channels. We fallback to purchase only if omni_purchase
+# returns no results (for older data or accounts without omnichannel tracking).
+META_PURCHASE_ACTION_TYPE_PRIMARY = "omni_purchase"
+META_PURCHASE_ACTION_TYPE_FALLBACK = "purchase"
 
 
 class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
@@ -121,19 +124,36 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="SUM", args=[spend_float])
 
-    def _build_action_type_filter(self) -> ast.Expr:
-        """Build filter condition for purchase action types"""
-        return ast.Or(
-            exprs=[
-                ast.CompareOperation(
-                    left=ast.Call(
-                        name="JSONExtractString", args=[ast.Field(chain=["x"]), ast.Constant(value="action_type")]
+    def _build_action_type_filter(self, action_type: str) -> ast.Expr:
+        """Build filter condition for a specific action type"""
+        return ast.CompareOperation(
+            left=ast.Call(
+                name="JSONExtractString", args=[ast.Field(chain=["x"]), ast.Constant(value="action_type")]
+            ),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=action_type),
+        )
+
+    def _build_array_sum_for_action_type(self, json_array_expr: ast.Expr, action_type: str) -> ast.Expr:
+        """Build arraySum expression for a specific action type"""
+        return ast.Call(
+            name="arraySum",
+            args=[
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.Call(
+                        name="JSONExtractFloat",
+                        args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
                     ),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=action_type),
-                )
-                for action_type in META_PURCHASE_ACTION_TYPES
-            ]
+                ),
+                ast.Call(
+                    name="arrayFilter",
+                    args=[
+                        ast.Lambda(args=["x"], expr=self._build_action_type_filter(action_type)),
+                        ast.Call(name="JSONExtractArrayRaw", args=[json_array_expr]),
+                    ],
+                ),
+            ],
         )
 
     def _get_reported_conversion_field(self) -> ast.Expr:
@@ -151,25 +171,26 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                 # This prevents "Nested type Array(String) cannot be inside Nullable type" error
                 actions_non_null = ast.Call(name="coalesce", args=[actions_field, ast.Constant(value="[]")])
 
+                # Prefer omni_purchase (comprehensive metric), fallback to purchase for older data
+                primary_sum = self._build_array_sum_for_action_type(actions_non_null, META_PURCHASE_ACTION_TYPE_PRIMARY)
+                fallback_sum = self._build_array_sum_for_action_type(
+                    actions_non_null, META_PURCHASE_ACTION_TYPE_FALLBACK
+                )
+
+                # Use IF to prefer primary, fallback if primary returns 0
                 array_sum = ast.Call(
-                    name="arraySum",
+                    name="if",
                     args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.Call(
-                                name="JSONExtractFloat",
-                                args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
-                            ),
+                        ast.CompareOperation(
+                            left=primary_sum,
+                            op=ast.CompareOperationOp.Gt,
+                            right=ast.Constant(value=0),
                         ),
-                        ast.Call(
-                            name="arrayFilter",
-                            args=[
-                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
-                                ast.Call(name="JSONExtractArrayRaw", args=[actions_non_null]),
-                            ],
-                        ),
+                        primary_sum,
+                        fallback_sum,
                     ],
                 )
+
                 sum_result = ast.Call(name="SUM", args=[array_sum])
                 return ast.Call(name="toFloat", args=[sum_result])
         except (TypeError, AttributeError, KeyError):
@@ -191,25 +212,28 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                 # This prevents "Nested type Array(String) cannot be inside Nullable type" error
                 action_values_non_null = ast.Call(name="coalesce", args=[action_values_field, ast.Constant(value="[]")])
 
+                # Prefer omni_purchase (comprehensive metric), fallback to purchase for older data
+                primary_sum = self._build_array_sum_for_action_type(
+                    action_values_non_null, META_PURCHASE_ACTION_TYPE_PRIMARY
+                )
+                fallback_sum = self._build_array_sum_for_action_type(
+                    action_values_non_null, META_PURCHASE_ACTION_TYPE_FALLBACK
+                )
+
+                # Use IF to prefer primary, fallback if primary returns 0
                 array_sum = ast.Call(
-                    name="arraySum",
+                    name="if",
                     args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.Call(
-                                name="JSONExtractFloat",
-                                args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
-                            ),
+                        ast.CompareOperation(
+                            left=primary_sum,
+                            op=ast.CompareOperationOp.Gt,
+                            right=ast.Constant(value=0),
                         ),
-                        ast.Call(
-                            name="arrayFilter",
-                            args=[
-                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
-                                ast.Call(name="JSONExtractArrayRaw", args=[action_values_non_null]),
-                            ],
-                        ),
+                        primary_sum,
+                        fallback_sum,
                     ],
                 )
+
                 sum_result = ast.Call(name="SUM", args=[array_sum])
                 return ast.Call(name="toFloat", args=[sum_result])
         except (TypeError, AttributeError, KeyError):
