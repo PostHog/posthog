@@ -629,9 +629,13 @@ ThreadWithMultipleContextObjects.parameters = {
 }
 
 export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
+    // Find the poem conversation from the mock data
+    const poemConversation = conversationList.results.find((c) => c.id === 'poem')
+
     useStorybookMocks({
         get: {
             '/api/environments/:team_id/conversations/': () => [200, conversationList],
+            '/api/environments/:team_id/conversations/poem/': () => [200, poemConversation],
         },
         post: {
             '/api/environments/:team_id/conversations/': (_, res, ctx) =>
