@@ -347,7 +347,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
                         <ScrollableShadows
-                            className={cn('flex-1', { 'rounded-tr-sm': !isLayoutPanelVisible })}
+                            className={cn('flex-1', { 'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive })}
                             innerClassName="overflow-y-auto"
                             direction="vertical"
                             styledScrollbars
