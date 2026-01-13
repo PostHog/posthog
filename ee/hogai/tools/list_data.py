@@ -8,7 +8,7 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import SEARCH_KIND_TO_DATABASE_ENTITY_TYPE, FTSKind
 from ee.hogai.utils.prompt import format_prompt_string
 
-LIST_ENTITIES_TOOL_PROMPT = """
+LIST_DATA_TOOL_PROMPT = """
 Use this tool to browse PostHog entities with pagination, sorted by most recently updated first.
 
 Available entity types:
@@ -49,9 +49,9 @@ Invalid entity kind: {{{kind}}}. Please provide a valid entity kind for listing.
 Cannot list "all" or "docs" entity types. Please specify a specific entity type.
 """.strip()
 
-ENTITIES = [f"{entity}" for entity in FTSKind if entity not in (FTSKind.INSIGHTS, FTSKind.ALL)]
+ENTITIES = [f"{entity}" for entity in FTSKind if entity not in (FTSKind.ALL,)]
 
-ListEntityKind = Literal["insights", *ENTITIES]  # type: ignore
+ListEntityKind = Literal[*ENTITIES]  # type: ignore
 
 LIST_RESULT_PROMPT = """
 Offset {{{offset}}}, limit {{{limit}}}.
@@ -77,20 +77,13 @@ class ListDataToolArgs(BaseModel):
 
 class ListDataTool(MaxTool):
     name: Literal["list_data"] = "list_data"
-    description: str = LIST_ENTITIES_TOOL_PROMPT
+    description: str = LIST_DATA_TOOL_PROMPT
     context_prompt_template: str = "Lists PostHog entities with pagination"
     args_schema: type[BaseModel] = ListDataToolArgs
 
     async def _arun_impl(
         self, *, kind: str, limit: int = 100, offset: int = 0
     ) -> tuple[str, ToolMessagesArtifact | None]:
-        # Validate kind
-        if kind == "all":
-            raise MaxToolRetryableError("Cannot list all entities. Please specify a specific entity type.")
-
-        if kind not in self._list_entities:
-            raise MaxToolRetryableError(INVALID_ENTITY_KIND_PROMPT.format(kind=kind))
-
         # Map FTSKind to database entity type
         entity_type = SEARCH_KIND_TO_DATABASE_ENTITY_TYPE.get(FTSKind(kind))
         if not entity_type:
@@ -112,8 +105,3 @@ class ListDataTool(MaxTool):
             limit=limit,
             next_offset=next_offset,
         ), None
-
-    @property
-    def _list_entities(self) -> list[str]:
-        entities = [entity for entity in FTSKind if entity not in (FTSKind.ALL, FTSKind.INSIGHTS)]
-        return [*entities, FTSKind.INSIGHTS]

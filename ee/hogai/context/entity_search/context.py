@@ -1,10 +1,13 @@
+from datetime import timedelta
 from typing import Any, Literal
 
 from django.conf import settings
+from django.db.models import Max
+from django.utils import timezone
 
 from pydantic import ValidationError
 
-from posthog.schema import DocumentArtifactContent, VisualizationArtifactContent
+from posthog.schema import DocumentArtifactContent, InsightVizNode, VisualizationArtifactContent
 
 from posthog.api.search import EntityConfig, search_entities
 from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
@@ -68,6 +71,9 @@ EXCLUDE_FROM_DISPLAY: dict[str, set[str]] = {
 }
 """Fields to exclude from display output per entity type (they're still used for search ranking)."""
 
+INSIGHTS_CUTOFF_DAYS = 180
+"""Only include insights viewed within this many days."""
+
 
 class EntitySearchContext:
     """Context manager for searching/listing and formatting Django models."""
@@ -128,7 +134,6 @@ class EntitySearchContext:
         """
         all_entities: list[dict[str, Any]] = []
 
-        # Fetch artifacts if requested
         if entity_type == "artifact":
             artifacts, total_count = await self._context_manager.artifacts.aget_conversation_artifacts(limit, offset)
 
@@ -154,6 +159,9 @@ class EntitySearchContext:
                 except ValidationError:
                     # Skip artifacts that can't be parsed
                     continue
+        elif entity_type == "insight":
+            # Use specialized queryset filtered by recent view time
+            return await self._list_insights(limit, offset)
         else:
             # Fetch database entities
             db_results, _, total_count = await database_sync_to_async(search_entities, thread_sensitive=False)(
@@ -204,19 +212,15 @@ class EntitySearchContext:
         rows: list[str] = []
 
         if multiple_types:
-            # Header with Entity type column
-            header_cols = (
-                ["Entity type", "ID", "Name"]
-                + [col.replace("_", " ").title() for col in extra_columns_sorted]
-                + ["URL"]
-            )
+            # Header with Entity type column - each row will have its own type_id
+            header_cols = ["entity_type", "entity_id", "name", *extra_columns_sorted, "url"]
             rows.append("|".join(header_cols))
         else:
-            # Single type: add type header line
+            # Single type: add type header line and use type-specific id column
             single_type = next(iter(entity_types))
-            rows.append(f"Entity type: {single_type.replace('_', ' ').title()}")
-            # Header without Entity type column
-            header_cols = ["ID", "Name"] + [col.replace("_", " ").title() for col in extra_columns_sorted] + ["URL"]
+            rows.append(f"entity_type: {single_type}")
+            # Header with type-specific id column (e.g., insight_id, dashboard_id)
+            header_cols = [f"{single_type}_id", "name", *extra_columns_sorted, "url"]
             rows.append("|".join(header_cols))
 
         # Data rows
@@ -225,6 +229,43 @@ class EntitySearchContext:
             rows.append("|".join(row_values))
 
         return "\n".join(rows)
+
+    async def _list_insights(self, limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
+        """
+        List insights filtered by recent view time (same queryset as InsightSearchNode).
+        Only includes insights viewed within INSIGHTS_CUTOFF_DAYS.
+
+        Returns:
+            Tuple of (entities list in format_entities format, total count)
+        """
+        cutoff_date = timezone.now() - timedelta(days=INSIGHTS_CUTOFF_DAYS)
+        queryset = (
+            Insight.objects.filter(team=self._team, deleted=False)
+            .annotate(latest_view_time=Max("insightviewed__last_viewed_at"))
+            .filter(latest_view_time__gte=cutoff_date)
+            .order_by("-latest_view_time")
+        )
+
+        total_count = await queryset.acount()
+        insights = queryset[offset : offset + limit].values(
+            "id", "name", "description", "query", "derived_name", "short_id"
+        )
+
+        all_entities: list[dict[str, Any]] = []
+        async for insight in insights:
+            all_entities.append(
+                {
+                    "type": "insight",
+                    "result_id": insight["short_id"],
+                    "extra_fields": {
+                        "name": insight["name"] or insight["derived_name"] or "Unnamed",
+                        "description": insight["description"],
+                        "insight_type": self._extract_insight_type(insight["query"]),
+                    },
+                }
+            )
+
+        return all_entities, total_count
 
     def _get_entity_row_values(self, result: dict, extra_columns: list[str], include_type: bool) -> list[str]:
         """
@@ -278,6 +319,14 @@ class EntitySearchContext:
             return "-"
         str_val = str(value)
         return f'"{str_val}"' if "|" in str_val else str_val
+
+    def _extract_insight_type(self, query: Any) -> str | None:
+        """Extract human-readable insight type from an InsightVizNode query."""
+        try:
+            node = InsightVizNode.model_validate(query)
+            return node.source.kind.lower().replace("query", "")
+        except ValidationError:
+            return None
 
     def _build_url(self, entity_type: str, result_id: str, team_id: int) -> str:
         """Build a URL for an entity based on its type and ID."""

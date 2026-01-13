@@ -57,8 +57,8 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         ]
         formatted = self.context.format_entities(entities)
         lines = formatted.split("\n")
-        assert lines[0] == "Entity type: Dashboard"
-        assert "ID|Name|Description|URL" in lines[1]
+        assert lines[0] == "entity_type: dashboard"
+        assert "dashboard_id|name|description|url" in lines[1]
         assert "456|Test Dashboard|A dashboard|" in lines[2]
         assert "789|Another Dashboard|-|" in lines[3]  # Empty description shows as dash
 
@@ -69,9 +69,9 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         ]
         formatted = self.context.format_entities(entities)
         lines = formatted.split("\n")
-        assert "Entity type|ID|Name|URL" in lines[0]
-        assert "Dashboard|456|Test Dashboard|" in lines[1]
-        assert "Insight|123|Test Insight|" in lines[2]
+        assert "entity_type|entity_id|name|url" in lines[0]
+        assert "dashboard|456|Test Dashboard|" in lines[1]
+        assert "insight|123|Test Insight|" in lines[2]
 
     def test_format_entities_includes_id(self):
         entities = [
@@ -92,6 +92,41 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "TrendsQuery" not in formatted
         assert "Test Insight" in formatted
 
+    def test_format_entities_extracts_insight_type_from_insight_viz_node(self):
+        entities = [
+            {
+                "type": "insight",
+                "result_id": "123",
+                "extra_fields": {
+                    "name": "Test Insight",
+                    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                },
+            },
+        ]
+        formatted = self.context.format_entities(entities)
+        assert "insight_type" in formatted
+        assert "trends" in formatted
+
+    @parameterized.expand(
+        [
+            ("TrendsQuery", "trends"),
+            ("FunnelsQuery", "funnels"),
+            ("RetentionQuery", "retention"),
+            ("PathsQuery", "paths"),
+            ("StickinessQuery", "stickiness"),
+            ("LifecycleQuery", "lifecycle"),
+        ]
+    )
+    def test_extract_insight_type_strips_query_suffix(self, source_kind, expected):
+        query = {"kind": "InsightVizNode", "source": {"kind": source_kind}}
+        assert self.context._extract_insight_type(query) == expected
+
+    def test_extract_insight_type_returns_none_for_non_insight_viz_node(self):
+        assert self.context._extract_insight_type({"kind": "DataTableNode"}) is None
+        assert self.context._extract_insight_type({"kind": "TrendsQuery"}) is None
+        assert self.context._extract_insight_type(None) is None
+        assert self.context._extract_insight_type({}) is None
+
     def test_format_entities_does_not_exclude_fields_for_other_entities(self):
         entities = [
             {
@@ -101,7 +136,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             },
         ]
         formatted = self.context.format_entities(entities)
-        assert "Filters" in formatted
+        assert "filters" in formatted
 
     def test_format_entities_escapes_pipe_characters(self):
         entities = [
