@@ -4,11 +4,6 @@ from uuid import UUID, uuid4
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import ArtifactContentType, ArtifactMessage, ArtifactSource, VisualizationMessage
-
-from posthog.models import User
-from posthog.models.team import Team
-
 from ee.hogai.artifacts.handlers import (
     EnrichmentContext,
     NotebookArtifactManagerMixin,
@@ -21,9 +16,21 @@ from ee.hogai.artifacts.types import ArtifactContent, ContentT, StoredContent
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 from ee.models.assistant import AgentArtifact
+from posthog.models import User
+from posthog.models.team import Team
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactMessage,
+    ArtifactSource,
+    VisualizationMessage,
+)
 
 
-class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManagerMixin, AssistantContextMixin):
+class ArtifactManager(
+    VisualizationArtifactManagerMixin,
+    NotebookArtifactManagerMixin,
+    AssistantContextMixin,
+):
     """
     Manages creation and retrieval of agent artifacts.
     """
@@ -60,7 +67,9 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
         if not self._config:
             raise ValueError("Config is required")
 
-        conversation = await self._aget_conversation(cast(UUID, self._get_thread_id(self._config)))
+        conversation = await self._aget_conversation(
+            cast(UUID, self._get_thread_id(self._config))
+        )
 
         if conversation is None:
             raise ValueError("Conversation not found")
@@ -85,7 +94,9 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
     ) -> AgentArtifact:
         """Update an existing artifact."""
         try:
-            artifact = await AgentArtifact.objects.aget(short_id=artifact_id, team=self._team)
+            artifact = await AgentArtifact.objects.aget(
+                short_id=artifact_id, team=self._team
+            )
         except AgentArtifact.DoesNotExist:
             raise ValueError(f"Artifact with short_id={artifact_id} not found")
         artifact.data = content.model_dump(exclude_none=True)
@@ -97,12 +108,18 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
     # -------------------------------------------------------------------------
 
     @overload
-    async def aget(self, artifact_id: str, expected_type: type[ContentT]) -> ContentT: ...
+    async def aget(
+        self, artifact_id: str, expected_type: type[ContentT]
+    ) -> ContentT: ...
 
     @overload
-    async def aget(self, artifact_id: str, expected_type: None = None) -> ArtifactContent: ...
+    async def aget(
+        self, artifact_id: str, expected_type: None = None
+    ) -> ArtifactContent: ...
 
-    async def aget(self, artifact_id: str, expected_type: type[ContentT] | None = None) -> ArtifactContent | ContentT:
+    async def aget(
+        self, artifact_id: str, expected_type: type[ContentT] | None = None
+    ) -> ArtifactContent | ContentT:
         """Retrieve artifact content by ID from the database.
 
         Args:
@@ -120,7 +137,9 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
         stored_contents = await self._afetch_artifact_contents([artifact_id])
         stored_content = stored_contents.get(artifact_id)
         if stored_content is None:
-            raise AgentArtifact.DoesNotExist(f"Artifact with id={artifact_id} not found")
+            raise AgentArtifact.DoesNotExist(
+                f"Artifact with id={artifact_id} not found"
+            )
 
         # Use handler for enrichment (generic for all types)
         handler = get_handler_for_content_class(type(stored_content))
@@ -150,7 +169,9 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
         else:
             messages_for_lookup = [message]
 
-        contents = await self._aget_contents_by_id(messages_for_lookup, aggregate_by="message_id")
+        contents = await self._aget_contents_by_id(
+            messages_for_lookup, aggregate_by="message_id"
+        )
         content = contents.get(message.id or "")
 
         if content is None:
@@ -164,7 +185,9 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
         """
         Enrich state messages with artifact content.
         """
-        contents_by_id = await self._aget_contents_by_id(messages, aggregate_by="message_id")
+        contents_by_id = await self._aget_contents_by_id(
+            messages, aggregate_by="message_id"
+        )
 
         result: list[AssistantMessageUnion | ArtifactMessage] = []
         for message in messages:
@@ -178,10 +201,23 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
 
         return result
 
-    async def aget_conversation_artifacts(self) -> list[ArtifactMessage]:
+    async def aget_conversation_artifacts(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> tuple[list[ArtifactMessage], int]:
         """Get all artifacts created in a conversation, by the agent and subagents."""
+        offset = offset or 0
         conversation_id = cast(UUID, self._get_thread_id(self._config))
-        artifacts = AgentArtifact.objects.filter(team=self._team, conversation_id=conversation_id)
+        artifacts = AgentArtifact.objects.filter(
+            team=self._team, conversation_id=conversation_id
+        )
+        count = await artifacts.acount()
+
+        if limit:
+            artifacts = artifacts[offset : offset + limit]
+        elif offset:
+            artifacts = artifacts[offset:]
 
         result: list[ArtifactMessage] = []
         async for artifact in artifacts:
@@ -204,7 +240,7 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
                     content=content,
                 )
             )
-        return result
+        return result, count
 
     # -------------------------------------------------------------------------
     # Private helpers
@@ -215,7 +251,9 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
         handler = get_handler_for_content_class(type(content))
         return handler.db_type
 
-    def _to_artifact_message(self, message: ArtifactRefMessage, content: ArtifactContent) -> ArtifactMessage:
+    def _to_artifact_message(
+        self, message: ArtifactRefMessage, content: ArtifactContent
+    ) -> ArtifactMessage:
         """Convert an ArtifactRefMessage to an ArtifactMessage."""
         return ArtifactMessage(
             id=message.id,
@@ -224,11 +262,15 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
             content=content,
         )
 
-    async def _afetch_artifact_contents(self, artifact_ids: list[str]) -> dict[str, StoredContent]:
+    async def _afetch_artifact_contents(
+        self, artifact_ids: list[str]
+    ) -> dict[str, StoredContent]:
         """Batch fetch artifact contents from the database."""
         if not artifact_ids:
             return {}
-        artifacts = AgentArtifact.objects.filter(short_id__in=artifact_ids, team=self._team)
+        artifacts = AgentArtifact.objects.filter(
+            short_id__in=artifact_ids, team=self._team
+        )
         result: dict[str, StoredContent] = {}
         async for artifact in artifacts:
             artifact_type = cast(AgentArtifact.Type, artifact.type)
@@ -270,7 +312,9 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
             if filter_set and message.artifact_id not in filter_set:
                 continue
 
-            aggregation_id = message.id if aggregate_by == "message_id" else message.artifact_id
+            aggregation_id = (
+                message.id if aggregate_by == "message_id" else message.artifact_id
+            )
             aggregation_map[message.artifact_id] = aggregation_id
 
             if message.content_type not in ids_by_content_type:
@@ -291,7 +335,9 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
             for artifact_id, fetch_result in zip(artifact_ids, fetch_results):
                 if fetch_result is None:
                     continue
-                enriched: ArtifactContent = await handler.aenrich(fetch_result.content, context)
+                enriched: ArtifactContent = await handler.aenrich(
+                    fetch_result.content, context
+                )
                 agg_id = aggregation_map.get(artifact_id)
                 if agg_id is not None:
                     result[agg_id] = enriched
