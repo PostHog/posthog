@@ -1861,7 +1861,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(
             team=self.team,
@@ -2000,7 +2000,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(
             team=self.team,
@@ -2078,7 +2078,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(
             team=self.team,
@@ -2246,7 +2246,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
         flush_persons_and_events()
@@ -2270,7 +2270,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
 
@@ -2873,7 +2873,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort_static = _create_cohort(team=self.team, name="cohort static", groups=[], is_static=True)
 
