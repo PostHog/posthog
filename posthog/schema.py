@@ -2009,6 +2009,7 @@ class IntegrationKind(StrEnum):
     BING_ADS = "bing-ads"
     VERCEL = "vercel"
     AZURE_BLOB = "azure-blob"
+    FIREBASE = "firebase"
 
 
 class IntervalType(StrEnum):
