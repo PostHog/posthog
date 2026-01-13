@@ -102,7 +102,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.index, 0), 0), ifNull(greater(accurateCastOrNull(groups.properties___arr, 'Float64'), 100.0), 0))
+  WHERE and(ifNull(equals(groups.index, 0), 0), if(isNotNull(accurateCastOrNull(groups.properties___arr, 'Float64')), ifNull(greater(accurateCastOrNull(groups.properties___arr, 'Float64'), 100.0), 0), 0))
   ORDER BY groups.created_at DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,

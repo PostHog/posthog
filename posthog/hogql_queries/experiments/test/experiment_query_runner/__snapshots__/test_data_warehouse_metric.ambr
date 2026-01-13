@@ -397,7 +397,7 @@
                posthog_test_usage.ds AS timestamp,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), less(posthog_test_usage.ds, plus(assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC')), toIntervalSecond(0))), greater(posthog_test_usage.usage, 100.0))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), less(posthog_test_usage.ds, plus(assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC')), toIntervalSecond(0))), if(isNotNull(posthog_test_usage.usage), greater(posthog_test_usage.usage, 100.0), 0))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
               exposures.variant) AS entity_metrics
   GROUP BY entity_metrics.variant
@@ -449,7 +449,7 @@
                posthog_test_usage.ds AS timestamp,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), less(posthog_test_usage.ds, plus(assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC')), toIntervalSecond(0))), and(equals(posthog_test_usage.plan, 'premium'), greater(posthog_test_usage.usage, 50.0)))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), less(posthog_test_usage.ds, plus(assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC')), toIntervalSecond(0))), and(equals(posthog_test_usage.plan, 'premium'), if(isNotNull(posthog_test_usage.usage), greater(posthog_test_usage.usage, 50.0), 0)))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
               exposures.variant) AS entity_metrics
   GROUP BY entity_metrics.variant
