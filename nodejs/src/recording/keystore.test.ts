@@ -14,7 +14,7 @@ jest.mock('../utils/env-utils', () => ({
 }))
 
 jest.mock('../utils/db/redis', () => ({
-    createRedisPool: jest.fn(),
+    createRedisPoolFromConfig: jest.fn(),
 }))
 
 describe('KeyStore', () => {
@@ -155,6 +155,7 @@ describe('KeyStore', () => {
                 plaintextKey: Buffer.from(mockPlaintextKey),
                 encryptedKey: Buffer.from(mockEncryptedKey),
                 nonce: Buffer.from(mockNonce),
+                encryptedSession: true,
             }
 
             mockRedisClient.get.mockResolvedValue(
@@ -162,6 +163,7 @@ describe('KeyStore', () => {
                     plaintextKey: cachedKey.plaintextKey.toString('base64'),
                     encryptedKey: cachedKey.encryptedKey.toString('base64'),
                     nonce: cachedKey.nonce.toString('base64'),
+                    encryptedSession: cachedKey.encryptedSession,
                 })
             )
 
@@ -174,6 +176,7 @@ describe('KeyStore', () => {
             expect(result.plaintextKey).toEqual(cachedKey.plaintextKey)
             expect(result.encryptedKey).toEqual(cachedKey.encryptedKey)
             expect(result.nonce).toEqual(cachedKey.nonce)
+            expect(result.encryptedSession).toEqual(cachedKey.encryptedSession)
         })
 
         it('should fetch from DynamoDB and decrypt if not cached', async () => {
@@ -366,22 +369,24 @@ describe('PassthroughKeyStore', () => {
     })
 
     describe('generateKey', () => {
-        it('should return empty keys', async () => {
+        it('should return empty keys with encryptedSession false', async () => {
             const result = await keyStore.generateKey('session-123', 1)
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
             expect(result.nonce).toEqual(Buffer.alloc(0))
+            expect(result.encryptedSession).toBe(false)
         })
     })
 
     describe('getKey', () => {
-        it('should return empty keys', async () => {
+        it('should return empty keys with encryptedSession false', async () => {
             const result = await keyStore.getKey('session-123', 1)
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
             expect(result.nonce).toEqual(Buffer.alloc(0))
+            expect(result.encryptedSession).toBe(false)
         })
     })
 
@@ -416,7 +421,7 @@ describe('getKeyStore', () => {
             acquire: jest.fn().mockResolvedValue(mockRedisClient),
             release: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<RedisPool>
-        ;(redisUtils.createRedisPool as jest.Mock).mockReturnValue(mockRedisPool)
+        ;(redisUtils.createRedisPoolFromConfig as jest.Mock).mockReturnValue(mockRedisPool)
 
         mockHub = {
             postgres: {} as any,

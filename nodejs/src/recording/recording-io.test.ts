@@ -30,6 +30,7 @@ describe('recording-io', () => {
         plaintextKey: mockPlaintextKey,
         encryptedKey: mockEncryptedKey,
         nonce: mockNonce,
+        encryptedSession: true,
     }
 
     describe('PassthroughRecordingEncryptor', () => {
@@ -211,6 +212,7 @@ describe('recording-io', () => {
                 ]),
                 encryptedKey: mockEncryptedKey,
                 nonce: mockNonce,
+                encryptedSession: true,
             }
             mockKeyStore.getKey.mockResolvedValue(wrongKey)
 

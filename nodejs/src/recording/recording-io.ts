@@ -46,6 +46,9 @@ export class RecordingEncryptor extends BaseRecordingEncryptor {
 
     async encryptBlock(sessionId: string, teamId: number, clearText: Buffer): Promise<Buffer> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        if (!sessionKey.encryptedSession) {
+            return clearText
+        }
         const cipherText = sodium.crypto_secretbox_easy(clearText, sessionKey.nonce, sessionKey.plaintextKey)
         return Buffer.from(cipherText)
     }
@@ -66,6 +69,9 @@ export class RecordingDecryptor extends BaseRecordingDecryptor {
 
     async decryptBlock(sessionId: string, teamId: number, cipherText: Buffer): Promise<Buffer> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        if (!sessionKey.encryptedSession) {
+            return cipherText
+        }
         const clearText = sodium.crypto_secretbox_open_easy(cipherText, sessionKey.nonce, sessionKey.plaintextKey)
         return Buffer.from(clearText)
     }

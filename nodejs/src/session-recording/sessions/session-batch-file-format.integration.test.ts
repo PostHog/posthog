@@ -26,6 +26,8 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { BaseKeyStore } from '../../recording/keystore'
+import { BaseRecordingEncryptor } from '../../recording/recording-io'
 import { parseJSON } from '../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
@@ -52,6 +54,8 @@ describe('session recording integration', () => {
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
     let mockSessionFilter: jest.Mocked<SessionFilter>
+    let mockKeyStore: jest.Mocked<BaseKeyStore>
+    let mockEncryptor: jest.Mocked<BaseRecordingEncryptor>
     let batchBuffer: Uint8Array
     let currentOffset: number
 
@@ -106,13 +110,36 @@ describe('session recording integration', () => {
             handleNewSession: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFilter>
 
+        mockKeyStore = {
+            generateKey: jest.fn().mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                nonce: Buffer.alloc(0),
+                encryptedSession: false,
+            }),
+            getKey: jest.fn().mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                nonce: Buffer.alloc(0),
+                encryptedSession: false,
+            }),
+            deleteKey: jest.fn().mockResolvedValue(true),
+            destroy: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<BaseKeyStore>
+
+        mockEncryptor = {
+            encryptBlock: jest.fn().mockImplementation((_sessionId, _teamId, buffer) => Promise.resolve(buffer)),
+        } as unknown as jest.Mocked<BaseRecordingEncryptor>
+
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
             mockSessionTracker,
-            mockSessionFilter
+            mockSessionFilter,
+            mockKeyStore,
+            mockEncryptor
         )
     })
 

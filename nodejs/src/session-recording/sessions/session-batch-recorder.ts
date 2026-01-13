@@ -1,5 +1,7 @@
 import { v7 as uuidv7 } from 'uuid'
 
+import { BaseKeyStore } from '../../recording/keystore'
+import { BaseRecordingEncryptor } from '../../recording/recording-io'
 import { logger } from '../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
@@ -74,6 +76,8 @@ export class SessionBatchRecorder {
         private readonly consoleLogStore: SessionConsoleLogStore,
         private readonly sessionTracker: SessionTracker,
         private readonly sessionFilter: SessionFilter,
+        private readonly keyStore: BaseKeyStore,
+        private readonly encryptor: BaseRecordingEncryptor,
         maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
     ) {
         this.batchId = uuidv7()
@@ -97,6 +101,7 @@ export class SessionBatchRecorder {
         const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
         if (isNewSession) {
             await this.sessionFilter.handleNewSession(teamId, sessionId)
+            await this.keyStore.generateKey(sessionId, teamId)
         }
 
         // Check if session is blocked
@@ -275,8 +280,14 @@ export class SessionBatchRecorder {
 
                     const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
 
+                    const encryptedBuffer = await this.encryptor.encryptBlock(
+                        sessionBlockRecorder.sessionId,
+                        sessionBlockRecorder.teamId,
+                        buffer
+                    )
+
                     const { bytesWritten, url, retentionPeriodDays } = await writer.writeSession({
-                        buffer,
+                        buffer: encryptedBuffer,
                         teamId: sessionBlockRecorder.teamId,
                         sessionId: sessionBlockRecorder.sessionId,
                     })
