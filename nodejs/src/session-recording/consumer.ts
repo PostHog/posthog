@@ -6,6 +6,8 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
+import { PassthroughKeyStore } from '../recording/keystore'
+import { PassthroughRecordingEncryptor } from '../recording/recording-io'
 import {
     HealthCheckResult,
     PluginServerService,
@@ -221,6 +223,11 @@ export class SessionRecordingIngester {
             localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
         })
 
+        // TODO: Initialize real KeyStore and RecordingEncryptor for cloud deployments
+        // For now, use passthrough implementations that don't encrypt
+        const keyStore = new PassthroughKeyStore()
+        const encryptor = new PassthroughRecordingEncryptor(keyStore)
+
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.hub.SESSION_RECORDING_MAX_BATCH_AGE_MS,
@@ -231,6 +238,8 @@ export class SessionRecordingIngester {
             consoleLogStore,
             sessionTracker,
             sessionFilter,
+            keyStore,
+            encryptor,
         })
     }
 

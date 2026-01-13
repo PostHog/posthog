@@ -1,3 +1,5 @@
+import { BaseKeyStore } from '../../recording/keystore'
+import { BaseRecordingEncryptor } from '../../recording/recording-io'
 import { logger } from '../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
@@ -26,6 +28,10 @@ export interface SessionBatchManagerConfig {
     sessionTracker: SessionTracker
     /** Session filter for blocking and rate-limiting sessions */
     sessionFilter: SessionFilter
+    /** Key store for session encryption keys */
+    keyStore: BaseKeyStore
+    /** Encryptor for session recording data */
+    encryptor: BaseRecordingEncryptor
 }
 
 /**
@@ -74,6 +80,8 @@ export class SessionBatchManager {
     private lastFlushTime: number
     private readonly sessionTracker: SessionTracker
     private readonly sessionFilter: SessionFilter
+    private readonly keyStore: BaseKeyStore
+    private readonly encryptor: BaseRecordingEncryptor
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -85,6 +93,8 @@ export class SessionBatchManager {
         this.consoleLogStore = config.consoleLogStore
         this.sessionTracker = config.sessionTracker
         this.sessionFilter = config.sessionFilter
+        this.keyStore = config.keyStore
+        this.encryptor = config.encryptor
 
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
@@ -93,6 +103,8 @@ export class SessionBatchManager {
             this.consoleLogStore,
             this.sessionTracker,
             this.sessionFilter,
+            this.keyStore,
+            this.encryptor,
             this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
@@ -118,6 +130,8 @@ export class SessionBatchManager {
             this.consoleLogStore,
             this.sessionTracker,
             this.sessionFilter,
+            this.keyStore,
+            this.encryptor,
             this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
