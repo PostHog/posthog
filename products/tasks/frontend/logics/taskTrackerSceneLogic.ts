@@ -43,9 +43,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         submitNewTask: true,
         submitNewTaskSuccess: true,
         submitNewTaskFailure: (error: string) => ({ error }),
-        inferTasks: true,
-        inferTasksSuccess: (message: string) => ({ message }),
-        inferTasksFailure: (error: string) => ({ error }),
+        devOnlyInferTasks: true,
+        devOnlyInferTasksSuccess: (message: string) => ({ message }),
+        devOnlyInferTasksFailure: (error: string) => ({ error }),
     }),
 
     reducers({
@@ -119,9 +119,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         isRunningClustering: [
             false,
             {
-                inferTasks: () => true,
-                inferTasksSuccess: () => false,
-                inferTasksFailure: () => false,
+                devOnlyInferTasks: () => true,
+                devOnlyInferTasksSuccess: () => false,
+                devOnlyInferTasksFailure: () => false,
             },
         ],
     }),
@@ -204,18 +204,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }
         },
-        inferTasks: async () => {
+        devOnlyInferTasks: async () => {
             try {
                 const response = await api.tasks.clusterVideoSegments()
                 lemonToast.success(response.message || 'Clustering completed')
-                actions.inferTasksSuccess(response.message)
+                actions.devOnlyInferTasksSuccess(response.message)
             } catch (error: any) {
                 const errorMessage = error?.detail || error?.message || 'Failed to start clustering workflow'
                 lemonToast.error(errorMessage)
-                actions.inferTasksFailure(errorMessage)
+                actions.devOnlyInferTasksFailure(errorMessage)
             }
         },
-        inferTasksSuccess: () => {
+        devOnlyInferTasksSuccess: () => {
             // Clear user filter and reload tasks to show newly created clustered tasks
             actions.setCreatedBy(null)
             actions.loadTasks()
