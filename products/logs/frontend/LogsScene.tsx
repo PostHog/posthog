@@ -42,6 +42,7 @@ const LogsSceneContent = (): JSX.Element => {
         orderBy,
         sparklineData,
         sparklineBreakdownBy,
+        hasServiceNameSelected,
     } = useValues(logsLogic)
     const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
@@ -82,23 +83,32 @@ const LogsSceneContent = (): JSX.Element => {
             </LemonBanner>
             <LogsFilters />
             <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
-                <LogsViewer
-                    tabId={tabId}
-                    logs={parsedLogs}
-                    loading={logsLoading}
-                    totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
-                    hasMoreLogsToLoad={hasMoreLogsToLoad}
-                    orderBy={orderBy}
-                    onChangeOrderBy={setOrderBy}
-                    onRefresh={runQuery}
-                    onLoadMore={fetchNextLogsPage}
-                    onAddFilter={addFilter}
-                    sparklineData={sparklineData}
-                    sparklineLoading={sparklineLoading}
-                    onDateRangeChange={setDateRange}
-                    sparklineBreakdownBy={sparklineBreakdownBy}
-                    onSparklineBreakdownByChange={setSparklineBreakdownBy}
-                />
+                {!hasServiceNameSelected ? (
+                    <div className="flex items-center justify-center h-full">
+                        <div className="text-center text-muted">
+                            <p className="text-lg mb-2">Select a service to view logs</p>
+                            <p className="text-sm">Choose a specific service or "All services" from the filter above</p>
+                        </div>
+                    </div>
+                ) : (
+                    <LogsViewer
+                        tabId={tabId}
+                        logs={parsedLogs}
+                        loading={logsLoading}
+                        totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
+                        hasMoreLogsToLoad={hasMoreLogsToLoad}
+                        orderBy={orderBy}
+                        onChangeOrderBy={setOrderBy}
+                        onRefresh={runQuery}
+                        onLoadMore={fetchNextLogsPage}
+                        onAddFilter={addFilter}
+                        sparklineData={sparklineData}
+                        sparklineLoading={sparklineLoading}
+                        onDateRangeChange={setDateRange}
+                        sparklineBreakdownBy={sparklineBreakdownBy}
+                        onSparklineBreakdownByChange={setSparklineBreakdownBy}
+                    />
+                )}
             </div>
         </>
     )

@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { logsLogic } from './logsLogic'
+import { ALL_SERVICES_VALUE, logsLogic } from './logsLogic'
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -321,6 +321,85 @@ describe('logsLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.severityLevels).toEqual(expected)
+        })
+    })
+
+    describe('service selection', () => {
+        it('hasServiceNameSelected returns false when no services selected', () => {
+            expect(logic.values.hasServiceNameSelected).toBe(false)
+        })
+
+        it('hasServiceNameSelected returns true when specific service selected', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setServiceNames(['my-service'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasServiceNameSelected).toBe(true)
+        })
+
+        it('hasServiceNameSelected returns true when "All services" selected', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setServiceNames([ALL_SERVICES_VALUE])
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasServiceNameSelected).toBe(true)
+        })
+
+        it('isAllServicesSelected returns true when "All services" selected', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setServiceNames([ALL_SERVICES_VALUE])
+            }).toFinishAllListeners()
+
+            expect(logic.values.isAllServicesSelected).toBe(true)
+        })
+
+        it('isAllServicesSelected returns false when specific service selected', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setServiceNames(['my-service'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.isAllServicesSelected).toBe(false)
+        })
+
+        it('serviceNamesForQuery returns empty array when "All services" selected', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setServiceNames([ALL_SERVICES_VALUE])
+            }).toFinishAllListeners()
+
+            expect(logic.values.serviceNamesForQuery).toEqual([])
+        })
+
+        it('serviceNamesForQuery returns service names when specific services selected', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setServiceNames(['service-1', 'service-2'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.serviceNamesForQuery).toEqual(['service-1', 'service-2'])
+        })
+
+        it('does not run query on mount when no service selected', async () => {
+            const newLogic = logsLogic({ tabId: 'test-tab-2' })
+            newLogic.mount()
+
+            await expectLogic(newLogic).toFinishAllListeners()
+
+            expect(newLogic.values.hasRunQuery).toBe(false)
+
+            newLogic.unmount()
+        })
+
+        it('runs query on mount when service is in URL params', async () => {
+            router.actions.push('/logs', { serviceNames: '["my-service"]' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const newLogic = logsLogic({ tabId: 'test-tab-3' })
+            newLogic.mount()
+
+            await expectLogic(newLogic).toFinishAllListeners()
+
+            expect(newLogic.values.hasRunQuery).toBe(true)
+
+            newLogic.unmount()
         })
     })
 })
