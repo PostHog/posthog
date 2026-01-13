@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
@@ -324,7 +325,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         user2 = self._create_user("test2@posthog.com")
 
         # Test with default settings (threshold 0.0) - both users should be notified
-        memberships = get_members_to_notify_for_pipeline_error(self.user.team, failure_rate=0.5)
+        memberships = get_members_to_notify_for_pipeline_error(cast(Team, self.user.team), failure_rate=0.5)
         assert len(memberships) == 2
         assert {m.user.email for m in memberships} == {self.user.email, user2.email}
 
@@ -339,7 +340,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.6,
         }
         user2.save()
-        memberships = get_members_to_notify_for_pipeline_error(self.user.team, failure_rate=0.5)
+        memberships = get_members_to_notify_for_pipeline_error(cast(Team, self.user.team), failure_rate=0.5)
         assert len(memberships) == 0
 
         # Test with threshold 0.4 and failure rate 0.5 - both users should be notified
@@ -353,7 +354,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.4,
         }
         user2.save()
-        memberships = get_members_to_notify_for_pipeline_error(self.user.team, failure_rate=0.5)
+        memberships = get_members_to_notify_for_pipeline_error(cast(Team, self.user.team), failure_rate=0.5)
         assert len(memberships) == 2
 
         # Test with one user having plugin_disabled=False
@@ -362,7 +363,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.4,
         }
         self.user.save()
-        memberships = get_members_to_notify_for_pipeline_error(self.user.team, failure_rate=0.5)
+        memberships = get_members_to_notify_for_pipeline_error(cast(Team, self.user.team), failure_rate=0.5)
         assert len(memberships) == 1
         assert memberships[0].user.email == user2.email
 
