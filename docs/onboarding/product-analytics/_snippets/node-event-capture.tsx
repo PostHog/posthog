@@ -1,6 +1,7 @@
+import { memo } from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const NodeEventCapture = (): JSX.Element => {
+export const NodeEventCapture = memo(function NodeEventCapture(): JSX.Element {
     const { Markdown, CodeBlock, CalloutBox, dedent } = useMDXComponents()
 
     return (
@@ -37,4 +38,4 @@ export const NodeEventCapture = (): JSX.Element => {
             </CalloutBox>
         </>
     )
-}
+})
