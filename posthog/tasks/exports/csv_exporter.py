@@ -454,7 +454,7 @@ def _stream_hogql_query_rows(exported_asset: ExportedAsset, limit: int) -> Gener
     """
     from posthog.hogql.modifiers import create_default_modifiers_for_team
 
-    resource = exported_asset.export_context
+    resource = exported_asset.export_context or {}
     source = resource.get("source", {})
     hogql_query = source.get("query", "")
 
@@ -479,56 +479,62 @@ def _stream_hogql_query_rows(exported_asset: ExportedAsset, limit: int) -> Gener
 
 
 def _export_to_csv_streaming(exported_asset: ExportedAsset, limit: int) -> None:
-    columns = exported_asset.export_context.get("columns", [])
+    resource = exported_asset.export_context or {}
+    columns = resource.get("columns", [])
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as tmp:
-        writer = None
-        for row in _stream_hogql_query_rows(exported_asset, limit):
-            if writer is None:
-                header = columns if columns else list(row.keys())
-                writer = csv.DictWriter(tmp, fieldnames=header, extrasaction="ignore")
-                writer.writeheader()
-            writer.writerow(row)
-
-        if writer is None:
-            writer = csv.DictWriter(tmp, fieldnames=["error"])
-            writer.writeheader()
-            writer.writerow({"error": "No data available or unable to format for export."})
-
         tmp_path = tmp.name
 
-    with open(tmp_path, "rb") as f:
-        save_content(exported_asset, f.read())
-    os.unlink(tmp_path)
+    try:
+        with open(tmp_path, "w", newline="") as f:
+            writer = None
+            for row in _stream_hogql_query_rows(exported_asset, limit):
+                if writer is None:
+                    header = columns if columns else list(row.keys())
+                    writer = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
+                    writer.writeheader()
+                writer.writerow(row)
+
+            if writer is None:
+                writer = csv.DictWriter(f, fieldnames=["error"])
+                writer.writeheader()
+                writer.writerow({"error": "No data available or unable to format for export."})
+
+        with open(tmp_path, "rb") as f:
+            save_content(exported_asset, f.read())
+    finally:
+        os.unlink(tmp_path)
 
 
 def _export_to_excel_streaming(exported_asset: ExportedAsset, limit: int) -> None:
-    columns = exported_asset.export_context.get("columns", [])
+    resource = exported_asset.export_context or {}
+    columns = resource.get("columns", [])
 
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
         tmp_path = tmp.name
 
-    workbook = Workbook(write_only=True)
-    worksheet = workbook.create_sheet()
-    headers_written = False
+    try:
+        workbook = Workbook(write_only=True)
+        worksheet = workbook.create_sheet()
+        header: list[str] = []
 
-    for row in _stream_hogql_query_rows(exported_asset, limit):
-        if not headers_written:
-            header = columns if columns else list(row.keys())
-            worksheet.append(header)
-            headers_written = True
-        row_values = [row.get(col) for col in columns] if columns else list(row.values())
-        worksheet.append(row_values)
+        for row in _stream_hogql_query_rows(exported_asset, limit):
+            if not header:
+                header = columns if columns else list(row.keys())
+                worksheet.append(header)
+            row_values = [row.get(col) for col in header]
+            worksheet.append(row_values)
 
-    if not headers_written:
-        worksheet.append(["error"])
-        worksheet.append(["No data available or unable to format for export."])
+        if not header:
+            worksheet.append(["error"])
+            worksheet.append(["No data available or unable to format for export."])
 
-    workbook.save(tmp_path)
+        workbook.save(tmp_path)
 
-    with open(tmp_path, "rb") as f:
-        save_content(exported_asset, f.read())
-    os.unlink(tmp_path)
+        with open(tmp_path, "rb") as f:
+            save_content(exported_asset, f.read())
+    finally:
+        os.unlink(tmp_path)
 
 
 def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
