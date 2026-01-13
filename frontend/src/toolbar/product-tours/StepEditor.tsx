@@ -11,6 +11,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { TOUR_STEP_MAX_WIDTH, TOUR_STEP_MIN_WIDTH } from 'scenes/product-tours/editor/ProductTourStepsEditor'
 import { StepContentEditor } from 'scenes/product-tours/editor/StepContentEditor'
 import { SurveyStepEditor } from 'scenes/product-tours/editor/SurveyStepEditor'
+import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppearancePositionSelector'
 
 import { toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
 import { ElementRect } from '~/toolbar/types'
@@ -20,6 +21,8 @@ import {
     ProductTourProgressionTriggerType,
     ProductTourStepWidth,
     ProductTourSurveyQuestion,
+    ScreenPosition,
+    SurveyPosition,
 } from '~/types'
 
 import { productToursLogic } from './productToursLogic'
@@ -120,6 +123,11 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     // Progression trigger state (for element steps)
     const [progressionTrigger, setProgressionTrigger] = useState<ProductTourProgressionTriggerType>('button')
 
+    // Modal position state (for modal/survey steps)
+    const [modalPosition, setModalPosition] = useState<ScreenPosition>(
+        editingStep?.modalPosition ?? SurveyPosition.MiddleCenter
+    )
+
     // Survey step state - managed by SurveyStepEditor
     const [surveyConfig, setSurveyConfig] = useState<ProductTourSurveyQuestion | undefined>(editingStep?.survey)
 
@@ -197,9 +205,10 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
         }
     }, [editingStep, selectedElement, dataAttributes])
 
-    // Initialize survey config from existing step
+    // Initialize survey config and modal position from existing step
     useEffect(() => {
         setSurveyConfig(editingStep?.survey)
+        setModalPosition(editingStep?.modalPosition ?? SurveyPosition.MiddleCenter)
     }, [editingStep?.id])
 
     // Render survey preview using product tour's native survey rendering
@@ -378,52 +387,56 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
                     </LemonButton>
                 )}
 
-                {/* Advanced section - only for element/modal steps */}
-                {!isSurveyStep && (
-                    <div className="space-y-1">
-                        <button
-                            type="button"
-                            onClick={() => setShowAdvanced(!showAdvanced)}
-                            className="flex items-center gap-1 text-xs text-muted hover:text-default transition-colors"
-                        >
-                            <IconChevronRight
-                                className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
-                            />
-                            Advanced
-                        </button>
-                        {showAdvanced && (
-                            <div className="space-y-3 pt-1">
-                                {isElementStep && (
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-medium">CSS selector</label>
-                                        <LemonInput
-                                            value={selector}
-                                            onChange={setSelector}
-                                            placeholder="CSS selector (e.g., #my-button)"
-                                            size="small"
-                                            fullWidth
-                                            className="font-mono text-xs"
-                                        />
-                                    </div>
-                                )}
-                                {isElementStep && (
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-medium">Advance action</label>
-                                        <LemonRadio
-                                            value={progressionTrigger}
-                                            onChange={setProgressionTrigger}
-                                            options={[
-                                                { value: 'button', label: 'Next button' },
-                                                { value: 'click', label: 'Element click' },
-                                            ]}
-                                            orientation="horizontal"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                )}
+                {/* Advanced section */}
+                <div className="space-y-1">
+                    <button
+                        type="button"
+                        onClick={() => setShowAdvanced(!showAdvanced)}
+                        className="flex items-center gap-1 text-xs text-muted hover:text-default transition-colors"
+                    >
+                        <IconChevronRight
+                            className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+                        />
+                        Advanced
+                    </button>
+                    {showAdvanced && (
+                        <div className="space-y-3 pt-1">
+                            {isElementStep && (
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium">CSS selector</label>
+                                    <LemonInput
+                                        value={selector}
+                                        onChange={setSelector}
+                                        placeholder="CSS selector (e.g., #my-button)"
+                                        size="small"
+                                        fullWidth
+                                        className="font-mono text-xs"
+                                    />
+                                </div>
+                            )}
+                            {isElementStep && (
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium">Advance action</label>
+                                    <LemonRadio
+                                        value={progressionTrigger}
+                                        onChange={setProgressionTrigger}
+                                        options={[
+                                            { value: 'button', label: 'Next button' },
+                                            { value: 'click', label: 'Element click' },
+                                        ]}
+                                        orientation="horizontal"
+                                    />
+                                </div>
+                            )}
+                            {!isElementStep && (
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium">Position</label>
+                                    <PositionSelector value={modalPosition} onChange={setModalPosition} toolbar />
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
 
                 <div className="flex items-center justify-between">
                     <div className="flex gap-2 pt-1">
@@ -439,7 +452,8 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
                                     isElementStep ? selector : undefined,
                                     getSurveyConfig(),
                                     isElementStep ? progressionTrigger : undefined,
-                                    editorWidth
+                                    editorWidth,
+                                    !isElementStep ? modalPosition : undefined
                                 )
                             }
                             disabledReason={

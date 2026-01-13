@@ -116,6 +116,7 @@ jobs:
             - name: Run Semgrep
               run: |
                   semgrep \
+                    --config ".semgrep/rules/" \
                     --config "p/javascript" \
                     --config "p/owasp-top-ten" \
                     --config "p/security-audit" \

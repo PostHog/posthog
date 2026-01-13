@@ -326,7 +326,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         if isinstance(properties, dict):
                             session_id = properties.get("$session_id")
                             if session_id:
-                                properties["has_recording"] = session_id in session_recordings_map
+                                properties["$has_recording"] = session_id in session_recordings_map
 
         person_indices: list[int] = []
         for column_index, col in enumerate(self.select_input_raw()):

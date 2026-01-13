@@ -74,6 +74,19 @@ describe('llmAnalyticsTraceLogic', () => {
         })
     })
 
+    it('preserves timestamp when both timestamp and tab parameters are present', async () => {
+        const traceId = 'test-trace-id'
+        const timestamp = '2024-01-15T12:00:00Z'
+        const traceUrl = combineUrl(urls.llmAnalyticsTrace(traceId, { timestamp, tab: 'conversation' }))
+
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toMatchValues({
+            traceId: traceId,
+            dateRange: { dateFrom: timestamp, dateTo: null },
+            viewMode: 'conversation',
+        })
+    })
+
     describe('messageShowStates reducer', () => {
         it('has correct initial state', () => {
             expect(logic.values.messageShowStates).toEqual({

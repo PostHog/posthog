@@ -846,12 +846,6 @@ impl StoreManager {
         Ok(size)
     }
 
-    /// Check if a timestamp directory has a RocksDB LOCK file.
-    /// If LOCK exists, the database is open and the directory must NOT be deleted.
-    fn has_lock_file(timestamp_dir: &Path) -> bool {
-        timestamp_dir.join("LOCK").exists()
-    }
-
     /// Get the newest WAL (*.log) file modification time within a single timestamp directory.
     /// Returns None if no WAL files are found.
     fn get_wal_mtime(timestamp_dir: &Path) -> Option<SystemTime> {
@@ -945,7 +939,6 @@ impl StoreManager {
 
     /// Check if a specific timestamp directory is safe to delete as an orphan.
     /// Returns false (NOT safe) if:
-    /// - A LOCK file exists (DB is open)
     /// - WAL files have been modified within the staleness threshold
     /// - Directory modified within staleness threshold (checkpoint import)
     /// - The parent partition is now in the stores map (re-assigned)
@@ -957,16 +950,7 @@ impl StoreManager {
     ) -> bool {
         let ts_dir_display = timestamp_dir.display();
 
-        // Check 1: LOCK file exists - DB is open, never delete
-        if Self::has_lock_file(timestamp_dir) {
-            info!(
-                path = %ts_dir_display,
-                "Orphan safety check: LOCK file found, skipping deletion"
-            );
-            return false;
-        }
-
-        // Check 2: WAL files modified recently - store may still be active
+        // Check 1: WAL files modified recently - store may still be active
         // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
         if let Some(wal_mtime) = Self::get_wal_mtime(timestamp_dir) {
             let elapsed = wal_mtime.elapsed().unwrap_or(Duration::ZERO);
@@ -981,7 +965,7 @@ impl StoreManager {
             }
         }
 
-        // Check 3: Directory modified recently - checkpoint import in progress
+        // Check 2: Directory modified recently - checkpoint import in progress
         // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
         if let Some(dir_mtime) = Self::get_dir_mtime(timestamp_dir) {
             let elapsed = dir_mtime.elapsed().unwrap_or(Duration::ZERO);
@@ -996,7 +980,7 @@ impl StoreManager {
             }
         }
 
-        // Check 4: Double-check stores map - partition may have been re-assigned
+        // Check 3: Double-check stores map - partition may have been re-assigned
         for entry in self.stores.iter() {
             let partition = entry.key();
             let assigned_dir =
@@ -1019,7 +1003,7 @@ impl StoreManager {
     /// Safety checks before deletion:
     /// 1. Skip if stores map is empty (startup race)
     /// 2. Skip if rebalancing is in progress
-    /// 3. For each candidate timestamp dir: check LOCK file, WAL mtime, dir mtime, and re-verify stores map
+    /// 3. For each candidate timestamp dir: check WAL mtime, dir mtime, and re-verify stores map
     pub fn cleanup_orphaned_directories(&self, orphan_min_staleness: Duration) -> Result<u64> {
         // Guard: skip cleanup if no stores are registered yet (startup race) or
         // all stores were just unregistered (rebalance). This prevents deleting
@@ -1057,7 +1041,7 @@ impl StoreManager {
                 return Ok(total_freed);
             }
 
-            // Safety checks: LOCK file, WAL mtime, dir mtime, double-check stores map
+            // Safety checks: WAL mtime, dir mtime, double-check stores map
             if !self.is_safe_to_delete_timestamp_dir(
                 &timestamp_path,
                 &parent_dir_name,
@@ -1735,51 +1719,6 @@ mod tests {
         // Now cleanup should run (may or may not free bytes depending on actual size)
         let result = manager.cleanup_old_entries_if_needed();
         assert!(result.is_ok(), "Cleanup should run after rebalance ends");
-    }
-
-    #[tokio::test]
-    async fn test_orphan_cleanup_lock_file_prevents_deletion() {
-        let temp_dir = TempDir::new().unwrap();
-        let config = DeduplicationStoreConfig {
-            path: temp_dir.path().to_path_buf(),
-            max_capacity: 1024 * 1024 * 1024,
-        };
-
-        let manager = Arc::new(StoreManager::new(config));
-
-        // Create a store for partition 0 (so stores map is not empty)
-        manager.get_or_create("test-topic", 0).await.unwrap();
-
-        // Create an "orphaned" directory with a LOCK file (simulating open DB)
-        let orphan_dir = temp_dir.path().join("other-topic_1");
-        let timestamp_subdir = orphan_dir.join("1234567890");
-        std::fs::create_dir_all(&timestamp_subdir).unwrap();
-        std::fs::write(timestamp_subdir.join("LOCK"), b"").unwrap();
-        std::fs::write(timestamp_subdir.join("dummy.sst"), b"test data").unwrap();
-        assert!(timestamp_subdir.exists());
-
-        // Cleanup should NOT remove the timestamp dir because LOCK file exists
-        let freed = manager
-            .cleanup_orphaned_directories(Duration::from_secs(0))
-            .unwrap();
-        assert_eq!(freed, 0, "Should not delete directory with LOCK file");
-        assert!(
-            timestamp_subdir.exists(),
-            "Timestamp dir with LOCK file should NOT be removed"
-        );
-
-        // Remove the LOCK file
-        std::fs::remove_file(timestamp_subdir.join("LOCK")).unwrap();
-
-        // Now cleanup should remove the timestamp dir
-        let freed = manager
-            .cleanup_orphaned_directories(Duration::from_secs(0))
-            .unwrap();
-        assert!(freed > 0, "Should delete directory without LOCK file");
-        assert!(
-            !timestamp_subdir.exists(),
-            "Timestamp dir without LOCK file should be removed"
-        );
     }
 
     #[tokio::test]
