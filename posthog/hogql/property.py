@@ -126,6 +126,9 @@ def semver_range_compare(
 
 def _tilde_bounds(value: str) -> tuple[str, str]:
     """~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)"""
+    parts = value.split("-")[0].split(".")
+    if len(parts) < 2:
+        raise ValueError("Tilde operator requires at least major.minor version")
     major, minor, patch = parse_semver(value)
     next_minor = str(int(minor) + 1)
     return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
@@ -402,6 +405,12 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.SEMVER_EQ:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_NEQ:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
             left=ast.Call(name="sortableSemver", args=[expr]),
             right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
         )

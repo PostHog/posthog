@@ -331,6 +331,7 @@ export const cleanedPathOperatorMap: Record<string, string> = {
 
 export const semverOperatorMap: Record<string, string> = {
     semver_eq: '= equals',
+    semver_neq: '≠ not equal',
     semver_gt: '> greater than',
     semver_gte: '≥ greater than or equal',
     semver_lt: '< less than',
