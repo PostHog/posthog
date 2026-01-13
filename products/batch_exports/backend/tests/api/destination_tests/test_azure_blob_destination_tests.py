@@ -1,5 +1,5 @@
-import logging
 import uuid
+import logging
 
 import pytest
 
