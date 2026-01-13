@@ -6,40 +6,56 @@ to typed columns. They MUST produce identical SQL to what HogQL generates when i
 wraps property accesses with type conversion functions (toFloat, toBool, etc).
 """
 
-import pytest
-
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import ClickHousePrinter
+from posthog.hogql.transforms.property_types import PropertySwapper
 
 from posthog.models.event_properties.transformations import boolean_transform, numeric_transform
 
 
-def print_expr_to_clickhouse(expr: ast.Expr) -> tuple[str, HogQLContext]:
-    """Print an AST expression to ClickHouse SQL, returning sql and context."""
+def get_hogql_type_conversion_sql(field_type: str, placeholder: str) -> str:
+    """
+    Get the SQL that HogQL generates for a type conversion.
+
+    Uses PropertySwapper._field_type_to_property_call to generate the AST,
+    then prints it to ClickHouse SQL and substitutes params back in.
+    """
+    # Create a minimal PropertySwapper just to call _field_type_to_property_call
+    swapper = PropertySwapper(
+        timezone="UTC",
+        event_properties={},
+        person_properties={},
+        group_properties={},
+        context=HogQLContext(team_id=1, enable_select_queries=True),
+        setTimeZones=False,
+    )
+
+    # Create placeholder node and get the type conversion AST
+    placeholder_node = ast.Constant(value=placeholder)
+    converted_ast = swapper._field_type_to_property_call(placeholder_node, field_type)
+
+    # Print to ClickHouse SQL
     context = HogQLContext(team_id=1, enable_select_queries=True)
     printer = ClickHousePrinter(context=context, dialect="clickhouse", stack=[], settings=None, pretty=False)
-    sql = printer.visit(expr)
-    return sql, context
+    sql = printer.visit(converted_ast)
 
-
-def substitute_params(sql: str, context: HogQLContext) -> str:
-    """Substitute parameterized values back into SQL for comparison."""
-    result = sql
+    # Substitute params back in for comparison
     for key, value in context.values.items():
-        placeholder = f"%({key})s"
+        param_placeholder = f"%({key})s"
         if isinstance(value, str):
-            result = result.replace(placeholder, f"'{value}'")
+            sql = sql.replace(param_placeholder, f"'{value}'")
         elif isinstance(value, list):
             list_str = "[" + ", ".join(f"'{v}'" if isinstance(v, str) else str(v) for v in value) + "]"
-            result = result.replace(placeholder, list_str)
+            sql = sql.replace(param_placeholder, list_str)
         elif value is None:
-            result = result.replace(placeholder, "NULL")
+            sql = sql.replace(param_placeholder, "NULL")
         else:
-            result = result.replace(placeholder, str(value))
-    return result
+            sql = sql.replace(param_placeholder, str(value))
+
+    return sql
 
 
 # Placeholder used to compare transformation output
@@ -57,48 +73,18 @@ class TestTransformationsMatchHogQL:
 
     @parameterized.expand(
         [
-            ("numeric", "Float"),
-            ("boolean", "Boolean"),
+            ("numeric", "Float", numeric_transform),
+            ("boolean", "Boolean", boolean_transform),
         ]
     )
-    def test_transformation_matches_hogql(self, transform_name: str, field_type: str):
-        """
-        Test that transformation function output matches HogQL's _field_type_to_property_call.
+    def test_transformation_matches_hogql(self, name: str, field_type: str, transform_func):
+        hogql_sql = get_hogql_type_conversion_sql(field_type, PLACEHOLDER)
+        transformation_sql = transform_func(f"'{PLACEHOLDER}'")
 
-        This mirrors the logic in property_types.py:_field_type_to_property_call
-        """
-        # Build AST the same way _field_type_to_property_call does
-        placeholder_node = ast.Constant(value=PLACEHOLDER)
-
-        if field_type == "Float":
-            hogql_ast = ast.Call(name="toFloat", args=[placeholder_node])
-            transformation_sql = numeric_transform(f"'{PLACEHOLDER}'")
-        elif field_type == "Boolean":
-            hogql_ast = ast.Call(
-                name="toBool",
-                args=[
-                    ast.Call(
-                        name="transform",
-                        args=[
-                            ast.Call(name="toString", args=[placeholder_node]),
-                            ast.Constant(value=["true", "false"]),
-                            ast.Constant(value=[1, 0]),
-                            ast.Constant(value=None),
-                        ],
-                    )
-                ],
-            )
-            transformation_sql = boolean_transform(f"'{PLACEHOLDER}'")
-        else:
-            pytest.fail(f"Unknown field type: {field_type}")
-
-        hogql_sql, context = print_expr_to_clickhouse(hogql_ast)
-        hogql_sql_substituted = substitute_params(hogql_sql, context)
-
-        assert hogql_sql_substituted == transformation_sql, (
-            f"Transformation '{transform_name}' drifted from HogQL!\n"
-            f"  HogQL produces:         {hogql_sql_substituted}\n"
-            f"  transformations.py has: {transformation_sql}\n"
+        assert hogql_sql == transformation_sql, (
+            f"Transformation '{name}' drifted from HogQL!\n"
+            f"  HogQL _field_type_to_property_call produces: {hogql_sql}\n"
+            f"  transformations.{transform_func.__name__} produces: {transformation_sql}\n"
             f"\n"
             f"These must match to ensure MV/backfill data matches query-time conversions."
         )
