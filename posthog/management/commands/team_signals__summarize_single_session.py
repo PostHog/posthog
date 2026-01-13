@@ -133,23 +133,10 @@ class Command(BaseCommand):
             else:
                 self._print_section("Summary Results")
                 self.stdout.write("")
-
-                # Try to format as JSON if it's a dict-like object
-                if isinstance(summary, dict):
-                    try:
-                        formatted = json.dumps(summary, indent=2, default=str)
-                        # Indent each line
-                        for line in formatted.split("\n"):
-                            self.stdout.write(f"  {line}")
-                    except (TypeError, ValueError):
-                        # Fallback to string representation
-                        for line in str(summary).split("\n"):
-                            self.stdout.write(f"  {line}")
-                else:
-                    # For non-dict objects, print line by line with indentation
-                    for line in str(summary).split("\n"):
-                        self.stdout.write(f"  {line}")
-
+                formatted = json.dumps(summary, indent=2, default=str)
+                # Indent each line
+                for line in formatted.split("\n"):
+                    self.stdout.write(f"  {line}")
                 self.stdout.write("")
 
         except Exception as e:
