@@ -140,8 +140,17 @@ def get_changed_fields_local(before_update: models.Model, after_update: models.M
     all_excluded_fields = field_exclusions.get(model_name, []) + common_field_exclusions + signal_excluded_fields
 
     changed_fields = []
+    # Get deferred fields to skip - accessing deferred fields causes Django to
+    # refresh the entire model from DB, losing any pending unsaved changes
+    before_deferred = before_update.get_deferred_fields() if hasattr(before_update, "get_deferred_fields") else set()
+    after_deferred = after_update.get_deferred_fields() if hasattr(after_update, "get_deferred_fields") else set()
+
     for field in before_update._meta.get_fields():
         if not hasattr(field, "name") or field.name in all_excluded_fields:
+            continue
+
+        # Skip deferred fields to avoid triggering DB refresh which would lose pending changes
+        if field.name in before_deferred or field.name in after_deferred:
             continue
 
         if hasattr(before_update, field.name) and hasattr(after_update, field.name):
