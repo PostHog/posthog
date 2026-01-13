@@ -305,13 +305,11 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.NOT_BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
-        # For NOT_BETWEEN: null values should match (return true)
-        # Pattern: if(property IS NULL, true, property < min OR property > max)
+        # Use if() to check for null before comparison (see LT operator for explanation)
         return ast.Call(
             name="if",
             args=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=expr, right=ast.Constant(value=None)),
-                ast.Constant(value=True),  # null values match NOT_BETWEEN
+                ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=expr, right=ast.Constant(value=None)),
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
@@ -322,6 +320,7 @@ def _expr_to_compare_op(
                         ),
                     ]
                 ),
+                ast.Constant(value=False),
             ],
         )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:

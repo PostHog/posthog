@@ -1125,15 +1125,15 @@ class TestProperty(BaseTest):
         self.assertIsInstance(expr.args[1], ast.And)
         self.assertEqual(expr.args[2], ast.Constant(value=False))
 
-        # Test NOT_BETWEEN operator (null values should return true)
+        # Test NOT_BETWEEN operator (null values should return false)
         expr = self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": [18, 65]})
         self.assertIsInstance(expr, ast.Call)
         self.assertEqual(expr.name, "if")
         self.assertEqual(len(expr.args), 3)
         self.assertIsInstance(expr.args[0], ast.CompareOperation)
-        self.assertEqual(expr.args[0].op, ast.CompareOperationOp.Eq)
-        self.assertEqual(expr.args[1], ast.Constant(value=True))
-        self.assertIsInstance(expr.args[2], ast.Or)
+        self.assertEqual(expr.args[0].op, ast.CompareOperationOp.NotEq)  # Checks property != null
+        self.assertEqual(expr.args[2], ast.Constant(value=False))  # Returns false for null
+        self.assertIsInstance(expr.args[1], ast.Or)  # The actual NOT_BETWEEN logic
 
         # Test IS_DATE_BEFORE operator (alias for LT)
         expr = self._property_to_expr({"type": "event", "key": "created", "operator": "is_date_before", "value": "2024-01-01"})
