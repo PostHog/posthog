@@ -15,16 +15,12 @@ export interface EmailSetupModalLogicProps {
     onComplete: (integrationId?: number) => void
 }
 
-export interface ApiDnsRecord {
+export interface DnsRecord {
     type: string
     status: 'success' | 'pending'
     recordValue: string
     recordType: string
     recordHostname: string
-}
-
-export interface DnsRecord extends ApiDnsRecord {
-    parsedHostname: { subdomain: string; rootDomain: string }
 }
 
 export interface EmailSenderFormType {
@@ -34,20 +30,6 @@ export interface EmailSenderFormType {
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
-
-export const parseHostname = (hostname: string, rootDomain: string): { subdomain: string; rootDomain: string } => {
-    if (hostname === '@') {
-        return { subdomain: '@', rootDomain: '' }
-    }
-
-    if (hostname.endsWith(`.${rootDomain}`)) {
-        const subdomain = hostname.slice(0, -rootDomain.length - 1)
-        return { subdomain, rootDomain: `.${rootDomain}` }
-    }
-
-    // Fallback: return as subdomain if we can't parse it
-    return { subdomain: hostname, rootDomain: '' }
-}
 
 export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     path(['products', 'workflows', 'frontend', 'EmailSetup', 'emailSetupModalLogic']),
@@ -109,20 +91,8 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     })),
     selectors({
         dnsRecords: [
-            (s) => [s.verification, s.integration],
-            (
-                verification: { dnsRecords?: ApiDnsRecord[] } | null,
-                integration: IntegrationType | undefined
-            ): DnsRecord[] => {
-                if (!verification?.dnsRecords || !integration) {
-                    return []
-                }
-                const rootDomain = integration?.config?.domain || ''
-                return verification.dnsRecords.map((record) => ({
-                    ...record,
-                    parsedHostname: parseHostname(record.recordHostname, rootDomain),
-                }))
-            },
+            (s) => [s.verification],
+            (verification: { status: string } | null) => verification?.status || null,
         ],
     }),
     listeners(({ props, values, actions }) => ({

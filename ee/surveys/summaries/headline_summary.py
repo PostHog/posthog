@@ -118,7 +118,7 @@ def generate_survey_headline(
 
     with timer("query"):
         query = f"""
-            SELECT {", ".join(select_fields)}
+            SELECT {', '.join(select_fields)}
             FROM events
             WHERE event == 'survey sent'
                 AND properties.$survey_id = {{survey_id}}

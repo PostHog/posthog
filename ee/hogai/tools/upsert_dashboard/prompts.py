@@ -9,29 +9,11 @@ Use this tool to create or update a dashboard with provided insights.
 # When NOT to use this tool
 - The user wants to save a single insight.
 
-# Understanding insight update modes
+# Understanding replace_insights
+- `replace_insights=False` (default): Appends provided insights to existing ones
+- `replace_insights=True`: Dashboard will contain exactly the insights you specify in `insight_ids`
 
-## update_insight_ids (PREFERRED for editing existing insights)
-Use this when the user wants to edit/modify an existing insight on the dashboard.
-Maps existing insight IDs to new insight IDs. Other insights remain unchanged.
-
-Example: Dashboard has insights [A, B, C]. User wants to edit insight B.
-1. Create a new version of B (let's call it B')
-2. Use `update_insight_ids={"B": "B'"}`
-Result: Dashboard now has [A, B', C] - only B was replaced, A and C are untouched.
-
-## insight_ids with replace_insights=False (default)
-Appends provided insights to existing ones.
-
-Example: Dashboard has [A, B]. Use `insight_ids=[C]` with `replace_insights=False`.
-Result: Dashboard now has [A, B, C].
-
-## insight_ids with replace_insights=True
-Dashboard will contain exactly the insights you specify. All others are removed.
-Use this only when you want to completely replace all dashboard contents.
-
-Example: Dashboard has [A, B, C]. Use `insight_ids=[D, E]` with `replace_insights=True`.
-Result: Dashboard now has [D, E]. A, B, C are removed.
+Example: Dashboard has [A, B, C]. To replace B with D, use `replace_insights=True` with `insight_ids=[A, D, C]`. Using just `insight_ids=[D]` would remove A and C.
 """.strip()
 
 

@@ -18,6 +18,7 @@ import {
     HumanMessage,
     MultiVisualizationMessage,
     NotebookArtifactContent,
+    NotebookUpdateMessage,
     RootAssistantMessage,
     SubagentUpdateEvent,
     VisualizationArtifactContent,
@@ -88,6 +89,12 @@ export function isSubagentUpdateEvent(
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
     return message?.type === AssistantMessageType.Failure
+}
+
+export function isNotebookUpdateMessage(
+    message: RootAssistantMessage | undefined | null
+): message is NotebookUpdateMessage {
+    return message?.type === AssistantMessageType.Notebook
 }
 
 export function isMultiQuestionFormMessage(
@@ -172,6 +179,20 @@ export function stripSuggestionPlaceholders(suggestion: string): string {
  */
 export function formatSuggestion(suggestion: string): string {
     return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
+}
+
+export function isDeepResearchReportNotebook(
+    notebook: { category?: string | null; notebook_type?: string | null } | null | undefined
+): boolean {
+    return !!(notebook && notebook.category === 'deep_research' && notebook.notebook_type === 'report')
+}
+
+export function isDeepResearchReportCompletion(message: NotebookUpdateMessage): boolean {
+    return (
+        message.notebook_type === 'deep_research' &&
+        Array.isArray(message.conversation_notebooks) &&
+        message.conversation_notebooks.some((nb) => isDeepResearchReportNotebook(nb))
+    )
 }
 
 // Utility functions for transforming data to max context

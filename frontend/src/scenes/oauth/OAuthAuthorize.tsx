@@ -71,15 +71,13 @@ export const OAuthAuthorize = (): JSX.Element => {
     }
 
     return (
-        <div className="min-h-full overflow-y-auto">
-            <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
-                <div className="text-center mb-4 sm:mb-8">
-                    <h2 className="text-xl sm:text-2xl font-semibold">
+        <div className="flex flex-col items-center justify-center h-full">
+            <div className="max-w-2xl mx-auto py-12 px-6">
+                <div className="text-center mb-8">
+                    <h2 className="text-2xl font-semibold">
                         Authorize <strong>{oauthApplication.name}</strong>
                     </h2>
-                    <p className="text-muted mt-2 text-sm sm:text-base">
-                        {oauthApplication.name} is requesting access to your data.
-                    </p>
+                    <p className="text-muted mt-2">{oauthApplication.name} is requesting access to your data.</p>
                 </div>
 
                 {!oauthApplication.is_verified && (
@@ -93,7 +91,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                 )}
 
                 <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
-                    <div className="flex flex-col gap-4 sm:gap-6 bg-bg-light border border-border rounded p-4 sm:p-6 shadow">
+                    <div className="flex flex-col gap-6 bg-bg-light border border-border rounded p-6 shadow">
                         <ScopeAccessSelector
                             accessType={oauthAuthorization.access_type}
                             organizations={allOrganizations}
@@ -125,7 +123,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                             </div>
                         )}
 
-                        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-4">
+                        <div className="flex justify-end space-x-2 pt-4">
                             <LemonButton
                                 type="tertiary"
                                 status="alt"

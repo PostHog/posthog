@@ -18,7 +18,7 @@ from posthog.schema import (
 
 from posthog.models import Team, User
 
-from ee.hogai.artifacts.utils import unwrap_notebook_artifact_content, unwrap_visualization_artifact_content
+from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import get_subagent_stream_key
@@ -166,7 +166,7 @@ class TaskTool(MaxTool):
             async for event_type, message in executor.astream(ChatAgentWorkflow, inputs):
                 if event_type == AssistantEventType.MESSAGE:
                     # Only parse completed messages
-                    if isinstance(message, AssistantGenerationStatusEvent) or not getattr(message, "id", None):
+                    if isinstance(message, AssistantGenerationStatusEvent) or not message.id:
                         continue
                     if isinstance(message, AssistantMessage):
                         final_content = message.content
@@ -191,13 +191,7 @@ class TaskTool(MaxTool):
                 viz_content = unwrap_visualization_artifact_content(message)
                 if viz_content:
                     artifacts_list_prompt.append(
-                        f"- Insight ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}"
-                    )
-                    continue
-                notebook_content = unwrap_notebook_artifact_content(message)
-                if notebook_content:
-                    artifacts_list_prompt.append(
-                        f"- Notebook ID: {message.artifact_id}\nTitle: {notebook_content.title}"
+                        f"- ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}"
                     )
             artifacts_prompt = format_prompt_string(
                 TASK_ARTIFACTS_PROMPT, artifacts_list="\n\n".join(artifacts_list_prompt)

@@ -32,7 +32,7 @@ class Products:
         """Load products.json data from disk and validate with Pydantic."""
         if self._file_path is None or not self._file_path.exists():
             raise FileNotFoundError(
-                f"products.json not found at {self._file_path}. Generate it by running: hogli build:products"
+                f"products.json not found at {self._file_path}. " "Generate it by running: hogli build:products"
             )
 
         with open(self._file_path) as f:

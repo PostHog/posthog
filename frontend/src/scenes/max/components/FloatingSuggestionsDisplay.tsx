@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
 import { QUESTION_SUGGESTIONS_DATA, SuggestionGroup, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
@@ -18,10 +17,8 @@ function useSuggestionHandling(): {
     const { askMax } = useActions(maxThreadLogic)
 
     const handleSuggestionGroupClick = (group: SuggestionGroup): void => {
-        // If it's a product-based skill, open the URL first (but not when on /ai route)
-        const cleanPath = removeProjectIdIfPresent(router.values.currentLocation.pathname)
-        const isOnAiRoute = cleanPath.startsWith('/ai')
-        if (group.url && !isOnAiRoute && !cleanPath.includes(group.url)) {
+        // If it's a product-based skill, open the URL first
+        if (group.url && !router.values.currentLocation.pathname.includes(group.url)) {
             router.actions.push(group.url)
         }
 

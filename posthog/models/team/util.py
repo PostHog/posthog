@@ -2,14 +2,10 @@ import time
 from datetime import timedelta
 from typing import Any
 
-import structlog
-
-from posthog.batch_exports.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
+from posthog.batch_exports.service import batch_export_delete_schedule
 from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
-
-logger = structlog.get_logger(__name__)
 
 actions_that_require_current_team = [
     "rotate_secret_token",
@@ -109,19 +105,13 @@ def delete_batch_exports(team_ids: list[int]):
 
     temporal = sync_connect()
 
-    for batch_export in BatchExport.objects.filter(team_id__in=team_ids, deleted=False):
+    for batch_export in BatchExport.objects.filter(team_id__in=team_ids):
         schedule_id = batch_export.id
 
         batch_export.delete()
         batch_export.destination.delete()
 
-        try:
-            batch_export_delete_schedule(temporal, str(schedule_id))
-        except BatchExportServiceScheduleNotFound as e:
-            logger.warning(
-                "Schedule not found during team deletion",
-                schedule_id=e.schedule_id,
-            )
+        batch_export_delete_schedule(temporal, str(schedule_id))
 
 
 can_enable_actor_on_events = False

@@ -41,11 +41,6 @@ class TeamRevenueAnalyticsConfig(models.Model):
         value = value or []
         try:
             dumped_value = [RevenueAnalyticsEventItem.model_validate(event).model_dump() for event in value]
-            # Sanitize empty strings to None for optional property fields
-            for event in dumped_value:
-                for key in ("subscriptionProperty", "productProperty", "couponProperty"):
-                    if event.get(key) == "":
-                        event[key] = None
             self._events = dumped_value
         except Exception as e:
             raise ValidationError(f"Invalid events schema: {str(e)}")

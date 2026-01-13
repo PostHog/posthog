@@ -7,6 +7,7 @@ import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkli
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { MailHog } from 'lib/components/hedgehogs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -87,7 +88,8 @@ export function WorkflowsTable(): JSX.Element {
     const { filteredWorkflows, workflowsLoading, filters } = useValues(workflowsLogic)
     const { toggleWorkflowStatus, duplicateWorkflow, deleteWorkflow, setSearchTerm, setCreatedBy, setStatus } =
         useActions(workflowsLogic)
-    const { showNewWorkflowModal } = useActions(newWorkflowLogic)
+    const { showNewWorkflowModal, createEmptyWorkflow } = useActions(newWorkflowLogic)
+    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     const columns: LemonTableColumns<HogFlow> = [
         {
@@ -260,7 +262,11 @@ export function WorkflowsTable(): JSX.Element {
                     description="Create workflows that automate actions or send messages to your users."
                     docsURL="https://posthog.com/docs/workflows/start-here"
                     action={() => {
-                        showNewWorkflowModal()
+                        if (canCreateTemplates) {
+                            showNewWorkflowModal()
+                        } else {
+                            createEmptyWorkflow()
+                        }
                     }}
                     customHog={MailHog}
                     isEmpty

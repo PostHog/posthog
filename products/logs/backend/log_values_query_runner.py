@@ -1,5 +1,4 @@
 import datetime as dt
-from zoneinfo import ZoneInfo
 
 from posthog.schema import IntervalType, LogValueResult, LogValuesQuery, LogValuesQueryResponse
 
@@ -37,7 +36,6 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
             interval=IntervalType.MINUTE,
             interval_count=10,
             now=dt.datetime.now(),
-            timezone_info=ZoneInfo("UTC"),
         )
 
     def to_query(self) -> ast.SelectQuery:

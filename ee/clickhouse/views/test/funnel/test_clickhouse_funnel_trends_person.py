@@ -33,6 +33,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
             "properties": json.dumps([]),
+            "funnel_window_days": 7,
             "new_entity": json.dumps([]),
         }
 
@@ -145,6 +146,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
             "properties": json.dumps([]),
+            "funnel_window_days": 7,
             "new_entity": json.dumps([]),
         }
 
@@ -234,6 +236,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
             "properties": json.dumps([]),
+            "funnel_window_days": 7,
             "new_entity": json.dumps([]),
         }
 

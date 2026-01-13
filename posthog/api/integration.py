@@ -21,8 +21,6 @@ from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
-    AzureBlobIntegration,
-    AzureBlobIntegrationError,
     ClickUpIntegration,
     DatabricksIntegration,
     DatabricksIntegrationError,
@@ -157,25 +155,6 @@ class IntegrationSerializer(serializers.ModelSerializer):
                     created_by=request.user,
                 )
             except DatabricksIntegrationError as e:
-                raise ValidationError(str(e))
-            return instance
-
-        elif validated_data["kind"] == "azure-blob":
-            config = validated_data.get("config", {})
-            connection_string = config.get("connection_string")
-            if not connection_string:
-                raise ValidationError("Connection string must be provided")
-
-            if not isinstance(connection_string, str):
-                raise ValidationError("Connection string must be a string")
-
-            try:
-                instance = AzureBlobIntegration.integration_from_config(
-                    team_id=team_id,
-                    connection_string=connection_string,
-                    created_by=request.user,
-                )
-            except AzureBlobIntegrationError as e:
                 raise ValidationError(str(e))
             return instance
 

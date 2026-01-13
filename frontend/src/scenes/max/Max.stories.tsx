@@ -22,6 +22,7 @@ import {
     AssistantMessageType,
     AssistantToolCallMessage,
     MultiVisualizationMessage,
+    NotebookUpdateMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { ArtifactContentType, NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
@@ -795,6 +796,66 @@ MaxInstanceWithContextualTools.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
+}
+
+export const NotebookUpdateComponent: StoryFn = () => {
+    const notebookMessage: NotebookUpdateMessage = {
+        type: AssistantMessageType.Notebook,
+        notebook_id: 'nb_123456',
+        content: {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Analysis notebook has been updated with new insights',
+                        },
+                    ],
+                },
+            ],
+        },
+        id: 'notebook-update-message',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Update my analysis notebook' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Update my analysis notebook')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
 }
 
 export const PlanningComponent: StoryFn = () => {

@@ -85,6 +85,9 @@ class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Role.objects.all()
     permission_classes = [RolePermissions, TimeSensitiveActionPermission]
 
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(**self.request.GET.dict())
+
 
 class RoleMembershipSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)

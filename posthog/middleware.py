@@ -917,9 +917,6 @@ class ImpersonationReadOnlyMiddleware:
         if self._is_path_allowlisted(request.path):
             return self.get_response(request)
 
-        if self._is_allowed_users_request(request):
-            return self.get_response(request)
-
         return JsonResponse(
             {
                 "type": "authentication_error",
@@ -937,24 +934,6 @@ class ImpersonationReadOnlyMiddleware:
             elif path.startswith(allowed_path):
                 return True
         return False
-
-    def _is_allowed_users_request(self, request: HttpRequest) -> bool:
-        """
-        Allow switching organizations.
-
-        Switching occurs via a PATCH to /api/users/@me/ that only contains `set_current_organization`.
-        """
-        if request.method != "PATCH":
-            return False
-
-        if request.path not in ("/api/users/@me/", "/api/users/@me"):
-            return False
-
-        try:
-            body = json.loads(request.body)
-            return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return False
 
 
 IMPERSONATION_BLOCKED_PATHS: list[str] = [

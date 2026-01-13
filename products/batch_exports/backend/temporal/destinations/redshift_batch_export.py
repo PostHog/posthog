@@ -119,8 +119,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     "NoSuchBucket",
     # S3 parameter validation failed.
     "ParamValidationError",
-    # Invalid S3 credentials when using `copy_into_redshift_activity_from_stage`.
-    "InvalidCredentialsError",
 )
 
 

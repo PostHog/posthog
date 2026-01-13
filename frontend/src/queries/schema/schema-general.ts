@@ -2851,6 +2851,7 @@ export type FileSystemIconType =
     | 'insight/stickiness'
     | 'insight/hog'
     | 'team_activity'
+    | 'feed'
     | 'home'
     | 'apps'
     | 'live'

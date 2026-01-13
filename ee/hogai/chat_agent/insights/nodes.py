@@ -597,7 +597,7 @@ class InsightSearchNode(AssistantNode):
     @timing_logger("InsightSearchNode._create_enhanced_insight_summary")
     async def _create_enhanced_insight_summary(self, insight: InsightDict) -> str:
         """Create enhanced summary with metadata and basic execution info."""
-        insight_id = insight["short_id"]
+        insight_id = insight["id"]
         name = insight["name"] or insight["derived_name"] or "Unnamed"
         description = insight["description"] or ""
 
@@ -828,9 +828,7 @@ class InsightSearchNode(AssistantNode):
             insight_name = insight["name"] or insight["derived_name"] or "Unnamed"
             insight_url = build_insight_url(self._team, insight["short_id"])
             insight_hyperlink = f"[{insight_name}]({insight_url})"
-            explanations.append(
-                f"- {insight_hyperlink} (Artifact ID: {insight['short_id']}): {selection['explanation']}"
-            )
+            explanations.append(f"- {insight_hyperlink}: {selection['explanation']}")
 
         num_insights = len(self._evaluation_selections)
 

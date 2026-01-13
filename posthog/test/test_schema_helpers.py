@@ -13,6 +13,7 @@ from posthog.schema import (
     FunnelConversionWindowTimeUnit,
     FunnelExclusionEventsNode,
     FunnelsQuery,
+    FunnelStepReference,
     FunnelVizType,
     PersonPropertyFilter,
     PropertyOperator,
@@ -80,12 +81,7 @@ class TestSchemaHelpers(TestCase):
         self.assertEqual(to_dict(q2), {"kind": "TrendsQuery", "series": []})
 
     def test_serializes_series_without_frontend_only_props(self):
-        query = TrendsQuery(
-            **{
-                **base_trends,
-                "series": [EventsNode(name="$pageview", custom_name="My custom name")],
-            }
-        )
+        query = TrendsQuery(**{**base_trends, "series": [EventsNode(name="$pageview", custom_name="My custom name")]})
 
         result_dict = to_dict(query)
 
@@ -99,23 +95,12 @@ class TestSchemaHelpers(TestCase):
         self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
 
     def test_serializes_retention_filter_without_frontend_only_props(self):
-        query = RetentionQuery(
-            **{
-                "retentionFilter": {
-                    "targetEntity": {"uuid": "1"},
-                    "returningEntity": {"uuid": "2"},
-                }
-            }
-        )
+        query = RetentionQuery(**{"retentionFilter": {"targetEntity": {"uuid": "1"}, "returningEntity": {"uuid": "2"}}})
 
         result_dict = to_dict(query)
 
         self.assertEqual(
-            result_dict,
-            {
-                "kind": "RetentionQuery",
-                "retentionFilter": {"targetEntity": {}, "returningEntity": {}},
-            },
+            result_dict, {"kind": "RetentionQuery", "retentionFilter": {"targetEntity": {}, "returningEntity": {}}}
         )
 
     def test_serializes_display_with_canonic_alternatives(self):
@@ -127,22 +112,14 @@ class TestSchemaHelpers(TestCase):
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsLineGraphCumulative"}})
         self.assertEqual(
             to_dict(query),
-            {
-                "kind": "TrendsQuery",
-                "series": [],
-                "trendsFilter": {"display": "ActionsLineGraphCumulative"},
-            },
+            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsLineGraphCumulative"}},
         )
 
         # total value
         query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "BoldNumber"}})
         self.assertEqual(
             to_dict(query),
-            {
-                "kind": "TrendsQuery",
-                "series": [],
-                "trendsFilter": {"display": "ActionsBarValue"},
-            },
+            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsBarValue"}},
         )
 
     def _assert_filter(self, key: str, num_keys: int, q1: BaseModel, q2: BaseModel):
@@ -184,14 +161,8 @@ class TestSchemaHelpers(TestCase):
             (None, {}, 0),
             # general: ordering of keys
             (
-                {
-                    "funnelVizType": FunnelVizType.TIME_TO_CONVERT,
-                    "funnelOrderType": StepOrderValue.STRICT,
-                },
-                {
-                    "funnelOrderType": StepOrderValue.STRICT,
-                    "funnelVizType": FunnelVizType.TIME_TO_CONVERT,
-                },
+                {"funnelVizType": FunnelVizType.TIME_TO_CONVERT, "funnelOrderType": StepOrderValue.STRICT},
+                {"funnelOrderType": StepOrderValue.STRICT, "funnelVizType": FunnelVizType.TIME_TO_CONVERT},
                 2,
             ),
             # binCount
@@ -211,14 +182,8 @@ class TestSchemaHelpers(TestCase):
             # breakdownAttributionValue
             # ({}, {"breakdownAttributionValue": 2}, 0),
             (
-                {
-                    "breakdownAttributionType": BreakdownAttributionType.STEP,
-                    "breakdownAttributionValue": 2,
-                },
-                {
-                    "breakdownAttributionType": BreakdownAttributionType.STEP,
-                    "breakdownAttributionValue": 2,
-                },
+                {"breakdownAttributionType": BreakdownAttributionType.STEP, "breakdownAttributionValue": 2},
+                {"breakdownAttributionType": BreakdownAttributionType.STEP, "breakdownAttributionValue": 2},
                 2,
             ),
             # exclusions
@@ -230,31 +195,22 @@ class TestSchemaHelpers(TestCase):
             ),
             # funnelAggregateByHogQL
             # ({}, {"funnelAggregateByHogQL": ""}, 1),
-            (
-                {"funnelAggregateByHogQL": "distinct_id"},
-                {"funnelAggregateByHogQL": "distinct_id"},
-                1,
-            ),
+            ({"funnelAggregateByHogQL": "distinct_id"}, {"funnelAggregateByHogQL": "distinct_id"}, 1),
             # funnelFromStep and funnelToStep
-            (
-                {"funnelFromStep": 1, "funnelToStep": 2},
-                {"funnelFromStep": 1, "funnelToStep": 2},
-                2,
-            ),
+            ({"funnelFromStep": 1, "funnelToStep": 2}, {"funnelFromStep": 1, "funnelToStep": 2}, 2),
             # funnelOrderType
             ({}, {"funnelOrderType": StepOrderValue.ORDERED}, 0),
+            ({"funnelOrderType": StepOrderValue.STRICT}, {"funnelOrderType": StepOrderValue.STRICT}, 1),
+            # funnelStepReference
+            ({}, {"funnelStepReference": FunnelStepReference.TOTAL}, 0),
             (
-                {"funnelOrderType": StepOrderValue.STRICT},
-                {"funnelOrderType": StepOrderValue.STRICT},
+                {"funnelStepReference": FunnelStepReference.PREVIOUS},
+                {"funnelStepReference": FunnelStepReference.PREVIOUS},
                 1,
             ),
             # funnelVizType
             ({}, {"funnelVizType": FunnelVizType.STEPS}, 0),
-            (
-                {"funnelVizType": FunnelVizType.TRENDS},
-                {"funnelVizType": FunnelVizType.TRENDS},
-                1,
-            ),
+            ({"funnelVizType": FunnelVizType.TRENDS}, {"funnelVizType": FunnelVizType.TRENDS}, 1),
             # funnelWindowInterval
             ({}, {"funnelWindowInterval": 14}, 0),
             ({"funnelWindowInterval": 12}, {"funnelWindowInterval": 12}, 1),
@@ -284,30 +240,26 @@ class TestSchemaHelpers(TestCase):
 
     def test_series_math_set_to_dau_when_appropriate(self):
         query_with_day_interval = TrendsQuery(
-            interval="week",
-            series=[EventsNode(name="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            interval="week", series=[EventsNode(name="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]
         )
         result = to_dict(query_with_day_interval)
         self.assertEqual(result["series"][0]["math"], BaseMathType.DAU)
 
         query_with_day_interval = TrendsQuery(
-            interval="week",
-            series=[EventsNode(name="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
+            interval="week", series=[EventsNode(name="$pageview", math=BaseMathType.MONTHLY_ACTIVE)]
         )
         result = to_dict(query_with_day_interval)
         self.assertEqual(result["series"][0]["math"], BaseMathType.MONTHLY_ACTIVE)
 
         query_with_day_interval = TrendsQuery(
-            interval="month",
-            series=[EventsNode(name="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
+            interval="month", series=[EventsNode(name="$pageview", math=BaseMathType.MONTHLY_ACTIVE)]
         )
         result = to_dict(query_with_day_interval)
         self.assertEqual(result["series"][0]["math"], BaseMathType.DAU)
 
         # Test case where DAU should NOT be set (assuming 'month' interval doesn't trigger it)
         query_with_month_interval = TrendsQuery(
-            interval="day",
-            series=[EventsNode(name="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            interval="day", series=[EventsNode(name="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]
         )
         result = to_dict(query_with_month_interval)
         self.assertEqual(result["series"][0]["math"], BaseMathType.WEEKLY_ACTIVE)

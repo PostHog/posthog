@@ -42,7 +42,6 @@ export type SettingSectionId =
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'organization-details'
-    | 'organization-integrations'
     | 'organization-members'
     | 'organization-roles'
     | 'organization-authentication'
@@ -114,7 +113,6 @@ export type SettingId =
     | 'project-move'
     | 'organization-logo'
     | 'organization-display-name'
-    | 'organization-integrations-list'
     | 'invites'
     | 'members'
     | 'email-members'

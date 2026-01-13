@@ -8,6 +8,7 @@ from django.db.models import Prefetch, Q
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
+    WRITES_IDX_MAP,
     BaseCheckpointSaver,
     ChannelVersions,
     Checkpoint,
@@ -333,13 +334,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     )
                 )
 
-            # Setting update_conflicts=True to handle resume-from-interrupt scenarios.
-            # When a tool calls interrupt() and later resumes, LangGraph may write to the
-            # same (checkpoint_id, task_id, idx) combination. We want to ensure we update
-            # existing writes on duplicate key.
             ConversationCheckpointWrite.objects.bulk_create(
                 writes_to_create,
-                update_conflicts=True,
+                update_conflicts=all(w[0] in WRITES_IDX_MAP for w in writes),
                 unique_fields=["checkpoint", "task_id", "idx"],
                 update_fields=["channel", "type", "blob"],
             )

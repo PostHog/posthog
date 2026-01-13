@@ -2,8 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconRefresh } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBadge, LemonCheckbox, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -28,9 +27,17 @@ export const scene: SceneExport = {
 
 export function ConversationsTicketsScene(): JSX.Element {
     const logic = conversationsTicketsSceneLogic()
-    const { filteredTickets, statusFilter, priorityFilter, assigneeFilter, dateFrom, dateTo, ticketsLoading } =
-        useValues(logic)
-    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, loadTickets } = useActions(logic)
+    const {
+        filteredTickets,
+        statusFilter,
+        priorityFilter,
+        assigneeFilter,
+        dateFrom,
+        dateTo,
+        ticketsLoading,
+        autoUpdateEnabled,
+    } = useValues(logic)
+    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, setAutoUpdate } = useActions(logic)
     const { push } = useActions(router)
 
     return (
@@ -74,17 +81,7 @@ export function ConversationsTicketsScene(): JSX.Element {
                         label="Unassigned only"
                     />
                 </div>
-                <LemonButton
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    loading={ticketsLoading}
-                    disabledReason={ticketsLoading ? 'Loading tickets...' : undefined}
-                    onClick={loadTickets}
-                    size="small"
-                    data-attr="refresh-tickets"
-                >
-                    Refresh
-                </LemonButton>
+                <LemonCheckbox checked={autoUpdateEnabled} onChange={setAutoUpdate} label="Autoupdate" />
             </div>
 
             <LemonTable<Ticket>

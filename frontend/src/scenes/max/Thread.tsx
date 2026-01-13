@@ -41,15 +41,18 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { NotebookTarget } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { copyToClipboard } from '~/lib/utils/copyToClipboard'
 import { stripMarkdown } from '~/lib/utils/stripMarkdown'
+import { openNotebook } from '~/models/notebooksModel'
 import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
@@ -60,6 +63,7 @@ import {
     FailureMessage,
     MultiQuestionForm,
     MultiVisualizationMessage,
+    NotebookUpdateMessage,
     PlanningStep,
     PlanningStepStatus,
 } from '~/queries/schema/schema-assistant-messages'
@@ -68,7 +72,6 @@ import { isHogQLQuery } from '~/queries/utils'
 import { Region } from '~/types'
 
 import { ContextSummary } from './Context'
-import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
 import { TicketPrompt } from './TicketPrompt'
@@ -91,11 +94,13 @@ import {
     isArtifactMessage,
     isAssistantMessage,
     isAssistantToolCallMessage,
+    isDeepResearchReportCompletion,
     isFailureMessage,
     isHumanMessage,
     isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
     isNotebookArtifactContent,
+    isNotebookUpdateMessage,
     isVisualizationArtifactContent,
     visualizationTypeToQuery,
 } from './utils'
@@ -305,38 +310,10 @@ interface MessageProps {
 function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
-    const { threadLoading, isSharedThread, pendingApprovalsData } = useValues(maxThreadLogic)
-    const { conversationId } = useValues(maxLogic)
+    const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
-
-    // Compute pending approval cards that match this message's tool_calls
-    // Must be at component level (not inside conditional) to satisfy React hooks rules
-    const approvalCardElements = useMemo(() => {
-        if (!conversationId || !isAssistantMessage(message) || !message.tool_calls?.length) {
-            return null
-        }
-        const toolCallIds = new Set(message.tool_calls.map((tc) => tc.id).filter(Boolean))
-        const matchingApprovals = Object.values(pendingApprovalsData).filter(
-            (approval) => approval.original_tool_call_id && toolCallIds.has(approval.original_tool_call_id)
-        )
-        if (matchingApprovals.length === 0) {
-            return null
-        }
-        return matchingApprovals.map((approval) => (
-            <DangerousOperationApprovalCard
-                key={`approval-${approval.proposal_id}`}
-                operation={{
-                    status: 'pending_approval',
-                    proposalId: approval.proposal_id,
-                    toolName: approval.tool_name,
-                    preview: approval.preview,
-                    payload: approval.payload as Record<string, any>,
-                }}
-            />
-        ))
-    }, [conversationId, message, pendingApprovalsData])
 
     return (
         <MessageContainer groupType={groupType}>
@@ -530,7 +507,6 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                 {thinkingElements}
                                 {textElement}
                                 {toolCallElements}
-                                {approvalCardElements}
                                 {multiQuestionFormElement}
                                 {actionsElement}
                             </div>
@@ -579,6 +555,8 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                         return null
                     } else if (isMultiVisualizationMessage(message)) {
                         return <MultiVisualizationAnswer key={key} message={message} />
+                    } else if (isNotebookUpdateMessage(message)) {
+                        return <NotebookUpdateAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })()}
@@ -710,6 +688,96 @@ function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): J
     )
 }
 
+interface NotebookUpdateAnswerProps {
+    message: NotebookUpdateMessage
+}
+
+function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Element {
+    const handleOpenNotebook = (notebookId?: string): void => {
+        openNotebook(notebookId || message.notebook_id, NotebookTarget.Scene)
+    }
+
+    // Only show the full notebook list if this is the final report message from deep research
+    const isReportCompletion = isDeepResearchReportCompletion(message)
+
+    const NOTEBOOK_TYPE_DISPLAY_NAMES: Record<string, string> = {
+        planning: 'Planning',
+        report: 'Final Report',
+    }
+
+    const NOTEBOOK_TYPE_DESCRIPTIONS: Record<string, string> = {
+        planning: 'Initial research plan and objectives',
+        report: 'Comprehensive analysis and findings',
+    }
+
+    if (isReportCompletion && message.conversation_notebooks) {
+        return (
+            <MessageTemplate type="ai">
+                <div className="bg-bg-light border border-border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                        <IconCheck className="text-success size-4" />
+                        <h4 className="text-sm font-semibold m-0">Deep Research Complete</h4>
+                    </div>
+
+                    <div className="space-y-2">
+                        <p className="text-xs text-muted mb-3">
+                            Your research has been completed. Each notebook contains detailed analysis:
+                        </p>
+
+                        {message.conversation_notebooks.map((notebook) => {
+                            const typeKey = (notebook.notebook_type ??
+                                'general') as keyof typeof NOTEBOOK_TYPE_DISPLAY_NAMES
+                            const displayName = NOTEBOOK_TYPE_DISPLAY_NAMES[typeKey] || notebook.notebook_type
+                            const description = NOTEBOOK_TYPE_DESCRIPTIONS[typeKey] || 'Research documentation'
+
+                            return (
+                                <div
+                                    key={notebook.notebook_id}
+                                    className="flex items-center justify-between p-3 bg-bg-3000 rounded border border-border-light"
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <IconNotebook className="size-4 text-primary-alt mt-0.5" />
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium text-sm">
+                                                    {notebook.title || `${displayName} Notebook`}
+                                                </span>
+                                            </div>
+                                            <div className="text-xs text-muted">{description}</div>
+                                        </div>
+                                    </div>
+                                    <LemonButton
+                                        onClick={() => handleOpenNotebook(notebook.notebook_id)}
+                                        size="xsmall"
+                                        type="primary"
+                                        icon={<IconOpenInNew />}
+                                    >
+                                        Open
+                                    </LemonButton>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            </MessageTemplate>
+        )
+    }
+
+    // Default single notebook update message
+    return (
+        <MessageTemplate type="ai">
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                    <IconCheck className="text-success size-4" />
+                    <span>A notebook has been updated</span>
+                </div>
+                <LemonButton onClick={() => handleOpenNotebook()} size="xsmall" type="primary" icon={<IconOpenInNew />}>
+                    Open notebook
+                </LemonButton>
+            </div>
+        </MessageTemplate>
+    )
+}
 interface PlanningAnswerProps {
     toolCall: EnhancedToolCall
     isLastPlanningMessage?: boolean

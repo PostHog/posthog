@@ -63,7 +63,7 @@ import type {
     GroupsRelatedRetrieveParams,
     GroupsUpdatePropertyCreateParams,
     IntegrationApi,
-    IntegrationsList2Params,
+    IntegrationsListParams,
     InvitesListParams,
     List2Params,
     MembersListParams,
@@ -6394,17 +6394,17 @@ export const insightsSharingRefreshCreate = async (
     })
 }
 
-export type integrationsList2Response200 = {
+export type integrationsListResponse200 = {
     data: PaginatedIntegrationListApi
     status: 200
 }
 
-export type integrationsList2ResponseSuccess = integrationsList2Response200 & {
+export type integrationsListResponseSuccess = integrationsListResponse200 & {
     headers: Headers
 }
-export type integrationsList2Response = integrationsList2ResponseSuccess
+export type integrationsListResponse = integrationsListResponseSuccess
 
-export const getIntegrationsList2Url = (projectId: string, params?: IntegrationsList2Params) => {
+export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -6420,12 +6420,12 @@ export const getIntegrationsList2Url = (projectId: string, params?: Integrations
         : `/api/projects/${projectId}/integrations/`
 }
 
-export const integrationsList2 = async (
+export const integrationsList = async (
     projectId: string,
-    params?: IntegrationsList2Params,
+    params?: IntegrationsListParams,
     options?: RequestInit
-): Promise<integrationsList2Response> => {
-    return apiMutator<integrationsList2Response>(getIntegrationsList2Url(projectId, params), {
+): Promise<integrationsListResponse> => {
+    return apiMutator<integrationsListResponse>(getIntegrationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -6458,26 +6458,26 @@ export const integrationsCreate = async (
     })
 }
 
-export type integrationsRetrieve2Response200 = {
+export type integrationsRetrieveResponse200 = {
     data: IntegrationApi
     status: 200
 }
 
-export type integrationsRetrieve2ResponseSuccess = integrationsRetrieve2Response200 & {
+export type integrationsRetrieveResponseSuccess = integrationsRetrieveResponse200 & {
     headers: Headers
 }
-export type integrationsRetrieve2Response = integrationsRetrieve2ResponseSuccess
+export type integrationsRetrieveResponse = integrationsRetrieveResponseSuccess
 
-export const getIntegrationsRetrieve2Url = (projectId: string, id: number) => {
+export const getIntegrationsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-export const integrationsRetrieve2 = async (
+export const integrationsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsRetrieve2Response> => {
-    return apiMutator<integrationsRetrieve2Response>(getIntegrationsRetrieve2Url(projectId, id), {
+): Promise<integrationsRetrieveResponse> => {
+    return apiMutator<integrationsRetrieveResponse>(getIntegrationsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

@@ -44,6 +44,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ExploreSessions]: () => import('./activity/explore/SessionsScene'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
+    [Scene.Feed]: () => import('./feed/Feed'),
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.GroupsNew]: () => import('./groups/GroupsNew'),
     [Scene.Groups]: () => import('./groups/Groups'),

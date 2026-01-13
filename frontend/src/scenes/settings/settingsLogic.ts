@@ -8,7 +8,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -56,8 +55,6 @@ export const settingsLogic = kea<settingsLogicType>([
             ['preflight', 'isCloudOrDev'],
             teamLogic,
             ['currentTeam'],
-            organizationIntegrationsLogic,
-            ['organizationIntegrations'],
         ],
     })),
 
@@ -179,16 +176,10 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev, s.currentTeam, s.organizationIntegrations],
-            (doesMatchFlags, featureFlags, isCloudOrDev, currentTeam, organizationIntegrations): SettingSection[] => {
+            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev, s.currentTeam],
+            (doesMatchFlags, featureFlags, isCloudOrDev, currentTeam): SettingSection[] => {
                 const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
                     if (section.hideSelfHost && !isCloudOrDev) {
-                        return false
-                    }
-                    if (
-                        section.id === 'organization-integrations' &&
-                        (!organizationIntegrations || organizationIntegrations.length === 0)
-                    ) {
                         return false
                     }
 

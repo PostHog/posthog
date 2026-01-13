@@ -31,7 +31,7 @@ class SessionSummaryEventStringifier:
         for issue in ["abandonment", "confusion", "exception"]:
             if event[issue]:
                 if issue == "exception":
-                    issue = f"{event['exception']} exception"
+                    issue = f'{event["exception"]} exception'
                 issues_noticed.append(issue)
         context = {
             "issues_noticed": ", ".join(issues_noticed),

@@ -217,22 +217,4 @@ describe('LemonCalendar', () => {
             ['a', 'pm'],
         ])
     })
-
-    test('use24HourFormat renders 0-23 hours without AM/PM', async () => {
-        const calls: any = []
-        render(
-            <LemonCalendar
-                getLemonButtonTimeProps={({ unit, value }) => {
-                    calls.push([unit, value])
-                    return {}
-                }}
-                granularity="minute"
-                use24HourFormat
-            />
-        )
-        const hours = range(0, 24).map((num) => ['h', num])
-        const minutes = range(0, 60).map((num) => ['m', num])
-        expect(calls.length).toBe(84) // 24 hours + 60 minutes, no AM/PM
-        expect(calls).toEqual([...hours, ...minutes])
-    })
 })

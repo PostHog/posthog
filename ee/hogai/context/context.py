@@ -381,7 +381,7 @@ class AssistantContextManager(AssistantContextMixin):
                 continue
             tool = await tool_class.create_tool_class(team=self._team, user=self._user, context_manager=self)
             tool_prompt = tool.format_context_prompt_injection(tool_context)
-            contextual_tools_prompt.append(f"<{tool_name}>\n{tool_prompt}\n</{tool_name}>")
+            contextual_tools_prompt.append(f"<{tool_name}>\n" f"{tool_prompt}\n" f"</{tool_name}>")
 
         if contextual_tools_prompt:
             tools = "\n".join(contextual_tools_prompt)

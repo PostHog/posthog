@@ -33,9 +33,3 @@ const BasicTemplate: StoryFn<typeof LemonCalendarSelectInput> = (props: LemonCal
 
 export const Default: Story = BasicTemplate.bind({})
 Default.args = {}
-
-export const WithTime: Story = BasicTemplate.bind({})
-WithTime.args = { granularity: 'minute' }
-
-export const WithTime24Hour: Story = BasicTemplate.bind({})
-WithTime24Hour.args = { granularity: 'minute', use24HourFormat: true }

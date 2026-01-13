@@ -615,6 +615,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     "insight": "TRENDS",
                     "interval": "day",
                     "properties": "[]",
+                    "shown_as": "Stickiness",
                 },
             )
             response = stickiness_response["result"]

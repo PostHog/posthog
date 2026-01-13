@@ -30,7 +30,7 @@ export interface PrecheckResponseType {
 }
 
 // Routes that should be handled by Django, not the React router
-const BACKEND_ONLY_ROUTES = ['/login/vercel/continue', '/oauth/authorize']
+const BACKEND_ONLY_ROUTES = ['/login/vercel/continue']
 
 export function handleLoginRedirect(): void {
     let nextURL = '/'
@@ -154,11 +154,7 @@ export const loginLogic = kea<loginLogicType>([
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
-                        const searchParams: Record<string, any> = {}
-                        if (router.values.searchParams.next) {
-                            searchParams.next = router.values.searchParams.next
-                        }
-                        router.actions.push(urls.login2FA(), searchParams)
+                        router.actions.push(urls.login2FA())
                         throw e
                     }
                     if (code === 'email_mfa_required') {

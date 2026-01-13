@@ -14,17 +14,7 @@ from loginas.utils import is_impersonated_session
 
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.activity_log import (
-    ActivityContextBase,
-    ActivityScope,
-    Detail,
-    LogActivityEntry,
-    bulk_log_activity,
-    changes_between,
-    log_activity,
-)
-from posthog.models.signals import model_activity_signal, mutable_receiver
-from posthog.models.user import User
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.utils import get_ip_address, get_short_user_agent
 
 logger = structlog.get_logger(__name__)
@@ -193,71 +183,4 @@ def log_user_logout_activity(sender, user, request: HttpRequest, **kwargs):  # n
         )
     except Exception as e:
         logger.exception("Failed to log user logout activity", user_id=user.id, error=e)
-        capture_exception(e)
-
-
-@mutable_receiver(model_activity_signal, sender=User)
-def log_user_change_activity(
-    sender: type[User],
-    scope: ActivityScope,
-    before_update: User | None,
-    after_update: User | None,
-    activity: str,
-    user: User | None,
-    was_impersonated: bool = False,
-    **kwargs,
-) -> None:
-    """
-    Handle User model activity signals for create and update events.
-
-    Unlike other models that log to a single organization, User activity is logged to ALL
-    organizations the user belongs to.
-    """
-    try:
-        target_user = after_update or before_update
-
-        if not target_user:
-            return
-
-        memberships = list(target_user.organization_memberships.all())
-
-        if not memberships:
-            logger.info(
-                "Skipping user activity log - user has no organization memberships",
-                user_id=target_user.id,
-                activity=activity,
-            )
-            return
-
-        changes = changes_between(scope, previous=before_update, current=after_update)
-        user_name = f"{target_user.first_name} {target_user.last_name}".strip() or target_user.email
-
-        log_entries: list[LogActivityEntry] = []
-        for membership in memberships:
-            log_entries.append(
-                LogActivityEntry(
-                    organization_id=membership.organization_id,
-                    team_id=None,
-                    user=user,
-                    item_id=target_user.id,
-                    scope=scope,
-                    activity=activity,
-                    detail=Detail(
-                        changes=changes,
-                        name=user_name,
-                    ),
-                    was_impersonated=was_impersonated,
-                )
-            )
-
-        if log_entries:
-            bulk_log_activity(log_entries)
-
-    except Exception as e:
-        logger.exception(
-            "Failed to log user activity",
-            user_id=target_user.id if target_user else None,
-            activity=activity,
-            error=e,
-        )
         capture_exception(e)

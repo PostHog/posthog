@@ -396,7 +396,8 @@ class TestClickHouseResultParsing:
         param_names = list(sig.parameters.keys())
 
         assert "bug_window_end" not in param_names, (
-            "bug_window_end should not be a parameter. The function should use ClickHouse's now() for the upper bound."
+            "bug_window_end should not be a parameter. "
+            "The function should use ClickHouse's now() for the upper bound."
         )
         assert "team_id" in param_names
         assert "bug_window_start" in param_names
@@ -2161,7 +2162,7 @@ class TestClickHouseQueryIntegration:
 
         # null_prop should NOT be included (filtered out because value is null)
         assert "null_prop" not in updates, (
-            "$set with null value should be filtered out. Use $unset to remove properties."
+            "$set with null value should be filtered out. " "Use $unset to remove properties."
         )
 
     def test_set_once_with_various_json_types(self, cluster: ClickhouseCluster):
@@ -3358,7 +3359,7 @@ class TestClickHouseQueryIntegration:
         }
 
         assert result_person_ids_team2 == expected_person_ids_team2, (
-            f"Team 2 mismatch.\nExpected: {expected_person_ids_team2}\nGot: {result_person_ids_team2}"
+            f"Team 2 mismatch.\n" f"Expected: {expected_person_ids_team2}\n" f"Got: {result_person_ids_team2}"
         )
 
         # Verify the property values are correct for included persons
@@ -3370,24 +3371,24 @@ class TestClickHouseQueryIntegration:
 
         # Verify specific cases to make the test more explicit
         # Person 002: _timestamp BEFORE, event DURING → should be included
-        assert str(make_uuid("002")) in result_person_ids_team1, (
-            "Person with _timestamp BEFORE but event DURING should be included"
-        )
+        assert (
+            str(make_uuid("002")) in result_person_ids_team1
+        ), "Person with _timestamp BEFORE but event DURING should be included"
 
         # Person 003: _timestamp BEFORE, event AFTER → should be included
-        assert str(make_uuid("003")) in result_person_ids_team1, (
-            "Person with _timestamp BEFORE but event AFTER should be included"
-        )
+        assert (
+            str(make_uuid("003")) in result_person_ids_team1
+        ), "Person with _timestamp BEFORE but event AFTER should be included"
 
         # Person 007: _timestamp AFTER, event BEFORE → should NOT be included
-        assert str(make_uuid("007")) not in result_person_ids_team1, (
-            "Person with event BEFORE bug_window_start should NOT be included"
-        )
+        assert (
+            str(make_uuid("007")) not in result_person_ids_team1
+        ), "Person with event BEFORE bug_window_start should NOT be included"
 
         # Person 001: _timestamp BEFORE, event BEFORE → should NOT be included
-        assert str(make_uuid("001")) not in result_person_ids_team1, (
-            "Person with event BEFORE bug_window_start should NOT be included"
-        )
+        assert (
+            str(make_uuid("001")) not in result_person_ids_team1
+        ), "Person with event BEFORE bug_window_start should NOT be included"
 
     # ==================== Edge Case Tests ====================
 
@@ -3618,9 +3619,9 @@ class TestClickHouseQueryIntegration:
         assert "$pathname" not in set_keys, "Filtered property '$pathname' should NOT be in results"
         assert "$browser" not in set_keys, "Filtered property '$browser' should NOT be in results"
         assert "$os" not in set_keys, "Filtered property '$os' should NOT be in results"
-        assert "$referring_domain" not in set_once_keys, (
-            "Filtered property '$referring_domain' should NOT be in results"
-        )
+        assert (
+            "$referring_domain" not in set_once_keys
+        ), "Filtered property '$referring_domain' should NOT be in results"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3737,9 +3738,9 @@ class TestBatchCommitsEndToEnd:
             bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
-        assert len(person_property_updates) == num_persons, (
-            f"Expected {num_persons} persons from ClickHouse query, got {len(person_property_updates)}"
-        )
+        assert (
+            len(person_property_updates) == num_persons
+        ), f"Expected {num_persons} persons from ClickHouse query, got {len(person_property_updates)}"
 
         # Track batches
         batch_sizes = []
@@ -3783,27 +3784,27 @@ class TestBatchCommitsEndToEnd:
             person.refresh_from_db()
 
             # Property value should be updated
-            assert person.properties["email"] == f"new_{i}@example.com", (
-                f"Person {i} email not updated. Expected 'new_{i}@example.com', got '{person.properties.get('email')}'"
-            )
+            assert (
+                person.properties["email"] == f"new_{i}@example.com"
+            ), f"Person {i} email not updated. Expected 'new_{i}@example.com', got '{person.properties.get('email')}'"
 
             # Counter should be unchanged (wasn't in the update)
-            assert person.properties["counter"] == i, (
-                f"Person {i} counter changed unexpectedly. Expected {i}, got {person.properties.get('counter')}"
-            )
+            assert (
+                person.properties["counter"] == i
+            ), f"Person {i} counter changed unexpectedly. Expected {i}, got {person.properties.get('counter')}"
 
             # Version should be incremented
             assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
 
             # properties_last_updated_at should have new timestamp for email
-            assert "email" in person.properties_last_updated_at, (
-                f"Person {i} properties_last_updated_at missing 'email' key"
-            )
+            assert (
+                "email" in person.properties_last_updated_at
+            ), f"Person {i} properties_last_updated_at missing 'email' key"
             # The timestamp should be from the event (event_ts), not the old value
             email_updated_at = person.properties_last_updated_at["email"]
-            assert email_updated_at != "2024-01-01T00:00:00+00:00", (
-                f"Person {i} email timestamp not updated. Still has old value: {email_updated_at}"
-            )
+            assert (
+                email_updated_at != "2024-01-01T00:00:00+00:00"
+            ), f"Person {i} email timestamp not updated. Still has old value: {email_updated_at}"
 
             # properties_last_operation should be 'set' for email
             assert person.properties_last_operation.get("email") == "set", (
@@ -3812,9 +3813,9 @@ class TestBatchCommitsEndToEnd:
             )
 
             # Counter's metadata should be unchanged
-            assert person.properties_last_updated_at.get("counter") == "2024-01-01T00:00:00+00:00", (
-                f"Person {i} counter timestamp changed unexpectedly"
-            )
+            assert (
+                person.properties_last_updated_at.get("counter") == "2024-01-01T00:00:00+00:00"
+            ), f"Person {i} counter timestamp changed unexpectedly"
 
     def test_batch_commits_with_missing_person(self, cluster: ClickhouseCluster, team):
         """
@@ -3958,21 +3959,21 @@ class TestBatchCommitsEndToEnd:
             person.refresh_from_db()
 
             # Property value should be updated
-            assert person.properties["name"] == f"new_name_{i}", (
-                f"Person {i} name not updated. Expected 'new_name_{i}', got '{person.properties.get('name')}'"
-            )
+            assert (
+                person.properties["name"] == f"new_name_{i}"
+            ), f"Person {i} name not updated. Expected 'new_name_{i}', got '{person.properties.get('name')}'"
 
             # Version should be incremented
             assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
 
             # properties_last_updated_at should have new timestamp
-            assert "name" in person.properties_last_updated_at, (
-                f"Person {i} properties_last_updated_at missing 'name' key"
-            )
+            assert (
+                "name" in person.properties_last_updated_at
+            ), f"Person {i} properties_last_updated_at missing 'name' key"
             name_updated_at = person.properties_last_updated_at["name"]
-            assert name_updated_at != "2024-01-01T00:00:00+00:00", (
-                f"Person {i} name timestamp not updated. Still has old value: {name_updated_at}"
-            )
+            assert (
+                name_updated_at != "2024-01-01T00:00:00+00:00"
+            ), f"Person {i} name timestamp not updated. Still has old value: {name_updated_at}"
 
             # properties_last_operation should be 'set'
             assert person.properties_last_operation.get("name") == "set", (
@@ -4335,9 +4336,9 @@ class TestKafkaClickHouseRoundTrip:
 
         # Verify Postgres was updated
         person.refresh_from_db()
-        assert person.properties["email"] == "new@example.com", (
-            f"Postgres email not updated. Expected 'new@example.com', got '{person.properties.get('email')}'"
-        )
+        assert (
+            person.properties["email"] == "new@example.com"
+        ), f"Postgres email not updated. Expected 'new@example.com', got '{person.properties.get('email')}'"
         assert person.properties["unchanged"] == "value", "Unchanged property was modified"
         assert person.version == 2, f"Postgres version not incremented. Expected 2, got {person.version}"
 
@@ -4357,9 +4358,9 @@ class TestKafkaClickHouseRoundTrip:
         assert ch_person["version"] == 2
 
         ch_properties = json.loads(ch_person["properties"])
-        assert ch_properties["email"] == "new@example.com", (
-            f"ClickHouse email not updated. Expected 'new@example.com', got '{ch_properties.get('email')}'"
-        )
+        assert (
+            ch_properties["email"] == "new@example.com"
+        ), f"ClickHouse email not updated. Expected 'new@example.com', got '{ch_properties.get('email')}'"
         assert ch_properties["unchanged"] == "value", "ClickHouse unchanged property was modified"
 
     @pytest.mark.skipif(
@@ -5584,7 +5585,7 @@ class TestReconciliationSchedulerSensor:
 
     def test_sensor_completed_range_returns_skip_reason(self):
         """Test that sensor returns SkipReason when range is completed."""
-        from dagster import DagsterInstance, SkipReason, build_sensor_context
+        from dagster import SkipReason, build_sensor_context
 
         from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
 
@@ -5597,11 +5598,7 @@ class TestReconciliationSchedulerSensor:
                 "bug_window_end": "2024-01-07 14:52:00",
             }
         )
-
-        mock_instance = MagicMock(spec=DagsterInstance)
-        mock_instance.get_run_records.return_value = []
-
-        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        context = build_sensor_context(cursor=cursor)
         result = person_property_reconciliation_scheduler(context)
 
         assert isinstance(result, SkipReason)
@@ -5904,199 +5901,3 @@ class TestReconciliationSchedulerSensor:
         assert isinstance(result, SkipReason)
         assert result.skip_message is not None
         assert "bug_window_end" in result.skip_message
-
-    def test_build_reconciliation_run_config_with_team_ids(self):
-        """Test that run config passes team_ids to op config when provided."""
-        from posthog.dags.person_property_reconciliation import (
-            ReconciliationSchedulerConfig,
-            build_reconciliation_run_config,
-        )
-
-        config = ReconciliationSchedulerConfig(
-            team_ids=[1, 5, 10, 20],
-            chunk_size=100,
-            max_concurrent_jobs=5,
-            max_concurrent_tasks=10,
-            bug_window_start="2024-01-06 20:01:00",
-            bug_window_end="2024-01-07 14:52:00",
-            dry_run=True,
-            backup_enabled=False,
-            batch_size=50,
-        )
-
-        run_config = build_reconciliation_run_config(config, team_ids=[1, 5, 10])
-
-        op_config = run_config["ops"]["get_team_ids_to_reconcile"]["config"]
-        assert op_config["team_ids"] == [1, 5, 10]
-        assert "min_team_id" not in op_config
-        assert "max_team_id" not in op_config
-        assert op_config["bug_window_start"] == "2024-01-06 20:01:00"
-        assert op_config["dry_run"] is True
-        assert run_config["ops"]["reconcile_team_chunk"]["config"]["backup_enabled"] is False
-
-    def test_sensor_with_team_ids_yields_chunked_runs(self):
-        """Test that sensor chunks team_ids list correctly."""
-        from dagster import DagsterInstance, SensorResult, build_sensor_context
-
-        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
-
-        cursor = json.dumps(
-            {
-                "team_ids": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-                "chunk_size": 3,
-                "max_concurrent_jobs": 5,
-                "next_team_index": 0,
-                "bug_window_start": "2024-01-06 20:01:00",
-                "bug_window_end": "2024-01-07 14:52:00",
-            }
-        )
-
-        mock_instance = MagicMock(spec=DagsterInstance)
-        mock_instance.get_run_records.return_value = []
-
-        context = build_sensor_context(cursor=cursor, instance=mock_instance)
-        result = person_property_reconciliation_scheduler(context)
-
-        assert isinstance(result, SensorResult)
-        assert result.run_requests is not None
-        assert len(result.run_requests) == 4  # 10 teams / 3 per chunk = 4 chunks (3+3+3+1)
-        assert result.run_requests[0].run_key == "reconcile_team_ids_0_2"
-        assert result.run_requests[1].run_key == "reconcile_team_ids_3_5"
-        assert result.run_requests[2].run_key == "reconcile_team_ids_6_8"
-        assert result.run_requests[3].run_key == "reconcile_team_ids_9_9"
-
-        # Verify first run config has correct team_ids chunk
-        first_run_config = result.run_requests[0].run_config
-        assert first_run_config["ops"]["get_team_ids_to_reconcile"]["config"]["team_ids"] == [1, 2, 3]
-
-    def test_sensor_team_ids_mode_updates_cursor(self):
-        """Test that sensor updates next_team_index in cursor."""
-        from dagster import DagsterInstance, SensorResult, build_sensor_context
-
-        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
-
-        cursor = json.dumps(
-            {
-                "team_ids": [100, 200, 300, 400, 500],
-                "chunk_size": 2,
-                "max_concurrent_jobs": 2,  # Limit to 2 runs
-                "next_team_index": 0,
-                "bug_window_start": "2024-01-06 20:01:00",
-                "bug_window_end": "2024-01-07 14:52:00",
-            }
-        )
-
-        mock_instance = MagicMock(spec=DagsterInstance)
-        mock_instance.get_run_records.return_value = []
-
-        context = build_sensor_context(cursor=cursor, instance=mock_instance)
-        result = person_property_reconciliation_scheduler(context)
-
-        assert isinstance(result, SensorResult)
-        assert result.run_requests is not None
-        assert len(result.run_requests) == 2  # Limited by max_concurrent_jobs
-
-        # Cursor should track progress
-        assert result.cursor is not None
-        new_cursor = json.loads(result.cursor)
-        assert new_cursor["next_team_index"] == 4  # Processed 2 chunks of 2 = 4 teams
-
-    def test_sensor_team_ids_completes_when_list_exhausted(self):
-        """Test that sensor returns SkipReason when all team_ids are processed."""
-        from dagster import DagsterInstance, SkipReason, build_sensor_context
-
-        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
-
-        cursor = json.dumps(
-            {
-                "team_ids": [1, 2, 3],
-                "chunk_size": 10,
-                "next_team_index": 3,  # Already processed all 3
-                "bug_window_start": "2024-01-06 20:01:00",
-                "bug_window_end": "2024-01-07 14:52:00",
-            }
-        )
-
-        mock_instance = MagicMock(spec=DagsterInstance)
-        mock_instance.get_run_records.return_value = []
-
-        context = build_sensor_context(cursor=cursor, instance=mock_instance)
-        result = person_property_reconciliation_scheduler(context)
-
-        assert isinstance(result, SkipReason)
-        assert result.skip_message is not None
-        assert "complete" in result.skip_message.lower()
-        assert "3" in result.skip_message  # Should mention number of teams
-
-    def test_sensor_validates_either_team_ids_or_range_required(self):
-        """Test that sensor rejects cursor with neither team_ids nor range."""
-        from dagster import SkipReason, build_sensor_context
-
-        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
-
-        cursor = json.dumps(
-            {
-                "chunk_size": 100,
-                "bug_window_start": "2024-01-06 20:01:00",
-                "bug_window_end": "2024-01-07 14:52:00",
-            }
-        )
-        context = build_sensor_context(cursor=cursor)
-        result = person_property_reconciliation_scheduler(context)
-
-        assert isinstance(result, SkipReason)
-        assert result.skip_message is not None
-        assert "team_ids" in result.skip_message
-        assert "range_start" in result.skip_message
-
-    def test_sensor_validates_team_ids_and_range_mutually_exclusive(self):
-        """Test that sensor rejects cursor with both team_ids and range."""
-        from dagster import SkipReason, build_sensor_context
-
-        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
-
-        cursor = json.dumps(
-            {
-                "team_ids": [1, 2, 3],
-                "range_start": 1,
-                "range_end": 100,
-                "bug_window_start": "2024-01-06 20:01:00",
-                "bug_window_end": "2024-01-07 14:52:00",
-            }
-        )
-        context = build_sensor_context(cursor=cursor)
-        result = person_property_reconciliation_scheduler(context)
-
-        assert isinstance(result, SkipReason)
-        assert result.skip_message is not None
-        assert "both" in result.skip_message.lower()
-
-    def test_sensor_team_ids_run_request_has_correct_tags(self):
-        """Test that team_ids mode run requests include expected tags."""
-        from dagster import DagsterInstance, SensorResult, build_sensor_context
-
-        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
-
-        cursor = json.dumps(
-            {
-                "team_ids": [10, 20, 30],
-                "chunk_size": 2,
-                "max_concurrent_jobs": 5,
-                "next_team_index": 0,
-                "bug_window_start": "2024-01-06 20:01:00",
-                "bug_window_end": "2024-01-07 14:52:00",
-            }
-        )
-
-        mock_instance = MagicMock(spec=DagsterInstance)
-        mock_instance.get_run_records.return_value = []
-
-        context = build_sensor_context(cursor=cursor, instance=mock_instance)
-        result = person_property_reconciliation_scheduler(context)
-
-        assert isinstance(result, SensorResult)
-        assert result.run_requests is not None
-        assert len(result.run_requests) == 2
-        assert result.run_requests[0].tags["reconciliation_team_ids_range"] == "0-1"
-        assert result.run_requests[0].tags["reconciliation_team_count"] == "2"
-        assert result.run_requests[0].tags["owner"] == "team-ingestion"

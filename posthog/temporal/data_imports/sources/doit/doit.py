@@ -127,9 +127,6 @@ def doit_source(
 
         rows: list[list[Any]] = result["result"]["rows"]
 
-        if "id" not in arrow_schema.names:
-            arrow_schema = arrow_schema.append(pa.field("id", pa.string(), nullable=False))
-
         yield table_from_iterator((append_primary_key(dict(zip(column_names, row))) for row in rows), arrow_schema)
 
     return SourceResponse(name=report_name, items=lambda: get_rows(report_id), primary_keys=["id"])

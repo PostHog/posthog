@@ -42,10 +42,6 @@ class CohortType(StrEnum):
 # set in cohorts_cache
 CohortOrEmpty = Union["Cohort", Literal[""], None]
 
-# Maximum person count for a cohort to be eligible for real-time evaluation
-# Cohorts with more than 20M persons cannot be real-time due to system limitations
-REALTIME_COHORT_MAX_PERSON_COUNT = 20_000_000
-
 logger = structlog.get_logger(__name__)
 
 DELETE_QUERY = """
@@ -297,15 +293,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
         start_time = time.monotonic()
 
-        cohort_type_cleared = False
         try:
             count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
-
-            # Clear cohort_type if count exceeds the realtime threshold
-            if self.cohort_type == CohortType.REALTIME and count and count > REALTIME_COHORT_MAX_PERSON_COUNT:
-                self.cohort_type = None
-                cohort_type_cleared = True
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
@@ -328,11 +318,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.save()
 
         # Update filter to match pending version if still valid
-        update_fields = {"version": pending_version, "count": count}
-        if cohort_type_cleared:
-            update_fields["cohort_type"] = None
         Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-            **update_fields
+            version=pending_version, count=count
         )
         self.refresh_from_db()
 
@@ -745,19 +732,7 @@ def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
         cohort.count = get_static_cohort_size(
             cohort_id=cohort.id, team_id=cohort.team_id, using_database=PERSONS_DB_FOR_WRITE
         )
-
-        # Clear cohort_type if count exceeds the realtime threshold
-        if cohort.cohort_type == CohortType.REALTIME and cohort.count > REALTIME_COHORT_MAX_PERSON_COUNT:
-            cohort.cohort_type = None
-            cohort.save(update_fields=["count", "cohort_type"])
-            logger.info(
-                "Cleared cohort_type for cohort exceeding realtime threshold",
-                cohort_id=cohort_id,
-                count=cohort.count,
-                threshold=REALTIME_COHORT_MAX_PERSON_COUNT,
-            )
-        else:
-            cohort.save(update_fields=["count"])
+        cohort.save(update_fields=["count"])
 
         logger.info(
             "Updated cohort count after CohortPeople change",

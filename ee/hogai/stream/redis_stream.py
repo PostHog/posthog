@@ -23,7 +23,7 @@ from posthog.schema import (
 from posthog.redis import get_async_client
 
 from ee.hogai.utils.types import AssistantOutput
-from ee.hogai.utils.types.base import ApprovalPayload, AssistantStreamedMessageUnion
+from ee.hogai.utils.types.base import AssistantStreamedMessageUnion
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -89,14 +89,7 @@ class StreamStatusEvent(BaseModel):
     payload: StatusPayload
 
 
-class ApprovalEvent(BaseModel):
-    type: Literal[AssistantEventType.APPROVAL]
-    payload: ApprovalPayload
-
-
-StreamEventUnion = (
-    ConversationEvent | MessageEvent | GenerationStatusEvent | UpdateEvent | StreamStatusEvent | ApprovalEvent
-)
+StreamEventUnion = ConversationEvent | MessageEvent | GenerationStatusEvent | UpdateEvent | StreamStatusEvent
 
 
 class StreamEvent(BaseModel):
@@ -144,8 +137,6 @@ class ConversationStreamSerializer:
                 return self._serialize(
                     self._to_update_event(cast(AssistantUpdateEvent | SubagentUpdateEvent, event_data))
                 )
-            elif event_type == AssistantEventType.APPROVAL:
-                return self._serialize(self._to_approval_event(cast(ApprovalPayload, event_data)))
             else:
                 raise ValueError(f"Unknown event type: {event_type}")
 
@@ -189,12 +180,6 @@ class ConversationStreamSerializer:
         return UpdateEvent(
             type=AssistantEventType.UPDATE,
             payload=update,
-        )
-
-    def _to_approval_event(self, approval: ApprovalPayload) -> ApprovalEvent:
-        return ApprovalEvent(
-            type=AssistantEventType.APPROVAL,
-            payload=approval,
         )
 
     def deserialize(self, data: dict[bytes, bytes]) -> StreamEvent:

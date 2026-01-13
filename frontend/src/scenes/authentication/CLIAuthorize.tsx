@@ -112,7 +112,6 @@ export function CLIAuthorize(): JSX.Element {
         displayedScopeValues,
         missingSchemaScopes,
         missingErrorTrackingScopes,
-        missingEndpointsScopes,
     } = useValues(cliAuthorizeLogic)
     const { setAuthorizeValue, setScopeRadioValue, updateDisplayedScopeSnapshot } = useActions(cliAuthorizeLogic)
     const [isScopesModalOpen, setIsScopesModalOpen] = useState(false)
@@ -255,7 +254,7 @@ export function CLIAuthorize(): JSX.Element {
                             </div>
                         </LemonModal>
 
-                        {(missingSchemaScopes || missingErrorTrackingScopes || missingEndpointsScopes) && (
+                        {(missingSchemaScopes || missingErrorTrackingScopes) && (
                             <div className="space-y-2 mt-2">
                                 {missingSchemaScopes && (
                                     <LemonBanner type="warning">
@@ -268,12 +267,6 @@ export function CLIAuthorize(): JSX.Element {
                                     <LemonBanner type="warning">
                                         <b>Error tracking unavailable:</b> The CLI needs <code>error_tracking</code>{' '}
                                         permissions (read or write) to manage error tracking.
-                                    </LemonBanner>
-                                )}
-                                {missingEndpointsScopes && (
-                                    <LemonBanner type="warning">
-                                        <b>Endpoints unavailable:</b> The CLI needs <code>endpoint</code> permissions
-                                        (read or write) to execute endpoints.
                                     </LemonBanner>
                                 )}
                             </div>

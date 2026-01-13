@@ -14,15 +14,11 @@ export function ReplayIntegrations(): JSX.Element {
     return (
         <div className="flex flex-col gap-y-6">
             <LemonBanner type="info">
-                Configure integrations to create and link issues from session replays.
+                Configure Linear integration to create and link issues from session replays.
             </LemonBanner>
             <div>
                 <h3>Linear</h3>
                 <LinearIntegration />
-            </div>
-            <div>
-                <h3>GitHub</h3>
-                <GitHubIntegration />
             </div>
         </div>
     )
@@ -30,10 +26,6 @@ export function ReplayIntegrations(): JSX.Element {
 
 function LinearIntegration(): JSX.Element {
     return <OAuthIntegration kind="linear" connectText="Connect workspace" />
-}
-
-function GitHubIntegration(): JSX.Element {
-    return <OAuthIntegration kind="github" connectText="Connect organization" />
 }
 
 const OAuthIntegration = ({ kind, connectText }: { kind: IntegrationKind; connectText: string }): JSX.Element => {

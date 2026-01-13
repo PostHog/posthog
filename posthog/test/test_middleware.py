@@ -187,9 +187,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
-        with self.assertNumQueries(
-            self.base_app_num_queries + 7
-        ):  # AutoProjectMiddleware adds 4 queries + 1 from activity logging
+        with self.assertNumQueries(self.base_app_num_queries + 6):  # AutoProjectMiddleware adds 4 queries
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -307,7 +305,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(self):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
-        with self.assertNumQueries(self.base_app_num_queries + 7):  # +1 from activity logging _get_before_update()
+        with self.assertNumQueries(self.base_app_num_queries + 6):
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -802,31 +800,6 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
 
         # Verify we're back to original user
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
-
-    def test_read_only_impersonation_allows_set_current_organization(self):
-        """Verify read-only impersonation allows PATCH with only set_current_organization."""
-        self.login_as_other_user_read_only()
-
-        response = self.client.patch(
-            "/api/users/@me/",
-            data={"set_current_organization": str(self.organization.id)},
-            content_type="application/json",
-        )
-
-        assert response.status_code == 200
-
-    def test_read_only_impersonation_blocks_set_current_organization_with_other_fields(self):
-        """Verify read-only impersonation blocks PATCH with set_current_organization plus other fields."""
-        self.login_as_other_user_read_only()
-
-        response = self.client.patch(
-            "/api/users/@me/",
-            data={"set_current_organization": str(self.organization.id), "first_name": "Hacked"},
-            content_type="application/json",
-        )
-
-        assert response.status_code == 403
-        assert response.json()["code"] == "impersonation_read_only"
 
 
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)

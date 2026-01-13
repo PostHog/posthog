@@ -114,7 +114,6 @@ class ChatAgentWorkflowInputs:
     billing_context: Optional[MaxBillingContext] = None
     agent_mode: AgentMode | None = None
     is_agent_billable: bool = True
-    resume_payload: Optional[dict[str, Any]] = None
 
 
 @workflow.defn(name="chat-agent")
@@ -173,7 +172,6 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
         use_checkpointer=inputs.use_checkpointer,
         contextual_tools=inputs.contextual_tools,
         is_agent_billable=inputs.is_agent_billable,
-        resume_payload=inputs.resume_payload,
     )
 
     redis_stream = ConversationRedisStream(inputs.stream_key)

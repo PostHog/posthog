@@ -223,8 +223,8 @@ class VercelIntegration:
             {
                 "id": "posthog-usage-based",
                 "type": "subscription",
-                "name": "Pay-as-you-go",
-                "description": "Usage-based pricing. View pricing: https://posthog.com/pricing",
+                "name": "PostHog",
+                "description": "Usage-based analytics. First 1M events free. View pricing: https://posthog.com/pricing",
                 "scope": "installation",
                 "paymentMethodRequired": True,
                 "preauthorizationAmount": 0.5,

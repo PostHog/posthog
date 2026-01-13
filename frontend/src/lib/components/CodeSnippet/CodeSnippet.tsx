@@ -71,7 +71,6 @@ export const getLanguage = (lang: string): Language => {
         case 'csharp':
             return Language.CSharp
         case 'jsx':
-        case 'tsx':
             return Language.JSX
         case 'javascript':
             return Language.JavaScript

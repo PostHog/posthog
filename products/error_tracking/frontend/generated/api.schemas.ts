@@ -71,10 +71,10 @@ export interface ErrorTrackingIssueAssignmentApi {
  * `databricks` - Databricks
  * `azure-blob` - Azure Blob
  */
-export type Kind7b5EnumApi = (typeof Kind7b5EnumApi)[keyof typeof Kind7b5EnumApi]
+export type KindEnumApi = (typeof KindEnumApi)[keyof typeof KindEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Kind7b5EnumApi = {
+export const KindEnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -102,7 +102,7 @@ export const Kind7b5EnumApi = {
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
     readonly id: number
-    readonly kind: Kind7b5EnumApi
+    readonly kind: KindEnumApi
     readonly display_name: string
 }
 

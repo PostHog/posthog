@@ -82,7 +82,6 @@ function EmbedNodeView({ node }: { node: { attrs: Record<string, any> } }): JSX.
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                     referrerPolicy="origin"
-                    sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"
                 />
             </div>
         </NodeViewWrapper>
@@ -152,7 +151,6 @@ export const EmbedExtension = Node.create<EmbedOptions>({
                         allowfullscreen: 'true',
                         allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture',
                         referrerpolicy: 'origin',
-                        sandbox: 'allow-scripts allow-same-origin allow-popups allow-presentation',
                     },
                 ],
             ],

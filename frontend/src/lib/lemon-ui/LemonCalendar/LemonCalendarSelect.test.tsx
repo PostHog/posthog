@@ -257,32 +257,4 @@ describe('LemonCalendarSelect', () => {
         // chooses the current date and sets the time to the current hour and minute
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-09T17:22:00.000Z'))
     })
-
-    test('select times with use24HourFormat', async () => {
-        const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
-            granularity: 'minute',
-            use24HourFormat: true,
-        })
-
-        // click on a date first
-        await clickOnDate('15')
-        // sets the date to 15, hour and minutes to current time, and seconds to 0
-        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T17:22:00.000Z'))
-
-        // click on hour 8 (should be 08:00, not adjusted for AM/PM)
-        await clickOnTime({ unit: 'h', value: 8 })
-        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T08:22:00.000Z'))
-
-        // click on hour 20 (should be 20:00, only possible in 24h mode)
-        await clickOnTime({ unit: 'h', value: 20 })
-        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T20:22:00.000Z'))
-
-        // click on hour 0 (midnight, only possible in 24h mode)
-        await clickOnTime({ unit: 'h', value: 0 })
-        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T00:22:00.000Z'))
-
-        // click on minute 45
-        await clickOnTime({ unit: 'm', value: 45 })
-        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T00:45:00.000Z'))
-    })
 })

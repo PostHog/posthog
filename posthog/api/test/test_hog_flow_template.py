@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -13,6 +14,10 @@ webhook_template = MOCK_NODE_TEMPLATES[0]
 class TestHogFlowTemplateAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
+
+        self.feature_flag_patcher = patch("posthog.api.hog_flow_template.posthoganalytics.feature_enabled")
+        self.mock_feature_enabled = self.feature_flag_patcher.start()
+        self.mock_feature_enabled.return_value = True
 
         # Create slack template in DB
         sync_template_to_db(template_slack)
@@ -54,6 +59,11 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             category=["Testing"],
             free=True,
         )
+
+    def tearDown(self):
+        if hasattr(self, "feature_flag_patcher"):
+            self.feature_flag_patcher.stop()
+        super().tearDown()
 
     def _create_hog_flow_data(self, include_metadata=False, custom_inputs=None):
         """Helper to create hog flow data for template creation"""

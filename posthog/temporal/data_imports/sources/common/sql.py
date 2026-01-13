@@ -55,7 +55,7 @@ class TableBase:
         This consists of the parents and name concatenated, separated by a ".".
         """
         if self.parents:
-            return f"{'.'.join(self.parents)}.{self.name}"
+            return f'{".".join(self.parents)}.{self.name}'
         else:
             return self.name
 
@@ -155,7 +155,7 @@ class Table(TableBase, typing.Generic[ColumnType]):
         else:
             return column in self.columns
 
-    @functools.lru_cache  # noqa: B019 - Table instances are short-lived
+    @functools.lru_cache
     def _get_column_by_name(self, key: str) -> ColumnType:
         """Get a column from this `Table` by its name.
 

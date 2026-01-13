@@ -81,8 +81,6 @@ from posthog.user_permissions import UserPermissions
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
-NUM_2FA_BACKUP_CODES = 10
-
 logger = structlog.get_logger(__name__)
 
 
@@ -714,7 +712,7 @@ class UserViewSet(
 
         # Generate new backup codes
         backup_codes = []
-        for _ in range(NUM_2FA_BACKUP_CODES):
+        for _ in range(5):  # Generate 5 backup codes
             token = StaticToken.random_token()
             static_device.token_set.create(token=token)
             backup_codes.append(token)

@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, hog_flow, hog_flow_template, metalytics, my_notifications, project
+from posthog.api import data_color_theme, feed, hog_flow, hog_flow_template, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.onboarding import OnboardingViewSet
@@ -102,7 +102,6 @@ from . import (
     organization,
     organization_domain,
     organization_feature_flag,
-    organization_integration,
     organization_invite,
     organization_member,
     personal_api_key,
@@ -505,12 +504,6 @@ environments_router.register(
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
-organizations_router.register(
-    r"integrations",
-    organization_integration.OrganizationIntegrationViewSet,
-    "organization_integrations",
-    ["organization_id"],
-)
 organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
 )
@@ -955,6 +948,8 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
+
+projects_router.register(r"feed", feed.FeedViewSet, "project_feed", ["project_id"])
 
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]

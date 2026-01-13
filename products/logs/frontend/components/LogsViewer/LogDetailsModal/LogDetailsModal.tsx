@@ -1,12 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconLink } from 'lib/lemon-ui/icons'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -56,7 +53,7 @@ interface LogDetailsModalProps {
 export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element | null {
     const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab } = useValues(logDetailsModalLogic)
     const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
-    const { addFilter, copyLinkToLog } = useActions(logsViewerLogic)
+    const { addFilter } = useActions(logsViewerLogic)
 
     const handleApplyFilter = (key: string, value: string, attributeType: 'log' | 'resource'): void => {
         const filterType =
@@ -82,38 +79,10 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
             simple
             overlayClassName="backdrop-blur-none bg-transparent flex items-stretch justify-end pr-16 py-4 pointer-events-none h-screen"
             className="m-0! max-w-3xl w-[50vw] pointer-events-auto min-h-full"
-            hideCloseButton
         >
             <div className="flex flex-col h-full">
                 <LemonModal.Header className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                        <h3>Log details</h3>
-                        <div className="flex items-center gap-1">
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconCopy />}
-                                onClick={() => void copyToClipboard(selectedLog.body, 'log message')}
-                                tooltip="Copy log message"
-                                aria-label="Copy log message"
-                                data-attr="logs-viewer-copy-message"
-                            />
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconLink />}
-                                onClick={() => copyLinkToLog(selectedLog.uuid)}
-                                tooltip="Copy link to log"
-                                aria-label="Copy link to log"
-                                data-attr="logs-viewer-copy-link"
-                            />
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconX />}
-                                onClick={closeLogDetails}
-                                tooltip="Close"
-                                aria-label="Close"
-                            />
-                        </div>
-                    </div>
+                    <h3>Log details</h3>
                     <div className="flex items-center gap-6">
                         <div className="flex items-center gap-2">
                             <span className="text-muted text-xs font-semibold uppercase">Timestamp</span>

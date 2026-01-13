@@ -53,36 +53,22 @@ function validateBucketName(bucketName: string): string | undefined {
     return undefined
 }
 
-function validateAzureContainerName(name: string): string | undefined {
-    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(name) && name.length > 1) {
-        return 'Must be lowercase letters, numbers, and hyphens; start and end with letter or number'
-    }
-    if (/--/.test(name)) {
-        return 'Cannot contain consecutive hyphens'
-    }
-    return undefined
-}
-
 export interface BatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null
     id: string | null
 }
 
 function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportConfiguration): Record<string, any> {
-    const destinationType = batchExportConfig.destination.type
-
-    const config: Record<string, any> = {
+    const config = {
         name: batchExportConfig.name,
-        destination: destinationType,
+        destination: batchExportConfig.destination.type,
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
         model: batchExportConfig.model,
         filters: batchExportConfig.filters,
+        integration_id:
+            batchExportConfig.destination.type === 'Databricks' ? batchExportConfig.destination.integration : undefined,
         ...batchExportConfig.destination.config,
-    }
-
-    if (destinationType === 'Databricks' || destinationType === 'AzureBlob') {
-        config.integration_id = batchExportConfig.destination.integration
     }
 
     let authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
@@ -141,10 +127,6 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
             use_variant_type: true,
             // prefill prefix for http path
             http_path: '/sql/1.0/warehouses/',
-        }),
-        ...(service === 'AzureBlob' && {
-            file_format: 'Parquet',
-            compression: 'zstd',
         }),
     }
 }
@@ -1003,13 +985,6 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         'table_name',
                         'use_variant_type',
                     ]
-                } else if (service === 'AzureBlob') {
-                    return [
-                        ...generalRequiredFields,
-                        'integration_id',
-                        'container_name',
-                        ...(isNew ? ['file_format'] : []),
-                    ]
                 }
                 return generalRequiredFields
             },
@@ -1130,18 +1105,12 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                           ? validateBucketName(formdata.redshift_s3_bucket)
                           : undefined
 
-                const containerNameError =
-                    values.service === 'AzureBlob' && formdata.container_name
-                        ? validateAzureContainerName(formdata.container_name as string)
-                        : undefined
-
                 return {
                     ...requiredFieldErrors,
                     ...(values.service === 'S3' && bucketNameError ? { bucket_name: bucketNameError } : {}),
                     ...(values.service === 'Redshift' && formdata.mode === 'COPY' && bucketNameError
                         ? { redshift_s3_bucket: bucketNameError }
                         : {}),
-                    ...(containerNameError && { container_name: containerNameError }),
                 }
             },
             submit: async (formdata) => {

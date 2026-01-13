@@ -666,7 +666,7 @@ class MutationRunner(abc.ABC):
         hosts within the affected shards.
         """
         if shards is not None:
-            shard_host_mutation_waiters = cluster.map_any_host_in_shards(dict.fromkeys(shards, self))
+            shard_host_mutation_waiters = cluster.map_any_host_in_shards({shard: self for shard in shards})
         else:
             shard_host_mutation_waiters = cluster.map_one_host_per_shard(self)
 

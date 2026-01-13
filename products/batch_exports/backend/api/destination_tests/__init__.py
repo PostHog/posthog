@@ -1,4 +1,3 @@
-from products.batch_exports.backend.api.destination_tests.azure_blob import AzureBlobDestinationTest
 from products.batch_exports.backend.api.destination_tests.base import DestinationTest
 from products.batch_exports.backend.api.destination_tests.bigquery import BigQueryDestinationTest
 from products.batch_exports.backend.api.destination_tests.databricks import DatabricksDestinationTest
@@ -18,7 +17,5 @@ def get_destination_test(
         return SnowflakeDestinationTest()
     elif destination == "Databricks":
         return DatabricksDestinationTest()
-    elif destination == "AzureBlob":
-        return AzureBlobDestinationTest()
     else:
         raise ValueError(f"Unsupported destination: {destination}")

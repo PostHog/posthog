@@ -6,16 +6,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 
-const DATE_TIME_FORMAT_24H = 'MMM D, YYYY HH:mm'
-const DATE_TIME_FORMAT_12H = 'MMM D, YYYY h:mm A'
-
 export interface FixedRangeWithTimePickerProps {
     rangeDateFrom: dayjs.Dayjs | null
     rangeDateTo: dayjs.Dayjs | null
     setDate: (dateFrom: string | null, dateTo: string | null, keepPopoverOpen: boolean, explicitDate: boolean) => void
     onClose: () => void
-    /** Use 24-hour format instead of 12-hour with AM/PM */
-    use24HourFormat?: boolean
 }
 
 export function FixedRangeWithTimePicker({
@@ -23,7 +18,6 @@ export function FixedRangeWithTimePicker({
     rangeDateTo,
     setDate,
     onClose,
-    use24HourFormat = false,
 }: FixedRangeWithTimePickerProps): JSX.Element {
     const [selectingStart, setSelectingStart] = useState(true)
     const [localFrom, setLocalFrom] = useState<dayjs.Dayjs | null>(rangeDateFrom)
@@ -48,20 +42,14 @@ export function FixedRangeWithTimePicker({
                     size="small"
                     onClick={() => setSelectingStart(true)}
                 >
-                    Start:{' '}
-                    {localFrom
-                        ? localFrom.format(use24HourFormat ? DATE_TIME_FORMAT_24H : DATE_TIME_FORMAT_12H)
-                        : 'Not set'}
+                    Start: {localFrom ? localFrom.format('MMM D, YYYY h:mm A') : 'Not set'}
                 </LemonButton>
                 <LemonButton
                     type={!selectingStart ? 'primary' : 'secondary'}
                     size="small"
                     onClick={() => setSelectingStart(false)}
                 >
-                    End:{' '}
-                    {localTo
-                        ? localTo.format(use24HourFormat ? DATE_TIME_FORMAT_24H : DATE_TIME_FORMAT_12H)
-                        : 'Not set'}
+                    End: {localTo ? localTo.format('MMM D, YYYY h:mm A') : 'Not set'}
                 </LemonButton>
             </div>
             <div className="p-2">
@@ -100,11 +88,7 @@ export function FixedRangeWithTimePicker({
                     }}
                     getLemonButtonTimeProps={(timeProps) => {
                         const currentValue = selectingStart ? localFrom : localTo
-                        const selected = currentValue
-                            ? timeProps.unit === 'h' && use24HourFormat
-                                ? String(currentValue.hour())
-                                : currentValue.format(timeProps.unit)
-                            : null
+                        const selected = currentValue ? currentValue.format(timeProps.unit) : null
 
                         return {
                             active: selected === String(timeProps.value),
@@ -114,18 +98,14 @@ export function FixedRangeWithTimePicker({
                                 if (currentValue) {
                                     let newDate = currentValue
                                     if (timeProps.unit === 'h') {
-                                        if (use24HourFormat) {
-                                            newDate = currentValue.hour(Number(timeProps.value))
-                                        } else {
-                                            const isPM = currentValue.format('a') === 'pm'
-                                            newDate = currentValue.hour(
-                                                isPM && timeProps.value !== 12
-                                                    ? Number(timeProps.value) + 12
-                                                    : !isPM && timeProps.value === 12
-                                                      ? 0
-                                                      : Number(timeProps.value)
-                                            )
-                                        }
+                                        const isPM = currentValue.format('a') === 'pm'
+                                        newDate = currentValue.hour(
+                                            isPM && timeProps.value !== 12
+                                                ? Number(timeProps.value) + 12
+                                                : !isPM && timeProps.value === 12
+                                                  ? 0
+                                                  : Number(timeProps.value)
+                                        )
                                     } else if (timeProps.unit === 'm') {
                                         newDate = currentValue.minute(Number(timeProps.value))
                                     } else if (timeProps.unit === 'a') {
@@ -152,7 +132,6 @@ export function FixedRangeWithTimePicker({
                         }
                     }}
                     granularity="minute"
-                    use24HourFormat={use24HourFormat}
                 />
             </div>
             <div className="flex justify-end gap-2 border-t p-2 pt-4" data-attr="lemon-calendar-range-with-time-footer">

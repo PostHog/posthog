@@ -177,7 +177,7 @@ class FilterSessionRecordingsTool(MaxTool):
                 content = f"✅ Filtered session recordings. Found {total_count} recordings matching these criteria:\n\n"
                 # Include metadata for up to first 5 recordings
                 for i, recording in enumerate(query_results.results[:5]):
-                    content += f"{i + 1}. {self._format_recording_metadata(recording)}\n"
+                    content += f"{i+1}. {self._format_recording_metadata(recording)}\n"
                 if total_count > 5:
                     content += f"\n...and {total_count - 5} more recordings"
         return content, None

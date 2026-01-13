@@ -69,7 +69,6 @@ class ChatAgentRunner(BaseAgentRunner):
         slack_thread_context: Optional["SlackThreadContext"] = None,
         use_checkpointer: bool = True,
         is_agent_billable: bool = True,
-        resume_payload: Optional[dict[str, Any]] = None,
     ):
         super().__init__(
             team,
@@ -96,7 +95,6 @@ class ChatAgentRunner(BaseAgentRunner):
                 user=user,
             ),
             slack_thread_context=slack_thread_context,
-            resume_payload=resume_payload,
         )
         self._selected_agent_mode = agent_mode
 
@@ -119,13 +117,11 @@ class ChatAgentRunner(BaseAgentRunner):
 
     def get_resumed_state(self) -> PartialAssistantState:
         if not self._latest_message:
-            new_state = PartialAssistantState(messages=[], graph_status="resumed", query_generation_retry_count=0)
-            if self._selected_agent_mode:
-                new_state.agent_mode = self._selected_agent_mode
-            return new_state
+            return PartialAssistantState(messages=[])
         new_state = PartialAssistantState(
             messages=[self._latest_message], graph_status="resumed", query_generation_retry_count=0
         )
+        # Only set the agent mode if it was explicitly set.
         if self._selected_agent_mode:
             new_state.agent_mode = self._selected_agent_mode
         return new_state

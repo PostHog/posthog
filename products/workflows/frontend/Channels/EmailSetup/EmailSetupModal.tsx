@@ -10,7 +10,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
 export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
-    const { integration, integrationLoading, verificationLoading, dnsRecords } = useValues(emailSetupModalLogic(props))
+    const { integration, integrationLoading, verification, verificationLoading } = useValues(
+        emailSetupModalLogic(props)
+    )
     const { verifyDomain, submitEmailSender } = useActions(emailSetupModalLogic(props))
 
     let modalContent = <></>
@@ -63,78 +65,64 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                         <thead>
                             <tr className="border-b">
                                 <th className="py-2 text-left">Type</th>
-                                <th className="py-2 text-left">Name</th>
+                                <th className="py-2 text-left">Hostname</th>
                                 <th className="py-2 text-left">Value</th>
                                 <th className="py-2 text-left">Status</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {dnsRecords?.map((record: DnsRecord, index: number) => {
-                                const { subdomain, rootDomain: rootDomainSuffix } = record.parsedHostname
-
-                                return (
-                                    <tr key={index} className="border-b">
-                                        <td className="py-2">{record.recordType}</td>
-                                        <td className="py-2 max-w-[8rem]">
-                                            <div className="flex gap-0 items-center break-all text-wrap">
-                                                <div className="flex gap-0 items-center bg-bg-light border border-border rounded px-1.5 py-0.5">
-                                                    <span className="font-mono text-sm">{subdomain}</span>
-                                                    {subdomain !== '@' && (
-                                                        <LemonButton
-                                                            size="small"
-                                                            icon={<IconCopy />}
-                                                            onClick={() => {
-                                                                void navigator.clipboard.writeText(subdomain)
-                                                                lemonToast.success('Name copied to clipboard')
-                                                            }}
-                                                            tooltip="Copy hostname"
-                                                            className="ml-0.5 -mr-0.5"
-                                                        />
-                                                    )}
-                                                </div>
-                                                {rootDomainSuffix && (
-                                                    <span className="text-muted font-mono text-sm ml-1">
-                                                        {rootDomainSuffix}
-                                                    </span>
-                                                )}
+                            {verification?.dnsRecords?.map((record: DnsRecord, index: number) => (
+                                <tr key={index} className="border-b">
+                                    <td className="py-2">{record.recordType}</td>
+                                    <td className="py-2 max-w-[8rem]">
+                                        <div className="flex gap-1 justify-between items-center break-all text-wrap">
+                                            <span>{record.recordHostname}</span>
+                                            <LemonButton
+                                                size="small"
+                                                icon={<IconCopy />}
+                                                onClick={() => {
+                                                    void navigator.clipboard.writeText(record.recordHostname)
+                                                    lemonToast.success('Hostname copied to clipboard')
+                                                }}
+                                                tooltip="Copy hostname"
+                                            />
+                                        </div>
+                                    </td>
+                                    <td className="py-2 max-w-[8rem]">
+                                        <div className="flex gap-1 justify-between items-center break-all text-wrap">
+                                            <span>{record.recordValue}</span>
+                                            <LemonButton
+                                                size="small"
+                                                icon={<IconCopy />}
+                                                onClick={() => {
+                                                    void navigator.clipboard.writeText(record.recordValue)
+                                                    lemonToast.success('Value copied to clipboard')
+                                                }}
+                                                tooltip="Copy value"
+                                            />
+                                        </div>
+                                    </td>
+                                    <td className="py-2 w-[10rem]">
+                                        {verificationLoading ? (
+                                            <Spinner className="text-lg" />
+                                        ) : record.status === 'pending' ? (
+                                            <div className="flex gap-1 items-center">
+                                                <IconWarning className="size-6 text-warning" /> Not present
                                             </div>
-                                        </td>
-                                        <td className="py-2 max-w-[8rem]">
-                                            <div className="flex gap-1 justify-between items-center break-all text-wrap">
-                                                <span>{record.recordValue}</span>
-                                                <LemonButton
-                                                    size="small"
-                                                    icon={<IconCopy />}
-                                                    onClick={() => {
-                                                        void navigator.clipboard.writeText(record.recordValue)
-                                                        lemonToast.success('Value copied to clipboard')
-                                                    }}
-                                                    tooltip="Copy value"
-                                                />
+                                        ) : record.status === 'success' ? (
+                                            <div className="flex gap-1 items-center">
+                                                <IconCheckCircle className="size-6 text-success" /> Verified
                                             </div>
-                                        </td>
-                                        <td className="py-2 w-[10rem]">
-                                            {verificationLoading ? (
-                                                <Spinner className="text-lg" />
-                                            ) : record.status === 'pending' ? (
+                                        ) : (
+                                            <Tooltip title="We are unable to verify this record at the moment">
                                                 <div className="flex gap-1 items-center">
-                                                    <IconWarning className="size-6 text-warning" /> Not present
+                                                    <IconQuestion className="size-6 text-muted" /> Unknown
                                                 </div>
-                                            ) : record.status === 'success' ? (
-                                                <div className="flex gap-1 items-center">
-                                                    <IconCheckCircle className="size-6 text-success" /> Verified
-                                                </div>
-                                            ) : (
-                                                <Tooltip title="We are unable to verify this record at the moment">
-                                                    <div className="flex gap-1 items-center">
-                                                        <IconQuestion className="size-6 text-muted" /> Unknown
-                                                    </div>
-                                                </Tooltip>
-                                            )}
-                                        </td>
-                                    </tr>
-                                )
-                            })}
+                                            </Tooltip>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
                         </tbody>
                     </table>
                 </div>

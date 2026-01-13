@@ -90,19 +90,11 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
-            - name: Login to DockerHub
-              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
-              with:
-                  username: ${{ secrets.DOCKERHUB_USER }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
             - name: Docker meta
               id: meta
               uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
               with:
                   images: |
-                      ghcr.io/posthog/posthog-node
-                      posthog/posthog-node
                       ${{ steps.aws-ecr.outputs.registry }}/posthog-node
                   tags: |
                       type=ref,event=pr

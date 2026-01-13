@@ -191,16 +191,16 @@ async def assert_clickhouse_records_in_azure_blob(
 
     assert len(exported_records) > 0, "No records were exported to Azure Blob"
     assert len(expected_records) > 0, "No expected records were produced from Producer"
-    assert len(exported_records) == len(expected_records), (
-        f"Record count mismatch: exported {len(exported_records)}, expected {len(expected_records)}"
-    )
+    assert len(exported_records) == len(
+        expected_records
+    ), f"Record count mismatch: exported {len(exported_records)}, expected {len(expected_records)}"
 
     expected_columns = list(expected_records[0].keys())
 
     if "team_id" in expected_columns:
-        assert all(record.get("team_id") == team_id for record in exported_records), (
-            f"Some exported records have wrong team_id (expected {team_id})"
-        )
+        assert all(
+            record.get("team_id") == team_id for record in exported_records
+        ), f"Some exported records have wrong team_id (expected {team_id})"
 
     preferred_sort_keys = ("uuid", "session_id", "person_id")
     effective_sort_key = next((key for key in preferred_sort_keys if key in expected_columns), None)

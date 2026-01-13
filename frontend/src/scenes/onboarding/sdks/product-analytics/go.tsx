@@ -1,11 +1,23 @@
-import { GoInstallation } from '@posthog/shared-onboarding/product-analytics/go'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { SDKInstallGoInstructions } from '../sdk-install-instructions'
+import { PersonModeEventPropertyInstructions } from '../shared-snippets'
+
+function GoCaptureSnippet(): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Go}>
+            {'client.Enqueue(posthog.Capture{\n    DistinctId: "test-user",\n    Event: "test-snippet",\n})'}
+        </CodeSnippet>
+    )
+}
 
 export function ProductAnalyticsGoInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
-            <GoInstallation />
-        </OnboardingDocsContentWrapper>
+        <>
+            <SDKInstallGoInstructions />
+            <h3>Send an Event</h3>
+            <GoCaptureSnippet />
+            <PersonModeEventPropertyInstructions />
+        </>
     )
 }

@@ -364,7 +364,7 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     Raises an error if a cycle is detected.
     """
     # Build in-degree
-    in_degree = dict.fromkeys(nodes, 0)
+    in_degree = {node: 0 for node in nodes}
     for node, deps in edges.items():
         for dep in deps:
             if dep in in_degree:

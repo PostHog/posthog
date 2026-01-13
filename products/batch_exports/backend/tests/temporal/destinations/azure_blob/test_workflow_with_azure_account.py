@@ -175,7 +175,7 @@ async def test_workflow_exports_data_successfully(
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("file_format", ["JSONLines", "Parquet"], indirect=True)
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli", "zstd", "lz4", "snappy"], indirect=True)
+@pytest.mark.parametrize("compression", [None, "gzip", "brotli", "zstd"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 async def test_workflow_handles_formats_and_compression(
     ateam,

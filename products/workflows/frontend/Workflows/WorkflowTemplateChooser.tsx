@@ -9,6 +9,7 @@ import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -26,11 +27,15 @@ import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 export function WorkflowTemplateChooser(): JSX.Element {
     const { filteredTemplates, workflowTemplatesLoading } = useValues(workflowTemplatesLogic)
     const { deleteHogflowTemplate } = useActions(workflowTemplatesLogic)
+    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
     const { user } = useValues(userLogic)
 
     const { createWorkflowFromTemplate, createEmptyWorkflow } = useActions(newWorkflowLogic)
 
     const canManageTemplate = (template: HogFlowTemplate): boolean => {
+        if (!canCreateTemplates) {
+            return false
+        }
         if (template.scope === 'global') {
             return user?.is_staff ?? false
         }

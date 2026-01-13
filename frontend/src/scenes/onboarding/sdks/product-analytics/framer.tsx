@@ -1,12 +1,11 @@
-import { JSEventCapture } from '@posthog/shared-onboarding/product-analytics/_snippets/js-event-capture'
-import { FramerInstallation } from '@posthog/shared-onboarding/product-analytics/framer'
-
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { SDKInstallFramerInstructions } from '../sdk-install-instructions/framer'
+import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
 
 export function ProductAnalyticsFramerInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper snippets={{ JSEventCapture }}>
-            <FramerInstallation />
-        </OnboardingDocsContentWrapper>
+        <>
+            <SDKInstallFramerInstructions />
+            <ProductAnalyticsAllJSFinalSteps />
+        </>
     )
 }

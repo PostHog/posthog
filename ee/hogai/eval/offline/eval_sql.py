@@ -70,7 +70,7 @@ async def call_graph(entry: DatasetInput, *args):
     maybe_viz_message = find_last_message_of_type(state["messages"], ArtifactRefMessage)
     if maybe_viz_message:
         artifact_manager = ArtifactManager(team=team, user=eval_ctx.user, config=config)
-        enriched_message = await artifact_manager.aenrich_message(maybe_viz_message)
+        enriched_message = await artifact_manager.aget_enriched_message(maybe_viz_message)
         content = unwrap_visualization_artifact_content(enriched_message)
         if content is None:
             return EvalOutput(database_schema=database_schema)

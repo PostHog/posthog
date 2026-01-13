@@ -365,4 +365,4 @@ WHERE
     AND event_date >= today() - 1
 ORDER BY event_time DESC;
 """
-    return f"http://localhost:8123/play?user=default#{base64.b64encode(sql.encode('utf-8')).decode('utf-8')}"
+    return f"http://localhost:8123/play?user=default#{base64.b64encode(sql.encode("utf-8")).decode("utf-8")}"

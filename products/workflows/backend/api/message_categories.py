@@ -108,7 +108,7 @@ class MessageCategoryViewSet(
         max_size = 10 * 1024 * 1024
         if csv_file.size > max_size:
             return Response(
-                {"error": f"File too large. Maximum size is 10MB, your file is {csv_file.size / (1024 * 1024):.1f}MB"},
+                {"error": f"File too large. Maximum size is 10MB, your file is {csv_file.size / (1024*1024):.1f}MB"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

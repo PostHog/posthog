@@ -51,9 +51,9 @@ class TestProducts(BaseTest):
 
         for category, product_paths in products_by_category.items():
             for product_path in product_paths:
-                assert product_path in all_product_paths, (
-                    f"Product {product_path} in category {category} not found in all products"
-                )
+                assert (
+                    product_path in all_product_paths
+                ), f"Product {product_path} in category {category} not found in all products"
 
     def test_reload_does_not_raise_error(self):
         try:

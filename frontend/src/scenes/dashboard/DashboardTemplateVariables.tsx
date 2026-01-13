@@ -5,7 +5,7 @@ import { LemonLabel } from '@posthog/lemon-ui'
 
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
-import { FilterType } from '~/types'
+import { FilterType, InsightType } from '~/types'
 
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from './newDashboardLogic'
@@ -36,6 +36,7 @@ export function DashboardTemplateVariables(): JSX.Element {
                     <div>
                         <ActionFilter
                             filters={{
+                                insight: InsightType.TRENDS,
                                 events: [variable.default],
                             }}
                             setFilters={(filters: FilterType) => {

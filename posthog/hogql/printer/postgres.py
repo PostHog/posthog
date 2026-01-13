@@ -36,10 +36,10 @@ class PostgresPrinter(HogQLPrinter):
         return f"{node.name}({', '.join(args)})"
 
     def visit_and(self, node):
-        return f"({' AND '.join([f'({self.visit(expr)})' for expr in node.exprs])})"
+        return f"({' AND '.join([f"({self.visit(expr)})" for expr in node.exprs])})"
 
     def visit_or(self, node):
-        return f"({' OR '.join([f'({self.visit(expr)})' for expr in node.exprs])})"
+        return f"({' OR '.join([f"({self.visit(expr)})" for expr in node.exprs])})"
 
     def visit_not(self, node):
         return f"(NOT {self.visit(node.expr)})"
@@ -105,9 +105,7 @@ class PostgresPrinter(HogQLPrinter):
         return table_type.table.to_printed_clickhouse(self.context)
 
     def _ensure_team_id_where_clause(
-        self,
-        table_type: ast.TableType | ast.LazyTableType,
-        node_type: ast.TableOrSelectType,
+        self, table_type: ast.TableType | ast.LazyTableType, node_type: ast.TableOrSelectType
     ):
         # Team ID filtering is not required for Postgres queries
         pass

@@ -100,7 +100,7 @@ class SessionGroupSummaryStringifier(SessionSummaryEventStringifier):
     def _find_session_id(self, segment: dict[str, Any]) -> str:
         session_id = segment["target_event"].get("session_id")
         if not session_id:
-            msg = f"Session ID not found in the segment target event: {segment['target_event']}"
+            msg = f"Session ID not found in the segment target event: {segment["target_event"]}"
             logger.error(msg, signals_type="session-summaries")
             raise ValueError(msg)
         return session_id

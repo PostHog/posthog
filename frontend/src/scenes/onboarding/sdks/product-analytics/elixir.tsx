@@ -1,11 +1,9 @@
-import { ElixirInstallation } from '@posthog/shared-onboarding/product-analytics/elixir'
-
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { SDKInstallElixirInstructions } from '../sdk-install-instructions'
 
 export function ProductAnalyticsElixirInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
-            <ElixirInstallation />
-        </OnboardingDocsContentWrapper>
+        <>
+            <SDKInstallElixirInstructions />
+        </>
     )
 }

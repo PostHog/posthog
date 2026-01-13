@@ -1,9 +1,5 @@
 # posthog-cli
 
-# 0.5.24
-
-- chore: add endpoints use case to cli auth flow
-
 # 0.5.23
 
 - feat: add experimental commands for endpoints management

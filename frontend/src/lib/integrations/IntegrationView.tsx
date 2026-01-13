@@ -90,12 +90,12 @@ export function IntegrationView({
                         {isGitHub && (
                             <div className="mt-1">
                                 {githubRepositoriesLoading ? (
-                                    <div className="flex items-center gap-1 text-xs text-muted mr-4">
+                                    <div className="flex items-center gap-1 text-xs text-muted">
                                         <Spinner className="text-sm" />
                                         Loading repositories...
                                     </div>
                                 ) : repositories.length > 0 ? (
-                                    <div className="flex items-center gap-2 mr-4">
+                                    <div className="flex items-center gap-2">
                                         <div className="text-xs text-muted">
                                             <IconBranch className="inline mr-1" />
                                             {repositories.length} repositor{repositories.length === 1 ? 'y' : 'ies'}:{' '}
@@ -118,7 +118,7 @@ export function IntegrationView({
                                         />
                                     </div>
                                 ) : (
-                                    <div className="flex items-center gap-2 mr-4">
+                                    <div className="flex items-center gap-2">
                                         <div className="text-xs text-muted">
                                             <IconBranch className="inline mr-1" />
                                             No repositories accessible

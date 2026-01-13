@@ -114,7 +114,7 @@ def search_entities(
     entity_map: dict[str, EntityConfig],
 ) -> tuple[list[dict[str, Any]], dict[str, int | None]]:
     # empty queryset to union things onto it
-    counts: dict[str, int | None] = dict.fromkeys(entity_map)
+    counts: dict[str, int | None] = {key: None for key in entity_map}
     qs = (
         Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
         .filter(team__project_id=project_id)

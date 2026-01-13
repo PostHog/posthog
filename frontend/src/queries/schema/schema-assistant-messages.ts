@@ -320,7 +320,6 @@ export enum AssistantEventType {
     Conversation = 'conversation',
     Notebook = 'notebook',
     Update = 'update',
-    Approval = 'approval',
 }
 
 export interface AssistantUpdateEvent {
@@ -354,22 +353,6 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     content: string
     tool_call_id: string
 }
-
-/** Status value indicating an operation requires user approval before execution */
-export const PENDING_APPROVAL_STATUS = 'pending_approval' as const
-
-/** Response returned when a tool operation requires user approval */
-export interface DangerousOperationResponse {
-    status: typeof PENDING_APPROVAL_STATUS
-    proposalId: string
-    toolName: string
-    preview: string
-    payload: Record<string, any>
-}
-
-export type ApprovalDecisionStatus = 'pending' | 'approved' | 'rejected' | 'auto_rejected'
-
-export type ApprovalCardUIStatus = ApprovalDecisionStatus | 'approving' | 'rejecting'
 
 export type AssistantTool =
     | 'search_session_recordings'
@@ -411,8 +394,6 @@ export type AssistantTool =
     | 'create_form'
     | 'task'
     | 'upsert_dashboard'
-    | 'manage_memories'
-    | 'create_notebook'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

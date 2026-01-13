@@ -697,8 +697,6 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        const showClustersTab = !!event && isTraceLevel(event) && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
-
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
 
@@ -965,7 +963,7 @@ const EventContent = React.memo(
                                           },
                                       ]
                                     : []),
-                                ...(showClustersTab
+                                ...(isTraceLevel(event)
                                     ? [
                                           {
                                               key: TraceViewMode.Clusters,

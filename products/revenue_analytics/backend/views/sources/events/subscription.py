@@ -16,7 +16,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     prefix = view_prefix_for_event(event.eventName)
 
-    if not event.subscriptionProperty:
+    if event.subscriptionProperty is None:
         return BuiltQuery(
             key=event.eventName,
             prefix=prefix,

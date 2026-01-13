@@ -267,9 +267,7 @@ class HogQLPrinter(Visitor[str]):
         return []
 
     def _ensure_team_id_where_clause(
-        self,
-        table_type: ast.TableType | ast.LazyTableType,
-        node_type: ast.TableOrSelectType,
+        self, table_type: ast.TableType | ast.LazyTableType, node_type: ast.TableOrSelectType
     ):
         if self.dialect != "hogql":
             raise NotImplementedError("HogQLPrinter._ensure_team_id_where_clause not overridden")
@@ -280,10 +278,8 @@ class HogQLPrinter(Visitor[str]):
         raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
 
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
-        # Constraints to add to the SELECT's WHERE clause (for most join types)
+        # return constraints we must place on the select query
         extra_where: ast.Expr | None = None
-        # For LEFT JOINs, team_id goes in ON instead of WHERE to preserve NULL rows
-        team_id_for_on_clause: ast.Expr | None = None
 
         join_strings = []
 
@@ -298,14 +294,8 @@ class HogQLPrinter(Visitor[str]):
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
-            # :IMPORTANT: Ensures team_id filtering on every table. For LEFT JOINs, we add it to the
-            # ON clause (not WHERE) to preserve LEFT JOIN semantics - otherwise NULL rows get filtered out.
-            team_id_expr = self._ensure_team_id_where_clause(table_type, node.type)
-            is_left_join = node.join_type is not None and "LEFT" in node.join_type
-            if is_left_join and team_id_expr is not None and node.constraint is not None:
-                team_id_for_on_clause = team_id_expr
-            else:
-                extra_where = team_id_expr
+            # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
+            extra_where = self._ensure_team_id_where_clause(table_type, node.type)
 
             sql = self._print_table_ref(table_type, node)
 
@@ -373,11 +363,7 @@ class HogQLPrinter(Visitor[str]):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
-            if team_id_for_on_clause is not None:
-                combined_constraint = ast.And(exprs=[team_id_for_on_clause, node.constraint.expr])
-                join_strings.append(f"{node.constraint.constraint_type} {self.visit(combined_constraint)}")
-            else:
-                join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
+            join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 

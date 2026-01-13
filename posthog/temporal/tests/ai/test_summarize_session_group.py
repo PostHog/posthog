@@ -2144,9 +2144,7 @@ class TestSessionBatchFetchExpectedSkips:
         }
 
         with (
-            patch.object(
-                SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
-            ),
+            patch.object(SingleSessionSummary.objects, "summaries_exist", return_value={s: False for s in session_ids}),
             patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
@@ -2188,9 +2186,7 @@ class TestSessionBatchFetchExpectedSkips:
         }
 
         with (
-            patch.object(
-                SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
-            ),
+            patch.object(SingleSessionSummary.objects, "summaries_exist", return_value={s: False for s in session_ids}),
             patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
@@ -2234,9 +2230,7 @@ class TestSessionBatchFetchExpectedSkips:
             mock_metadata[s] = {"start_time": now, "end_time": now + timedelta(seconds=30)}
 
         with (
-            patch.object(
-                SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
-            ),
+            patch.object(SingleSessionSummary.objects, "summaries_exist", return_value={s: False for s in session_ids}),
             patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
@@ -2276,9 +2270,7 @@ class TestSessionBatchFetchExpectedSkips:
         mock_metadata = {s: {"start_time": now, "end_time": now + timedelta(seconds=3)} for s in session_ids}
 
         with (
-            patch.object(
-                SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
-            ),
+            patch.object(SingleSessionSummary.objects, "summaries_exist", return_value={s: False for s in session_ids}),
             patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",

@@ -916,9 +916,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.updateSurvey(updates)
             },
             loadSurveySuccess: () => {
-                // Initialize dataCollectionType from survey data (using selector pattern for consistency)
-                actions.setDataCollectionType(values.derivedDataCollectionType)
-
                 // Trigger stats loading after survey loads
                 if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
                     actions.loadSurveyBaseStats()
@@ -1428,21 +1425,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     survey.response_sampling_limit &&
                     survey.response_sampling_limit > 0
                 )
-            },
-        ],
-        derivedDataCollectionType: [
-            (s) => [s.surveyUsesAdaptiveLimit, s.surveyUsesLimit, s.isAdaptiveLimitFFEnabled],
-            (
-                surveyUsesAdaptiveLimit: boolean,
-                surveyUsesLimit: boolean,
-                isAdaptiveLimitFFEnabled: boolean
-            ): DataCollectionType => {
-                if (isAdaptiveLimitFFEnabled && surveyUsesAdaptiveLimit) {
-                    return 'until_adaptive_limit'
-                } else if (surveyUsesLimit) {
-                    return 'until_limit'
-                }
-                return 'until_stopped'
             },
         ],
         surveyShufflingQuestionsAvailable: [

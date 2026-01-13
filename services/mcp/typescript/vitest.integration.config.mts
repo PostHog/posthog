@@ -11,9 +11,5 @@ export default defineConfig({
         setupFiles: ['tests/setup.ts'],
         include: ['tests/**/*.integration.test.ts'],
         exclude: ['node_modules/**', 'dist/**'],
-        // Run test files sequentially to reduce parallel API load
-        fileParallelism: false,
-        // Limit concurrent tests within a file
-        maxConcurrency: 5,
     },
 })

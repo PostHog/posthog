@@ -67,8 +67,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UnsupportedFileFormatError",
     # Invalid compression input
     "UnsupportedCompressionError",
-    # Invalid S3 credentials
-    "InvalidCredentialsError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -180,13 +178,6 @@ class InvalidS3EndpointError(Exception):
     """Exception raised when an S3 endpoint is invalid."""
 
     def __init__(self, message: str = "Endpoint URL is invalid."):
-        super().__init__(message)
-
-
-class InvalidCredentialsError(Exception):
-    """Exception raised when the S3 credentials are invalid."""
-
-    def __init__(self, message: str = "Credentials are invalid."):
         super().__init__(message)
 
 
@@ -425,11 +416,6 @@ class ConcurrentS3Consumer(Consumer):
         max_concurrent_uploads: int = 5,
     ):
         super().__init__()
-
-        if (isinstance(aws_access_key_id, str) and aws_access_key_id.strip() == "") or (
-            isinstance(aws_secret_access_key, str) and aws_secret_access_key.strip() == ""
-        ):
-            raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
 
         self.bucket = bucket
         self.region_name = region_name

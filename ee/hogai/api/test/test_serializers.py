@@ -52,7 +52,6 @@ class TestConversationSerializers(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
-                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -133,7 +132,6 @@ class TestConversationSerializers(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
-                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -159,7 +157,6 @@ class TestConversationSerializers(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
-                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -184,7 +181,6 @@ class TestConversationSerializers(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
-                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -210,7 +206,6 @@ class TestConversationSerializers(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
-                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -264,7 +259,6 @@ class TestConversationSerializerArtifactEnrichment(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
-                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -302,7 +296,6 @@ class TestConversationSerializerArtifactEnrichment(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
-                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -345,7 +338,6 @@ class TestConversationSerializerArtifactEnrichment(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
-                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 

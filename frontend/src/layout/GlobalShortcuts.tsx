@@ -68,17 +68,5 @@ export function GlobalShortcuts(): null {
         callback: toggleZenMode,
     })
 
-    useAppShortcut({
-        name: 'SQLEditor',
-        keybind: [keyBinds.sqlEditor],
-        intent: 'Open SQL editor',
-        interaction: 'function',
-        callback: () => {
-            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.sqlEditor()) {
-                router.actions.push(urls.sqlEditor())
-            }
-        },
-    })
-
     return null
 }

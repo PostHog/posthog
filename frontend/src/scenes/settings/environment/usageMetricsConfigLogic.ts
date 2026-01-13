@@ -3,11 +3,7 @@ import { forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { usageMetricsConfigLogicType } from './usageMetricsConfigLogicType'
 
@@ -42,35 +38,22 @@ export interface UsageMetricsConfigLogicProps {
 
 export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
     path(['scenes', 'settings', 'environment', 'usageMetricsConfigLogic']),
-    props({} as UsageMetricsConfigLogicProps),
-    key(({ logicKey }) => logicKey || 'defaultKey'),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
-        actions: [
-            eventUsageLogic,
-            ['reportUsageMetricCreated', 'reportUsageMetricUpdated', 'reportUsageMetricDeleted'],
-            teamLogic,
-            ['addProductIntent'],
-        ],
     })),
+    props({} as UsageMetricsConfigLogicProps),
+    key(({ logicKey }) => logicKey || 'defaultKey'),
 
     actions(() => ({
+        setIsEditing: (isEditing: boolean) => ({ isEditing }),
         addUsageMetric: (metric: UsageMetricFormData) => ({ metric }),
         updateUsageMetric: (metric: UsageMetricFormData) => ({ metric }),
         removeUsageMetric: (id: string) => ({ id }),
-        openModal: true,
-        closeModal: true,
     })),
 
-    reducers({
-        isModalOpen: [
-            false,
-            {
-                openModal: () => true,
-                closeModal: () => false,
-            },
-        ],
-    }),
+    reducers(() => ({
+        isEditing: [false, { setIsEditing: (_, { isEditing }) => isEditing }],
+    })),
 
     lazyLoaders(({ values }) => ({
         usageMetrics: [
@@ -80,16 +63,13 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
                     return await api.get(values.metricsUrl).then((response) => response.results)
                 },
                 addUsageMetric: async ({ metric }) => {
-                    const newMetric = await api.create(values.metricsUrl, metric)
-                    return [...values.usageMetrics, newMetric]
+                    return await api.create(values.metricsUrl, metric)
                 },
                 updateUsageMetric: async ({ metric }) => {
-                    const updatedMetric = await api.update(`${values.metricsUrl}/${metric.id}`, metric)
-                    return [...values.usageMetrics.filter((m) => m.id !== metric.id), updatedMetric]
+                    return await api.update(`${values.metricsUrl}/${metric.id}`, metric)
                 },
                 removeUsageMetric: async ({ id }) => {
-                    const deletedMetric = await api.delete(`${values.metricsUrl}/${id}`)
-                    return [...values.usageMetrics.filter((m) => m.id !== id), deletedMetric]
+                    return await api.delete(`${values.metricsUrl}/${id}`)
                 },
             },
         ],
@@ -121,28 +101,18 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
     })),
 
     listeners(({ actions }) => ({
-        closeModal: () => {
-            actions.resetUsageMetric()
-        },
         submitUsageMetricSuccess: () => {
-            actions.loadUsageMetrics()
-            actions.closeModal()
+            actions.setIsEditing(false)
+            actions.resetUsageMetric()
         },
         addUsageMetricSuccess: () => {
             actions.loadUsageMetrics()
-            actions.reportUsageMetricCreated()
-            actions.addProductIntent({
-                product_type: ProductKey.CUSTOMER_ANALYTICS,
-                intent_context: ProductIntentContext.CUSTOMER_ANALYTICS_USAGE_METRIC_CREATED,
-            })
         },
         updateUsageMetricSuccess: () => {
             actions.loadUsageMetrics()
-            actions.reportUsageMetricUpdated()
         },
         removeUsageMetricSuccess: () => {
             actions.loadUsageMetrics()
-            actions.reportUsageMetricDeleted()
         },
     })),
 ])

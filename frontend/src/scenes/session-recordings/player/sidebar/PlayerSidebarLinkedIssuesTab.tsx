@@ -3,10 +3,12 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
+import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { ICONS } from 'lib/integrations/utils'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -18,18 +20,16 @@ import {
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { urls } from 'scenes/urls'
 
-import { IntegrationKind, IntegrationType, SessionRecordingExternalReference } from '~/types'
+import { IntegrationKind, IntegrationType } from '~/types'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { createGitHubIssueForm, createLinearIssueForm } from './issueFormHelpers'
 
-const SESSION_REPLAY_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
+const SESSION_REPLAY_INTEGRATIONS: IntegrationKind[] = ['linear']
 
 type IssueConfig = Record<string, string>
 
 const IntegrationIcon = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
-    const className = kind === 'github' ? 'w-5 h-5 rounded-sm dark:invert' : 'w-5 h-5 rounded-sm'
-    return <img src={ICONS[kind]} className={className} />
+    return <img src={ICONS[kind]} className="w-5 h-5 rounded-sm" />
 }
 
 export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
@@ -55,70 +55,53 @@ export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
     const externalReferences = sessionPlayerMetaData?.external_references ?? []
 
     const onClickCreateIssue = (integration: IntegrationType): void => {
-        const submitHandler = async (integrationId: number, config: IssueConfig): Promise<void> => {
-            setCreatingIssue(true)
-            try {
-                await createExternalReference(integrationId, config)
-            } finally {
-                setCreatingIssue(false)
-            }
-        }
-
         if (integration.kind === 'linear') {
-            createLinearIssueForm(sessionRecordingId, integration, submitHandler)
-        } else if (integration.kind === 'github') {
-            createGitHubIssueForm(sessionRecordingId, integration, submitHandler)
+            createLinearIssueForm(
+                sessionRecordingId,
+                integration,
+                async (integrationId: number, config: IssueConfig) => {
+                    setCreatingIssue(true)
+                    try {
+                        await createExternalReference(integrationId, config)
+                    } finally {
+                        setCreatingIssue(false)
+                    }
+                }
+            )
         }
     }
 
-    const linearReferences = externalReferences.filter((ref) => ref.integration.kind === 'linear')
-    const githubReferences = externalReferences.filter((ref) => ref.integration.kind === 'github')
-
-    const renderIssueLink = (reference: SessionRecordingExternalReference): JSX.Element => (
-        <Link
-            key={reference.id}
-            to={reference.external_url}
-            target="_blank"
-            onClick={() => {
-                posthog.capture('session_replay_external_issue_clicked', {
-                    session_recording_id: sessionRecordingId,
-                    integration_kind: reference.integration.kind,
-                })
-            }}
-        >
-            <ButtonPrimitive fullWidth>
-                <div className="flex items-center gap-2 min-w-0">
-                    <IntegrationIcon kind={reference.integration.kind} />
-                    <span className="font-medium flex-shrink-0">{reference.issue_id}</span>
-                    {reference.metadata?.repository && (
-                        <span className="text-xs text-muted flex-shrink-0">[{reference.metadata.repository}]</span>
-                    )}
-                    {reference.title && <span className="text-sm text-muted truncate">{reference.title}</span>}
-                </div>
-            </ButtonPrimitive>
-        </Link>
-    )
-
     return (
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-2">
             <h3 className="font-semibold mb-2">Linked Issues</h3>
             {externalReferences.length > 0 ? (
-                <>
-                    {linearReferences.length > 0 && (
-                        <div className="space-y-2">
-                            <h4 className="text-sm font-medium text-muted">Linear</h4>
-                            {linearReferences.map(renderIssueLink)}
-                        </div>
-                    )}
-                    {githubReferences.length > 0 && (
-                        <div className="space-y-2">
-                            <h4 className="text-sm font-medium text-muted">GitHub</h4>
-                            {githubReferences.map(renderIssueLink)}
-                        </div>
-                    )}
-                </>
+                externalReferences.map((reference) => (
+                    <Link
+                        key={reference.id}
+                        to={reference.external_url}
+                        target="_blank"
+                        onClick={() => {
+                            posthog.capture('session_replay_external_issue_clicked', {
+                                session_recording_id: sessionRecordingId,
+                                integration_kind: reference.integration.kind,
+                            })
+                        }}
+                    >
+                        <ButtonPrimitive fullWidth>
+                            <div className="flex items-center gap-2 min-w-0">
+                                <IntegrationIcon kind={reference.integration.kind} />
+                                <span className="font-medium flex-shrink-0">{reference.issue_id}</span>
+                                {reference.title && (
+                                    <span className="text-sm text-muted truncate">{reference.title}</span>
+                                )}
+                            </div>
+                        </ButtonPrimitive>
+                    </Link>
+                ))
             ) : (
-                <p className="text-muted text-sm mb-2">No linked issues yet. Create an issue to track this session.</p>
+                <p className="text-muted text-sm mb-2">
+                    No linked issues yet. Create an issue in Linear to track this session.
+                </p>
             )}
             <CreateIssueButton
                 integrations={sessionReplayIntegrations}
@@ -145,7 +128,7 @@ function CreateIssueButton({
             <Link
                 to={urls.replaySettings('replay-integrations')}
                 buttonProps={{ variant: 'panel', fullWidth: true, menuItem: true }}
-                tooltip="Configure integrations"
+                tooltip="Configure Linear integration"
             >
                 Set up integrations
             </Link>
@@ -183,4 +166,42 @@ function CreateIssueButton({
             </DropdownMenuContent>
         </DropdownMenu>
     )
+}
+
+const createLinearIssueForm = (
+    sessionRecordingId: string,
+    integration: IntegrationType,
+    onSubmit: (integrationId: number, config: IssueConfig) => void
+): void => {
+    const recordingUrl = urls.absolute(urls.replay(undefined, undefined, sessionRecordingId))
+    const description = `**Session Recording:** ${recordingUrl}`
+
+    LemonDialog.openForm({
+        title: 'Create Linear issue',
+        shouldAwaitSubmit: true,
+        initialValues: {
+            title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
+            description: description,
+            integrationId: integration.id,
+            teamIds: [],
+        },
+        content: (
+            <div className="flex flex-col gap-y-2">
+                <LinearTeamSelectField integrationId={integration.id} />
+                <LemonField name="title" label="Title">
+                    <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
+                </LemonField>
+                <LemonField name="description" label="Description">
+                    <LemonTextArea data-attr="issue-description" placeholder="Start typing..." />
+                </LemonField>
+            </div>
+        ),
+        errors: {
+            title: (title) => (!title ? 'You must enter a title' : undefined),
+            teamIds: (teamIds) => (!teamIds || teamIds.length === 0 ? 'You must choose a team' : undefined),
+        },
+        onSubmit: ({ title, description, teamIds }) => {
+            onSubmit(integration.id, { team_id: teamIds[0], title, description })
+        },
+    })
 }

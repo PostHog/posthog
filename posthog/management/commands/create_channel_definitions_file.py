@@ -393,7 +393,7 @@ class Command(BaseCommand):
             "com.yahoo.apps.yahooapp",
             "com.yahoo.mobile.client.android.yahoo",
             "com.yahoo.www.twa",
-            "com.yahoo.frontpagecom.yahoo.weather",
+            "com.yahoo.frontpage" "com.yahoo.weather",
         ):
             entries[app.lower(), EntryKind.source] = SourceEntry(
                 "Search", "Paid Search", "Organic Search", is_reverse_dns=True

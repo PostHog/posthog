@@ -147,27 +147,3 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
         renewed_sql = query.query.to_hogql()
         self.assertIn("properties.subscription_uuid AS subscription_id", renewed_sql)
         self.assertIn("min(properties.service_name) AS product_id", renewed_sql)
-
-    def test_empty_string_subscription_property_returns_empty_query(self):
-        """Regression test: Empty string subscriptionProperty should be treated same as None."""
-        [event_config] = self.configure_events(
-            [
-                {
-                    "eventName": "test_event",
-                    "revenueProperty": "price",
-                    "subscriptionProperty": "",  # Empty string, NOT None
-                    "currencyAwareDecimal": False,
-                    "revenueCurrencyProperty": {"static": "USD"},
-                }
-            ]
-        )
-
-        handle = SourceHandle(type="events", team=self.team, event=event_config)
-        query = build(handle)
-
-        assert query.test_comments == "no_property", (
-            "Empty string subscriptionProperty should be treated as no property configured"
-        )
-
-        query_sql = query.query.to_hogql()
-        assert "properties.``" not in query_sql, "Should not generate invalid HogQL with empty property name"

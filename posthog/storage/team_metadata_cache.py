@@ -140,15 +140,7 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     elif field == "organization_id":
         return str(value) if value else None
     elif field == "session_recording_sample_rate":
-        # Match the logic in decide.py and remote_config.py:
-        # - Convert Decimal to string directly (preserves precision like "1.00")
-        # - Return None for 100% sampling (no sampling needed)
-        if value is not None:
-            str_value = str(value)
-            if str_value == "1.00":
-                return None
-            return str_value
-        return None
+        return float(value) if value is not None else None
     return value
 
 

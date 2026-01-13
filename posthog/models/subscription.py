@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -8,11 +8,14 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from dateutil.rrule import FR, FREQNAMES, MO, SA, SU, TH, TU, WE, rrule
+from dateutil.rrule import FR, MO, SA, SU, TH, TU, WE, rrule
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.utils import absolute_uri
+
+# Copied from rrule as it is not exported
+FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
@@ -94,10 +97,6 @@ class Subscription(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._rrule = self.rrule
-
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
         if not self.id or str(self._rrule) != str(self.rrule):
@@ -106,9 +105,14 @@ class Subscription(models.Model):
                 kwargs["update_fields"].append("next_delivery_date")
         super().save(*args, **kwargs)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._rrule = self.rrule
+
     @property
     def rrule(self):
-        freq = cast(Literal[0, 1, 2, 3, 4, 5, 6], FREQNAMES.index(self.frequency.upper()))
+        freq = FREQNAMES.index(self.frequency.upper())
+
         return rrule(
             freq=freq,
             count=self.count,

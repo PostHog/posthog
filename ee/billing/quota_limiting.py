@@ -513,13 +513,13 @@ def update_org_billing_quotas(organization: Organization):
             if quota_limited_until:
                 add_limited_team_tokens(
                     resource,
-                    dict.fromkeys(team_attributes, quota_limited_until),
+                    {x: quota_limited_until for x in team_attributes},
                     QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 )
             elif limiting_suspended_until and limiting_suspended_until >= today_end.timestamp():
                 add_limited_team_tokens(
                     resource,
-                    dict.fromkeys(team_attributes, limiting_suspended_until),
+                    {x: limiting_suspended_until for x in team_attributes},
                     QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
                 )
             else:

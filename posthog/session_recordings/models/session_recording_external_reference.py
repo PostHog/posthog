@@ -24,8 +24,7 @@ class SessionRecordingExternalReference(UUIDModel):
     )
     # Stores provider-specific data like issue ID, repository name, etc.
     # Examples:
-    #   Linear: {'id': 'LINEAR-123', 'title': '...'}
-    #   GitHub: {'id': '#456', 'url': 'https://github.com/...', 'title': '...'}
+    #   Linear: {'id': 'LINEAR-123'}
     external_context = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

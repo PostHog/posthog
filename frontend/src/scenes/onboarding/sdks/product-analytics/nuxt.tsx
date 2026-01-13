@@ -1,12 +1,11 @@
-import { JSEventCapture } from '@posthog/shared-onboarding/product-analytics/_snippets/js-event-capture'
-import { NuxtInstallation } from '@posthog/shared-onboarding/product-analytics/nuxt'
-
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { SDKInstallNuxtJSInstructions } from '../sdk-install-instructions/nuxt'
+import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
 
 export function ProductAnalyticsNuxtJSInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper snippets={{ JSEventCapture }}>
-            <NuxtInstallation />
-        </OnboardingDocsContentWrapper>
+        <>
+            <SDKInstallNuxtJSInstructions />
+            <ProductAnalyticsAllJSFinalSteps />
+        </>
     )
 }

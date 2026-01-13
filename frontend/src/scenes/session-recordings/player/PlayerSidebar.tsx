@@ -57,7 +57,7 @@ export function PlayerSidebar(): JSX.Element {
 
     // Show linked issues tab if the flag is enabled AND there are integrations or existing references
     if (featureFlags[FEATURE_FLAGS.REPLAY_LINEAR_INTEGRATION]) {
-        const sessionReplayIntegrations = getIntegrationsByKind(['linear', 'github'])
+        const sessionReplayIntegrations = getIntegrationsByKind(['linear'])
         const externalReferences = sessionPlayerMetaData?.external_references ?? []
 
         if (sessionReplayIntegrations.length > 0 || externalReferences.length > 0) {

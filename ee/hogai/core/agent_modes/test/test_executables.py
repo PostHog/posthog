@@ -644,7 +644,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         for i, send in enumerate(result):
             self.assertIsInstance(send, Send)
             self.assertEqual(send.node, AssistantNodeName.ROOT_TOOLS)
-            self.assertEqual(send.arg.root_tool_call_id, f"tool-{i + 1}")
+            self.assertEqual(send.arg.root_tool_call_id, f"tool-{i+1}")
 
     def test_get_updated_agent_mode(self):
         node = _create_agent_node(self.team, self.user)

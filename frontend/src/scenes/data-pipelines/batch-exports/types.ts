@@ -2,7 +2,6 @@ import { Dayjs } from 'lib/dayjs'
 
 import {
     BatchExportConfiguration,
-    BatchExportServiceAzureBlob,
     BatchExportServiceBigQuery,
     BatchExportServiceDatabricks,
     BatchExportServiceHTTP,
@@ -22,9 +21,8 @@ export type BatchExportConfigurationForm = Omit<
     Partial<BatchExportServiceS3['config']> &
     Partial<BatchExportServiceSnowflake['config']> &
     Partial<BatchExportServiceDatabricks['config']> &
-    Partial<BatchExportServiceHTTP['config']> &
-    Partial<BatchExportServiceAzureBlob['config']> & {
-        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift' | 'Databricks' | 'HTTP' | 'AzureBlob'
+    Partial<BatchExportServiceHTTP['config']> & {
+        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift' | 'Databricks' | 'HTTP'
         start_at: Dayjs | null
         end_at: Dayjs | null
         json_config_file?: File[] | null

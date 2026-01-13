@@ -648,6 +648,11 @@ export class ApiRequest {
         return this.comments(teamId).addPathComponent(id)
     }
 
+    // # Feed
+    public feed(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('feed')
+    }
+
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('exports')
@@ -1390,11 +1395,6 @@ export class ApiRequest {
 
     public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
-    }
-
-    // # Organization Integrations
-    public organizationIntegrations(): ApiRequest {
-        return this.organizations().current().addPathComponent('integrations')
     }
 
     public media(teamId?: TeamType['id']): ApiRequest {
@@ -2338,6 +2338,12 @@ const api = {
 
         async delete(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             return new ApiRequest().comment(id, teamId).update({ data: { deleted: true } })
+        },
+    },
+
+    feed: {
+        async recentUpdates(days: number = 7): Promise<{ results: any[]; count: number }> {
+            return new ApiRequest().feed().withAction('recent_updates').withQueryString({ days }).get()
         },
     },
 
@@ -4521,12 +4527,6 @@ const api = {
         },
     },
 
-    organizationIntegrations: {
-        async list(): Promise<PaginatedResponse<IntegrationType>> {
-            return await new ApiRequest().organizationIntegrations().get()
-        },
-    },
-
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
@@ -4856,7 +4856,6 @@ const api = {
                 conversation?: string | null
                 trace_id: string
                 agent_mode?: AgentMode | null
-                resume_payload?: { action: 'approve' | 'reject'; proposal_id: string; feedback?: string } | null
             },
             options?: ApiMethodOptions
         ): Promise<Response> {

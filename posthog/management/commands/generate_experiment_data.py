@@ -465,7 +465,7 @@ class Command(BaseCommand):
             experiment_config = get_default_config(experiment_type)
 
         variants = list(experiment_config.variants.keys())
-        variant_counts = dict.fromkeys(variants, 0)
+        variant_counts = {variant: 0 for variant in variants}
 
         generate_replays = options.get("generate_session_replays", False)
         replay_probability = options.get("replay_probability", 0.3)
@@ -593,11 +593,11 @@ class Command(BaseCommand):
         logging.info(f"Variant counts: {variant_counts}")
         if generate_replays:
             logging.info(
-                f"Generated {replay_count} session replays ({replay_count / experiment_config.number_of_users:.1%} of sessions)"
+                f"Generated {replay_count} session replays ({replay_count/experiment_config.number_of_users:.1%} of sessions)"
             )
         if create_person_profiles:
             logging.info(
-                f"Created {persons_created} person profiles ({persons_created / experiment_config.number_of_users:.1%} of users)"
+                f"Created {persons_created} person profiles ({persons_created/experiment_config.number_of_users:.1%} of users)"
             )
 
     def _generate_person_properties(self, is_identified: bool) -> dict[str, Any]:

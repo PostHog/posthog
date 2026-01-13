@@ -17,7 +17,7 @@ from posthog.models import Dashboard, DashboardTile, Insight
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 
-from ee.hogai.artifacts.types import StateArtifactResult
+from ee.hogai.artifacts.manager import StateArtifactResult
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
@@ -102,7 +102,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_conversation_artifacts = AsyncMock(return_value=[artifact_message])
+        context_manager.artifacts.aget_conversation_artifact_messages = AsyncMock(return_value=[artifact_message])
 
         tool = ReadDataTool(
             team=team,
@@ -113,7 +113,7 @@ class TestReadDataTool(BaseTest):
 
         result, _ = await tool._arun_impl({"kind": "artifacts"})
 
-        context_manager.artifacts.aget_conversation_artifacts.assert_called_once_with()
+        context_manager.artifacts.aget_conversation_artifact_messages.assert_called_once_with()
         assert "artifact-123" in result
         assert "Test Chart" in result
         assert "A test visualization" in result
@@ -125,7 +125,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_conversation_artifacts = AsyncMock(return_value=[])
+        context_manager.artifacts.aget_conversation_artifact_messages = AsyncMock(return_value=[])
         context_manager.artifacts.check_user_has_billing_access = AsyncMock(return_value=False)
 
         tool = ReadDataTool(
@@ -206,7 +206,7 @@ class TestReadDataTool(BaseTest):
         )
 
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_visualization = AsyncMock(
+        context_manager.artifacts.aget_insight_with_source = AsyncMock(
             return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
@@ -242,7 +242,7 @@ class TestReadDataTool(BaseTest):
         )
 
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_visualization = AsyncMock(
+        context_manager.artifacts.aget_insight_with_source = AsyncMock(
             return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
@@ -285,7 +285,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_visualization = AsyncMock(return_value=None)
+        context_manager.artifacts.aget_insight_with_source = AsyncMock(return_value=None)
 
         tool = await ReadDataTool.create_tool_class(
             team=team,
@@ -317,7 +317,7 @@ class TestReadDataTool(BaseTest):
         )
 
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_visualization = AsyncMock(
+        context_manager.artifacts.aget_insight_with_source = AsyncMock(
             return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
@@ -351,7 +351,7 @@ class TestReadDataTool(BaseTest):
         )
 
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_visualization = AsyncMock(
+        context_manager.artifacts.aget_insight_with_source = AsyncMock(
             return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 

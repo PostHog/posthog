@@ -7,9 +7,8 @@ import { IconInfinity } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
-import { humanFriendlyDuration, percentage } from 'lib/utils'
+import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 
@@ -19,16 +18,7 @@ import { FunnelStepMore } from '../FunnelStepMore'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
-import {
-    formatConvertedCount,
-    formatConvertedPercentage,
-    formatDroppedOffCount,
-    formatDroppedOffPercentage,
-    getBreakdownMaxIndex,
-    getReferenceStep,
-    getTooltipTitleForConverted,
-    getTooltipTitleForDroppedOff,
-} from '../funnelUtils'
+import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
 import { Bar } from './Bar'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 
@@ -64,8 +54,7 @@ export function FunnelBarHorizontal({
         >
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
-                const isOptionalStep = isStepOptional(stepIndex + 1)
-                const isFirstStep = stepIndex === 0
+                const isOptional = isStepOptional(stepIndex + 1)
                 const showLineBefore = stepIndex > 0
                 const showLineAfter = stepIndex < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(
@@ -82,13 +71,10 @@ export function FunnelBarHorizontal({
                     !(step.nested_breakdown.length === 1)
 
                 return (
-                    <section
-                        key={step.order}
-                        className={clsx('funnel-step', { 'funnel-step--optional': isOptionalStep })}
-                    >
-                        <div className={clsx('funnel-series-container', { 'optional-step': isOptionalStep })}>
+                    <section key={step.order} className={clsx('funnel-step', { 'funnel-step--optional': isOptional })}>
+                        <div className={clsx('funnel-series-container', { 'optional-step': isOptional })}>
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
-                            {isOptionalStep && hasOptionalSteps && <div className="optional-connector" />}
+                            {isOptional && hasOptionalSteps && <div className="optional-connector" />}
                             {funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED ? (
                                 <SeriesGlyph variant="funnel-step-glyph">
                                     <IconInfinity style={{ fill: 'var(--primary_alt)', width: 14 }} />
@@ -107,14 +93,14 @@ export function FunnelBarHorizontal({
                                         <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
                                     )}
                                 </div>
-                                {isOptionalStep ? <div className="ml-1 text-xs">(optional)</div> : null}
+                                {isOptional ? <div className="ml-1 text-xs">(optional)</div> : null}
                                 {funnelsFilter?.funnelOrderType !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
                                 <FunnelStepMore stepIndex={stepIndex} />
                             </div>
                             {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
-                                <div className="text-secondary" title="Average time of conversion from previous step">
+                                <div className="text-secondary">
                                     Average time to convert:{' '}
                                     <b>{humanFriendlyDuration(step.average_conversion_time, { maxUnits: 2 })}</b>
                                 </div>
@@ -162,7 +148,7 @@ export function FunnelBarHorizontal({
                                     >
                                         {isBreakdown && (
                                             <div className="funnel-bar-percentage">
-                                                {percentage(breakdownSum / basisStep.count, 2, true)}
+                                                {percentage(breakdownSum / basisStep.count, 1, true)}
                                             </div>
                                         )}
                                     </div>
@@ -196,10 +182,7 @@ export function FunnelBarHorizontal({
                             )}
                         </div>
                         <div className="funnel-conversion-metadata funnel-step-metadata">
-                            <Tooltip
-                                title={getTooltipTitleForConverted(funnelsFilter, aggregationTargetLabel, stepIndex)}
-                                placement="bottom"
-                            >
+                            <div>
                                 <ValueInspectorButton
                                     onClick={
                                         showPersonsModal
@@ -211,37 +194,42 @@ export function FunnelBarHorizontal({
                                         style={{ color: 'var(--success)' }}
                                         className="value-inspector-button-icon"
                                     />
-                                    <b>{formatConvertedCount(step, aggregationTargetLabel)}</b>
+                                    <b>
+                                        {pluralize(
+                                            step.count,
+                                            aggregationTargetLabel.singular,
+                                            aggregationTargetLabel.plural
+                                        )}
+                                    </b>
                                 </ValueInspectorButton>{' '}
-                                {!isFirstStep && (
-                                    <span className="text-secondary grow">
-                                        {`(${formatConvertedPercentage(step)}) completed step`}
-                                    </span>
-                                )}
-                            </Tooltip>
-                            {!isFirstStep && (
+                                <span className="text-secondary grow">
+                                    {`(${percentage(step.conversionRates.fromPrevious, 2, true)}) completed step`}
+                                </span>
+                            </div>
+                            {stepIndex > 0 && (
                                 <div>
-                                    <Tooltip
-                                        title={getTooltipTitleForDroppedOff(funnelsFilter, aggregationTargetLabel)}
-                                        placement="bottom"
+                                    <ValueInspectorButton
+                                        onClick={
+                                            showPersonsModal
+                                                ? () => openPersonsModalForStep({ step, converted: false })
+                                                : undefined
+                                        }
                                     >
-                                        <ValueInspectorButton
-                                            onClick={
-                                                showPersonsModal
-                                                    ? () => openPersonsModalForStep({ step, converted: false })
-                                                    : undefined
-                                            }
-                                        >
-                                            <IconTrendingFlatDown
-                                                style={{ color: 'var(--danger)' }}
-                                                className="value-inspector-button-icon"
-                                            />
-                                            <b>{formatDroppedOffCount(step, aggregationTargetLabel)}</b>
-                                        </ValueInspectorButton>{' '}
-                                        <span className="text-secondary">
-                                            {`(${formatDroppedOffPercentage(step)}) dropped off`}
-                                        </span>
-                                    </Tooltip>
+                                        <IconTrendingFlatDown
+                                            style={{ color: 'var(--danger)' }}
+                                            className="value-inspector-button-icon"
+                                        />
+                                        <b>
+                                            {pluralize(
+                                                step.droppedOffFromPrevious,
+                                                aggregationTargetLabel.singular,
+                                                aggregationTargetLabel.plural
+                                            )}
+                                        </b>
+                                    </ValueInspectorButton>{' '}
+                                    <span className="text-secondary">
+                                        {`(${percentage(1 - step.conversionRates.fromPrevious, 2, true)}) dropped off`}
+                                    </span>
                                 </div>
                             )}
                         </div>

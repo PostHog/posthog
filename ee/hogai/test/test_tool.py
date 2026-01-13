@@ -337,7 +337,6 @@ class TestToolAccessControlDeclarations(BaseTest):
         "todo_write",
         "switch_mode",
         "session_summarization",
-        "manage_memories",  # Manages per-team/user memories, no protected resources
         # Tools with dynamic/conditional access checks inside _arun_impl
         "read_data",
         # TODO: Add access control to these tools

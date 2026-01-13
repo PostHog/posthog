@@ -13,7 +13,7 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.runnables import RunnableConfig
-from langgraph.errors import GraphInterrupt
+from langgraph.errors import NodeInterrupt
 from langgraph.types import Send
 from posthoganalytics import capture_exception
 from pydantic import ValidationError
@@ -220,11 +220,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             stream_usage=True,
             user=self._user,
             team=self._team,
-            betas=[
-                "interleaved-thinking-2025-05-14",
-                "context-1m-2025-08-07",
-                "fine-grained-tool-streaming-2025-05-14",
-            ],
+            betas=["interleaved-thinking-2025-05-14", "context-1m-2025-08-07"],
             max_tokens=8192,
             thinking=self.THINKING_CONFIG,
             conversation_start_dt=state.start_dt,
@@ -323,30 +319,15 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 class AgentToolsExecutable(BaseAgentLoopExecutable):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
+
         reset_state = PartialAssistantState(root_tool_call_id=None)
-
-        # Check if we're resuming from an interrupted approval flow
-        tool_call_message = None
-        if isinstance(last_message, AssistantToolCallMessage) and state.root_tool_call_id:
-            # Look for the original AssistantMessage with the tool call
-            for msg in reversed(state.messages[:-1]):
-                if isinstance(msg, AssistantMessage) and msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        if tc.id == state.root_tool_call_id:
-                            tool_call_message = msg
-                            break
-                    if tool_call_message:
-                        break
-        elif isinstance(last_message, AssistantMessage):
-            tool_call_message = last_message
-
-        if not tool_call_message or not tool_call_message.id or not state.root_tool_call_id:
+        # Should never happen, but just in case.
+        if not isinstance(last_message, AssistantMessage) or not last_message.id or not state.root_tool_call_id:
             return reset_state
 
-        # Find the current tool call in the message.
+        # Find the current tool call in the last message.
         tool_call = next(
-            (tool_call for tool_call in tool_call_message.tool_calls or [] if tool_call.id == state.root_tool_call_id),
-            None,
+            (tool_call for tool_call in last_message.tool_calls or [] if tool_call.id == state.root_tool_call_id), None
         )
         if not tool_call:
             return reset_state
@@ -377,7 +358,7 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         tool.set_node_path(
             (
                 *self.node_path[:-1],
-                NodePath(name=AssistantNodeName.ROOT_TOOLS, message_id=tool_call_message.id, tool_call_id=tool_call.id),
+                NodePath(name=AssistantNodeName.ROOT_TOOLS, message_id=last_message.id, tool_call_id=tool_call.id),
             )
         )
 
@@ -442,9 +423,8 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                     )
                 ],
             )
-        except GraphInterrupt:
-            # GraphInterrupt is raised when a tool calls interrupt() for approval flow.
-            # Let it propagate up to be handled by LangGraph's interrupt
+        except NodeInterrupt:
+            # Let NodeInterrupt propagate to the graph engine for tool interrupts
             raise
         except Exception as e:
             logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})

@@ -21,10 +21,7 @@ interface FunnelBarVerticalCSSProperties extends React.CSSProperties {
     '--bar-row-height': string
 }
 
-export function FunnelBarVertical({
-    showPersonsModal: showPersonsModalProp = true,
-    inCardView,
-}: ChartParams): JSX.Element {
+export function FunnelBarVertical({ showPersonsModal: showPersonsModalProp = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
@@ -122,7 +119,6 @@ export function FunnelBarVertical({
                                         stepIndex={stepIndex}
                                         showTime={showTime}
                                         showPersonsModal={showPersonsModal}
-                                        inCardView={inCardView}
                                     />
                                 </td>
                             ))}

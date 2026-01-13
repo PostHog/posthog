@@ -284,9 +284,9 @@ class TestSurvey(APIBaseTest):
 
         assert survey.internal_targeting_flag is not None
         survey.internal_targeting_flag.refresh_from_db()
-        assert survey.internal_targeting_flag.filters == expected_filters_with_iteration, (
-            f"Expected iteration-aware filters but got: {survey.internal_targeting_flag.filters}"
-        )
+        assert (
+            survey.internal_targeting_flag.filters == expected_filters_with_iteration
+        ), f"Expected iteration-aware filters but got: {survey.internal_targeting_flag.filters}"
 
     def test_can_create_survey_with_linked_flag_and_targeting(self):
         notebooks_flag = FeatureFlag.objects.create(team=self.team, key="notebooks", created_by=self.user)
@@ -2026,9 +2026,9 @@ class TestSurvey(APIBaseTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(survey_id), type="survey").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Survey."
-        assert "Special Folder/Surveys" in fs_entry.path, (
-            f"Expected path to include 'Special Folder/Surveys', got '{fs_entry.path}'."
-        )
+        assert (
+            "Special Folder/Surveys" in fs_entry.path
+        ), f"Expected path to include 'Special Folder/Surveys', got '{fs_entry.path}'."
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):

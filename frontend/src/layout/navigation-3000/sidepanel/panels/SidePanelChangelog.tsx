@@ -32,7 +32,6 @@ export function SidePanelChangelog(): JSX.Element {
                     title="Changelog"
                     className={clsx('w-full h-full', !iframeReady && 'hidden')}
                     onLoad={() => setIframeReady(true)}
-                    sandbox="allow-scripts allow-same-origin"
                 />
                 {!iframeReady && <SidePanelDocsSkeleton />}
             </div>

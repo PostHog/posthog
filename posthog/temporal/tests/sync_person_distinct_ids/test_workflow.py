@@ -303,6 +303,6 @@ class TestSyncPersonDistinctIdsWorkflow:
             ch_person = get_ch_person(self.team.id, person_uuid)
             assert ch_person is not None, f"Person {i} should exist"
             assert ch_person["is_deleted"] == 1, f"Person {i} should be deleted"
-            assert ch_person["version"] == versions[i] + 1, (
-                f"Person {i} should have version {versions[i] + 1}, got {ch_person['version']}"
-            )
+            assert (
+                ch_person["version"] == versions[i] + 1
+            ), f"Person {i} should have version {versions[i] + 1}, got {ch_person['version']}"

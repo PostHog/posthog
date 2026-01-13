@@ -79,24 +79,6 @@ logger = structlog.get_logger(__name__)
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
 
 
-def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
-    return isinstance(
-        query,
-        AssistantTrendsQuery
-        | TrendsQuery
-        | AssistantFunnelsQuery
-        | FunnelsQuery
-        | AssistantRetentionQuery
-        | RetentionQuery
-        | AssistantHogQLQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery,
-    )
-
-
 class AssistantQueryExecutor:
     """
     Reusable class for executing queries and formatting results for the AI assistant.
@@ -417,9 +399,6 @@ class AssistantQueryExecutor:
         start_time = time.time()
         query_type = type(query).__name__
         formatter_name = None
-
-        if not is_supported_query(query):
-            raise NotImplementedError(f"Unsupported query type: {query_type}")
 
         try:
             # Handle assistant-specific query types with direct formatting
