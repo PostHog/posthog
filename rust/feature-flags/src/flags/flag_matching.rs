@@ -1306,9 +1306,20 @@ impl FeatureFlagMatcher {
                 }
                 // If device_id bucketing is set but no device_id provided,
                 // fall through to hash_key_overrides or distinct_id
+                let (lib, lib_version) = {
+                    let mut lib: Option<&'static str> = None;
+                    let mut lib_version: Option<String> = None;
+                    with_canonical_log(|log| {
+                        lib = log.lib;
+                        lib_version = log.lib_version.clone();
+                    });
+                    (lib, lib_version)
+                };
                 tracing::warn!(
                     flag_key = %feature_flag.key,
                     team_id = %feature_flag.team_id,
+                    lib = lib,
+                    lib_version = lib_version.as_deref(),
                     "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
                 );
             }
