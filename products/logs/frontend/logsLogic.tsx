@@ -379,7 +379,7 @@ export const logsLogic = kea<logsLogicType>([
             {
                 fetchSparkline: () => true,
                 fetchSparklineSuccess: () => false,
-                fetchSparklineFailure: () => true,
+                fetchSparklineFailure: () => false,
             },
         ],
         openFilterOnInsert: [
