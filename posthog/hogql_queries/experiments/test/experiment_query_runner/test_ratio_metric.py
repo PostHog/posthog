@@ -92,7 +92,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                             team=self.team,
                             event="purchase",
                             distinct_id=f"user_control_{i}",
-                            timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                            timestamp=f"2020-01-02T12:0{j + 1}:00Z",
                             properties={feature_flag_property: "control", "amount": 15},
                         )
 
@@ -129,7 +129,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                             team=self.team,
                             event="purchase",
                             distinct_id=f"user_test_{i}",
-                            timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                            timestamp=f"2020-01-02T12:0{j + 1}:00Z",
                             properties={feature_flag_property: "test", "amount": 10},
                         )
 
@@ -224,7 +224,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                 events.append(
                     {
                         "event": "purchase",
-                        "timestamp": f"2024-01-02T12:0{2+i}:00",
+                        "timestamp": f"2024-01-02T12:0{2 + i}:00",
                         "properties": {
                             ff_property: variant,
                             "amount": amount,
@@ -528,7 +528,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                 events.append(
                     {
                         "event": "purchase",
-                        "timestamp": f"2024-01-02T12:0{i+1}:00",
+                        "timestamp": f"2024-01-02T12:0{i + 1}:00",
                         "properties": {
                             ff_property: variant,
                             "revenue": purchase["revenue"],
@@ -655,7 +655,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                 events.append(
                     {
                         "event": "pageview",
-                        "timestamp": f"2024-01-02T12:0{i+1}:00",
+                        "timestamp": f"2024-01-02T12:0{i + 1}:00",
                         "properties": {
                             ff_property: variant,
                             "page": f"/page{i}",
@@ -877,7 +877,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                             team=self.team,
                             event="purchase",
                             distinct_id=f"user_control_{i}",
-                            timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                            timestamp=f"2020-01-02T12:0{j + 1}:00Z",
                             properties={feature_flag_property: "control", "amount": 15},
                         )
 
@@ -914,7 +914,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                             team=self.team,
                             event="purchase",
                             distinct_id=f"user_test_{i}",
-                            timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                            timestamp=f"2020-01-02T12:0{j + 1}:00Z",
                             properties={feature_flag_property: "test", "amount": 10},
                         )
 

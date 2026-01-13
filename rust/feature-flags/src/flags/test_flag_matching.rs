@@ -859,6 +859,7 @@ mod tests {
                     false,
                 )
                 .await;
+            // Cycle errors still cause errors_while_computing_flags to be true
             assert!(result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("independent_flag").unwrap().to_value(),
@@ -872,10 +873,14 @@ mod tests {
                 result.flags.get("parent_flag").unwrap().to_value(),
                 FlagValue::Boolean(true)
             );
+            // Cycle nodes are removed from the graph
             assert!(!result.flags.contains_key("cycle_start_flag"));
             assert!(!result.flags.contains_key("cycle_middle_flag"));
             assert!(!result.flags.contains_key("cycle_node"));
-            assert!(!result.flags.contains_key("missing_dependency_flag"));
+            // Missing dependency flag is included with enabled=false (fail closed)
+            let missing_dep_flag = result.flags.get("missing_dependency_flag").unwrap();
+            assert!(!missing_dep_flag.enabled);
+            assert_eq!(missing_dep_flag.reason.code, "missing_dependency");
         }
         {
             // Leaf flag evaluates to false
@@ -890,6 +895,7 @@ mod tests {
                     false,
                 )
                 .await;
+            // Cycle errors still cause errors_while_computing_flags to be true
             assert!(result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("independent_flag").unwrap().to_value(),
@@ -903,10 +909,14 @@ mod tests {
                 result.flags.get("parent_flag").unwrap().to_value(),
                 FlagValue::Boolean(false)
             );
+            // Cycle nodes are removed from the graph
             assert!(!result.flags.contains_key("cycle_start_flag"));
             assert!(!result.flags.contains_key("cycle_middle_flag"));
             assert!(!result.flags.contains_key("cycle_node"));
-            assert!(!result.flags.contains_key("missing_dependency_flag"));
+            // Missing dependency flag is included with enabled=false (fail closed)
+            let missing_dep_flag = result.flags.get("missing_dependency_flag").unwrap();
+            assert!(!missing_dep_flag.enabled);
+            assert_eq!(missing_dep_flag.reason.code, "missing_dependency");
         }
     }
 
@@ -5823,7 +5833,7 @@ mod tests {
         };
 
         // Build dependency graph for the flags
-        let (dependency_graph, _) =
+        let graph_result =
             build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
 
         // Test the scenario where hash key override reading fails
@@ -5836,7 +5846,12 @@ mod tests {
         };
 
         let response = matcher
-            .evaluate_flags_with_overrides(overrides, Uuid::new_v4(), dependency_graph)
+            .evaluate_flags_with_overrides(
+                overrides,
+                Uuid::new_v4(),
+                graph_result.graph,
+                graph_result.flags_with_missing_deps,
+            )
             .await;
 
         // Should have errors_while_computing_flags set to true
@@ -5981,7 +5996,7 @@ mod tests {
         };
 
         // Build dependency graph for the flags
-        let (dependency_graph, _) =
+        let graph_result =
             build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
 
         let router = context.create_postgres_router();
@@ -5996,7 +6011,12 @@ mod tests {
         );
 
         let result = matcher
-            .evaluate_flags_with_overrides(Default::default(), Uuid::new_v4(), dependency_graph)
+            .evaluate_flags_with_overrides(
+                Default::default(),
+                Uuid::new_v4(),
+                graph_result.graph,
+                graph_result.flags_with_missing_deps,
+            )
             .await;
 
         // Base flag should be disabled
