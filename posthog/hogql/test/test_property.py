@@ -1022,7 +1022,7 @@ class TestProperty(BaseTest):
 
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
-            self._parse_expr("if(properties.score = null, true, (properties.score < 0 OR properties.score > 100))"),
+            self._parse_expr("if(properties.score != null, (properties.score < 0 OR properties.score > 100), false)"),
         )
 
     def test_property_to_expr_between_operator_validation(self):
