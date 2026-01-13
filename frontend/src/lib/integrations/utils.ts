@@ -2,6 +2,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { IntegrationKind } from '~/types'
 
+import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
 import IconDatabricks from 'public/services/databricks.png'
@@ -48,6 +49,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'tiktok-ads': IconTikTok,
     'bing-ads': IconBingAds,
     vercel: IconVercel,
+    'azure-blob': IconAzureBlob,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
@@ -66,6 +68,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'TikTok Ads'
         case 'bing-ads':
             return 'Bing Ads'
+        case 'azure-blob':
+            return 'Azure Blob Storage'
         case 'email':
             return 'email'
         case 'github':

@@ -221,12 +221,12 @@ def assert_part_details(part, expected_name, expected_length, expected_content_t
     """Assert comprehensive details about a multipart part."""
     assert part["name"] == expected_name, f"Expected part name '{expected_name}', got '{part['name']}'"
     assert part["length"] == expected_length, f"Expected part length {expected_length}, got {part['length']}"
-    assert (
-        part["content-type"] == expected_content_type
-    ), f"Expected content-type '{expected_content_type}', got '{part['content-type']}'"
-    assert (
-        part["content-encoding"] == expected_content_encoding
-    ), f"Expected content-encoding '{expected_content_encoding}', got '{part['content-encoding']}'"
+    assert part["content-type"] == expected_content_type, (
+        f"Expected content-type '{expected_content_type}', got '{part['content-type']}'"
+    )
+    assert part["content-encoding"] == expected_content_encoding, (
+        f"Expected content-encoding '{expected_content_encoding}', got '{part['content-encoding']}'"
+    )
 
 
 def assert_parts_order_and_details(response_data, expected_parts):
@@ -670,9 +670,9 @@ class TestLLMAnalytics:
                 headers={"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {api_key}"},
             )
 
-            assert (
-                response.status_code == 200
-            ), f"Expected 200 for {event_type}, got {response.status_code}: {response.text}"
+            assert response.status_code == 200, (
+                f"Expected 200 for {event_type}, got {response.status_code}: {response.text}"
+            )
             response_data = response.json()
             assert len(response_data["accepted_parts"]) == 2
             logger.info(f"{event_type} event sent successfully")
@@ -804,9 +804,9 @@ class TestLLMAnalytics:
             data=multipart_data_binary,
             headers={"Content-Type": multipart_data_binary.content_type, "Authorization": f"Bearer {api_key}"},
         )
-        assert (
-            response_binary.status_code == 200
-        ), f"Expected 200, got {response_binary.status_code}: {response_binary.text}"
+        assert response_binary.status_code == 200, (
+            f"Expected 200, got {response_binary.status_code}: {response_binary.text}"
+        )
         response_data_binary = response_binary.json()
         assert len(response_data_binary["accepted_parts"]) == 3
         parts_by_name_binary = {part["name"]: part for part in response_data_binary["accepted_parts"]}
@@ -854,12 +854,12 @@ class TestLLMAnalytics:
         # Event 3: $ai_embedding_vector should be an S3 URL
         ai_embedding_url = event_binary["properties"].get("$ai_embedding_vector")
         assert ai_embedding_url is not None, "Event 3 should have $ai_embedding_vector property"
-        assert ai_embedding_url.startswith(
-            "s3://"
-        ), f"$ai_embedding_vector should be an S3 URL, got: {ai_embedding_url}"
-        assert (
-            "?range=" in ai_embedding_url
-        ), f"$ai_embedding_vector URL should have range parameter, got: {ai_embedding_url}"
+        assert ai_embedding_url.startswith("s3://"), (
+            f"$ai_embedding_vector should be an S3 URL, got: {ai_embedding_url}"
+        )
+        assert "?range=" in ai_embedding_url, (
+            f"$ai_embedding_vector URL should have range parameter, got: {ai_embedding_url}"
+        )
         logger.info(f"Event 3 $ai_embedding_vector S3 URL verified: {ai_embedding_url}")
 
     def test_ai_blob_data_stored_correctly_in_s3(self, shared_org_project):
