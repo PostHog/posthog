@@ -119,7 +119,6 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> None:
         FROM events
         WHERE
             team_id = %(team_id)s
-            AND JSONHas(properties, %(property_name)s)
             AND NOT isNull({value_extraction})
     """
 
