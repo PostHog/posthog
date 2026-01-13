@@ -60,7 +60,12 @@ function Header(): JSX.Element {
                                 label: 'Playback from PostHog JSON file',
                                 to: urls.replayFilePlayback(),
                             },
+                            {
+                                label: 'Kiosk mode',
+                                to: urls.replayKiosk(),
+                            },
                         ]}
+                        placement="bottom-end"
                     >
                         <LemonButton icon={<IconEllipsis />} size="small" />
                     </LemonMenu>
