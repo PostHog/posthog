@@ -1262,7 +1262,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_excel_streaming_saves_to_object_storage(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT=10) -> None:
+    def test_excel_streaming_saves_to_object_storage(self, mocked_uuidt: Any) -> None:
         """Test that Excel streaming export saves to object storage."""
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         query_limit = 5
@@ -1382,7 +1382,7 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is None
             assert exported_asset.content is not None
 
-            content = exported_asset.content.decode("utf-8")
+            content = bytes(exported_asset.content).decode("utf-8")
             lines = content.strip().split("\r\n")
             header_row = 1
             assert lines[0] == "event"
@@ -1435,9 +1435,9 @@ class TestCSVExporter(APIBaseTest):
         import tempfile
 
         original_temp_file = tempfile.NamedTemporaryFile
-        temp_file_calls: list = []
+        temp_file_calls: list[dict[str, Any]] = []
 
-        def tracking_temp_file(*args, **kwargs):
+        def tracking_temp_file(*args: Any, **kwargs: Any) -> Any:
             temp_file_calls.append({"args": args, "kwargs": kwargs})
             return original_temp_file(*args, **kwargs)
 
