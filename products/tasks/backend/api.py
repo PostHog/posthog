@@ -233,34 +233,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="Task not found"),
         },
         summary="List task references",
-        description="Get paginated list of references for a task, sorted by creation date.",
+        description="Get list of references for a task, sorted by creation date.",
     )
     @action(detail=True, methods=["get"], url_path="references", required_scopes=["task:read"])
     def references(self, request, pk=None, **kwargs):
-        """Get references for a task.
-
-        Returns references sorted by created_at (descending), with pagination.
-        Query params:
-        - limit: Max items to return (default 10)
-        - offset: Number of items to skip (default 0)
-        """
         task = cast(Task, self.get_object())
-
-        limit = int(request.query_params.get("limit", 10))
-        offset = int(request.query_params.get("offset", 0))
-
         references = TaskReference.objects.filter(task=task).order_by("-created_at")
-
         total_count = references.count()
-        references = references[offset : offset + limit]
-
         serializer = TaskReferenceSerializer(references, many=True)
         return Response(
             {
                 "results": serializer.data,
                 "count": total_count,
-                "limit": limit,
-                "offset": offset,
             }
         )
 

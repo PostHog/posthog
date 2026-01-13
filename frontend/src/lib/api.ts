@@ -4058,8 +4058,8 @@ const api = {
         async clusterVideoSegments(): Promise<{ status: string; workflow_id: string; message: string }> {
             return await new ApiRequest().tasks().withAction('cluster_video_segments').create()
         },
-        async getReferences(taskId: Task['id'], limit = 10, offset = 0): Promise<TaskReferencesResponse> {
-            return await new ApiRequest().task(taskId).withAction('references').withQueryString({ limit, offset }).get()
+        async getReferences(taskId: Task['id']): Promise<TaskReferencesResponse> {
+            return await new ApiRequest().task(taskId).withAction('references').get()
         },
         runs: {
             async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
