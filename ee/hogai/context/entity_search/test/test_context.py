@@ -3,10 +3,12 @@ from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 from django.conf import settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey
+from posthog.models.insight import InsightViewed
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.entity_search import EntitySearchContext
@@ -70,8 +72,8 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         formatted = self.context.format_entities(entities)
         lines = formatted.split("\n")
         assert "entity_type|entity_id|name|url" in lines[0]
-        assert "dashboard|456|Test Dashboard|" in lines[1]
-        assert "insight|123|Test Insight|" in lines[2]
+        assert "Dashboard|456|Test Dashboard|" in lines[1]
+        assert "Insight|123|Test Insight|" in lines[2]
 
     def test_format_entities_includes_id(self):
         entities = [
@@ -92,14 +94,14 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "TrendsQuery" not in formatted
         assert "Test Insight" in formatted
 
-    def test_format_entities_extracts_insight_type_from_insight_viz_node(self):
+    def test_format_entities_displays_insight_type_when_present(self):
         entities = [
             {
                 "type": "insight",
                 "result_id": "123",
                 "extra_fields": {
                     "name": "Test Insight",
-                    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                    "insight_type": "trends",
                 },
             },
         ]
@@ -118,7 +120,24 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         ]
     )
     def test_extract_insight_type_strips_query_suffix(self, source_kind, expected):
-        query = {"kind": "InsightVizNode", "source": {"kind": source_kind}}
+        # Build a valid InsightVizNode with minimal required fields for each query type
+        source: dict = {"kind": source_kind}
+        if source_kind == "TrendsQuery":
+            source["series"] = []
+        elif source_kind == "FunnelsQuery":
+            source["series"] = []
+            source["funnelsFilter"] = {}
+        elif source_kind == "RetentionQuery":
+            source["retentionFilter"] = {}
+        elif source_kind == "PathsQuery":
+            source["pathsFilter"] = {}
+        elif source_kind == "StickinessQuery":
+            source["series"] = []
+            source["stickinessFilter"] = {}
+        elif source_kind == "LifecycleQuery":
+            source["series"] = []
+            source["lifecycleFilter"] = {}
+        query = {"kind": "InsightVizNode", "source": source}
         assert self.context._extract_insight_type(query) == expected
 
     def test_extract_insight_type_returns_none_for_non_insight_viz_node(self):
@@ -283,11 +302,18 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "archived survey" not in result_names
 
     async def test_list_entities_insight(self):
-        await Insight.objects.acreate(
+        insight1 = await Insight.objects.acreate(
             team=self.team, name="List Insight 1", deleted=False, saved=True, created_by=self.user
         )
-        await Insight.objects.acreate(
+        insight2 = await Insight.objects.acreate(
             team=self.team, name="List Insight 2", deleted=False, saved=True, created_by=self.user
+        )
+        # list_entities for insights filters by recent views
+        await InsightViewed.objects.acreate(
+            team=self.team, user=self.user, insight=insight1, last_viewed_at=timezone.now()
+        )
+        await InsightViewed.objects.acreate(
+            team=self.team, user=self.user, insight=insight2, last_viewed_at=timezone.now()
         )
 
         entities, total = await self.context.list_entities("insight", limit=10, offset=0)
@@ -309,8 +335,12 @@ class TestEntitySearchContext(NonAtomicBaseTest):
 
     async def test_list_entities_pagination(self):
         for i in range(5):
-            await Insight.objects.acreate(
+            insight = await Insight.objects.acreate(
                 team=self.team, name=f"Paginated Insight {i}", deleted=False, saved=True, created_by=self.user
+            )
+            # list_entities for insights filters by recent views
+            await InsightViewed.objects.acreate(
+                team=self.team, user=self.user, insight=insight, last_viewed_at=timezone.now()
             )
 
         entities_page1, total = await self.context.list_entities("insight", limit=2, offset=0)
@@ -326,13 +356,14 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert total == 5
 
     async def test_list_entities_artifact_delegates_to_artifacts_manager(self):
+        from posthog.schema import HogQLQuery, VisualizationArtifactContent
+
         mock_artifacts_manager = MagicMock()
         mock_artifact = MagicMock()
         mock_artifact.short_id = "abc123"
-        mock_content = MagicMock()
-        mock_content.name = "Test Artifact"
-        mock_content.description = "Test description"
-        mock_artifact.content = mock_content
+        mock_artifact.content = VisualizationArtifactContent(
+            name="Test Artifact", description="Test description", query=HogQLQuery(query="SELECT 1")
+        )
         mock_artifacts_manager.aget_conversation_artifacts = AsyncMock(return_value=([mock_artifact], 1))
 
         self.context_manager.artifacts = mock_artifacts_manager

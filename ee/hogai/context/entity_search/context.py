@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from pydantic import ValidationError
 
-from posthog.schema import DocumentArtifactContent, InsightVizNode, VisualizationArtifactContent
+from posthog.schema import InsightVizNode, VisualizationArtifactContent
 
 from posthog.api.search import EntityConfig, search_entities
 from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
@@ -140,6 +140,7 @@ class EntitySearchContext:
             # Convert artifacts to the same format as database entities
             for artifact in artifacts:
                 try:
+                    extra_fields: dict[str, Any] = {}
                     content = artifact.content
                     match content:
                         case VisualizationArtifactContent():
@@ -147,8 +148,6 @@ class EntitySearchContext:
                                 "name": content.name,
                                 "description": content.description,
                             }
-                        case DocumentArtifactContent():
-                            extra_fields = {}
                     all_entities.append(
                         {
                             "type": "artifact",
