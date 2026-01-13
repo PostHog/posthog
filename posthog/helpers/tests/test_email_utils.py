@@ -201,6 +201,21 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
+    @patch("posthog.helpers.email_utils.requests.get")
+    def test_429_rate_limit_caches_with_short_ttl(self, mock_get, mock_cache):
+        mock_cache.get.return_value = None
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_get.return_value = mock_response
+
+        check_esp_suppression("test@example.com")
+
+        # Verify result was cached with short TTL (not the default 1 day)
+        call_args = mock_cache.set.call_args
+        self.assertEqual(call_args[0][2], ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS)
+
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.cache")
     def test_cached_error_returns_fallback_without_api_call(self, mock_cache):
         # Simulate: normal cache miss, but error cache hit
         def cache_get_side_effect(key):
