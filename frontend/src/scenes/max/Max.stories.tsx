@@ -669,8 +669,8 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
 }
 ThreadScrollsToBottomOnNewMessages.parameters = {
     testOptions: {
-        // Wait for loaders to disappear to ensure content is fully loaded
-        waitForLoadersToDisappear: true,
+        // Don't wait for loaders - this story intentionally shows a loading state
+        waitForLoadersToDisappear: false,
     },
 }
 
