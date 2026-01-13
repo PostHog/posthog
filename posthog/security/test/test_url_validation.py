@@ -2,52 +2,52 @@ import ipaddress
 
 import pytest
 
-from posthog.heatmaps import heatmaps_utils as us
+from posthog.security import url_validation as uv
 
 
 @pytest.fixture(autouse=True)
 def force_prod(monkeypatch):
     # Ensure tests run with production-like SSRF behavior unless overridden in a test
-    monkeypatch.setattr(us, "is_dev_mode", lambda: False)
+    monkeypatch.setattr(uv, "is_dev_mode", lambda: False)
 
 
-class TestUrlSafety:
+class TestUrlValidation:
     def test_is_url_allowed_disallowed_scheme(self):
-        ok, err = us.is_url_allowed("javascript:alert(1)")
+        ok, err = uv.is_url_allowed("javascript:alert(1)")
         assert not ok and "scheme" in (err or "")
 
     def test_is_url_allowed_localhost(self):
-        ok, err = us.is_url_allowed("http://localhost")
+        ok, err = uv.is_url_allowed("http://localhost")
         assert not ok and "Local" in (err or "")
 
     def test_is_url_allowed_loopback_ip(self):
-        ok, err = us.is_url_allowed("http://127.0.0.1")
+        ok, err = uv.is_url_allowed("http://127.0.0.1")
         assert not ok and "Loopback" in (err or "")
 
     def test_is_url_allowed_metadata_host(self):
-        ok, err = us.is_url_allowed("http://169.254.169.254/latest/meta-data/")
+        ok, err = uv.is_url_allowed("http://169.254.169.254/latest/meta-data/")
         assert not ok and "Local/metadata" in (err or "")
 
     def test_dev_mode_allows_everything(self, monkeypatch):
-        monkeypatch.setattr(us, "is_dev_mode", lambda: True)
-        ok, err = us.is_url_allowed("http://localhost")
+        monkeypatch.setattr(uv, "is_dev_mode", lambda: True)
+        ok, err = uv.is_url_allowed("http://localhost")
         assert ok and err is None
-        assert us.should_block_url("http://localhost/x") is False
+        assert uv.should_block_url("http://localhost/x") is False
 
     def test_is_url_allowed_private_resolution_blocked(self, monkeypatch):
         def fake_resolve(host: str):
             return {ipaddress.ip_address("192.168.1.10")}
 
-        monkeypatch.setattr(us, "resolve_host_ips", fake_resolve)
-        ok, err = us.is_url_allowed("https://example.com")
+        monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
+        ok, err = uv.is_url_allowed("https://example.com")
         assert not ok and "Disallowed target IP" in (err or "")
 
     def test_is_url_allowed_public_resolution_allowed(self, monkeypatch):
         def fake_resolve(host: str):
             return {ipaddress.ip_address("93.184.216.34")}  # example.com public IP
 
-        monkeypatch.setattr(us, "resolve_host_ips", fake_resolve)
-        ok, err = us.is_url_allowed("https://example.com/path")
+        monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
+        ok, err = uv.is_url_allowed("https://example.com/path")
         assert ok and err is None
 
     @pytest.mark.parametrize(
@@ -91,7 +91,7 @@ class TestUrlSafety:
         ],
     )
     def test_should_block_url(self, url, blocked):
-        assert us.should_block_url(url) is blocked
+        assert uv.should_block_url(url) is blocked
 
     def test_should_block_url_hostname_resolves_to_private_ip(self, monkeypatch):
         def fake_resolve(host: str):
@@ -99,6 +99,6 @@ class TestUrlSafety:
                 return {ipaddress.ip_address("10.0.0.5")}
             return {ipaddress.ip_address("93.184.216.34")}
 
-        monkeypatch.setattr(us, "resolve_host_ips", fake_resolve)
-        assert us.should_block_url("http://attacker-controlled.com/evil") is True
-        assert us.should_block_url("http://example.com/safe") is False
+        monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
+        assert uv.should_block_url("http://attacker-controlled.com/evil") is True
+        assert uv.should_block_url("http://example.com/safe") is False
