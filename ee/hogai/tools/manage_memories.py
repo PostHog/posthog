@@ -55,7 +55,7 @@ class UpdateMemoryArgs(BaseModel):
 
 
 class DeleteMemoryArgs(BaseModel):
-    memory_id: str = Field(description="The ID of the memory to delete")
+    memory_id_to_delete: str = Field(description="The ID of the memory to delete")
 
 
 class ManageMemoriesToolArgs(BaseModel):
@@ -99,7 +99,7 @@ class ManageMemoriesTool(MaxTool):
         elif action == "delete":
             if not isinstance(args, DeleteMemoryArgs):
                 raise MaxToolRetryableError("DeleteMemoryArgs required for delete action")
-            return await self._delete_memory(args.memory_id)
+            return await self._delete_memory(args.memory_id_to_delete)
         elif action == "list_metadata_keys":
             return await self._list_metadata_keys()
         else:
