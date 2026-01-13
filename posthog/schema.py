@@ -333,6 +333,7 @@ class AssistantTool(StrEnum):
     TASK = "task"
     UPSERT_DASHBOARD = "upsert_dashboard"
     MANAGE_MEMORIES = "manage_memories"
+    CREATE_NOTEBOOK = "create_notebook"
 
 
 class AssistantToolCall(BaseModel):
@@ -1666,7 +1667,6 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
-    FEED = "feed"
     HOME = "home"
     APPS = "apps"
     LIVE = "live"
@@ -2008,6 +2008,7 @@ class IntegrationKind(StrEnum):
     TIKTOK_ADS = "tiktok-ads"
     BING_ADS = "bing-ads"
     VERCEL = "vercel"
+    AZURE_BLOB = "azure-blob"
 
 
 class IntervalType(StrEnum):
@@ -2371,6 +2372,40 @@ class MaxErrorTrackingIssueContext(BaseModel):
     id: str
     name: str | None = None
     type: Literal["error_tracking_issue"] = "error_tracking_issue"
+
+
+class MaxErrorTrackingIssuePreview(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = Field(..., description="Issue description or exception message")
+    first_seen: str | None = Field(..., description="When the issue was first seen")
+    id: str = Field(..., description="Issue ID")
+    last_seen: str | None = Field(..., description="When the issue was last seen")
+    library: str | None = Field(..., description="Library/runtime that generated the error")
+    name: str | None = Field(..., description="Issue name/title")
+    occurrences: float = Field(..., description="Total number of occurrences")
+    sessions: float = Field(..., description="Number of affected sessions")
+    status: str = Field(..., description="Issue status (active, resolved, etc.)")
+    users: float = Field(..., description="Number of affected users")
+
+
+class MaxErrorTrackingSearchResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str | None = Field(default=None, description="Start of date range")
+    date_to: str | None = Field(default=None, description="End of date range")
+    has_more: bool | None = Field(default=None, description="Whether there are more results available")
+    issues: list[MaxErrorTrackingIssuePreview] | None = Field(
+        default=None, description="Preview of issues found matching the filters"
+    )
+    limit: float | None = Field(default=None, description="Number of results to return")
+    next_cursor: str | None = Field(default=None, description="Cursor for pagination")
+    order_by: str | None = Field(default=None, description="Field to order by")
+    order_direction: str | None = Field(default=None, description="Order direction (ASC or DESC)")
+    search_query: str | None = Field(default=None, description="Free text search query")
+    status: str | None = Field(default=None, description="Issue status filter (active, resolved, etc.)")
 
 
 class MaxEventContext(BaseModel):

@@ -788,7 +788,9 @@ class ClickHousePrinter(HogQLPrinter):
         return escape_clickhouse_string(name, timezone=self._get_timezone())
 
     def _ensure_team_id_where_clause(
-        self, table_type: ast.TableType | ast.LazyTableType, node_type: ast.TableOrSelectType | None
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
     ):
         # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
         # Skip warehouse tables and tables with an explicit skip.

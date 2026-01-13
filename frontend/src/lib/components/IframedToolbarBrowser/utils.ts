@@ -20,6 +20,7 @@ export const DEFAULT_HEATMAP_FILTERS: HeatmapFilters = {
 }
 
 export const DEFAULT_HEATMAP_WIDTH = 1024
+export const DEFAULT_HEATMAP_HEIGHT = 800
 
 export const calculateViewportRange = (
     heatmapFilters: HeatmapFilters,
