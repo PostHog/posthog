@@ -91,6 +91,8 @@ pub struct FlagsCanonicalLogLine {
     // Populated during flag evaluation
     pub flags_evaluated: usize,
     pub flags_experience_continuity: usize,
+    /// Number of flags that used device_id for bucketing (instead of distinct_id).
+    pub flags_device_id_bucketing: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
     /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
@@ -152,6 +154,7 @@ impl Default for FlagsCanonicalLogLine {
             device_id: None,
             flags_evaluated: 0,
             flags_experience_continuity: 0,
+            flags_device_id_bucketing: 0,
             flags_disabled: false,
             quota_limited: false,
             flags_cache_source: None,
@@ -208,6 +211,7 @@ impl FlagsCanonicalLogLine {
             http_status = self.http_status,
             flags_evaluated = self.flags_evaluated,
             flags_experience_continuity = self.flags_experience_continuity,
+            flags_device_id_bucketing = self.flags_device_id_bucketing,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
             flags_cache_source = self.flags_cache_source,
@@ -267,6 +271,7 @@ mod tests {
         assert!(log.device_id.is_none());
         assert_eq!(log.flags_evaluated, 0);
         assert_eq!(log.flags_experience_continuity, 0);
+        assert_eq!(log.flags_device_id_bucketing, 0);
         assert!(!log.flags_disabled);
         assert!(!log.quota_limited);
         assert!(log.flags_cache_source.is_none());
@@ -308,6 +313,7 @@ mod tests {
         log.device_id = Some("device_123".to_string());
         log.flags_evaluated = 10;
         log.flags_experience_continuity = 2;
+        log.flags_device_id_bucketing = 3;
         log.flags_disabled = false;
         log.quota_limited = true;
         log.flags_cache_source = Some("redis");
