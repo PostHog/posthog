@@ -264,6 +264,7 @@ export const stringOperatorMap: Record<string, string> = {
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
     semver_eq: '= equals (semver)',
+    semver_neq: '≠ not equal (semver)',
     semver_gt: '> greater than (semver)',
     semver_gte: '≥ greater than or equal (semver)',
     semver_lt: '< less than (semver)',
