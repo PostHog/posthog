@@ -1,10 +1,14 @@
 import { getReactNativeSteps as getReactNativeStepsPA } from '../product-analytics/react-native'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from '../product-analytics/android'
+import { StepDefinition, StepModifier } from '../steps'
 
-export const ReactNativeInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-
+export const getReactNativeSteps = (
+    CodeBlock: any,
+    Markdown: any,
+    dedent: any,
+    snippets: any,
+    options?: StepModifier
+): StepDefinition[] => {
     // Get installation steps from product-analytics
     const installationSteps = getReactNativeStepsPA(CodeBlock, Markdown, dedent)
 
@@ -92,10 +96,16 @@ export const ReactNativeInstallation = (): JSX.Element => {
     ]
 
     const allSteps = [...installationSteps, ...flagSteps]
+    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+}
+
+export const ReactNativeInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
+    const steps = getReactNativeSteps(CodeBlock, Markdown, dedent, snippets, { modifySteps })
 
     return (
         <Steps>
-            {allSteps.map((step, index) => (
+            {steps.map((step, index) => (
                 <Step key={index} title={step.title} badge={step.badge}>
                     {step.content}
                 </Step>

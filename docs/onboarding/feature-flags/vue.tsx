@@ -1,10 +1,15 @@
 import { getVueSteps as getVueStepsPA } from '../product-analytics/vue'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from '../product-analytics/android'
+import { StepDefinition, StepModifier } from '../steps'
 
-export const VueInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-
+export const getVueSteps = (
+    CodeBlock: any,
+    Markdown: any,
+    CalloutBox: any,
+    dedent: any,
+    snippets: any,
+    options?: StepModifier
+): StepDefinition[] => {
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
 
@@ -55,10 +60,16 @@ export const VueInstallation = (): JSX.Element => {
     ]
 
     const allSteps = [...installationSteps, ...flagSteps]
+    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+}
+
+export const VueInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
+    const steps = getVueSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets, { modifySteps })
 
     return (
         <Steps>
-            {allSteps.map((step, index) => (
+            {steps.map((step, index) => (
                 <Step key={index} title={step.title} badge={step.badge}>
                     {step.content}
                 </Step>

@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from './android'
+import { StepDefinition } from '../steps'
 
 export const getAngularSteps = (CodeBlock: any, Markdown: any, dedent: any, snippets: any): StepDefinition[] => {
     const JSEventCapture = snippets?.JSEventCapture

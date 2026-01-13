@@ -1,5 +1,5 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from './android'
+import { StepDefinition } from '../steps'
 
 export const getRemixSteps = (
     CodeBlock: any,

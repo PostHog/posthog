@@ -1,15 +1,20 @@
-import { getNuxtSteps } from '../product-analytics/nuxt'
+import { getNuxtSteps as getNuxtStepsPA } from '../product-analytics/nuxt'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from '../product-analytics/android'
+import { StepDefinition, StepModifier } from '../steps'
 
-export const NuxtInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-
+export const getNuxtSteps = (
+    CodeBlock: any,
+    Markdown: any,
+    CalloutBox: any,
+    dedent: any,
+    snippets: any,
+    options?: StepModifier
+): StepDefinition[] => {
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getNuxtSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets)
+    const installationSteps = getNuxtStepsPA(CodeBlock, Markdown, CalloutBox, dedent, snippets)
 
     // Add flag implementation steps
     const flagSteps: StepDefinition[] = [
@@ -71,10 +76,16 @@ export const NuxtInstallation = (): JSX.Element => {
     ]
 
     const allSteps = [...installationSteps, ...flagSteps]
+    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+}
+
+export const NuxtInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
+    const steps = getNuxtSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets, { modifySteps })
 
     return (
         <Steps>
-            {allSteps.map((step, index) => (
+            {steps.map((step, index) => (
                 <Step key={index} title={step.title} badge={step.badge}>
                     {step.content}
                 </Step>

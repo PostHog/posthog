@@ -1,15 +1,21 @@
-import { getNextJSSteps } from '../product-analytics/nextjs'
+import { getNextJSSteps as getNextJSStepsPA } from '../product-analytics/nextjs'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from '../product-analytics/android'
+import { StepDefinition, StepModifier } from '../steps'
 
-export const NextJSInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
-
+export const getNextJSSteps = (
+    CodeBlock: any,
+    Markdown: any,
+    CalloutBox: any,
+    Tab: any,
+    dedent: any,
+    snippets: any,
+    options?: StepModifier
+): StepDefinition[] => {
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getNextJSSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets)
+    const installationSteps = getNextJSStepsPA(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets)
 
     // Add flag implementation steps
     const flagSteps: StepDefinition[] = [
@@ -74,10 +80,16 @@ export const NextJSInstallation = (): JSX.Element => {
     ]
 
     const allSteps = [...installationSteps, ...flagSteps]
+    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+}
+
+export const NextJSInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
+    const steps = getNextJSSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets, { modifySteps })
 
     return (
         <Steps>
-            {allSteps.map((step, index) => (
+            {steps.map((step, index) => (
                 <Step key={index} title={step.title} badge={step.badge}>
                     {step.content}
                 </Step>

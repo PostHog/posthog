@@ -1,10 +1,14 @@
 import { getJSWebSteps as getJSWebStepsPA } from '../product-analytics/js-web'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from '../product-analytics/android'
+import { StepDefinition, StepModifier } from '../steps'
 
-export const JSWebInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-
+export const getJSWebSteps = (
+    CodeBlock: any,
+    Markdown: any,
+    dedent: any,
+    snippets: any,
+    options?: StepModifier
+): StepDefinition[] => {
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
     const FlagPayload = snippets?.FlagPayloadSnippet
@@ -91,10 +95,16 @@ export const JSWebInstallation = (): JSX.Element => {
     ]
 
     const allSteps = [...installationSteps, ...flagSteps]
+    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+}
+
+export const JSWebInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
+    const steps = getJSWebSteps(CodeBlock, Markdown, dedent, snippets, { modifySteps })
 
     return (
         <Steps>
-            {allSteps.map((step, index) => (
+            {steps.map((step, index) => (
                 <Step key={index} title={step.title} badge={step.badge}>
                     {step.content}
                 </Step>

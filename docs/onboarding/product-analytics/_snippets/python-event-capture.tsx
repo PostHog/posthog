@@ -1,8 +1,7 @@
-import { memo } from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { PersonProfiles } from './person-profiles'
 
-export const PythonEventCapture = memo(function PythonEventCapture(): JSX.Element {
+export const PythonEventCapture = function PythonEventCapture(): JSX.Element {
     const { Markdown, CodeBlock, dedent } = useMDXComponents()
 
     return (
@@ -25,4 +24,4 @@ export const PythonEventCapture = memo(function PythonEventCapture(): JSX.Elemen
             <PersonProfiles language="python" />
         </>
     )
-})
+}

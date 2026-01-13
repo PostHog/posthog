@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { PersonProfiles } from './_snippets/person-profiles'
-import { StepDefinition } from './android'
+import { StepDefinition } from '../steps'
 
 export const getLaravelSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
     return [

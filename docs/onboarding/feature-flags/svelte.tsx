@@ -1,15 +1,20 @@
-import { getSvelteSteps } from '../product-analytics/svelte'
+import { getSvelteSteps as getSvelteStepsPA } from '../product-analytics/svelte'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from '../product-analytics/android'
+import { StepDefinition, StepModifier } from '../steps'
 
-export const SvelteInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-
+export const getSvelteSteps = (
+    CodeBlock: any,
+    Markdown: any,
+    CalloutBox: any,
+    dedent: any,
+    snippets: any,
+    options?: StepModifier
+): StepDefinition[] => {
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getSvelteSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets)
+    const installationSteps = getSvelteStepsPA(CodeBlock, Markdown, CalloutBox, dedent, snippets)
 
     // Add flag implementation steps
     const flagSteps: StepDefinition[] = [
@@ -69,10 +74,16 @@ export const SvelteInstallation = (): JSX.Element => {
     ]
 
     const allSteps = [...installationSteps, ...flagSteps]
+    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+}
+
+export const SvelteInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
+    const steps = getSvelteSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets, { modifySteps })
 
     return (
         <Steps>
-            {allSteps.map((step, index) => (
+            {steps.map((step, index) => (
                 <Step key={index} title={step.title} badge={step.badge}>
                     {step.content}
                 </Step>
