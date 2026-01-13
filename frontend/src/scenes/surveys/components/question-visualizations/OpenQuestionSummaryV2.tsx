@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
+import { useThumbSurvey } from 'posthog-js/react'
 import { useCallback, useEffect, useState } from 'react'
 
 import {
@@ -22,6 +22,7 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 const MIN_RESPONSES_FOR_SUMMARY = 10
 const NEW_RESPONSES_THRESHOLD = 5
+const OPEN_QUESTION_SUMMARY_SURVEY_ID = '019bb5a3-1677-0000-63dd-00f241c1710a'
 
 interface SummaryData {
     content: string
@@ -48,7 +49,6 @@ export function OpenQuestionSummaryV2({
     const [summary, setSummary] = useState<SummaryData | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [showConsentPopover, setShowConsentPopover] = useState(false)
     const [isExpanded, setIsExpanded] = useState(true)
 
@@ -105,19 +105,18 @@ export function OpenQuestionSummaryV2({
     const handleDismissPopover = (): void => {
         setShowConsentPopover(false)
     }
-
-    const submitRating = (newRating: 'good' | 'bad'): void => {
-        if (rating) {
-            return
-        }
-        setRating(newRating)
-        posthog.capture('ai_survey_summary_rated', {
-            survey_id: survey.id,
-            question_id: questionId,
-            answer_rating: newRating,
+    const {
+        respond: submitRating,
+        response: rating,
+        triggerRef,
+    } = useThumbSurvey({
+        surveyId: OPEN_QUESTION_SUMMARY_SURVEY_ID,
+        properties: {
+            customer_survey_id: survey.id,
+            customer_question_id: questionId,
             $ai_trace_id: summary?.traceId,
-        })
-    }
+        },
+    })
 
     if (!shouldShowSummary) {
         return null
@@ -265,24 +264,24 @@ export function OpenQuestionSummaryV2({
                                 </AIConsentPopoverWrapper>
                             )}
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1" ref={triggerRef}>
                             {rating === null && <span>Was this helpful?</span>}
-                            {rating !== 'bad' && (
+                            {rating !== 'down' && (
                                 <LemonButton
-                                    icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                                    icon={rating === 'up' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                                     type="tertiary"
                                     size="xsmall"
                                     tooltip="Good summary"
-                                    onClick={() => submitRating('good')}
+                                    onClick={() => submitRating('up')}
                                 />
                             )}
-                            {rating !== 'good' && (
+                            {rating !== 'up' && (
                                 <LemonButton
-                                    icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
+                                    icon={rating === 'down' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                                     type="tertiary"
                                     size="xsmall"
                                     tooltip="Bad summary"
-                                    onClick={() => submitRating('bad')}
+                                    onClick={() => submitRating('down')}
                                 />
                             )}
                         </div>
