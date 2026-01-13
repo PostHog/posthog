@@ -11,7 +11,7 @@
 #include "HogQLParserBaseVisitor.h"
 
 #include "error.h"
-#include "json_builder.h"
+#include "json.h"
 #include "string.h"
 
 #define VISIT(RULE) any visit##RULE(HogQLParser::RULE##Context* ctx) override
@@ -24,71 +24,72 @@ using namespace std;
 
 // JSON UTILS
 
-// Helper: Add position information to JSON object from ParserRuleContext
-void addPositionInfo(JSONBuilder& json, antlr4::ParserRuleContext* ctx) {
+// Helper: Add position information to Json object from ParserRuleContext
+void addPositionInfo(Json& json, antlr4::ParserRuleContext* ctx) {
   if (!ctx) return;
 
-  auto start_token = ctx->getStart();
-  auto stop_token = ctx->getStop();
+  auto startToken = ctx->getStart();
+  auto stopToken = ctx->getStop();
 
-  if (start_token) {
-    JSONBuilder::Position start = {
-        start_token->getLine(), start_token->getCharPositionInLine(), start_token->getStartIndex()
-    };
-    json.addPosition("start", start);
+  if (startToken) {
+    Json start = Json::object();
+    start["line"] = static_cast<int64_t>(startToken->getLine());
+    start["column"] = static_cast<int64_t>(startToken->getCharPositionInLine());
+    start["offset"] = static_cast<int64_t>(startToken->getStartIndex());
+    json["start"] = std::move(start);
   }
 
-  if (stop_token) {
-    JSONBuilder::Position end = {
-        stop_token->getLine(), stop_token->getCharPositionInLine() + stop_token->getText().length(),
-        stop_token->getStopIndex() + 1
-    };
-    json.addPosition("end", end);
+  if (stopToken) {
+    Json end = Json::object();
+    end["line"] = static_cast<int64_t>(stopToken->getLine());
+    end["column"] = static_cast<int64_t>(stopToken->getCharPositionInLine() + stopToken->getText().length());
+    end["offset"] = static_cast<int64_t>(stopToken->getStopIndex() + 1);
+    json["end"] = std::move(end);
   }
 }
 
 // Helper: Add position from single token
-void addPositionInfo(JSONBuilder& json, const string& key, antlr4::Token* token) {
+void addPositionInfo(Json& json, const string& key, antlr4::Token* token) {
   if (!token) return;
 
-  JSONBuilder::Position pos = {token->getLine(), token->getCharPositionInLine(), token->getStartIndex()};
-  json.addPosition(key, pos);
+  Json pos = Json::object();
+  pos["line"] = static_cast<int64_t>(token->getLine());
+  pos["column"] = static_cast<int64_t>(token->getCharPositionInLine());
+  pos["offset"] = static_cast<int64_t>(token->getStartIndex());
+  json[key] = std::move(pos);
 }
 
 // Helper: Add end position from single token
-void addEndPositionInfo(JSONBuilder& json, antlr4::Token* token) {
+void addEndPositionInfo(Json& json, antlr4::Token* token) {
   if (!token) return;
 
-  JSONBuilder::Position end = {
-      token->getLine(), token->getCharPositionInLine() + token->getText().length(), token->getStopIndex() + 1
-  };
-  json.addPosition("end", end);
-}
-
-// Helper: Create JSON array from vector of strings
-void addStringArray(JSONBuilder& json, const string& key, const vector<string>& items) {
-  json.addKey(key);
-  json.startArray();
-  for (const auto& item : items) {
-    json.addString(item);
-  }
-  json.endArray();
+  Json end = Json::object();
+  end["line"] = static_cast<int64_t>(token->getLine());
+  end["column"] = static_cast<int64_t>(token->getCharPositionInLine() + token->getText().length());
+  end["offset"] = static_cast<int64_t>(token->getStopIndex() + 1);
+  json["end"] = std::move(end);
 }
 
 // Helper: Build a JSON error object
-string buildJSONError(const char* error_type, const string& message, size_t start, size_t end) {
-  JSONBuilder json;
-  json.startObject();
-  json.addKey("error");
-  json.addBool(true);
-  json.addKey("type");
-  json.addString(error_type);
-  json.addKey("message");
-  json.addString(message);
-  json.addPosition("start", {0, 0, start});
-  json.addPosition("end", {0, 0, end});
-  json.endObject();
-  return json.toString();
+string buildJSONError(const char* errorType, const string& message, size_t start, size_t end) {
+  Json json = Json::object();
+  json["error"] = true;
+  json["type"] = errorType;
+  json["message"] = message;
+
+  Json startPos = Json::object();
+  startPos["line"] = 0;
+  startPos["column"] = 0;
+  startPos["offset"] = static_cast<int64_t>(start);
+  json["start"] = std::move(startPos);
+
+  Json endPos = Json::object();
+  endPos["line"] = 0;
+  endPos["column"] = 0;
+  endPos["offset"] = static_cast<int64_t>(end);
+  json["end"] = std::move(endPos);
+
+  return json.dump();
 }
 
 // PARSING AND AST CONVERSION
@@ -98,6 +99,43 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   bool is_internal;
 
   const vector<string> RESERVED_KEYWORDS = {"true", "false", "null", "team_id"};
+
+  // Check whether a serialized JSON string represents a JoinExpr at the top level.
+  bool isJoinExprJson(const string& json) const {
+    int depth = 0;
+    bool in_string = false;
+
+    for (size_t i = 0; i < json.size(); i++) {
+      char c = json[i];
+
+      if (c == '"' && (i == 0 || json[i - 1] != '\\')) {
+        if (!in_string && depth == 1 && json.compare(i, 6, "\"node\"") == 0) {
+          size_t colon_pos = json.find(":", i + 6);
+          if (colon_pos == string::npos) return false;
+
+          size_t value_start = json.find("\"", colon_pos + 1);
+          if (value_start == string::npos) return false;
+
+          size_t value_end = json.find("\"", value_start + 1);
+          if (value_end == string::npos) return false;
+
+          string node_value = json.substr(value_start + 1, value_end - value_start - 1);
+          return node_value == "JoinExpr";
+        }
+        in_string = !in_string;
+      }
+
+      if (in_string) continue;
+
+      if (c == '{' || c == '[') {
+        depth++;
+      } else if (c == '}' || c == ']') {
+        if (depth > 0) depth--;
+      }
+    }
+
+    return false;
+  }
 
  public:
   HogQLParseTreeConverter(bool is_internal) : is_internal(is_internal) {}
@@ -174,14 +212,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   template <typename T>
   string visitJSONArrayOfObjects(vector<T> trees) {
-    JSONBuilder json;
-    json.startArray();
+    string result = "[";
+    bool first = true;
     for (auto tree : trees) {
-      string item_json = visitAsJSON(tree);
-      json.addRawJSON(item_json);
+      if (!first) {
+        result += ",";
+      }
+      first = false;
+      result += visitAsJSON(tree);
     }
-    json.endArray();
-    return json.toString();
+    result += "]";
+    return result;
   }
 
   string visitAsString(antlr4::tree::ParseTree* tree) { return any_cast<string>(visit(tree)); }
@@ -207,24 +248,19 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(Program) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Program");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("declarations");
-    json.startArray();
-    auto declaration_ctxs = ctx->declaration();
-    for (auto declaration_ctx : declaration_ctxs) {
-      if (declaration_ctx->statement() && declaration_ctx->statement()->emptyStmt()) {
+    Json json = Json::object();
+    json["node"] = "Program";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json declarations = Json::array();
+    auto declarationCtxs = ctx->declaration();
+    for (auto declarationCtx : declarationCtxs) {
+      if (declarationCtx->statement() && declarationCtx->statement()->emptyStmt()) {
         continue;
       }
-      json.addRawJSON(visitAsJSON(declaration_ctx));
+      declarations.pushBack(Json::raw(visitAsJSON(declarationCtx)));
     }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    json["declarations"] = std::move(declarations);
+    return json.dump();
   }
 
   VISIT(Declaration) {
@@ -242,34 +278,21 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(Expression) { return visit(ctx->columnExpr()); }
 
   VISIT(VarDecl) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("VariableDeclaration");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    string name = visitAsString(ctx->identifier());
-    json.addKey("name");
-    json.addString(name);
-    json.addKey("expr");
-    json.addRawJSON(visitAsJSONOrNull(ctx->expression()));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "VariableDeclaration";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = visitAsString(ctx->identifier());
+    json["expr"] = Json::raw(visitAsJSONOrNull(ctx->expression()));
+    return json.dump();
   }
 
   VISIT(VarAssignment) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("VariableAssignment");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("left");
-    json.addRawJSON(visitAsJSON(ctx->expression(0)));
-    json.addKey("right");
-    json.addRawJSON(visitAsJSON(ctx->expression(1)));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "VariableAssignment";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["left"] = Json::raw(visitAsJSON(ctx->expression(0)));
+    json["right"] = Json::raw(visitAsJSON(ctx->expression(1)));
+    return json.dump();
   }
 
   VISIT(Statement) {
@@ -341,269 +364,185 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ExprStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ExprStatement");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(visitAsJSON(ctx->expression()));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ExprStatement";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(visitAsJSON(ctx->expression()));
+    return json.dump();
   }
 
   VISIT(ReturnStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ReturnStatement");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(visitAsJSONOrNull(ctx->expression()));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ReturnStatement";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(visitAsJSONOrNull(ctx->expression()));
+    return json.dump();
   }
 
   VISIT(ThrowStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ThrowStatement");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(visitAsJSONOrNull(ctx->expression()));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ThrowStatement";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(visitAsJSONOrNull(ctx->expression()));
+    return json.dump();
   }
 
   VISIT(CatchBlock) {
-    // CatchBlock returns an array [catch_var, catch_type, catch_stmt]
-    JSONBuilder json;
-    json.startArray();
-
+    // CatchBlock returns an array [catchVar, catchType, catchStmt]
+    Json arr = Json::array();
     if (ctx->catchVar) {
-      string catch_var = visitAsString(ctx->catchVar);
-      json.addString(catch_var);
+      arr.pushBack(visitAsString(ctx->catchVar));
     } else {
-      json.addNull();
+      arr.pushBack(nullptr);
     }
-
     if (ctx->catchType) {
-      string catch_type = visitAsString(ctx->catchType);
-      json.addString(catch_type);
+      arr.pushBack(visitAsString(ctx->catchType));
     } else {
-      json.addNull();
+      arr.pushBack(nullptr);
     }
-
-    json.addRawJSON(visitAsJSON(ctx->catchStmt));
-    json.endArray();
-    return json.toString();
+    arr.pushBack(Json::raw(visitAsJSON(ctx->catchStmt)));
+    return arr.dump();
   }
 
   VISIT(TryCatchStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("TryCatchStatement");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
+    Json json = Json::object();
+    json["node"] = "TryCatchStatement";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["try_stmt"] = Json::raw(visitAsJSON(ctx->tryStmt));
+    Json catches = Json::array();
+    auto catchBlockCtxs = ctx->catchBlock();
+    for (auto catchBlockCtx : catchBlockCtxs) {
+      catches.pushBack(Json::raw(visitAsJSON(catchBlockCtx)));
     }
-    json.addKey("try_stmt");
-    json.addRawJSON(visitAsJSON(ctx->tryStmt));
-    json.addKey("catches");
-    json.startArray();
-    auto catch_block_ctxs = ctx->catchBlock();
-    for (auto catch_block_ctx : catch_block_ctxs) {
-      json.addRawJSON(visitAsJSON(catch_block_ctx));
-    }
-    json.endArray();
-    json.addKey("finally_stmt");
-    json.addRawJSON(visitAsJSONOrNull(ctx->finallyStmt));
-    json.endObject();
-    return json.toString();
+    json["catches"] = std::move(catches);
+    json["finally_stmt"] = Json::raw(visitAsJSONOrNull(ctx->finallyStmt));
+    return json.dump();
   }
 
   VISIT(IfStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("IfStatement");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(visitAsJSON(ctx->expression()));
-    json.addKey("then");
-    json.addRawJSON(visitAsJSON(ctx->statement(0)));
-    json.addKey("else_");
-    json.addRawJSON(visitAsJSONOrNull(ctx->statement(1)));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "IfStatement";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(visitAsJSON(ctx->expression()));
+    json["then"] = Json::raw(visitAsJSON(ctx->statement(0)));
+    json["else_"] = Json::raw(visitAsJSONOrNull(ctx->statement(1)));
+    return json.dump();
   }
 
   VISIT(WhileStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("WhileStatement");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(visitAsJSON(ctx->expression()));
-    json.addKey("body");
-    json.addRawJSON(visitAsJSONOrNull(ctx->statement()));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "WhileStatement";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(visitAsJSON(ctx->expression()));
+    json["body"] = Json::raw(visitAsJSONOrNull(ctx->statement()));
+    return json.dump();
   }
 
   VISIT(ForStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ForStatement");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
+    Json json = Json::object();
+    json["node"] = "ForStatement";
+    if (!is_internal) addPositionInfo(json, ctx);
 
-    json.addKey("initializer");
     if (ctx->initializerVarDeclr) {
-      json.addRawJSON(visitAsJSON(ctx->initializerVarDeclr));
+      json["initializer"] = Json::raw(visitAsJSON(ctx->initializerVarDeclr));
     } else if (ctx->initializerVarAssignment) {
-      json.addRawJSON(visitAsJSON(ctx->initializerVarAssignment));
+      json["initializer"] = Json::raw(visitAsJSON(ctx->initializerVarAssignment));
     } else if (ctx->initializerExpression) {
-      json.addRawJSON(visitAsJSON(ctx->initializerExpression));
+      json["initializer"] = Json::raw(visitAsJSON(ctx->initializerExpression));
     } else {
-      json.addNull();
+      json["initializer"] = nullptr;
     }
 
-    json.addKey("condition");
-    json.addRawJSON(visitAsJSONOrNull(ctx->condition));
+    json["condition"] = Json::raw(visitAsJSONOrNull(ctx->condition));
 
-    json.addKey("increment");
     if (ctx->incrementVarDeclr) {
-      json.addRawJSON(visitAsJSON(ctx->incrementVarDeclr));
+      json["increment"] = Json::raw(visitAsJSON(ctx->incrementVarDeclr));
     } else if (ctx->incrementVarAssignment) {
-      json.addRawJSON(visitAsJSON(ctx->incrementVarAssignment));
+      json["increment"] = Json::raw(visitAsJSON(ctx->incrementVarAssignment));
     } else if (ctx->incrementExpression) {
-      json.addRawJSON(visitAsJSON(ctx->incrementExpression));
+      json["increment"] = Json::raw(visitAsJSON(ctx->incrementExpression));
     } else {
-      json.addNull();
+      json["increment"] = nullptr;
     }
 
-    json.addKey("body");
-    json.addRawJSON(visitAsJSON(ctx->statement()));
-    json.endObject();
-    return json.toString();
+    json["body"] = Json::raw(visitAsJSON(ctx->statement()));
+    return json.dump();
   }
 
   VISIT(ForInStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ForInStatement");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
+    Json json = Json::object();
+    json["node"] = "ForInStatement";
+    if (!is_internal) addPositionInfo(json, ctx);
 
-    string first_identifier = visitAsString(ctx->identifier(0));
-    string second_identifier;
+    string firstIdentifier = visitAsString(ctx->identifier(0));
     if (ctx->identifier(1)) {
-      second_identifier = visitAsString(ctx->identifier(1));
-      json.addKey("keyVar");
-      json.addString(first_identifier);
-      json.addKey("valueVar");
-      json.addString(second_identifier);
+      string secondIdentifier = visitAsString(ctx->identifier(1));
+      json["keyVar"] = firstIdentifier;
+      json["valueVar"] = secondIdentifier;
     } else {
-      json.addKey("keyVar");
-      json.addNull();
-      json.addKey("valueVar");
-      json.addString(first_identifier);
+      json["keyVar"] = nullptr;
+      json["valueVar"] = firstIdentifier;
     }
 
-    json.addKey("expr");
-    json.addRawJSON(visitAsJSON(ctx->expression()));
-    json.addKey("body");
-    json.addRawJSON(visitAsJSON(ctx->statement()));
-    json.endObject();
-    return json.toString();
+    json["expr"] = Json::raw(visitAsJSON(ctx->expression()));
+    json["body"] = Json::raw(visitAsJSON(ctx->statement()));
+    return json.dump();
   }
 
   VISIT(FuncStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Function");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
+    Json json = Json::object();
+    json["node"] = "Function";
+    if (!is_internal) addPositionInfo(json, ctx);
 
-    string name = visitAsString(ctx->identifier());
-    json.addKey("name");
-    json.addString(name);
+    json["name"] = visitAsString(ctx->identifier());
 
-    json.addKey("params");
-    auto identifier_list_ctx = ctx->identifierList();
-    if (identifier_list_ctx) {
+    Json params = Json::array();
+    auto identifierListCtx = ctx->identifierList();
+    if (identifierListCtx) {
       vector<string> paramList = any_cast<vector<string>>(visit(ctx->identifierList()));
-      json.startArray();
       for (const auto& param : paramList) {
-        json.addString(param);
+        params.pushBack(param);
       }
-      json.endArray();
-    } else {
-      json.startArray();
-      json.endArray();
     }
+    json["params"] = std::move(params);
 
-    json.addKey("body");
-    json.addRawJSON(visitAsJSON(ctx->block()));
-    json.endObject();
-    return json.toString();
+    json["body"] = Json::raw(visitAsJSON(ctx->block()));
+    return json.dump();
   }
 
   VISIT(KvPairList) { return visitJSONArrayOfObjects(ctx->kvPair()); }
 
   VISIT(KvPair) {
     // KvPair returns an array [key, value]
-    JSONBuilder json;
-    json.startArray();
-    json.addRawJSON(visitAsJSON(ctx->expression(0)));
-    json.addRawJSON(visitAsJSON(ctx->expression(1)));
-    json.endArray();
-    return json.toString();
+    Json arr = Json::array();
+    arr.pushBack(Json::raw(visitAsJSON(ctx->expression(0))));
+    arr.pushBack(Json::raw(visitAsJSON(ctx->expression(1))));
+    return arr.dump();
   }
 
   VISIT(IdentifierList) { return visitAsVectorOfStrings(ctx->identifier()); }
 
   VISIT(EmptyStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ExprStatement");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addNull();
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ExprStatement";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = nullptr;
+    return json.dump();
   }
 
   VISIT(Block) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Block");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("declarations");
-    json.startArray();
-    auto declaration_ctxs = ctx->declaration();
-    for (auto declaration_ctx : declaration_ctxs) {
-      if (!declaration_ctx->statement() || !declaration_ctx->statement()->emptyStmt()) {
-        json.addRawJSON(visitAsJSON(declaration_ctx));
+    Json json = Json::object();
+    json["node"] = "Block";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json declarations = Json::array();
+    auto declarationCtxs = ctx->declaration();
+    for (auto declarationCtx : declarationCtxs) {
+      if (!declarationCtx->statement() || !declarationCtx->statement()->emptyStmt()) {
+        declarations.pushBack(Json::raw(visitAsJSON(declarationCtx)));
       }
     }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    json["declarations"] = std::move(declarations);
+    return json.dump();
   }
 
   // HogQL rules
@@ -637,174 +576,139 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(SelectSetStmt) {
-    auto subsequent_clauses = ctx->subsequentSelectSetClause();
+    auto subsequentClauses = ctx->subsequentSelectSetClause();
 
-    if (subsequent_clauses.empty()) {
+    if (subsequentClauses.empty()) {
       return visit(ctx->selectStmtWithParens());
     }
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("SelectSetQuery");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
+    Json json = Json::object();
+    json["node"] = "SelectSetQuery";
+    if (!is_internal) addPositionInfo(json, ctx);
 
-    json.addKey("initial_select_query");
-    json.addRawJSON(visitAsJSON(ctx->selectStmtWithParens()));
+    json["initial_select_query"] = Json::raw(visitAsJSON(ctx->selectStmtWithParens()));
 
-    json.addKey("subsequent_select_queries");
-    json.startArray();
-    for (auto subsequent : subsequent_clauses) {
-      const char* set_operator;
+    Json subsequentSelectQueries = Json::array();
+    for (auto subsequent : subsequentClauses) {
+      const char* setOperator;
       if (subsequent->UNION() && subsequent->ALL()) {
-        set_operator = "UNION ALL";
+        setOperator = "UNION ALL";
       } else if (subsequent->UNION() && subsequent->DISTINCT()) {
-        set_operator = "UNION DISTINCT";
+        setOperator = "UNION DISTINCT";
       } else if (subsequent->INTERSECT() && subsequent->DISTINCT()) {
-        set_operator = "INTERSECT DISTINCT";
+        setOperator = "INTERSECT DISTINCT";
       } else if (subsequent->INTERSECT()) {
-        set_operator = "INTERSECT";
+        setOperator = "INTERSECT";
       } else if (subsequent->EXCEPT()) {
-        set_operator = "EXCEPT";
+        setOperator = "EXCEPT";
       } else {
         throw SyntaxError(
             "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
         );
       }
 
-      JSONBuilder node_json;
-      node_json.startObject();
-      node_json.addNodeType("SelectSetNode");
-      node_json.addKey("select_query");
-      node_json.addRawJSON(visitAsJSON(subsequent->selectStmtWithParens()));
-      node_json.addKey("set_operator");
-      node_json.addString(set_operator);
-      node_json.endObject();
-      json.addRawJSON(node_json.toString());
+      Json node_json = Json::object();
+      node_json["node"] = "SelectSetNode";
+      node_json["select_query"] = Json::raw(visitAsJSON(subsequent->selectStmtWithParens()));
+      node_json["set_operator"] = setOperator;
+      subsequentSelectQueries.pushBack(std::move(node_json));
     }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    json["subsequent_select_queries"] = std::move(subsequentSelectQueries);
+    return json.dump();
   }
 
   VISIT(SelectStmt) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("SelectQuery");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
+    Json json = Json::object();
+    json["node"] = "SelectQuery";
+    if (!is_internal) addPositionInfo(json, ctx);
 
     // Add basic query fields
-    json.addKey("ctes");
-    json.addRawJSON(visitAsJSONOrNull(ctx->withClause()));
-    json.addKey("select");
-    json.addRawJSON(visitAsJSONOrEmptyArray(ctx->columnExprList()));
-    json.addKey("distinct");
-    if (ctx->DISTINCT()) {
-      json.addBool(true);
-    } else {
-      json.addNull();
-    }
-    json.addKey("select_from");
-    json.addRawJSON(visitAsJSONOrNull(ctx->fromClause()));
-    json.addKey("where");
-    json.addRawJSON(visitAsJSONOrNull(ctx->whereClause()));
-    json.addKey("prewhere");
-    json.addRawJSON(visitAsJSONOrNull(ctx->prewhereClause()));
-    json.addKey("having");
-    json.addRawJSON(visitAsJSONOrNull(ctx->havingClause()));
-    json.addKey("group_by");
-    json.addRawJSON(visitAsJSONOrNull(ctx->groupByClause()));
-    json.addKey("order_by");
-    json.addRawJSON(visitAsJSONOrNull(ctx->orderByClause()));
+    json["ctes"] = Json::raw(visitAsJSONOrNull(ctx->withClause()));
+    json["select"] = Json::raw(visitAsJSONOrEmptyArray(ctx->columnExprList()));
+    json["distinct"] = ctx->DISTINCT() ? Json(true) : Json(nullptr);
+    json["select_from"] = Json::raw(visitAsJSONOrNull(ctx->fromClause()));
+    json["where"] = Json::raw(visitAsJSONOrNull(ctx->whereClause()));
+    json["prewhere"] = Json::raw(visitAsJSONOrNull(ctx->prewhereClause()));
+    json["having"] = Json::raw(visitAsJSONOrNull(ctx->havingClause()));
+    json["group_by"] = Json::raw(visitAsJSONOrNull(ctx->groupByClause()));
+    json["order_by"] = Json::raw(visitAsJSONOrNull(ctx->orderByClause()));
 
     // Handle window clause
-    auto window_clause_ctx = ctx->windowClause();
-    if (window_clause_ctx) {
-      auto window_expr_ctxs = window_clause_ctx->windowExpr();
-      auto identifier_ctxs = window_clause_ctx->identifier();
-      if (window_expr_ctxs.size() != identifier_ctxs.size()) {
+    auto windowClauseCtx = ctx->windowClause();
+    if (windowClauseCtx) {
+      auto windowExprCtxs = windowClauseCtx->windowExpr();
+      auto identifierCtxs = windowClauseCtx->identifier();
+      if (windowExprCtxs.size() != identifierCtxs.size()) {
         throw ParsingError("WindowClause must have a matching number of window exprs and identifiers");
       }
-      json.addKey("window_exprs");
-      json.startObject();
-      for (size_t i = 0; i < window_expr_ctxs.size(); i++) {
-        string identifier = visitAsString(identifier_ctxs[i]);
-        json.addKey(identifier);
-        json.addRawJSON(visitAsJSON(window_expr_ctxs[i]));
+      Json windowExprs = Json::object();
+      for (size_t i = 0; i < windowExprCtxs.size(); i++) {
+        string identifier = visitAsString(identifierCtxs[i]);
+        windowExprs[identifier] = Json::raw(visitAsJSON(windowExprCtxs[i]));
       }
-      json.endObject();
+      json["window_exprs"] = std::move(windowExprs);
     }
 
     // Handle offset and limit clauses
-    auto limit_and_offset_clause_ctx = ctx->limitAndOffsetClause();
-    auto offset_only_clause_ctx = ctx->offsetOnlyClause();
+    auto limitAndOffsetClauseCtx = ctx->limitAndOffsetClause();
+    auto offsetOnlyClauseCtx = ctx->offsetOnlyClause();
 
-    if (offset_only_clause_ctx && !limit_and_offset_clause_ctx) {
-      json.addKey("offset");
-      json.addRawJSON(visitAsJSON(offset_only_clause_ctx));
+    if (offsetOnlyClauseCtx && !limitAndOffsetClauseCtx) {
+      json["offset"] = Json::raw(visitAsJSON(offsetOnlyClauseCtx));
     }
 
-    if (limit_and_offset_clause_ctx) {
-      json.addKey("limit");
-      json.addRawJSON(visitAsJSON(limit_and_offset_clause_ctx->columnExpr(0)));
+    if (limitAndOffsetClauseCtx) {
+      json["limit"] = Json::raw(visitAsJSON(limitAndOffsetClauseCtx->columnExpr(0)));
 
-      auto offset_ctx = limit_and_offset_clause_ctx->columnExpr(1);
-      if (offset_ctx) {
-        json.addKey("offset");
-        json.addRawJSON(visitAsJSON(offset_ctx));
+      auto offsetCtx = limitAndOffsetClauseCtx->columnExpr(1);
+      if (offsetCtx) {
+        json["offset"] = Json::raw(visitAsJSON(offsetCtx));
       }
 
-      if (limit_and_offset_clause_ctx->WITH() && limit_and_offset_clause_ctx->TIES()) {
-        json.addKey("limit_with_ties");
-        json.addBool(true);
+      if (limitAndOffsetClauseCtx->WITH() && limitAndOffsetClauseCtx->TIES()) {
+        json["limit_with_ties"] = true;
       }
     }
 
     // Handle limit_by clause
-    auto limit_by_clause_ctx = ctx->limitByClause();
-    if (limit_by_clause_ctx) {
-      json.addKey("limit_by");
-      json.addRawJSON(visitAsJSON(limit_by_clause_ctx));
+    auto limitByClauseCtx = ctx->limitByClause();
+    if (limitByClauseCtx) {
+      json["limit_by"] = Json::raw(visitAsJSON(limitByClauseCtx));
     }
 
     // Handle array_join clause
-    auto array_join_clause_ctx = ctx->arrayJoinClause();
-    if (array_join_clause_ctx) {
-      string select_from_json = visitAsJSONOrNull(ctx->fromClause());
-      if (select_from_json == "null") {
+    auto arrayJoinClauseCtx = ctx->arrayJoinClause();
+    if (arrayJoinClauseCtx) {
+      string selectFromJson = visitAsJSONOrNull(ctx->fromClause());
+      if (selectFromJson == "null") {
         throw SyntaxError("Using ARRAY JOIN without a FROM clause is not permitted");
       }
 
-      json.addKey("array_join_op");
-      if (array_join_clause_ctx->LEFT()) {
-        json.addString("LEFT ARRAY JOIN");
-      } else if (array_join_clause_ctx->INNER()) {
-        json.addString("INNER ARRAY JOIN");
+      if (arrayJoinClauseCtx->LEFT()) {
+        json["array_join_op"] = "LEFT ARRAY JOIN";
+      } else if (arrayJoinClauseCtx->INNER()) {
+        json["array_join_op"] = "INNER ARRAY JOIN";
       } else {
-        json.addString("ARRAY JOIN");
+        json["array_join_op"] = "ARRAY JOIN";
       }
 
-      auto array_join_arrays_ctx = array_join_clause_ctx->columnExprList();
-      auto array_join_exprs = array_join_arrays_ctx->columnExpr();
+      auto arrayJoinArraysCtx = arrayJoinClauseCtx->columnExprList();
+      auto arrayJoinExprs = arrayJoinArraysCtx->columnExpr();
 
       // Validate that all array join expressions have aliases
-      for (size_t i = 0; i < array_join_exprs.size(); i++) {
-        string expr_json = visitAsJSON(array_join_exprs[i]);
+      for (size_t i = 0; i < arrayJoinExprs.size(); i++) {
+        string exprJson = visitAsJSON(arrayJoinExprs[i]);
         // Simple check: see if the JSON contains "node":"Alias"
-        if (expr_json.find("\"node\":\"Alias\"") == string::npos) {
-          auto relevant_column_expr_ctx = array_join_exprs[i];
+        if (exprJson.find("\"node\":\"Alias\"") == string::npos) {
+          auto relevantColumnExprCtx = arrayJoinExprs[i];
           throw SyntaxError(
-              "ARRAY JOIN arrays must have an alias", relevant_column_expr_ctx->getStart()->getStartIndex(),
-              relevant_column_expr_ctx->getStop()->getStopIndex() + 1
+              "ARRAY JOIN arrays must have an alias", relevantColumnExprCtx->getStart()->getStartIndex(),
+              relevantColumnExprCtx->getStop()->getStopIndex() + 1
           );
         }
       }
 
-      json.addKey("array_join_list");
-      json.addRawJSON(visitAsJSON(array_join_arrays_ctx));
+      json["array_join_list"] = Json::raw(visitAsJSON(arrayJoinArraysCtx));
     }
 
     // Check for unsupported clauses
@@ -815,8 +719,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw NotImplementedError("Unsupported: SelectStmt.settingsClause()");
     }
 
-    json.endObject();
-    return json.toString();
+    return json.dump();
   }
 
   VISIT(WithClause) { return visit(ctx->withExprList()); }
@@ -841,56 +744,46 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(LimitByClause) {
     // LimitExpr returns either single JSON or a JSON array [limit, offset]
-    string limit_expr_result = visitAsJSON(ctx->limitExpr());
+    string limitExprResult = visitAsJSON(ctx->limitExpr());
     string exprs = visitAsJSON(ctx->columnExprList());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("LimitByExpr");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
+    Json json = Json::object();
+    json["node"] = "LimitByExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
 
-    // Check if limit_expr_result is an array (contains both n and offset_value)
-    if (limit_expr_result[0] == '[') {
+    // Check if limitExprResult is an array (contains both n and offsetValue)
+    if (limitExprResult[0] == '[') {
       // It's an array, need to extract the two values
-      // Parse the JSON array to get n and offset_value by counting braces
-      int brace_count = 0;
-      size_t comma_pos = string::npos;
-      for (size_t i = 1; i < limit_expr_result.length(); i++) {
-        if (limit_expr_result[i] == '{')
-          brace_count++;
-        else if (limit_expr_result[i] == '}')
-          brace_count--;
-        else if (limit_expr_result[i] == ',' && brace_count == 0) {
-          comma_pos = i;
+      // Parse the JSON array to get n and offsetValue by counting braces
+      int braceCount = 0;
+      size_t commaPos = string::npos;
+      for (size_t i = 1; i < limitExprResult.length(); i++) {
+        if (limitExprResult[i] == '{')
+          braceCount++;
+        else if (limitExprResult[i] == '}')
+          braceCount--;
+        else if (limitExprResult[i] == ',' && braceCount == 0) {
+          commaPos = i;
           break;
         }
       }
-      if (comma_pos != string::npos) {
-        string n = limit_expr_result.substr(1, comma_pos - 1);  // Skip '[' and get until ','
-        string offset_value = limit_expr_result.substr(
-            comma_pos + 1, limit_expr_result.length() - comma_pos - 2
-        );  // Get after ',' until ']'
-        json.addKey("n");
-        json.addRawJSON(n);
-        json.addKey("offset_value");
-        json.addRawJSON(offset_value);
+      if (commaPos != string::npos) {
+        string n = limitExprResult.substr(1, commaPos - 1);  // Skip '[' and get until ','
+        string offsetValue =
+            limitExprResult.substr(commaPos + 1, limitExprResult.length() - commaPos - 2);  // Get after ',' until ']'
+        json["n"] = Json::raw(n);
+        json["offset_value"] = Json::raw(offsetValue);
       } else {
         throw ParsingError("Invalid array format from limitExpr");
       }
     } else {
-      // It's a single value, use as n with null offset_value
-      json.addKey("n");
-      json.addRawJSON(limit_expr_result);
-      json.addKey("offset_value");
-      json.addNull();
+      // It's a single value, use as n with null offsetValue
+      json["n"] = Json::raw(limitExprResult);
+      json["offset_value"] = nullptr;
     }
 
-    json.addKey("exprs");
-    json.addRawJSON(exprs);
-    json.endObject();
-    return json.toString();
+    json["exprs"] = Json::raw(exprs);
+    return json.dump();
   }
 
   VISIT(LimitExpr) {
@@ -904,19 +797,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     // We have both limit and offset - return as a simple array
     string second = visitAsJSON(ctx->columnExpr(1));
 
-    JSONBuilder json;
-    json.startArray();
+    Json arr = Json::array();
     if (ctx->COMMA()) {
       // For "LIMIT a, b" syntax: a is offset, b is limit
-      json.addRawJSON(second);  // offset
-      json.addRawJSON(first);   // limit
+      arr.pushBack(Json::raw(second));  // offset
+      arr.pushBack(Json::raw(first));   // limit
     } else {
       // For "LIMIT a OFFSET b" syntax: a is limit, b is offset
-      json.addRawJSON(first);   // limit
-      json.addRawJSON(second);  // offset
+      arr.pushBack(Json::raw(first));   // limit
+      arr.pushBack(Json::raw(second));  // offset
     }
-    json.endArray();
-    return json.toString();
+    return arr.dump();
   }
 
   VISIT(OffsetOnlyClause) { return visitAsJSON(ctx->columnExpr()); }
@@ -943,75 +834,63 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(JoinExprOp) {
-    auto join_op_ctx = ctx->joinOp();
-    string join_op;
-    if (join_op_ctx) {
-      join_op = visitAsString(join_op_ctx);
-      join_op.append(" JOIN");
+    auto joinOpCtx = ctx->joinOp();
+    string joinOp;
+    if (joinOpCtx) {
+      joinOp = visitAsString(joinOpCtx);
+      joinOp.append(" JOIN");
     } else {
-      join_op = "JOIN";
+      joinOp = "JOIN";
     }
 
-    // Get join2 and add the join_type and constraint to it
-    string join2_json = visitAsJSON(ctx->joinExpr(1));
-    string constraint_json = visitAsJSON(ctx->joinConstraintClause());
+    // Get join2 and add the joinType and constraint to it
+    string join2Json = visitAsJSON(ctx->joinExpr(1));
+    string constraintJson = visitAsJSON(ctx->joinConstraintClause());
 
-    // We need to inject join_type and constraint into join2_json
+    // We need to inject joinType and constraint into join2Json
     // Find the position after the opening brace and node type
-    size_t insert_pos = join2_json.find(",", join2_json.find("\"node\""));
-    if (insert_pos != string::npos) {
-      string injection =
-          "\"join_type\":\"" + JSONBuilder::escapeString(join_op) + "\",\"constraint\":" + constraint_json + ",";
-      join2_json.insert(insert_pos + 1, injection);
+    size_t insertPos = join2Json.find(",", join2Json.find("\"node\""));
+    if (insertPos != string::npos) {
+      string injection = "\"join_type\":" + Json::escapeString(joinOp) + ",\"constraint\":" + constraintJson + ",";
+      join2Json.insert(insertPos + 1, injection);
     }
 
-    string join1_json = visitAsJSON(ctx->joinExpr(0));
+    string join1Json = visitAsJSON(ctx->joinExpr(0));
 
     // Chain the joins together
-    return chainJoinExprs(join1_json, join2_json);
+    return chainJoinExprs(join1Json, join2Json);
   }
 
   VISIT(JoinExprTable) {
-    string table_json = visitAsJSON(ctx->tableExpr());
-    string sample_json = visitAsJSONOrNull(ctx->sampleClause());
-    bool table_final = ctx->FINAL();
+    string tableJson = visitAsJSON(ctx->tableExpr());
+    string sampleJson = visitAsJSONOrNull(ctx->sampleClause());
+    bool tableFinal = ctx->FINAL();
 
-    // Check if table is already a JoinExpr by looking at the START of the JSON
-    bool is_table_join_expr = table_json.substr(0, 30).find("\"node\":\"JoinExpr\"") != string::npos;
+    // Check if table is already a JoinExpr
+    bool isTableJoinExpr = isJoinExprJson(tableJson);
 
-    if (is_table_join_expr) {
-      // Inject sample and table_final into the existing JoinExpr before the closing brace
-      size_t insert_pos = table_json.rfind("}");
-      if (insert_pos != string::npos) {
-        string injection = ",\"sample\":" + sample_json + ",\"table_final\":" + (table_final ? "true" : "null");
-        table_json.insert(insert_pos, injection);
+    if (isTableJoinExpr) {
+      // Inject sample and tableFinal into the existing JoinExpr before the closing brace
+      size_t insertPos = tableJson.rfind("}");
+      if (insertPos != string::npos) {
+        string injection = ",\"sample\":" + sampleJson + ",\"table_final\":" + (tableFinal ? "true" : "null");
+        tableJson.insert(insertPos, injection);
       }
-      return table_json;
+      return tableJson;
     } else {
       // Create a new JoinExpr wrapping the table
-      // Note: join_type/constraint will be injected by JoinExprOp before the closing }
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("JoinExpr");
+      // Note: joinType/constraint will be injected by JoinExprOp before the closing }
+      Json json = Json::object();
+      json["node"] = "JoinExpr";
       if (!is_internal) {
         addPositionInfo(json, ctx);
       }
-      json.addKey("table");
-      json.addRawJSON(table_json);
-      json.addKey("table_final");
-      if (table_final) {
-        json.addBool(true);
-      } else {
-        json.addNull();
-      }
-      json.addKey("sample");
-      json.addRawJSON(sample_json);
-      json.addKey("next_join");
-      json.addNull();
-      json.addKey("alias");
-      json.addNull();
-      json.endObject();
-      return json.toString();
+      json["table"] = Json::raw(tableJson);
+      json["table_final"] = tableFinal ? Json(true) : Json(nullptr);
+      json["sample"] = Json::raw(sampleJson);
+      json["next_join"] = nullptr;
+      json["alias"] = nullptr;
+      return json.dump();
     }
   }
 
@@ -1098,106 +977,82 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(JoinOpCross)
 
   VISIT(JoinConstraintClause) {
-    string column_expr_list_json = visitAsJSON(ctx->columnExprList());
+    string columnExprListJson = visitAsJSON(ctx->columnExprList());
 
     // Check if we have multiple expressions (array with more than one element)
     // Simple check: count commas at depth 0
-    int bracket_depth = 0;
-    int expr_count = 1;
-    for (char c : column_expr_list_json) {
+    int bracketDepth = 0;
+    int exprCount = 1;
+    for (char c : columnExprListJson) {
       if (c == '[' || c == '{')
-        bracket_depth++;
+        bracketDepth++;
       else if (c == ']' || c == '}')
-        bracket_depth--;
-      else if (c == ',' && bracket_depth == 1)
-        expr_count++;
+        bracketDepth--;
+      else if (c == ',' && bracketDepth == 1)
+        exprCount++;
     }
 
-    if (expr_count > 1) {
+    if (exprCount > 1) {
       throw NotImplementedError("Unsupported: JOIN ... ON with multiple expressions");
     }
 
     // Extract the single expression from the array
-    size_t first_brace = column_expr_list_json.find('{');
-    size_t last_brace = column_expr_list_json.rfind('}');
-    string expr_json = column_expr_list_json.substr(first_brace, last_brace - first_brace + 1);
+    size_t firstBrace = columnExprListJson.find('{');
+    size_t lastBrace = columnExprListJson.rfind('}');
+    string exprJson = columnExprListJson.substr(firstBrace, lastBrace - firstBrace + 1);
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("JoinConstraint");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(expr_json);
-    json.addKey("constraint_type");
-    json.addString(ctx->USING() ? "USING" : "ON");
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "JoinConstraint";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(exprJson);
+    json["constraint_type"] = ctx->USING() ? "USING" : "ON";
+    return json.dump();
   }
 
   VISIT(SampleClause) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("SampleExpr");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("sample_value");
-    json.addRawJSON(visitAsJSON(ctx->ratioExpr(0)));
-    json.addKey("offset_value");
-    json.addRawJSON(visitAsJSONOrNull(ctx->ratioExpr(1)));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "SampleExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["sample_value"] = Json::raw(visitAsJSON(ctx->ratioExpr(0)));
+    json["offset_value"] = Json::raw(visitAsJSONOrNull(ctx->ratioExpr(1)));
+    return json.dump();
   }
 
   VISIT(OrderExprList) { return visitJSONArrayOfObjects(ctx->orderExpr()); }
 
   VISIT(OrderExpr) {
     const char* order = ctx->DESC() || ctx->DESCENDING() ? "DESC" : "ASC";
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("OrderExpr");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
-    json.addKey("order");
-    json.addString(order);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "OrderExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(visitAsJSON(ctx->columnExpr()));
+    json["order"] = order;
+    return json.dump();
   }
 
   VISIT(RatioExpr) {
-    auto placeholder_ctx = ctx->placeholder();
-    if (placeholder_ctx) {
-      return visitAsJSON(placeholder_ctx);
+    auto placeholderCtx = ctx->placeholder();
+    if (placeholderCtx) {
+      return visitAsJSON(placeholderCtx);
     }
 
-    auto number_literal_ctxs = ctx->numberLiteral();
+    auto numberLiteralCtxs = ctx->numberLiteral();
 
-    if (number_literal_ctxs.size() > 2) {
+    if (numberLiteralCtxs.size() > 2) {
       throw ParsingError("RatioExpr must have at most two number literals");
-    } else if (number_literal_ctxs.size() == 0) {
+    } else if (numberLiteralCtxs.size() == 0) {
       throw ParsingError("RatioExpr must have at least one number literal");
     }
 
-    auto left_ctx = number_literal_ctxs[0];
-    auto right_ctx = ctx->SLASH() && number_literal_ctxs.size() > 1 ? number_literal_ctxs[1] : NULL;
+    auto leftCtx = numberLiteralCtxs[0];
+    auto rightCtx = ctx->SLASH() && numberLiteralCtxs.size() > 1 ? numberLiteralCtxs[1] : NULL;
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("RatioExpr");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("left");
-    json.addRawJSON(visitAsJSON(left_ctx));
-    json.addKey("right");
-    json.addRawJSON(visitAsJSONOrNull(right_ctx));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "RatioExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["left"] = Json::raw(visitAsJSON(leftCtx));
+    json["right"] = Json::raw(visitAsJSONOrNull(rightCtx));
+    return json.dump();
   }
 
   VISIT_UNSUPPORTED(SettingExprList)
@@ -1205,69 +1060,56 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(SettingExpr)
 
   VISIT(WindowExpr) {
-    auto frame_ctx = ctx->winFrameClause();
-    string frame_json = visitAsJSONOrNull(frame_ctx);
+    auto frameCtx = ctx->winFrameClause();
+    string frameJson = visitAsJSONOrNull(frameCtx);
 
     // Check if frame is an array (tuple of [start, end])
-    bool is_frame_array = frame_json[0] == '[';
-    string frame_start_json;
-    string frame_end_json;
+    bool isFrameArray = frameJson[0] == '[';
+    string frameStartJson;
+    string frameEndJson;
 
-    if (is_frame_array) {
+    if (isFrameArray) {
       // Extract start and end from array like [{...},{...}]
       // Find the comma between the two objects by counting braces
-      int brace_count = 0;
-      size_t comma_pos = string::npos;
-      for (size_t i = 1; i < frame_json.length(); i++) {
-        if (frame_json[i] == '{')
-          brace_count++;
-        else if (frame_json[i] == '}')
-          brace_count--;
-        else if (frame_json[i] == ',' && brace_count == 0) {
-          comma_pos = i;
+      int braceCount = 0;
+      size_t commaPos = string::npos;
+      for (size_t i = 1; i < frameJson.length(); i++) {
+        if (frameJson[i] == '{')
+          braceCount++;
+        else if (frameJson[i] == '}')
+          braceCount--;
+        else if (frameJson[i] == ',' && braceCount == 0) {
+          commaPos = i;
           break;
         }
       }
-      if (comma_pos != string::npos) {
-        frame_start_json = frame_json.substr(1, comma_pos - 1);                                  // Skip '['
-        frame_end_json = frame_json.substr(comma_pos + 1, frame_json.length() - comma_pos - 2);  // Skip ']'
+      if (commaPos != string::npos) {
+        frameStartJson = frameJson.substr(1, commaPos - 1);                                // Skip '['
+        frameEndJson = frameJson.substr(commaPos + 1, frameJson.length() - commaPos - 2);  // Skip ']'
       } else {
         throw ParsingError("WindowExpr frame must be an array of size 2");
       }
     } else {
-      frame_start_json = frame_json;
-      frame_end_json = "null";
+      frameStartJson = frameJson;
+      frameEndJson = "null";
     }
 
-    string frame_method;
-    if (frame_ctx && frame_ctx->RANGE()) {
-      frame_method = "RANGE";
-    } else if (frame_ctx && frame_ctx->ROWS()) {
-      frame_method = "ROWS";
+    string frameMethod;
+    if (frameCtx && frameCtx->RANGE()) {
+      frameMethod = "RANGE";
+    } else if (frameCtx && frameCtx->ROWS()) {
+      frameMethod = "ROWS";
     }
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("WindowExpr");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("partition_by");
-    json.addRawJSON(visitAsJSONOrNull(ctx->winPartitionByClause()));
-    json.addKey("order_by");
-    json.addRawJSON(visitAsJSONOrNull(ctx->winOrderByClause()));
-    json.addKey("frame_method");
-    if (!frame_method.empty()) {
-      json.addString(frame_method);
-    } else {
-      json.addNull();
-    }
-    json.addKey("frame_start");
-    json.addRawJSON(frame_start_json);
-    json.addKey("frame_end");
-    json.addRawJSON(frame_end_json);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "WindowExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["partition_by"] = Json::raw(visitAsJSONOrNull(ctx->winPartitionByClause()));
+    json["order_by"] = Json::raw(visitAsJSONOrNull(ctx->winOrderByClause()));
+    json["frame_method"] = !frameMethod.empty() ? Json(frameMethod) : Json(nullptr);
+    json["frame_start"] = Json::raw(frameStartJson);
+    json["frame_end"] = Json::raw(frameEndJson);
+    return json.dump();
   }
 
   VISIT(WinPartitionByClause) { return visit(ctx->columnExprList()); }
@@ -1280,49 +1122,40 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(FrameBetween) {
     // Return an array with [start, end]
-    JSONBuilder json;
-    json.startArray();
-    json.addRawJSON(visitAsJSON(ctx->winFrameBound(0)));
-    json.addRawJSON(visitAsJSON(ctx->winFrameBound(1)));
-    json.endArray();
-    return json.toString();
+    Json arr = Json::array();
+    arr.pushBack(Json::raw(visitAsJSON(ctx->winFrameBound(0))));
+    arr.pushBack(Json::raw(visitAsJSON(ctx->winFrameBound(1))));
+    return arr.dump();
   }
 
   VISIT(WinFrameBound) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("WindowFrameExpr");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
+    Json json = Json::object();
+    json["node"] = "WindowFrameExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
 
     if (ctx->PRECEDING() || ctx->FOLLOWING()) {
-      json.addKey("frame_type");
-      json.addString(ctx->PRECEDING() ? "PRECEDING" : "FOLLOWING");
-      json.addKey("frame_value");
+      json["frame_type"] = ctx->PRECEDING() ? "PRECEDING" : "FOLLOWING";
       if (ctx->numberLiteral()) {
         // Extract the value from the Constant node
-        string constant_json = visitAsJSON(ctx->numberLiteral());
+        string constantJson = visitAsJSON(ctx->numberLiteral());
         // Parse out the value field from the JSON
-        size_t value_pos = constant_json.find("\"value\":");
-        if (value_pos != string::npos) {
-          size_t value_start = value_pos + 8;  // Skip "value":
-          size_t value_end = constant_json.find_first_of(",}", value_start);
-          string value_str = constant_json.substr(value_start, value_end - value_start);
-          json.addRawJSON(value_str);
+        size_t valuePos = constantJson.find("\"value\":");
+        if (valuePos != string::npos) {
+          size_t valueStart = valuePos + 8;  // Skip "value":
+          size_t valueEnd = constantJson.find_first_of(",}", valueStart);
+          string valueStr = constantJson.substr(valueStart, valueEnd - valueStart);
+          json["frame_value"] = Json::raw(valueStr);
         } else {
-          json.addNull();
+          json["frame_value"] = nullptr;
         }
       } else {
-        json.addNull();
+        json["frame_value"] = nullptr;
       }
     } else {
-      json.addKey("frame_type");
-      json.addString("CURRENT ROW");
+      json["frame_type"] = "CURRENT ROW";
     }
 
-    json.endObject();
-    return json.toString();
+    return json.dump();
   }
 
   VISIT(Expr) { return visit(ctx->columnExpr()); }
@@ -1340,22 +1173,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprList) { return visitJSONArrayOfObjects(ctx->columnExpr()); }
 
   VISIT(ColumnExprTernaryOp) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Call");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString("if");
-    json.addKey("args");
-    json.startArray();
-    json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
-    json.addRawJSON(visitAsJSON(ctx->columnExpr(1)));
-    json.addRawJSON(visitAsJSON(ctx->columnExpr(2)));
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Call";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = "if";
+    Json args = Json::array();
+    args.pushBack(Json::raw(visitAsJSON(ctx->columnExpr(0))));
+    args.pushBack(Json::raw(visitAsJSON(ctx->columnExpr(1))));
+    args.pushBack(Json::raw(visitAsJSON(ctx->columnExpr(2))));
+    json["args"] = std::move(args);
+    return json.dump();
   }
 
   VISIT(ColumnExprAlias) {
@@ -1373,71 +1200,45 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
     }
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Alias");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
-    json.addKey("alias");
-    json.addString(alias);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Alias";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(visitAsJSON(ctx->columnExpr()));
+    json["alias"] = alias;
+    return json.dump();
   }
 
   VISIT(ColumnExprNegate) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ArithmeticOperation");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
+    Json json = Json::object();
+    json["node"] = "ArithmeticOperation";
+    if (!is_internal) addPositionInfo(json, ctx);
     // Create a Constant 0 for left side
-    JSONBuilder left_json;
-    left_json.startObject();
-    left_json.addNodeType("Constant");
-    left_json.addKey("value");
-    left_json.addInt(0);
-    left_json.endObject();
+    Json left_json = Json::object();
+    left_json["node"] = "Constant";
+    left_json["value"] = 0;
 
-    json.addKey("left");
-    json.addRawJSON(left_json.toString());
-    json.addKey("right");
-    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
-    json.addKey("op");
-    json.addString("-");
-    json.endObject();
-    return json.toString();
+    json["left"] = std::move(left_json);
+    json["right"] = Json::raw(visitAsJSON(ctx->columnExpr()));
+    json["op"] = "-";
+    return json.dump();
   }
 
   VISIT(ColumnExprSubquery) { return visit(ctx->selectSetStmt()); }
 
   VISIT(ColumnExprArray) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Array");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("exprs");
-    json.addRawJSON(visitAsJSONOrEmptyArray(ctx->columnExprList()));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Array";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["exprs"] = Json::raw(visitAsJSONOrEmptyArray(ctx->columnExprList()));
+    return json.dump();
   }
 
   VISIT(ColumnExprDict) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Dict");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("items");
-    json.addRawJSON(visitAsJSONOrEmptyArray(ctx->kvPairList()));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Dict";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["items"] = Json::raw(visitAsJSONOrEmptyArray(ctx->kvPairList()));
+    return json.dump();
   }
 
   VISIT_UNSUPPORTED(ColumnExprSubstring)
@@ -1456,122 +1257,100 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw ParsingError("Unsupported value of rule ColumnExprPrecedence1");
     }
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ArithmeticOperation");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("left");
-    json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
-    json.addKey("right");
-    json.addRawJSON(visitAsJSON(ctx->right));
-    json.addKey("op");
-    json.addString(op);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ArithmeticOperation";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["left"] = Json::raw(visitAsJSON(ctx->columnExpr(0)));
+    json["right"] = Json::raw(visitAsJSON(ctx->right));
+    json["op"] = op;
+    return json.dump();
   }
 
   VISIT(ColumnExprPrecedence2) {
-    string left_json = visitAsJSON(ctx->left);
-    string right_json = visitAsJSON(ctx->right);
+    string leftJson = visitAsJSON(ctx->left);
+    string rightJson = visitAsJSON(ctx->right);
 
     if (ctx->PLUS()) {
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("ArithmeticOperation");
+      Json json = Json::object();
+      json["node"] = "ArithmeticOperation";
       if (!is_internal) {
         addPositionInfo(json, ctx);
       }
-      json.addKey("left");
-      json.addRawJSON(left_json);
-      json.addKey("right");
-      json.addRawJSON(right_json);
-      json.addKey("op");
-      json.addString("+");
-      json.endObject();
-      return json.toString();
+      json["left"] = Json::raw(leftJson);
+      json["right"] = Json::raw(rightJson);
+      json["op"] = "+";
+      return json.dump();
     } else if (ctx->DASH()) {
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("ArithmeticOperation");
+      Json json = Json::object();
+      json["node"] = "ArithmeticOperation";
       if (!is_internal) {
         addPositionInfo(json, ctx);
       }
-      json.addKey("left");
-      json.addRawJSON(left_json);
-      json.addKey("right");
-      json.addRawJSON(right_json);
-      json.addKey("op");
-      json.addString("-");
-      json.endObject();
-      return json.toString();
+      json["left"] = Json::raw(leftJson);
+      json["right"] = Json::raw(rightJson);
+      json["op"] = "-";
+      return json.dump();
     } else if (ctx->CONCAT()) {
       // Check if left or right are already concat calls
-      bool is_left_concat =
-          left_json.find("\"node\":\"Call\"") != string::npos && left_json.find("\"name\":\"concat\"") != string::npos;
-      bool is_right_concat = right_json.find("\"node\":\"Call\"") != string::npos &&
-                             right_json.find("\"name\":\"concat\"") != string::npos;
+      bool isLeftConcat =
+          leftJson.find("\"node\":\"Call\"") != string::npos && leftJson.find("\"name\":\"concat\"") != string::npos;
+      bool isRightConcat =
+          rightJson.find("\"node\":\"Call\"") != string::npos && rightJson.find("\"name\":\"concat\"") != string::npos;
 
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("Call");
-      if (!is_internal) {
-        addPositionInfo(json, ctx);
-      }
-      json.addKey("name");
-      json.addString("concat");
-      json.addKey("args");
-      json.startArray();
+      // Build args string manually for concat flattening
+      string argsContent;
 
       // Extract args from left if it's a concat, otherwise use left itself
-      if (is_left_concat) {
-        // Extract the args array from left_json
-        size_t args_pos = left_json.find("\"args\":[");
-        if (args_pos != string::npos) {
-          size_t args_start = left_json.find('[', args_pos);
+      if (isLeftConcat) {
+        size_t argsPos = leftJson.find("\"args\":[");
+        if (argsPos != string::npos) {
+          size_t argsStart = leftJson.find('[', argsPos);
           int depth = 0;
-          size_t i = args_start;
-          for (; i < left_json.length(); i++) {
-            if (left_json[i] == '[' || left_json[i] == '{')
+          size_t i = argsStart;
+          for (; i < leftJson.length(); i++) {
+            if (leftJson[i] == '[' || leftJson[i] == '{')
               depth++;
-            else if (left_json[i] == ']' || left_json[i] == '}') {
+            else if (leftJson[i] == ']' || leftJson[i] == '}') {
               depth--;
-              if (depth == 0 && left_json[i] == ']') break;
+              if (depth == 0 && leftJson[i] == ']') break;
             }
           }
-          string args_content = left_json.substr(args_start + 1, i - args_start - 1);
-          json.addRawJSON(args_content);
+          argsContent = leftJson.substr(argsStart + 1, i - argsStart - 1);
         }
       } else {
-        json.addRawJSON(left_json);
+        argsContent = leftJson;
       }
 
       // Extract args from right if it's a concat, otherwise use right itself
-      if (is_right_concat) {
-        size_t args_pos = right_json.find("\"args\":[");
-        if (args_pos != string::npos) {
-          size_t args_start = right_json.find('[', args_pos);
+      if (isRightConcat) {
+        size_t argsPos = rightJson.find("\"args\":[");
+        if (argsPos != string::npos) {
+          size_t argsStart = rightJson.find('[', argsPos);
           int depth = 0;
-          size_t i = args_start;
-          for (; i < right_json.length(); i++) {
-            if (right_json[i] == '[' || right_json[i] == '{')
+          size_t i = argsStart;
+          for (; i < rightJson.length(); i++) {
+            if (rightJson[i] == '[' || rightJson[i] == '{')
               depth++;
-            else if (right_json[i] == ']' || right_json[i] == '}') {
+            else if (rightJson[i] == ']' || rightJson[i] == '}') {
               depth--;
-              if (depth == 0 && right_json[i] == ']') break;
+              if (depth == 0 && rightJson[i] == ']') break;
             }
           }
-          string args_content = right_json.substr(args_start + 1, i - args_start - 1);
-          json.addRawJSON(args_content);
+          string rightArgsContent = rightJson.substr(argsStart + 1, i - argsStart - 1);
+          argsContent += "," + rightArgsContent;
         }
       } else {
-        json.addRawJSON(right_json);
+        argsContent += "," + rightJson;
       }
 
-      json.endArray();
-      json.endObject();
-      return json.toString();
+      Json json = Json::object();
+      json["node"] = "Call";
+      if (!is_internal) {
+        addPositionInfo(json, ctx);
+      }
+      json["name"] = "concat";
+      json["args"] = Json::raw("[" + argsContent + "]");
+      return json.dump();
     } else {
       throw ParsingError("Unsupported value of rule ColumnExprPrecedence2");
     }
@@ -1613,59 +1392,46 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw ParsingError("Unsupported value of rule ColumnExprPrecedence3");
     }
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("CompareOperation");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("left");
-    json.addRawJSON(visitAsJSON(ctx->left));
-    json.addKey("right");
-    json.addRawJSON(visitAsJSON(ctx->right));
-    json.addKey("op");
-    json.addString(op);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "CompareOperation";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["left"] = Json::raw(visitAsJSON(ctx->left));
+    json["right"] = Json::raw(visitAsJSON(ctx->right));
+    json["op"] = op;
+    return json.dump();
   }
 
   VISIT(ColumnExprInterval) {
-    auto interval_ctx = ctx->interval();
+    auto intervalCtx = ctx->interval();
     const char* name;
-    if (interval_ctx->SECOND()) {
+    if (intervalCtx->SECOND()) {
       name = "toIntervalSecond";
-    } else if (interval_ctx->MINUTE()) {
+    } else if (intervalCtx->MINUTE()) {
       name = "toIntervalMinute";
-    } else if (interval_ctx->HOUR()) {
+    } else if (intervalCtx->HOUR()) {
       name = "toIntervalHour";
-    } else if (interval_ctx->DAY()) {
+    } else if (intervalCtx->DAY()) {
       name = "toIntervalDay";
-    } else if (interval_ctx->WEEK()) {
+    } else if (intervalCtx->WEEK()) {
       name = "toIntervalWeek";
-    } else if (interval_ctx->MONTH()) {
+    } else if (intervalCtx->MONTH()) {
       name = "toIntervalMonth";
-    } else if (interval_ctx->QUARTER()) {
+    } else if (intervalCtx->QUARTER()) {
       name = "toIntervalQuarter";
-    } else if (interval_ctx->YEAR()) {
+    } else if (intervalCtx->YEAR()) {
       name = "toIntervalYear";
     } else {
       throw ParsingError("Unsupported value of rule ColumnExprInterval");
     }
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Call");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString(name);
-    json.addKey("args");
-    json.startArray();
-    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Call";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = name;
+    Json args = Json::array();
+    args.pushBack(Json::raw(visitAsJSON(ctx->columnExpr())));
+    json["args"] = std::move(args);
+    return json.dump();
   }
 
   VISIT(ColumnExprIntervalString) {
@@ -1688,7 +1454,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         throw NotImplementedError(("Unsupported interval count: " + count_str).c_str());
       }
     }
-    int count_int = std::stoi(count_str);
+    int countInt = std::stoi(count_str);
 
     std::string name;
     if (unit_str == "second" || unit_str == "seconds") {
@@ -1712,51 +1478,31 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     // Create Call with Constant argument
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Call");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString(name);
-    json.addKey("args");
-    json.startArray();
-    // Create inline Constant for the count
-    JSONBuilder constant;
-    constant.startObject();
-    constant.addNodeType("Constant");
-    constant.addKey("value");
-    constant.addInt(count_int);
-    constant.endObject();
-    json.addRawJSON(constant.toString());
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Call";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = name;
+    Json constant = Json::object();
+    constant["node"] = "Constant";
+    constant["value"] = countInt;
+    Json args = Json::array();
+    args.pushBack(std::move(constant));
+    json["args"] = std::move(args);
+    return json.dump();
   }
 
   VISIT(ColumnExprIsNull) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("CompareOperation");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("left");
-    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
+    Json json = Json::object();
+    json["node"] = "CompareOperation";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["left"] = Json::raw(visitAsJSON(ctx->columnExpr()));
     // Create null constant for right side
-    JSONBuilder null_constant;
-    null_constant.startObject();
-    null_constant.addNodeType("Constant");
-    null_constant.addKey("value");
-    null_constant.addNull();
-    null_constant.endObject();
-    json.addKey("right");
-    json.addRawJSON(null_constant.toString());
-    json.addKey("op");
-    json.addString(ctx->NOT() ? "!=" : "==");
-    json.endObject();
-    return json.toString();
+    Json nullConstant = Json::object();
+    nullConstant["node"] = "Constant";
+    nullConstant["value"] = nullptr;
+    json["right"] = std::move(nullConstant);
+    json["op"] = ctx->NOT() ? "!=" : "==";
+    return json.dump();
   }
 
   VISIT(ColumnExprTrim) {
@@ -1770,119 +1516,76 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     } else {
       throw ParsingError("Unsupported value of rule ColumnExprTrim");
     }
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Call");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString(name);
-    json.addKey("args");
-    json.startArray();
-    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
-    json.addRawJSON(visitAsJSON(ctx->string()));
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Call";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = name;
+    Json args = Json::array();
+    args.pushBack(Json::raw(visitAsJSON(ctx->columnExpr())));
+    args.pushBack(Json::raw(visitAsJSON(ctx->string())));
+    json["args"] = std::move(args);
+    return json.dump();
   }
 
   VISIT(ColumnExprTuple) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Tuple");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("exprs");
-    json.addRawJSON(visitAsJSONOrEmptyArray(ctx->columnExprList()));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Tuple";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["exprs"] = Json::raw(visitAsJSONOrEmptyArray(ctx->columnExprList()));
+    return json.dump();
   }
 
   VISIT(ColumnExprArrayAccess) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ArrayAccess");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("array");
-    json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
-    json.addKey("property");
-    json.addRawJSON(visitAsJSON(ctx->columnExpr(1)));
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ArrayAccess";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["array"] = Json::raw(visitAsJSON(ctx->columnExpr(0)));
+    json["property"] = Json::raw(visitAsJSON(ctx->columnExpr(1)));
+    return json.dump();
   }
 
   VISIT(ColumnExprNullArrayAccess) {
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ArrayAccess");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("array");
-    json.addRawJSON(visitAsJSON(ctx->columnExpr(0)));
-    json.addKey("property");
-    json.addRawJSON(visitAsJSON(ctx->columnExpr(1)));
-    json.addKey("nullish");
-    json.addBool(true);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ArrayAccess";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["array"] = Json::raw(visitAsJSON(ctx->columnExpr(0)));
+    json["property"] = Json::raw(visitAsJSON(ctx->columnExpr(1)));
+    json["nullish"] = true;
+    return json.dump();
   }
 
   VISIT(ColumnExprPropertyAccess) {
     string identifier = visitAsString(ctx->identifier());
     // Create constant for property
-    JSONBuilder property;
-    property.startObject();
-    property.addNodeType("Constant");
-    property.addKey("value");
-    property.addString(identifier);
-    property.endObject();
+    Json property = Json::object();
+    property["node"] = "Constant";
+    property["value"] = identifier;
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ArrayAccess");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("array");
-    json.addRawJSON(visitAsJSON(ctx->columnExpr()));
-    json.addKey("property");
-    json.addRawJSON(property.toString());
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ArrayAccess";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["array"] = Json::raw(visitAsJSON(ctx->columnExpr()));
+    json["property"] = std::move(property);
+    return json.dump();
   }
 
   VISIT(ColumnExprNullPropertyAccess) {
     string identifier = visitAsString(ctx->identifier());
 
     // Build property Constant node
-    JSONBuilder property_json;
-    property_json.startObject();
-    property_json.addNodeType("Constant");
-    property_json.addKey("value");
-    property_json.addString(identifier);
-    property_json.endObject();
+    Json property_json = Json::object();
+    property_json["node"] = "Constant";
+    property_json["value"] = identifier;
 
     string object_json = visitAsJSON(ctx->columnExpr());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ArrayAccess");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("array");
-    json.addRawJSON(object_json);
-    json.addKey("property");
-    json.addRawJSON(property_json.toString());
-    json.addKey("nullish");
-    json.addBool(true);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ArrayAccess";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["array"] = Json::raw(object_json);
+    json["property"] = std::move(property_json);
+    json["nullish"] = true;
+    return json.dump();
   }
 
   VISIT(ColumnExprBetween) {
@@ -1890,22 +1593,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string low_json = visitAsJSON(ctx->columnExpr(1));
     string high_json = visitAsJSON(ctx->columnExpr(2));
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("BetweenExpr");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(expr_json);
-    json.addKey("low");
-    json.addRawJSON(low_json);
-    json.addKey("high");
-    json.addRawJSON(high_json);
-    json.addKey("negated");
-    json.addBool(ctx->NOT() != nullptr);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "BetweenExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(expr_json);
+    json["low"] = Json::raw(low_json);
+    json["high"] = Json::raw(high_json);
+    json["negated"] = ctx->NOT() != nullptr;
+    return json.dump();
   }
 
   VISIT(ColumnExprParens) { return visit(ctx->columnExpr()); }
@@ -1979,20 +1674,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       exprs.push_back(right_json);
     }
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("And");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("exprs");
-    json.startArray();
-    for (const auto& expr : exprs) {
-      json.addRawJSON(expr);
-    }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "And";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["exprs"] = Json::raw("[" + boost::algorithm::join(exprs, ",") + "]");
+    return json.dump();
   }
 
   VISIT(ColumnExprOr) {
@@ -2062,20 +1748,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       exprs.push_back(right_json);
     }
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Or");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("exprs");
-    json.startArray();
-    for (const auto& expr : exprs) {
-      json.addRawJSON(expr);
-    }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Or";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["exprs"] = Json::raw("[" + boost::algorithm::join(exprs, ",") + "]");
+    return json.dump();
   }
 
   VISIT(ColumnExprTupleAccess) {
@@ -2083,18 +1760,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     int64_t index_value = stoll(index_str);
     string tuple_json = visitAsJSON(ctx->columnExpr());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("TupleAccess");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("tuple");
-    json.addRawJSON(tuple_json);
-    json.addKey("index");
-    json.addInt(index_value);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "TupleAccess";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["tuple"] = Json::raw(tuple_json);
+    json["index"] = index_value;
+    return json.dump();
   }
 
   VISIT(ColumnExprNullTupleAccess) {
@@ -2102,20 +1773,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     int64_t index_value = stoll(index_str);
     string tuple_json = visitAsJSON(ctx->columnExpr());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("TupleAccess");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("tuple");
-    json.addRawJSON(tuple_json);
-    json.addKey("index");
-    json.addInt(index_value);
-    json.addKey("nullish");
-    json.addBool(true);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "TupleAccess";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["tuple"] = Json::raw(tuple_json);
+    json["index"] = index_value;
+    json["nullish"] = true;
+    return json.dump();
   }
 
   VISIT(ColumnExprCase) {
@@ -2123,89 +1787,70 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     size_t columns_size = column_expr_ctx.size();
     vector<string> columns = visitAsVectorOfJSON(column_expr_ctx);
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Call");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
+    Json json = Json::object();
+    json["node"] = "Call";
+    if (!is_internal) addPositionInfo(json, ctx);
 
     if (ctx->caseExpr) {
       // CASE expr WHEN ... THEN ... ELSE ... END
       // Transform to: transform(expr, [conditions], [results], else_result)
-      json.addKey("name");
-      json.addString("transform");
-      json.addKey("args");
-      json.startArray();
+      json["name"] = "transform";
+
+      Json args = Json::array();
 
       // arg_0: the case expression
-      json.addRawJSON(columns[0]);
+      args.pushBack(Json::raw(columns[0]));
 
       // arg_1: Array of conditions (odd indices from 1 to columns_size-2)
-      JSONBuilder conditions_array;
-      conditions_array.startObject();
-      conditions_array.addNodeType("Array");
-      conditions_array.addKey("exprs");
-      conditions_array.startArray();
-      for (size_t index = 1; index < columns_size - 1; index++) {
-        if ((index - 1) % 2 == 0) {
-          conditions_array.addRawJSON(columns[index]);
+      Json conditions_array = Json::object();
+      conditions_array["node"] = "Array";
+      conditions_array["exprs"] = Json::raw("[" + [&]() {
+        vector<string> conds;
+        for (size_t index = 1; index < columns_size - 1; index++) {
+          if ((index - 1) % 2 == 0) {
+            conds.push_back(columns[index]);
+          }
         }
-      }
-      conditions_array.endArray();
-      conditions_array.endObject();
-      json.addRawJSON(conditions_array.toString());
+        return boost::algorithm::join(conds, ",");
+      }() + "]");
+      args.pushBack(std::move(conditions_array));
 
       // arg_2: Array of results (even indices from 1 to columns_size-2)
-      JSONBuilder results_array;
-      results_array.startObject();
-      results_array.addNodeType("Array");
-      results_array.addKey("exprs");
-      results_array.startArray();
-      for (size_t index = 1; index < columns_size - 1; index++) {
-        if ((index - 1) % 2 == 1) {
-          results_array.addRawJSON(columns[index]);
+      Json results_array = Json::object();
+      results_array["node"] = "Array";
+      results_array["exprs"] = Json::raw("[" + [&]() {
+        vector<string> ress;
+        for (size_t index = 1; index < columns_size - 1; index++) {
+          if ((index - 1) % 2 == 1) {
+            ress.push_back(columns[index]);
+          }
         }
-      }
-      results_array.endArray();
-      results_array.endObject();
-      json.addRawJSON(results_array.toString());
+        return boost::algorithm::join(ress, ",");
+      }() + "]");
+      args.pushBack(std::move(results_array));
 
       // arg_3: else result (last element)
-      json.addRawJSON(columns[columns_size - 1]);
+      args.pushBack(Json::Raw(columns[columns_size - 1]));
 
-      json.endArray();
+      json["args"] = args;
     } else {
       // CASE WHEN ... THEN ... ELSE ... END
-      json.addKey("name");
-      json.addString(columns_size == 3 ? "if" : "multiIf");
-      json.addKey("args");
-      json.startArray();
-      for (const auto& col : columns) {
-        json.addRawJSON(col);
-      }
-      json.endArray();
+      json["name"] = columns_size == 3 ? "if" : "multiIf";
+      json["args"] = Json::raw("[" + boost::algorithm::join(columns, ",") + "]");
     }
 
-    json.endObject();
-    return json.toString();
+    return json.dump();
   }
 
   VISIT_UNSUPPORTED(ColumnExprDate)
 
   VISIT(ColumnExprNot) {
     string expr_json = visitAsJSON(ctx->columnExpr());
-
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Not");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(expr_json);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Not";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(expr_json);
+    return json.dump();
   }
 
   VISIT(ColumnExprWinFunctionTarget) {
@@ -2215,22 +1860,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string exprs_json = visitAsJSONOrEmptyArray(column_expr_list_ctx);
     string args_json = visitAsJSONOrEmptyArray(ctx->columnArgList);
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("WindowFunction");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString(name);
-    json.addKey("exprs");
-    json.addRawJSON(exprs_json);
-    json.addKey("args");
-    json.addRawJSON(args_json);
-    json.addKey("over_identifier");
-    json.addString(over_identifier);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "WindowFunction";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = name;
+    json["exprs"] = Json::raw(exprs_json);
+    json["args"] = Json::raw(args_json);
+    json["over_identifier"] = over_identifier;
+    return json.dump();
   }
 
   VISIT(ColumnExprWinFunction) {
@@ -2240,22 +1877,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string args_json = visitAsJSONOrEmptyArray(ctx->columnArgList);
     string over_expr_json = visitAsJSONOrNull(ctx->windowExpr());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("WindowFunction");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString(identifier);
-    json.addKey("exprs");
-    json.addRawJSON(exprs_json);
-    json.addKey("args");
-    json.addRawJSON(args_json);
-    json.addKey("over_expr");
-    json.addRawJSON(over_expr_json);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "WindowFunction";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = identifier;
+    json["exprs"] = Json::raw(exprs_json);
+    json["args"] = Json::raw(args_json);
+    json["over_expr"] = Json::raw(over_expr_json);
+    return json.dump();
   }
 
   VISIT(ColumnExprIdentifier) { return visit(ctx->columnIdentifier()); }
@@ -2273,49 +1902,36 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     string args_json = visitAsJSONOrEmptyArray(ctx->columnArgList);
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Call");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString(name);
-    json.addKey("params");
-    json.addRawJSON(params_json);
-    json.addKey("args");
-    json.addRawJSON(args_json);
-    json.addKey("distinct");
-    json.addBool(ctx->DISTINCT() != nullptr);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Call";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = name;
+    json["params"] = Json::raw(params_json);
+    json["args"] = Json::raw(args_json);
+    json["distinct"] = ctx->DISTINCT() != nullptr;
+    return json.dump();
   }
 
   VISIT(ColumnExprAsterisk) {
     auto table_identifier_ctx = ctx->tableIdentifier();
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Field");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("chain");
-    json.startArray();
+    Json json = Json::object();
+    json["node"] = "Field";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json chain = Json::array();
 
     if (table_identifier_ctx) {
       vector<string> table = any_cast<vector<string>>(visit(table_identifier_ctx));
       for (const auto& part : table) {
-        json.addString(part);
+        chain.pushBack(part);
       }
-      json.addString("*");
+      chain.pushBack("*");
     } else {
-      json.addString("*");
+      chain.pushBack("*");
     }
 
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    json["chain"] = std::move(chain);
+    return json.dump();
   }
 
   VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
@@ -2334,30 +1950,23 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       expr_json = visitAsJSON(block_ctx);
     }
 
-    vector<string> args = visitAsVectorOfStrings(ctx->identifier());
+    vector<string> args_vec = visitAsVectorOfStrings(ctx->identifier());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Lambda");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
+    Json json = Json::object();
+    json["node"] = "Lambda";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json args = Json::array();
+    for (const auto& arg : args_vec) {
+      args.pushBack(arg);
     }
-    json.addKey("args");
-    json.startArray();
-    for (const auto& arg : args) {
-      json.addString(arg);
-    }
-    json.endArray();
-    json.addKey("expr");
-    json.addRawJSON(expr_json);
-    json.endObject();
-    return json.toString();
+    json["args"] = std::move(args);
+    json["expr"] = Json::raw(expr_json);
+    return json.dump();
   }
 
   VISIT(WithExprList) {
     // Build a JSON object (dictionary) mapping CTE names to CTE objects
-    JSONBuilder json;
-    json.startObject();
+    Json json = Json::object();
 
     for (auto with_expr_ctx : ctx->withExpr()) {
       string cte_json = visitAsJSON(with_expr_ctx);
@@ -2369,53 +1978,37 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         size_t name_end = cte_json.find("\"", name_start);
         string name = cte_json.substr(name_start, name_end - name_start);
 
-        json.addKey(name);
-        json.addRawJSON(cte_json);
+        json[name] = Json::raw(cte_json);
       }
     }
 
-    json.endObject();
-    return json.toString();
+    return json.dump();
   }
 
   VISIT(WithExprSubquery) {
     string name = visitAsString(ctx->identifier());
     string expr_json = visitAsJSON(ctx->selectSetStmt());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("CTE");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString(name);
-    json.addKey("expr");
-    json.addRawJSON(expr_json);
-    json.addKey("cte_type");
-    json.addString("subquery");
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "CTE";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = name;
+    json["expr"] = Json::raw(expr_json);
+    json["cte_type"] = "subquery";
+    return json.dump();
   }
 
   VISIT(WithExprColumn) {
     string name = visitAsString(ctx->identifier());
     string expr_json = visitAsJSON(ctx->columnExpr());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("CTE");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString(name);
-    json.addKey("expr");
-    json.addRawJSON(expr_json);
-    json.addKey("cte_type");
-    json.addString("column");
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "CTE";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = name;
+    json["expr"] = Json::raw(expr_json);
+    json["cte_type"] = "column";
+    return json.dump();
   }
 
   VISIT(ColumnIdentifier) {
@@ -2434,74 +2027,57 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       string text = ctx->getText();
       boost::algorithm::to_lower(text);
       if (!text.compare("true")) {
-        JSONBuilder json;
-        json.startObject();
-        json.addNodeType("Constant");
+        Json json = Json::object();
+        json["node"] = "Constant";
         if (!is_internal) addPositionInfo(json, ctx);
-        json.addKey("value");
-        json.addBool(true);
-        json.endObject();
-        return json.toString();
+        json["value"] = true;
+        return json.dump();
       }
       if (!text.compare("false")) {
-        JSONBuilder json;
-        json.startObject();
-        json.addNodeType("Constant");
+        Json json = Json::object();
+        json["node"] = "Constant";
         if (!is_internal) addPositionInfo(json, ctx);
-        json.addKey("value");
-        json.addBool(false);
-        json.endObject();
-        return json.toString();
+        json["value"] = false;
+        return json.dump();
       }
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("Field");
+      Json json = Json::object();
+      json["node"] = "Field";
       if (!is_internal) addPositionInfo(json, ctx);
-      json.addKey("chain");
-      json.startArray();
+      Json chain = Json::array();
       for (const auto& part : nested) {
-        json.addString(part);
+        chain.pushBack(part);
       }
-      json.endArray();
-      json.endObject();
-      return json.toString();
+      json["chain"] = std::move(chain);
+      return json.dump();
     }
     vector<string> table_plus_nested = table;
     table_plus_nested.insert(table_plus_nested.end(), nested.begin(), nested.end());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Field");
+    Json json = Json::object();
+    json["node"] = "Field";
     if (!is_internal) addPositionInfo(json, ctx);
-    json.addKey("chain");
-    json.startArray();
+    Json chain = Json::array();
     for (const auto& part : table_plus_nested) {
-      json.addString(part);
+      chain.pushBack(part);
     }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    json["chain"] = std::move(chain);
+    return json.dump();
   }
 
   VISIT(NestedIdentifier) { return visitAsVectorOfStrings(ctx->identifier()); }
 
   VISIT(TableExprIdentifier) {
-    vector<string> chain = any_cast<vector<string>>(visit(ctx->tableIdentifier()));
+    vector<string> chain_vec = any_cast<vector<string>>(visit(ctx->tableIdentifier()));
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Field");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
+    Json json = Json::object();
+    json["node"] = "Field";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json chain = Json::array();
+    for (const auto& part : chain_vec) {
+      chain.pushBack(part);
     }
-    json.addKey("chain");
-    json.startArray();
-    for (const auto& part : chain) {
-      json.addString(part);
-    }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    json["chain"] = std::move(chain);
+    return json.dump();
   }
 
   VISIT(TableExprSubquery) { return visit(ctx->selectSetStmt()); }
@@ -2518,13 +2094,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     string table_json = visitAsJSON(ctx->tableExpr());
 
-    // Check if table is already a JoinExpr by looking at the START of the JSON
-    bool is_table_a_join_expr = table_json.substr(0, 30).find("\"node\":\"JoinExpr\"") != string::npos;
+    // Check if table is already a JoinExpr
+    bool is_table_a_join_expr = isJoinExprJson(table_json);
     if (is_table_a_join_expr) {
       // Inject alias into existing JoinExpr before the closing brace
       size_t insert_pos = table_json.rfind("}");
       if (insert_pos != string::npos) {
-        string alias_injection = ",\"alias\":\"" + JSONBuilder::escapeString(alias) + "\"";
+        string alias_injection = ",\"alias\":" + Json::escapeString(alias);
         table_json.insert(insert_pos, alias_injection);
       }
       return table_json;
@@ -2532,20 +2108,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     // Wrap table in a JoinExpr with alias
     // Note: sample/table_final/join_type/constraint will be injected by JoinExprTable/JoinExprOp before the final }
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("JoinExpr");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("table");
-    json.addRawJSON(table_json);
-    json.addKey("alias");
-    json.addString(alias);
-    json.addKey("next_join");
-    json.addNull();
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "JoinExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["table"] = Json::raw(table_json);
+    json["alias"] = alias;
+    json["next_join"] = nullptr;
+    return json.dump();
   }
 
   VISIT(TableExprFunction) { return visit(ctx->tableFunctionExpr()); }
@@ -2558,28 +2127,19 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string table_args_json = table_args_ctx ? visitAsJSON(table_args_ctx) : "[]";
 
     // Build Field node for table name
-    JSONBuilder table_json;
-    table_json.startObject();
-    table_json.addNodeType("Field");
-    table_json.addKey("chain");
-    table_json.startArray();
-    table_json.addString(table_name);
-    table_json.endArray();
-    table_json.endObject();
+    Json table_json = Json::object();
+    table_json["node"] = "Field";
+    Json chain = Json::array();
+    chain.pushBack(table_name);
+    table_json["chain"] = std::move(chain);
 
     // Build JoinExpr wrapping the table with table_args
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("JoinExpr");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("table");
-    json.addRawJSON(table_json.toString());
-    json.addKey("table_args");
-    json.addRawJSON(table_args_json);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "JoinExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["table"] = std::move(table_json);
+    json["table_args"] = Json::raw(table_args_json);
+    return json.dump();
   }
 
   VISIT(TableIdentifier) {
@@ -2606,55 +2166,40 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string text = ctx->getText();
     boost::algorithm::to_lower(text);
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Constant");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("value");
+    Json json = Json::object();
+    json["node"] = "Constant";
+    if (!is_internal) addPositionInfo(json, ctx);
 
     if (text.find(".") != string::npos || text.find("e") != string::npos || !text.compare("-inf") ||
         !text.compare("inf") || !text.compare("nan")) {
-      // Float value
-      double value = stod(text);
-      json.addFloat(value);
+      json["value"] = stod(text);  // Float
     } else {
-      // Integer value
-      int64_t value = stoll(text);
-      json.addInt(value);
+      json["value"] = stoll(text);  // Integer
     }
 
-    json.endObject();
-    return json.toString();
+    return json.dump();
   }
 
   VISIT(Literal) {
     if (ctx->NULL_SQL()) {
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("Constant");
+      Json json = Json::object();
+      json["node"] = "Constant";
       if (!is_internal) {
         addPositionInfo(json, ctx);
       }
-      json.addKey("value");
-      json.addNull();
-      json.endObject();
-      return json.toString();
+      json["value"] = nullptr;
+      return json.dump();
     }
     auto string_literal_terminal = ctx->STRING_LITERAL();
     if (string_literal_terminal) {
       string text = parse_string_literal_ctx(string_literal_terminal);
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("Constant");
+      Json json = Json::object();
+      json["node"] = "Constant";
       if (!is_internal) {
         addPositionInfo(json, ctx);
       }
-      json.addKey("value");
-      json.addString(text);
-      json.endObject();
-      return json.toString();
+      json["value"] = text;
+      return json.dump();
     }
     return visitChildren(ctx);
   }
@@ -2699,28 +2244,19 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         value_json = visitAsJSON(string_ctx);
       } else {
         // Default to true Constant
-        JSONBuilder value_builder;
-        value_builder.startObject();
-        value_builder.addNodeType("Constant");
-        value_builder.addKey("value");
-        value_builder.addBool(true);
-        value_builder.endObject();
-        value_json = value_builder.toString();
+        Json value_obj = Json::object();
+        value_obj["node"] = "Constant";
+        value_obj["value"] = true;
+        value_json = value_obj.dump();
       }
     }
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("HogQLXAttribute");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString(name);
-    json.addKey("value");
-    json.addRawJSON(value_json);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "HogQLXAttribute";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = name;
+    json["value"] = Json::raw(value_json);
+    return json.dump();
   }
 
   VISIT(HogqlxChildElement) {
@@ -2738,38 +2274,27 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(HogqlxText) {
     string text = ctx->HOGQLX_TEXT_TEXT()->getText();
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Constant");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("value");
-    json.addString(text);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Constant";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["value"] = text;
+    return json.dump();
   }
 
   VISIT(HogqlxTagElementClosed) {
     string kind = visitAsString(ctx->identifier());
-    vector<string> attributes = visitAsVectorOfJSON(ctx->hogqlxTagAttribute());
+    vector<string> attributes_vec = visitAsVectorOfJSON(ctx->hogqlxTagAttribute());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("HogQLXTag");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
+    Json json = Json::object();
+    json["node"] = "HogQLXTag";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["kind"] = kind;
+    Json attributes = Json::array();
+    for (const auto& attr : attributes_vec) {
+      attributes.pushBack(Json::raw(attr));
     }
-    json.addKey("kind");
-    json.addString(kind);
-    json.addKey("attributes");
-    json.startArray();
-    for (const auto& attr : attributes) {
-      json.addRawJSON(attr);
-    }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    json["attributes"] = std::move(attributes);
+    return json.dump();
   }
 
   VISIT(HogqlxTagElementNested) {
@@ -2824,56 +2349,39 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
 
       /* build children attribute */
-      JSONBuilder children_array;
-      children_array.startArray();
+      Json children_array = Json::array();
       for (const auto& child : kept_children) {
-        children_array.addRawJSON(child);
+        children_array.pushBack(Json::raw(child));
       }
-      children_array.endArray();
 
-      JSONBuilder children_attr;
-      children_attr.startObject();
-      children_attr.addNodeType("HogQLXAttribute");
-      children_attr.addKey("name");
-      children_attr.addString("children");
-      children_attr.addKey("value");
-      children_attr.addRawJSON(children_array.toString());
-      children_attr.endObject();
+      Json children_attr = Json::object();
+      children_attr["node"] = "HogQLXAttribute";
+      children_attr["name"] = "children";
+      children_attr["value"] = std::move(children_array);
 
-      attributes.push_back(children_attr.toString());
+      attributes.push_back(children_attr.dump());
     }
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("HogQLXTag");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("kind");
-    json.addString(opening);
-    json.addKey("attributes");
-    json.startArray();
+    Json json = Json::object();
+    json["node"] = "HogQLXTag";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["kind"] = opening;
+    Json attrs = Json::array();
     for (const auto& attr : attributes) {
-      json.addRawJSON(attr);
+      attrs.pushBack(Json::raw(attr));
     }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    json["attributes"] = std::move(attrs);
+    return json.dump();
   }
 
   VISIT(Placeholder) {
     string expr_json = visitAsJSON(ctx->columnExpr());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Placeholder");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(expr_json);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Placeholder";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(expr_json);
+    return json.dump();
   }
 
   VISIT_UNSUPPORTED(EnumValue)
@@ -2882,39 +2390,27 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string value_json = visitAsJSON(ctx->columnExpr(0));
     string fallback_json = visitAsJSON(ctx->columnExpr(1));
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Call");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("name");
-    json.addString("ifNull");
-    json.addKey("args");
-    json.startArray();
-    json.addRawJSON(value_json);
-    json.addRawJSON(fallback_json);
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "Call";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = "ifNull";
+    Json args = Json::array();
+    args.pushBack(Json::raw(value_json));
+    args.pushBack(Json::raw(fallback_json));
+    json["args"] = std::move(args);
+    return json.dump();
   }
 
   VISIT(ColumnExprCall) {
     string expr_json = visitAsJSON(ctx->columnExpr());
     string args_json = visitAsJSONOrEmptyArray(ctx->columnExprList());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ExprCall");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(expr_json);
-    json.addKey("args");
-    json.addRawJSON(args_json);
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ExprCall";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(expr_json);
+    json["args"] = Json::raw(args_json);
+    return json.dump();
   }
 
   VISIT(ColumnExprCallSelect) {
@@ -2945,20 +2441,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           // Build Call(name=func_name, args=[select])
           string select_json = visitAsJSON(ctx->selectSetStmt());
 
-          JSONBuilder json;
-          json.startObject();
-          json.addNodeType("Call");
+          Json json = Json::object();
+          json["node"] = "Call";
           if (!is_internal) {
             addPositionInfo(json, ctx);
           }
-          json.addKey("name");
-          json.addString(func_name);
-          json.addKey("args");
-          json.startArray();
-          json.addRawJSON(select_json);
-          json.endArray();
-          json.endObject();
-          return json.toString();
+          json["name"] = func_name;
+          Json args = Json::array();
+          args.pushBack(Json::raw(select_json));
+          json["args"] = std::move(args);
+          return json.dump();
         }
       }
     }
@@ -2966,20 +2458,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     // 3) Otherwise, build ExprCall(expr=<expr>, args=[select])
     string select_json = visitAsJSON(ctx->selectSetStmt());
 
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("ExprCall");
-    if (!is_internal) {
-      addPositionInfo(json, ctx);
-    }
-    json.addKey("expr");
-    json.addRawJSON(expr_json);
-    json.addKey("args");
-    json.startArray();
-    json.addRawJSON(select_json);
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    Json json = Json::object();
+    json["node"] = "ExprCall";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = Json::raw(expr_json);
+    Json args = Json::array();
+    args.pushBack(Json::raw(select_json));
+    json["args"] = std::move(args);
+    return json.dump();
   }
 
   VISIT(ColumnExprTemplateString) { return visit(ctx->templateString()); }
@@ -2988,16 +2474,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     auto string_literal = ctx->STRING_LITERAL();
     if (string_literal) {
       string text = parse_string_literal_ctx(string_literal);
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("Constant");
+      Json json = Json::object();
+      json["node"] = "Constant";
       if (!is_internal) {
         addPositionInfo(json, ctx);
       }
-      json.addKey("value");
-      json.addString(text);
-      json.endObject();
-      return json.toString();
+      json["value"] = text;
+      return json.dump();
     }
     return visit(ctx->templateString());
   }
@@ -3006,123 +2489,97 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     auto string_contents = ctx->stringContents();
 
     if (string_contents.size() == 0) {
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("Constant");
+      Json json = Json::object();
+      json["node"] = "Constant";
       if (!is_internal) addPositionInfo(json, ctx);
-      json.addKey("value");
-      json.addString("");
-      json.endObject();
-      return json.toString();
+      json["value"] = "";
+      return json.dump();
     }
 
     if (string_contents.size() == 1) {
       return visit(string_contents[0]);
     }
 
-    vector<string> args = visitAsVectorOfJSON(string_contents);
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Call");
+    vector<string> args_vec = visitAsVectorOfJSON(string_contents);
+    Json json = Json::object();
+    json["node"] = "Call";
     if (!is_internal) addPositionInfo(json, ctx);
-    json.addKey("name");
-    json.addString("concat");
-    json.addKey("args");
-    json.startArray();
-    for (const auto& arg : args) {
-      json.addRawJSON(arg);
+    json["name"] = "concat";
+    Json args = Json::array();
+    for (const auto& arg : args_vec) {
+      args.pushBack(Json::raw(arg));
     }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    json["args"] = std::move(args);
+    return json.dump();
   }
 
   VISIT(FullTemplateString) {
     auto string_contents_full = ctx->stringContentsFull();
 
     if (string_contents_full.size() == 0) {
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("Constant");
+      Json json = Json::object();
+      json["node"] = "Constant";
       if (!is_internal) addPositionInfo(json, ctx);
-      json.addKey("value");
-      json.addString("");
-      json.endObject();
-      return json.toString();
+      json["value"] = "";
+      return json.dump();
     }
 
     if (string_contents_full.size() == 1) {
       return visit(string_contents_full[0]);
     }
 
-    vector<string> args = visitAsVectorOfJSON(string_contents_full);
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Call");
+    vector<string> args_vec = visitAsVectorOfJSON(string_contents_full);
+    Json json = Json::object();
+    json["node"] = "Call";
     if (!is_internal) addPositionInfo(json, ctx);
-    json.addKey("name");
-    json.addString("concat");
-    json.addKey("args");
-    json.startArray();
-    for (const auto& arg : args) {
-      json.addRawJSON(arg);
+    json["name"] = "concat";
+    Json args = Json::array();
+    for (const auto& arg : args_vec) {
+      args.pushBack(Json::raw(arg));
     }
-    json.endArray();
-    json.endObject();
-    return json.toString();
+    json["args"] = std::move(args);
+    return json.dump();
   }
 
   VISIT(StringContents) {
     auto string_text = ctx->STRING_TEXT();
     if (string_text) {
       string text = parse_string_text_ctx(string_text, true);
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("Constant");
+      Json json = Json::object();
+      json["node"] = "Constant";
       if (!is_internal) addPositionInfo(json, ctx);
-      json.addKey("value");
-      json.addString(text);
-      json.endObject();
-      return json.toString();
+      json["value"] = text;
+      return json.dump();
     }
     auto column_expr = ctx->columnExpr();
     if (column_expr) {
       return visit(column_expr);
     }
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Constant");
+    Json json = Json::object();
+    json["node"] = "Constant";
     if (!is_internal) addPositionInfo(json, ctx);
-    json.addKey("value");
-    json.addString("");
-    json.endObject();
-    return json.toString();
+    json["value"] = "";
+    return json.dump();
   }
 
   VISIT(StringContentsFull) {
     auto full_string_text = ctx->FULL_STRING_TEXT();
     if (full_string_text) {
       string text = parse_string_text_ctx(full_string_text, false);
-      JSONBuilder json;
-      json.startObject();
-      json.addNodeType("Constant");
+      Json json = Json::object();
+      json["node"] = "Constant";
       if (!is_internal) addPositionInfo(json, ctx);
-      json.addKey("value");
-      json.addString(text);
-      json.endObject();
-      return json.toString();
+      json["value"] = text;
+      return json.dump();
     }
     auto column_expr = ctx->columnExpr();
     if (column_expr) {
       return visit(column_expr);
     }
-    JSONBuilder json;
-    json.startObject();
-    json.addNodeType("Constant");
+    Json json = Json::object();
+    json["node"] = "Constant";
     if (!is_internal) addPositionInfo(json, ctx);
-    json.addKey("value");
-    json.addString("");
-    json.endObject();
-    return json.toString();
+    json["value"] = "";
+    return json.dump();
   }
 };

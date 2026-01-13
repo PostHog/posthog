@@ -11,7 +11,7 @@
 #include "HogQLParserBaseVisitor.h"
 
 #include "error.h"
-#include "json_builder.h"
+#include "json.h"
 #include "parser_python.h"
 #include "string.h"
 
