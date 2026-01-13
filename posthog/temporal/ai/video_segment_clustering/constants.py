@@ -1,5 +1,6 @@
 """Configuration constants for video segment clustering workflow."""
 
+import os
 from datetime import timedelta
 
 from temporalio.common import RetryPolicy
@@ -84,5 +85,9 @@ SESSION_PRIMING_RETRY_POLICY = RetryPolicy(
 DEFAULT_SEGMENTS_PER_CLUSTER_FOR_LABELING = 5
 LABELING_LLM_MODEL = "gemini-3-flash-preview"
 
-# Feature flag for rollout
-FEATURE_FLAG_KEY = "video-segment-clustering-enabled"
+
+def get_proactive_tasks_team_ids() -> list[int]:
+    raw = os.environ.get("PROACTIVE_TASKS_TEAM_IDS", "")
+    if not raw.strip():
+        return []
+    return [int(tid.strip()) for tid in raw.split(",") if tid.strip()]

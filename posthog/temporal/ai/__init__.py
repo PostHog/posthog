@@ -55,18 +55,11 @@ from .sync_vectors import (
 )
 from .video_segment_clustering.activities import (
     cluster_segments_activity,
-    create_noise_clusters_activity,
-    create_update_tasks_activity,
-    fetch_recent_sessions_activity,
     fetch_segments_activity,
     generate_labels_activity,
-    link_segments_activity,
     match_clusters_activity,
-    summarize_sessions_activity,
-)
-from .video_segment_clustering.coordinator import (
-    VideoSegmentClusteringCoordinatorWorkflow,
-    discover_enabled_teams_activity,
+    persist_tasks_activity,
+    prime_session_embeddings_activity,
 )
 from .video_segment_clustering.workflow import VideoSegmentClusteringWorkflow
 
@@ -79,9 +72,8 @@ WORKFLOWS = [
     ChatAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
-    # Video segment clustering workflows
+    # Video segment clustering workflow
     VideoSegmentClusteringWorkflow,
-    VideoSegmentClusteringCoordinatorWorkflow,
 ]
 
 ACTIVITIES = [
@@ -109,16 +101,12 @@ ACTIVITIES = [
     store_video_session_summary_activity,
     consolidate_video_segments_activity,
     # Video segment clustering activities
-    fetch_recent_sessions_activity,
+    prime_session_embeddings_activity,
     fetch_segments_activity,
     cluster_segments_activity,
-    create_noise_clusters_activity,
     match_clusters_activity,
     generate_labels_activity,
-    create_update_tasks_activity,
-    link_segments_activity,
-    summarize_sessions_activity,
-    discover_enabled_teams_activity,
+    persist_tasks_activity,
 ]
 
 __all__ = [

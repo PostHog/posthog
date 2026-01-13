@@ -8,13 +8,6 @@ from posthog.temporal.ai.video_segment_clustering.constants import DEFAULT_LOOKB
 
 
 @dataclass
-class CoordinatorInputs:
-    """Input parameters for the coordinator workflow."""
-
-    pass  # Uses feature flag to discover teams
-
-
-@dataclass
 class ClusteringWorkflowInputs:
     """Input parameters for the per-team clustering workflow."""
 
@@ -169,6 +162,7 @@ class ClusterSegmentsActivityInputs:
 
     team_id: int
     document_ids: list[str]
+    create_single_segment_clusters_for_noise: bool = True
 
 
 @dataclass
@@ -258,3 +252,48 @@ class SummarizeSessionsResult:
     sessions_summarized: int
     sessions_failed: int
     sessions_skipped: int
+
+
+# New combined activity inputs/outputs
+
+
+@dataclass
+class PrimeSessionEmbeddingsActivityInputs:
+    """Input for priming session embeddings (combined fetch + summarize)."""
+
+    team_id: int
+    lookback_hours: int
+
+
+@dataclass
+class PrimeSessionEmbeddingsResult:
+    """Result from priming session embeddings."""
+
+    session_ids_found: int
+    sessions_summarized: int
+    sessions_skipped: int
+    sessions_failed: int
+
+
+@dataclass
+class PersistTasksActivityInputs:
+    """Input for persisting tasks (combined create/update + link + watermark)."""
+
+    team_id: int
+    new_clusters: list[Cluster]
+    matched_clusters: list[TaskMatch]
+    labels: dict[int, ClusterLabel]
+    segments: list[VideoSegmentMetadata]
+    segment_to_cluster: dict[str, int]
+    latest_timestamp: str | None
+
+
+@dataclass
+class PersistTasksResult:
+    """Result from persisting tasks."""
+
+    tasks_created: int
+    tasks_updated: int
+    task_ids: list[str]
+    links_created: int
+    watermark_updated: bool

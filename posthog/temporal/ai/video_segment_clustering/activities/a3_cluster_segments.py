@@ -1,15 +1,22 @@
-"""Clustering utilities: HDBSCAN with PCA dimensionality reduction."""
+"""
+Activity 3 of the video segment clustering workflow:
+Clustering video segments using HDBSCAN, with optional noise handling.
+"""
+
+import asyncio
 
 import numpy as np
+import fast_hdbscan as hdbscan
 from sklearn.decomposition import PCA
-from sklearn.metrics.pairwise import cosine_distances
+from temporalio import activity
 
+from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
+from posthog.temporal.ai.video_segment_clustering.data import fetch_embeddings_by_document_ids
 from posthog.temporal.ai.video_segment_clustering.models import (
     Cluster,
     ClusteringResult,
-    MatchingResult,
-    TaskMatch,
+    ClusterSegmentsActivityInputs,
     VideoSegment,
 )
 
@@ -79,11 +86,6 @@ def perform_hdbscan_clustering(
     Returns:
         ClusteringResult with clusters, noise segments, and mappings
     """
-    try:
-        import hdbscan
-    except ImportError:
-        raise ImportError("hdbscan package is required for clustering. Install with: pip install hdbscan")
-
     if len(segments) == 0:
         return ClusteringResult(
             clusters=[],
@@ -153,107 +155,6 @@ def perform_hdbscan_clustering(
     )
 
 
-def match_clusters_to_existing_tasks(
-    clusters: list[Cluster],
-    existing_task_centroids: dict[str, list[float]],
-    match_threshold: float = constants.TASK_MATCH_THRESHOLD,
-) -> MatchingResult:
-    """Match new clusters to existing Tasks based on centroid similarity.
-
-    Args:
-        clusters: List of new clusters from HDBSCAN
-        existing_task_centroids: Dict mapping task_id -> centroid embedding
-        match_threshold: Maximum cosine distance to consider a match
-
-    Returns:
-        MatchingResult with new clusters and matched clusters
-    """
-    if not existing_task_centroids:
-        # No existing tasks, all clusters are new
-        return MatchingResult(
-            new_clusters=clusters,
-            matched_clusters=[],
-        )
-
-    new_clusters: list[Cluster] = []
-    matched_clusters: list[TaskMatch] = []
-
-    # Convert task centroids to arrays for efficient comparison
-    task_ids = list(existing_task_centroids.keys())
-    task_centroids = np.array(list(existing_task_centroids.values()))
-
-    for cluster in clusters:
-        cluster_centroid = np.array(cluster.centroid).reshape(1, -1)
-
-        # Calculate cosine distances to all task centroids
-        distances = cosine_distances(cluster_centroid, task_centroids)[0]
-
-        # Find best match
-        min_idx = np.argmin(distances)
-        min_distance = distances[min_idx]
-
-        if min_distance < match_threshold:
-            # Found a match
-            matched_clusters.append(
-                TaskMatch(
-                    cluster_id=cluster.cluster_id,
-                    task_id=task_ids[min_idx],
-                    distance=float(min_distance),
-                )
-            )
-        else:
-            # No match, this is a new cluster
-            new_clusters.append(cluster)
-
-    return MatchingResult(
-        new_clusters=new_clusters,
-        matched_clusters=matched_clusters,
-    )
-
-
-def update_task_centroid(
-    existing_centroid: list[float],
-    existing_count: int,
-    new_embeddings: np.ndarray,
-) -> list[float]:
-    """Update a task's centroid with new segment embeddings using weighted average.
-
-    Args:
-        existing_centroid: Current centroid embedding
-        existing_count: Number of segments that contributed to existing centroid
-        new_embeddings: Array of new segment embeddings
-
-    Returns:
-        Updated centroid as list of floats
-    """
-    if len(new_embeddings) == 0:
-        return existing_centroid
-
-    new_count = len(new_embeddings)
-    new_centroid = np.mean(new_embeddings, axis=0)
-
-    # Weighted average
-    total_count = existing_count + new_count
-    updated_centroid = (np.array(existing_centroid) * existing_count + new_centroid * new_count) / total_count
-
-    return updated_centroid.tolist()
-
-
-def calculate_cosine_distance(embedding1: list[float], embedding2: list[float]) -> float:
-    """Calculate cosine distance between two embeddings.
-
-    Args:
-        embedding1: First embedding vector
-        embedding2: Second embedding vector
-
-    Returns:
-        Cosine distance (0 = identical, 2 = opposite)
-    """
-    vec1 = np.array(embedding1).reshape(1, -1)
-    vec2 = np.array(embedding2).reshape(1, -1)
-    return float(cosine_distances(vec1, vec2)[0, 0])
-
-
 def create_single_segment_clusters(
     noise_segment_ids: list[str],
     segments: list[VideoSegment],
@@ -289,3 +190,55 @@ def create_single_segment_clusters(
         clusters.append(cluster)
 
     return clusters
+
+
+def _perform_clustering(
+    segments: list[VideoSegment],
+    create_single_segment_clusters_for_noise: bool,
+) -> ClusteringResult:
+    """Run HDBSCAN clustering and optionally handle noise. CPU-bound."""
+    result = perform_hdbscan_clustering(segments)
+
+    if create_single_segment_clusters_for_noise and result.noise_segment_ids:
+        max_cluster_id = max((c.cluster_id for c in result.clusters), default=-1)
+
+        noise_clusters = create_single_segment_clusters(
+            noise_segment_ids=result.noise_segment_ids,
+            segments=segments,
+            starting_cluster_id=max_cluster_id + 1,
+        )
+
+        all_clusters = list(result.clusters) + noise_clusters
+        segment_to_cluster = dict(result.segment_to_cluster)
+        for cluster in noise_clusters:
+            for doc_id in cluster.segment_ids:
+                segment_to_cluster[doc_id] = cluster.cluster_id
+
+        return ClusteringResult(
+            clusters=all_clusters,
+            noise_segment_ids=[],
+            labels=result.labels,
+            segment_to_cluster=segment_to_cluster,
+        )
+
+    return result
+
+
+@activity.defn
+async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> ClusteringResult:
+    """Cluster video segments using HDBSCAN.
+
+    Fetches embeddings from ClickHouse, then applies PCA dimensionality reduction
+    and HDBSCAN clustering. Returns clusters with centroids computed from original embeddings.
+
+    If create_single_segment_clusters_for_noise is True, noise segments are converted to
+    single-segment clusters so they can become individual Tasks.
+    """
+    team = await Team.objects.aget(id=inputs.team_id)
+    segments = await fetch_embeddings_by_document_ids(team, inputs.document_ids)
+
+    return await asyncio.to_thread(
+        _perform_clustering,
+        segments,
+        inputs.create_single_segment_clusters_for_noise,
+    )

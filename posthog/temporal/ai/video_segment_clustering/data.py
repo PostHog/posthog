@@ -7,6 +7,8 @@ and related session data for the clustering workflow.
 import json
 from datetime import datetime
 
+from asgiref.sync import sync_to_async
+
 from posthog.schema import PropertyOperator, RecordingPropertyFilter, RecordingsQuery
 
 from posthog.hogql import ast
@@ -24,7 +26,7 @@ from products.tasks.backend.models import Task
 from ee.hogai.session_summaries.constants import MIN_SESSION_DURATION_FOR_SUMMARY_MS
 
 
-def fetch_video_segments(
+async def fetch_video_segments(
     team: Team,
     since_timestamp: datetime | None,
     lookback_hours: int,
@@ -77,13 +79,17 @@ def fetch_video_segments(
         }
     )
 
-    with tags_context(product=Product.REPLAY):
-        result = execute_hogql_query(
-            query_type="VideoSegmentMetadataForClustering",
-            query=query,
-            placeholders=placeholders,
-            team=team,
-        )
+    @sync_to_async
+    def _execute_query():
+        with tags_context(product=Product.REPLAY):
+            return execute_hogql_query(
+                query_type="VideoSegmentMetadataForClustering",
+                query=query,
+                placeholders=placeholders,
+                team=team,
+            )
+
+    result = await _execute_query()
 
     rows = result.results or []
     segments: list[VideoSegmentMetadata] = []
@@ -138,7 +144,7 @@ def fetch_video_segments(
     )
 
 
-def fetch_embeddings_by_document_ids(
+async def fetch_embeddings_by_document_ids(
     team: Team,
     document_ids: list[str],
 ) -> list[VideoSegment]:
@@ -180,13 +186,17 @@ def fetch_embeddings_by_document_ids(
         "rendering": ast.Constant(value=constants.RENDERING),
     }
 
-    with tags_context(product=Product.REPLAY):
-        result = execute_hogql_query(
-            query_type="VideoSegmentEmbeddingsForClustering",
-            query=query,
-            placeholders=placeholders,
-            team=team,
-        )
+    @sync_to_async
+    def _execute_query():
+        with tags_context(product=Product.REPLAY):
+            return execute_hogql_query(
+                query_type="VideoSegmentEmbeddingsForClustering",
+                query=query,
+                placeholders=placeholders,
+                team=team,
+            )
+
+    result = await _execute_query()
 
     rows = result.results or []
     segments: list[VideoSegment] = []
@@ -277,7 +287,7 @@ def fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
     return [recording["session_id"] for recording in result.results]
 
 
-def fetch_existing_task_centroids(team: Team) -> dict[str, list[float]]:
+async def fetch_existing_task_centroids(team: Team) -> dict[str, list[float]]:
     """Fetch cluster centroids from existing Tasks for deduplication.
 
     Args:
@@ -286,11 +296,12 @@ def fetch_existing_task_centroids(team: Team) -> dict[str, list[float]]:
     Returns:
         Dictionary mapping task_id -> centroid embedding
     """
-    tasks = Task.objects.filter(
+    result: dict[str, list[float]] = {}
+    async for task in Task.objects.filter(
         team=team,
         origin_product=Task.OriginProduct.SESSION_SUMMARIES,
         deleted=False,
         cluster_centroid__isnull=False,
-    ).values("id", "cluster_centroid")
-
-    return {str(task["id"]): task["cluster_centroid"] for task in tasks}
+    ).values("id", "cluster_centroid"):
+        result[str(task["id"])] = task["cluster_centroid"]
+    return result
