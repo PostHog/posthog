@@ -127,9 +127,7 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     def _build_action_type_filter(self, action_type: str) -> ast.Expr:
         """Build filter condition for a specific action type"""
         return ast.CompareOperation(
-            left=ast.Call(
-                name="JSONExtractString", args=[ast.Field(chain=["x"]), ast.Constant(value="action_type")]
-            ),
+            left=ast.Call(name="JSONExtractString", args=[ast.Field(chain=["x"]), ast.Constant(value="action_type")]),
             op=ast.CompareOperationOp.Eq,
             right=ast.Constant(value=action_type),
         )
