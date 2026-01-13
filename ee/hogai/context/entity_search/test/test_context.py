@@ -1,6 +1,6 @@
 import pytest
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from django.conf import settings
 from django.utils import timezone
@@ -323,6 +323,37 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         entity_names = [e["extra_fields"].get("name", "") for e in entities]
         assert "List Insight 1" in entity_names
         assert "List Insight 2" in entity_names
+
+    async def test_list_entities_insight_applies_access_control(self):
+        insight1 = await Insight.objects.acreate(
+            team=self.team, name="Accessible Insight", deleted=False, saved=True, created_by=self.user
+        )
+        insight2 = await Insight.objects.acreate(
+            team=self.team, name="Restricted Insight", deleted=False, saved=True, created_by=self.user
+        )
+        await InsightViewed.objects.acreate(
+            team=self.team, user=self.user, insight=insight1, last_viewed_at=timezone.now()
+        )
+        await InsightViewed.objects.acreate(
+            team=self.team, user=self.user, insight=insight2, last_viewed_at=timezone.now()
+        )
+
+        # Mock filter_queryset_by_access_level to filter out insight2
+        def mock_filter(qs):
+            return qs.exclude(id=insight2.id)
+
+        with patch.object(
+            EntitySearchContext,
+            "user_access_control",
+            new_callable=PropertyMock,
+        ) as mock_uac:
+            mock_uac.return_value.filter_queryset_by_access_level = mock_filter
+
+            entities, total = await self.context.list_entities("insight", limit=10, offset=0)
+
+            assert len(entities) == 1
+            assert total == 1
+            assert entities[0]["extra_fields"]["name"] == "Accessible Insight"
 
     async def test_list_entities_dashboard(self):
         await Dashboard.objects.acreate(team=self.team, name="List Dashboard", deleted=False, created_by=self.user)

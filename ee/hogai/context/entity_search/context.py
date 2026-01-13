@@ -244,6 +244,8 @@ class EntitySearchContext:
             .filter(latest_view_time__gte=cutoff_date)
             .order_by("-latest_view_time")
         )
+        # Apply access control filtering
+        queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
 
         total_count = await queryset.acount()
         insights = queryset[offset : offset + limit].values(
