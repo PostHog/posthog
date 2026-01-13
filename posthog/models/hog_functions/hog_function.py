@@ -9,6 +9,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 
 import structlog
+from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
@@ -32,6 +33,11 @@ if TYPE_CHECKING:
 DEFAULT_STATE = {"state": 0, "tokens": 0}
 
 logger = structlog.get_logger(__name__)
+
+GEOIP_TRANSFORMATION_CREATION_FAILED_COUNTER = Counter(
+    "posthog_geoip_transformation_creation_failed_total",
+    "Number of times GeoIP transformation creation failed for new teams",
+)
 
 
 class HogFunctionState(enum.Enum):
@@ -339,3 +345,7 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
                 team_id=instance.id,
                 errors=serializer.errors,
             )
+            GEOIP_TRANSFORMATION_CREATION_FAILED_COUNTER.inc()
+    else:
+        logger.error("GeoIP template not found, transformation not created", team_id=instance.id)
+        GEOIP_TRANSFORMATION_CREATION_FAILED_COUNTER.inc()
