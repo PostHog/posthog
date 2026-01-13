@@ -3,18 +3,18 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
-import { TaskSegmentLink } from '../types'
+import { TaskReference } from '../types'
 
-export interface TaskSegmentListProps {
-    segments: TaskSegmentLink[]
+export interface TaskReferenceListProps {
+    references: TaskReference[]
     loading: boolean
     hasMore: boolean
-    onSegmentClick: (segment: TaskSegmentLink) => void
+    onReferenceClick: (reference: TaskReference) => void
     onLoadMore: () => void
 }
 
-function SegmentItem({ segment, onClick }: { segment: TaskSegmentLink; onClick: () => void }): JSX.Element {
-    const timestamp = segment.segment_timestamp ? dayjs(segment.segment_timestamp) : null
+function ReferenceItem({ reference, onClick }: { reference: TaskReference; onClick: () => void }): JSX.Element {
+    const timestamp = reference.timestamp ? dayjs(reference.timestamp) : null
 
     return (
         <button
@@ -26,17 +26,17 @@ function SegmentItem({ segment, onClick }: { segment: TaskSegmentLink; onClick: 
                     <IconPlay className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className="text-sm mb-1 line-clamp-2">{segment.content || 'No description available'}</p>
+                    <p className="text-sm mb-1 line-clamp-2">{reference.content || 'No description available'}</p>
                     <div className="flex items-center gap-3 text-xs text-muted">
                         <span className="flex items-center gap-1">
                             <IconPerson className="w-3 h-3" />
-                            <span className="font-mono truncate max-w-[120px]" title={segment.distinct_id}>
-                                {segment.distinct_id}
+                            <span className="font-mono truncate max-w-[120px]" title={reference.distinct_id}>
+                                {reference.distinct_id}
                             </span>
                         </span>
                         {timestamp && <span>{timestamp.format('MMM D, HH:mm')}</span>}
                         <span className="font-mono">
-                            {segment.segment_start_time} - {segment.segment_end_time}
+                            {reference.start_time} - {reference.end_time}
                         </span>
                     </div>
                 </div>
@@ -45,14 +45,14 @@ function SegmentItem({ segment, onClick }: { segment: TaskSegmentLink; onClick: 
     )
 }
 
-export function TaskSegmentList({
-    segments,
+export function TaskReferenceList({
+    references,
     loading,
     hasMore,
-    onSegmentClick,
+    onReferenceClick,
     onLoadMore,
-}: TaskSegmentListProps): JSX.Element {
-    if (loading && segments.length === 0) {
+}: TaskReferenceListProps): JSX.Element {
+    if (loading && references.length === 0) {
         return (
             <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
@@ -65,19 +65,19 @@ export function TaskSegmentList({
         )
     }
 
-    if (segments.length === 0) {
-        return <div className="text-center py-8 text-muted">No video segments linked to this task</div>
+    if (references.length === 0) {
+        return <div className="text-center py-8 text-muted">No references linked to this task</div>
     }
 
     return (
         <div className="space-y-2">
-            {segments.map((segment) => (
-                <SegmentItem key={segment.id} segment={segment} onClick={() => onSegmentClick(segment)} />
+            {references.map((reference) => (
+                <ReferenceItem key={reference.id} reference={reference} onClick={() => onReferenceClick(reference)} />
             ))}
             {hasMore && (
                 <div className="pt-2">
                     <LemonButton type="secondary" size="small" onClick={onLoadMore} loading={loading} fullWidth center>
-                        Show more segments
+                        Show more references
                     </LemonButton>
                 </div>
             )}

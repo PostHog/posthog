@@ -55,23 +55,23 @@ export interface Task {
     distinct_user_count: number
     occurrence_count: number
     last_occurrence_at: string | null
-    segment_link_count: number
+    reference_count: number
 }
 
-export interface TaskSegmentLink {
+export interface TaskReference {
     id: string
     session_id: string
-    segment_start_time: string
-    segment_end_time: string
+    start_time: string
+    end_time: string
     distinct_id: string
     content: string
     distance_to_centroid: number | null
-    segment_timestamp: string | null
+    timestamp: string | null
     created_at: string
 }
 
-export interface TaskSegmentLinksResponse {
-    results: TaskSegmentLink[]
+export interface TaskReferencesResponse {
+    results: TaskReference[]
     count: number
     limit: number
     offset: number

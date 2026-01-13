@@ -1,6 +1,6 @@
 """
 Activity 6 of the video segment clustering workflow:
-Persisting Tasks, TaskSegmentLinks, and updating the clustering state watermark.
+Persisting Tasks, TaskReferences, and updating the clustering state watermark.
 """
 
 from datetime import datetime
@@ -18,18 +18,18 @@ from posthog.temporal.ai.video_segment_clustering.models import (
 )
 from posthog.temporal.ai.video_segment_clustering.priority import calculate_priority_score, calculate_task_metrics
 
-from products.tasks.backend.models import Task, TaskSegmentLink, VideoSegmentClusteringState
+from products.tasks.backend.models import Task, TaskReference, VideoSegmentClusteringState
 
 logger = structlog.get_logger(__name__)
 
 
 @activity.defn
 async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistTasksResult:
-    """Persist Tasks, create segment links, and update the clustering state watermark.
+    """Persist Tasks, create references, and update the clustering state watermark.
 
     Creates Task records for new clusters with LLM-generated labels.
     Updates existing Tasks with new segment data and recalculates priority.
-    Creates TaskSegmentLink records for all processed segments.
+    Creates TaskReference records for all processed segments.
     Updates VideoSegmentClusteringState with the latest processed timestamp.
     """
     team = await Team.objects.aget(id=inputs.team_id)
@@ -123,7 +123,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
 
         task_ids.append(str(task.id))
 
-    # 3. Create TaskSegmentLink records
+    # 3. Create TaskReference records
     links_created = 0
 
     for segment in inputs.segments:
@@ -140,24 +140,24 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
         except Task.DoesNotExist:
             continue
 
-        segment_timestamp = None
+        reference_timestamp = None
         if segment.timestamp:
             try:
-                segment_timestamp = datetime.fromisoformat(segment.timestamp.replace("Z", "+00:00"))
+                reference_timestamp = datetime.fromisoformat(segment.timestamp.replace("Z", "+00:00"))
             except ValueError:
                 pass
 
-        await TaskSegmentLink.objects.aupdate_or_create(
+        await TaskReference.objects.aupdate_or_create(
             task=task,
             session_id=segment.session_id,
-            segment_start_time=segment.start_time,
-            segment_end_time=segment.end_time,
+            start_time=segment.start_time,
+            end_time=segment.end_time,
             defaults={
                 "team": team,
                 "distinct_id": segment.distinct_id,
                 "content": segment.content[:1000],
                 "distance_to_centroid": None,
-                "segment_timestamp": segment_timestamp,
+                "timestamp": reference_timestamp,
             },
         )
         links_created += 1

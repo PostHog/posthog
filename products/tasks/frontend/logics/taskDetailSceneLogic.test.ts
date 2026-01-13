@@ -22,7 +22,7 @@ const createMockTask = (id: string): Task => ({
     distinct_user_count: 0,
     occurrence_count: 0,
     last_occurrence_at: null,
-    segment_link_count: 0,
+    reference_count: 0,
 })
 
 const createMockRun = (id: string, status: TaskRunStatus): TaskRun => ({

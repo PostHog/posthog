@@ -21,10 +21,11 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.storage import object_storage
 
-from .models import Task, TaskRun, TaskSegmentLink
+from .models import Task, TaskReference, TaskRun
 from .serializers import (
     ErrorResponseSerializer,
     TaskListQuerySerializer,
+    TaskReferenceSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
@@ -32,7 +33,6 @@ from .serializers import (
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunDetailSerializer,
     TaskRunUpdateSerializer,
-    TaskSegmentLinkSerializer,
     TaskSerializer,
 )
 from .temporal.client import execute_task_processing_workflow, execute_video_segment_clustering_workflow
@@ -61,7 +61,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "destroy",
             "run",
             "cluster_video_segments",
-            "segment_links",
+            "references",
         ]
     }
 
@@ -229,17 +229,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @validated_request(
         request_serializer=None,
         responses={
-            200: OpenApiResponse(description="Paginated list of segment links"),
+            200: OpenApiResponse(description="Paginated list of references"),
             404: OpenApiResponse(description="Task not found"),
         },
-        summary="List task segment links",
-        description="Get paginated list of video segment links for a task, sorted by creation date.",
+        summary="List task references",
+        description="Get paginated list of references for a task, sorted by creation date.",
     )
-    @action(detail=True, methods=["get"], url_path="segment_links", required_scopes=["task:read"])
-    def segment_links(self, request, pk=None, **kwargs):
-        """Get video segment links for a task.
+    @action(detail=True, methods=["get"], url_path="references", required_scopes=["task:read"])
+    def references(self, request, pk=None, **kwargs):
+        """Get references for a task.
 
-        Returns segments sorted by created_at (descending), with pagination.
+        Returns references sorted by created_at (descending), with pagination.
         Query params:
         - limit: Max items to return (default 10)
         - offset: Number of items to skip (default 0)
@@ -249,12 +249,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         limit = int(request.query_params.get("limit", 10))
         offset = int(request.query_params.get("offset", 0))
 
-        segment_links = TaskSegmentLink.objects.filter(task=task).order_by("-created_at")
+        references = TaskReference.objects.filter(task=task).order_by("-created_at")
 
-        total_count = segment_links.count()
-        segment_links = segment_links[offset : offset + limit]
+        total_count = references.count()
+        references = references[offset : offset + limit]
 
-        serializer = TaskSegmentLinkSerializer(segment_links, many=True)
+        serializer = TaskReferenceSerializer(references, many=True)
         return Response(
             {
                 "results": serializer.data,

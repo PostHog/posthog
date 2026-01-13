@@ -553,48 +553,48 @@ class SandboxEnvironment(UUIDModel):
         return []
 
 
-class TaskSegmentLink(models.Model):
-    """Links a video segment to a Task (for session_summaries origin_product).
+class TaskReference(models.Model):
+    """Links a reference (video segment, error, etc.) to a Task.
 
-    Each record represents one video segment occurrence that contributed to or
-    matches a Task's cluster. Used for tracking cases and calculating priority.
+    Each record represents one occurrence that contributed to or matches a Task's cluster.
+    Used for tracking cases and calculating priority.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="segment_links")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="references")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
-    # Segment identification (matches document_embeddings metadata)
+    # Reference identification
     session_id = models.CharField(max_length=255)
-    segment_start_time = models.CharField(max_length=20)
-    segment_end_time = models.CharField(max_length=20)
+    start_time = models.CharField(max_length=20)
+    end_time = models.CharField(max_length=20)
 
     # User tracking for distinct_user_count
     distinct_id = models.CharField(max_length=255)
 
-    # Segment content (cached from document_embeddings)
+    # Reference content
     content = models.TextField(
         blank=True,
-        help_text="The segment description text from video analysis",
+        help_text="The reference description text",
     )
 
     # Clustering metadata
     distance_to_centroid = models.FloatField(
         null=True,
         blank=True,
-        help_text="Cosine distance from this segment to the task's cluster centroid",
+        help_text="Cosine distance from this reference to the task's cluster centroid",
     )
 
     # Timestamps
-    segment_timestamp = models.DateTimeField(
+    timestamp = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Original timestamp of the segment from document_embeddings",
+        help_text="Original timestamp of the reference from document_embeddings",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = "posthog_task_segment_link"
+        db_table = "posthog_task_reference"
         indexes = [
             models.Index(fields=["task_id", "session_id"]),
             models.Index(fields=["team_id", "session_id"]),
@@ -602,13 +602,13 @@ class TaskSegmentLink(models.Model):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["task_id", "session_id", "segment_start_time", "segment_end_time"],
-                name="unique_task_segment_link",
+                fields=["task_id", "session_id", "start_time", "end_time"],
+                name="unique_task_reference",
             )
         ]
 
     def __str__(self):
-        return f"Segment {self.session_id}:{self.segment_start_time}-{self.segment_end_time} -> Task {self.task_id}"
+        return f"Reference {self.session_id}:{self.start_time}-{self.end_time} -> Task {self.task_id}"
 
 
 class VideoSegmentClusteringState(models.Model):

@@ -8,12 +8,12 @@ import { dayjs } from 'lib/dayjs'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { TaskSegmentLink } from '../types'
+import { TaskReference } from '../types'
 
-export interface TaskSegmentModalProps {
+export interface TaskReferenceModalProps {
     isOpen: boolean
     onClose: () => void
-    segment: TaskSegmentLink | null
+    reference: TaskReference | null
 }
 
 function parseTimeToMs(timeStr: string): number {
@@ -29,9 +29,9 @@ function parseTimeToMs(timeStr: string): number {
     return 0
 }
 
-export function TaskSegmentModal({ isOpen, onClose, segment }: TaskSegmentModalProps): JSX.Element {
-    const playerKey = 'task-segment-modal'
-    const sessionRecordingId = segment?.session_id || ''
+export function TaskReferenceModal({ isOpen, onClose, reference }: TaskReferenceModalProps): JSX.Element {
+    const playerKey = 'task-reference-modal'
+    const sessionRecordingId = reference?.session_id || ''
 
     const logicProps = {
         sessionRecordingId,
@@ -42,21 +42,21 @@ export function TaskSegmentModal({ isOpen, onClose, segment }: TaskSegmentModalP
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic(logicProps))
 
-    // Seek to segment start when modal opens and player is ready
+    // Seek to reference start when modal opens and player is ready
     useEffect(() => {
-        if (isOpen && segment && sessionPlayerData?.start && sessionPlayerData?.durationMs) {
-            const startTimeMs = parseTimeToMs(segment.segment_start_time)
+        if (isOpen && reference && sessionPlayerData?.start && sessionPlayerData?.durationMs) {
+            const startTimeMs = parseTimeToMs(reference.start_time)
             // Back up 2 seconds for context
             const timeToSeekTo = Math.max(startTimeMs - 2000, 0)
             seekToTime(timeToSeekTo)
         }
-    }, [isOpen, segment, sessionPlayerData?.start, sessionPlayerData?.durationMs, seekToTime])
+    }, [isOpen, reference, sessionPlayerData?.start, sessionPlayerData?.durationMs, seekToTime])
 
-    if (!segment) {
+    if (!reference) {
         return <></>
     }
 
-    const timestamp = segment.segment_timestamp ? dayjs(segment.segment_timestamp) : null
+    const timestamp = reference.timestamp ? dayjs(reference.timestamp) : null
 
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} simple title="" width={1400} closable hideCloseButton>
@@ -66,11 +66,11 @@ export function TaskSegmentModal({ isOpen, onClose, segment }: TaskSegmentModalP
                     <header className="flex items-center justify-between p-4 border-b">
                         <div className="flex-1 min-w-0">
                             <h2 className="text-lg font-semibold mb-1 line-clamp-2">
-                                {segment.content || 'Video segment'}
+                                {reference.content || 'Reference'}
                             </h2>
                             <div className="flex items-center gap-3 text-sm text-muted">
                                 <span className="font-mono">
-                                    {segment.segment_start_time} - {segment.segment_end_time}
+                                    {reference.start_time} - {reference.end_time}
                                 </span>
                                 {timestamp && <span>{timestamp.format('MMM D, YYYY HH:mm')}</span>}
                             </div>
@@ -85,14 +85,14 @@ export function TaskSegmentModal({ isOpen, onClose, segment }: TaskSegmentModalP
                             <h4 className="text-xs font-semibold text-muted uppercase">User</h4>
                             <div className="flex items-center gap-2">
                                 <IconPerson className="w-4 h-4 text-muted" />
-                                <span className="font-mono text-sm truncate" title={segment.distinct_id}>
-                                    {segment.distinct_id}
+                                <span className="font-mono text-sm truncate" title={reference.distinct_id}>
+                                    {reference.distinct_id}
                                 </span>
                             </div>
                             <div>
                                 <span className="text-xs text-muted">Session ID</span>
-                                <p className="font-mono text-xs truncate" title={segment.session_id}>
-                                    {segment.session_id}
+                                <p className="font-mono text-xs truncate" title={reference.session_id}>
+                                    {reference.session_id}
                                 </p>
                             </div>
                         </div>
@@ -100,15 +100,15 @@ export function TaskSegmentModal({ isOpen, onClose, segment }: TaskSegmentModalP
                         {/* Clustering Info */}
                         <div className="space-y-3">
                             <h4 className="text-xs font-semibold text-muted uppercase">Clustering</h4>
-                            {segment.distance_to_centroid !== null && (
+                            {reference.distance_to_centroid !== null && (
                                 <div>
                                     <span className="text-xs text-muted">Distance to centroid</span>
-                                    <p className="text-sm font-mono">{segment.distance_to_centroid.toFixed(4)}</p>
+                                    <p className="text-sm font-mono">{reference.distance_to_centroid.toFixed(4)}</p>
                                 </div>
                             )}
                             <div>
                                 <span className="text-xs text-muted">Linked at</span>
-                                <p className="text-sm">{dayjs(segment.created_at).format('MMM D, YYYY HH:mm')}</p>
+                                <p className="text-sm">{dayjs(reference.created_at).format('MMM D, YYYY HH:mm')}</p>
                             </div>
                         </div>
                     </div>

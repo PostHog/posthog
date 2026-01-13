@@ -68,9 +68,9 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        # Create TaskSegmentLink model
+        # Create TaskReference model
         migrations.CreateModel(
-            name="TaskSegmentLink",
+            name="TaskReference",
             fields=[
                 (
                     "id",
@@ -82,29 +82,29 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("session_id", models.CharField(max_length=255)),
-                ("segment_start_time", models.CharField(max_length=20)),
-                ("segment_end_time", models.CharField(max_length=20)),
+                ("start_time", models.CharField(max_length=20)),
+                ("end_time", models.CharField(max_length=20)),
                 ("distinct_id", models.CharField(max_length=255)),
                 (
                     "content",
                     models.TextField(
                         blank=True,
-                        help_text="The segment description text from video analysis",
+                        help_text="The reference description text",
                     ),
                 ),
                 (
                     "distance_to_centroid",
                     models.FloatField(
                         blank=True,
-                        help_text="Cosine distance from this segment to the task's cluster centroid",
+                        help_text="Cosine distance from this reference to the task's cluster centroid",
                         null=True,
                     ),
                 ),
                 (
-                    "segment_timestamp",
+                    "timestamp",
                     models.DateTimeField(
                         blank=True,
-                        help_text="Original timestamp of the segment from document_embeddings",
+                        help_text="Original timestamp of the reference from document_embeddings",
                         null=True,
                     ),
                 ),
@@ -113,7 +113,7 @@ class Migration(migrations.Migration):
                     "task",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="segment_links",
+                        related_name="references",
                         to="tasks.task",
                     ),
                 ),
@@ -126,26 +126,26 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "db_table": "posthog_task_segment_link",
+                "db_table": "posthog_task_reference",
             },
         ),
         migrations.AddIndex(
-            model_name="tasksegmentlink",
+            model_name="taskreference",
             index=models.Index(fields=["task_id", "session_id"], name="posthog_tas_task_id_f3cf5a_idx"),
         ),
         migrations.AddIndex(
-            model_name="tasksegmentlink",
+            model_name="taskreference",
             index=models.Index(fields=["team_id", "session_id"], name="posthog_tas_team_id_9f1f8c_idx"),
         ),
         migrations.AddIndex(
-            model_name="tasksegmentlink",
+            model_name="taskreference",
             index=models.Index(fields=["distinct_id"], name="posthog_tas_distinc_5d4e7f_idx"),
         ),
         migrations.AddConstraint(
-            model_name="tasksegmentlink",
+            model_name="taskreference",
             constraint=models.UniqueConstraint(
-                fields=("task_id", "session_id", "segment_start_time", "segment_end_time"),
-                name="unique_task_segment_link",
+                fields=("task_id", "session_id", "start_time", "end_time"),
+                name="unique_task_reference",
             ),
         ),
         # Create VideoSegmentClusteringState model

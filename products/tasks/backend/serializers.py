@@ -7,7 +7,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
 
-from .models import Task, TaskRun, TaskSegmentLink
+from .models import Task, TaskReference, TaskRun
 from .services.title_generator import generate_task_title
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
@@ -17,7 +17,7 @@ class TaskSerializer(serializers.ModelSerializer):
     repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
-    segment_link_count = serializers.SerializerMethodField()
+    reference_count = serializers.SerializerMethodField()
 
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
@@ -41,7 +41,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "distinct_user_count",
             "occurrence_count",
             "last_occurrence_at",
-            "segment_link_count",
+            "reference_count",
         ]
         read_only_fields = [
             "id",
@@ -54,7 +54,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "distinct_user_count",
             "occurrence_count",
             "last_occurrence_at",
-            "segment_link_count",
+            "reference_count",
         ]
 
     def get_latest_run(self, obj):
@@ -63,8 +63,8 @@ class TaskSerializer(serializers.ModelSerializer):
             return TaskRunDetailSerializer(latest_run, context=self.context).data
         return None
 
-    def get_segment_link_count(self, obj) -> int:
-        return obj.segment_links.count()
+    def get_reference_count(self, obj) -> int:
+        return obj.references.count()
 
     def validate_github_integration(self, value):
         """Validate that the GitHub integration belongs to the same team"""
@@ -268,20 +268,20 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
 
 
-class TaskSegmentLinkSerializer(serializers.ModelSerializer):
-    """Serializer for video segment links attached to tasks."""
+class TaskReferenceSerializer(serializers.ModelSerializer):
+    """Serializer for references attached to tasks."""
 
     class Meta:
-        model = TaskSegmentLink
+        model = TaskReference
         fields = [
             "id",
             "session_id",
-            "segment_start_time",
-            "segment_end_time",
+            "start_time",
+            "end_time",
             "distinct_id",
             "content",
             "distance_to_centroid",
-            "segment_timestamp",
+            "timestamp",
             "created_at",
         ]
         read_only_fields = fields
