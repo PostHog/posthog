@@ -1,4 +1,4 @@
-import { kea, key, path, props, selectors } from 'kea'
+import { afterMount, kea, key, path, props, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -44,5 +44,8 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
             (batchWorkflowJobs) =>
                 (batchWorkflowJobs || []).filter((job) => job.scheduled_at && dayjs(job.scheduled_at).isAfter(dayjs())),
         ],
+    }),
+    afterMount(({ actions }) => {
+        actions.loadBatchWorkflowJobs()
     }),
 ])

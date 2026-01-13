@@ -29,7 +29,6 @@ export function HogFlowEditorPanelLogs(): JSX.Element | null {
                     sourceId={workflow.id}
                     groupByInstanceId={!selectedNode}
                     searchGroups={actionId ? [`[Action:${actionId}]`] : undefined}
-                    // renderColumns={(columns) => columns.filter((c) => c.key !== 'instanceId')}
                     renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
                 />
             </div>

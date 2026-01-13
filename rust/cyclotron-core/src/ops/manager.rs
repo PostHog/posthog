@@ -13,8 +13,8 @@ const ESTIMATED_RECORD_SIZE: usize = 1024;
 
 const COPY_IN_STMT: &str = r#"COPY cyclotron_jobs
     (id, team_id, function_id, created, lock_id, last_heartbeat, janitor_touch_count,
-     transition_count, last_transition, queue_name, state, scheduled, priority, vm_state,
-     metadata, parameters, blob)
+     transition_count, last_transition, queue_name, state, scheduled, priority, batch_job_id,
+     vm_state, metadata, parameters, blob)
     FROM STDIN WITH (FORMAT CSV, ENCODING 'UTF8')"#;
 
 pub async fn create_job<'c, E>(
@@ -48,13 +48,14 @@ INSERT INTO cyclotron_jobs
         state,
         scheduled,
         priority,
+        batch_job_id,
         vm_state,
         metadata,
         parameters,
         blob
     )
 VALUES
-    ($1, $2, $3, NOW(), NULL, NULL, 0, 0, NOW(), $4, $5, $6, $7, $8, $9, $10, $11)
+    ($1, $2, $3, NOW(), NULL, NULL, 0, 0, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12)
     "#,
         id,
         data.team_id,
@@ -63,6 +64,7 @@ VALUES
         JobState::Available as _,
         data.scheduled,
         data.priority,
+        data.batch_job_id,
         data.vm_state,
         data.metadata,
         data.parameters,
@@ -97,6 +99,7 @@ where
     let mut states = Vec::with_capacity(jobs.len());
     let mut scheduleds = Vec::with_capacity(jobs.len());
     let mut priorities = Vec::with_capacity(jobs.len());
+    let mut batch_job_ids = Vec::with_capacity(jobs.len());
     let mut vm_states = Vec::with_capacity(jobs.len());
     let mut metadatas = Vec::with_capacity(jobs.len());
     let mut parameters = Vec::with_capacity(jobs.len());
@@ -123,6 +126,7 @@ where
         states.push(JobState::Available);
         scheduleds.push(d.scheduled);
         priorities.push(d.priority);
+        batch_job_ids.push(d.batch_job_id.clone());
         metadatas.push(d.metadata.clone());
         parameters.push(d.parameters.clone());
         blob.push(d.blob.clone());
@@ -146,6 +150,7 @@ INSERT INTO cyclotron_jobs
         state,
         scheduled,
         priority,
+        batch_job_id,
         vm_state,
         metadata,
         parameters,
@@ -169,7 +174,8 @@ FROM UNNEST(
         $14,
         $15,
         $16,
-        $17
+        $17,
+        $18
     )
 "#,
     )
@@ -186,6 +192,7 @@ FROM UNNEST(
     .bind(states)
     .bind(scheduleds)
     .bind(priorities)
+    .bind(batch_job_ids)
     .bind(vm_states)
     .bind(metadatas)
     .bind(parameters)
@@ -213,6 +220,7 @@ struct CopyFromJobInit {
     job_state: JobState,
     scheduled: DateTime<Utc>,
     priority: i16,
+    batch_job_id: Option<String>,
     vm_state: Option<String>,
     metadata: Option<String>,
     parameters: Option<String>,
@@ -259,6 +267,7 @@ pub async fn bulk_create_jobs_copy(
             job_state: JobState::Available,
             scheduled: j.scheduled,
             priority: j.priority,
+            batch_job_id: j.batch_job_id,
             vm_state: encode_pg_bytea(vm_state),
             metadata: encode_pg_bytea(j.metadata),
             parameters: encode_pg_bytea(j.parameters),

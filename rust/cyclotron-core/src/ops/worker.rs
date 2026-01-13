@@ -210,6 +210,11 @@ where
         needs_comma = true;
     }
 
+    if let Some(batch_job_id) = &updates.batch_job_id {
+        set_helper(&mut query, "batch_job_id", batch_job_id, needs_comma);
+        needs_comma = true;
+    }
+
     if let Some(vm_state) = &updates.vm_state {
         if should_compress_vm_state {
             let new_vm_state = compress_vm_state(vm_state.clone())?;

@@ -81,7 +81,8 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                 variables: defaultVariables,
             },
             teamId: hogFlow.team_id,
-            functionId: batchJobId,
+            functionId: hogFlow.id,
+            batchJobId,
             hogFlow,
             person: invocationGlobals.person,
             filterGlobals,
@@ -247,6 +248,11 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                         logger.error('Batch HogFlow request references missing team or hogflow', {
                             batchHogFlowRequest,
                         })
+                        return
+                    }
+
+                    if (teamHogFlow.status !== 'active') {
+                        logger.info('Skipping inactive HogFlow for batch request', { batchHogFlowRequest })
                         return
                     }
 

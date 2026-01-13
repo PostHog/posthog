@@ -83,6 +83,7 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
         <LogsViewer
             sourceType="hog_flow"
             sourceId={job.id}
+            groupByInstanceId
             instanceLabel="workflow job"
             renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
         />
