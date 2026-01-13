@@ -102,3 +102,71 @@ class TestUrlValidation:
         monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
         assert uv.should_block_url("http://attacker-controlled.com/evil") is True
         assert uv.should_block_url("http://example.com/safe") is False
+
+    def test_is_url_allowed_empty_dns_resolution_blocked(self, monkeypatch):
+        """URLs with unresolvable hostnames should be blocked (fail-closed)."""
+
+        def empty_resolve(host: str):
+            return set()
+
+        monkeypatch.setattr(uv, "resolve_host_ips", empty_resolve)
+        ok, err = uv.is_url_allowed("https://unresolvable-host.example/")
+        assert not ok
+        assert err == "Could not resolve host"
+
+    def test_should_block_url_empty_dns_resolution_blocked(self, monkeypatch):
+        """should_block_url should block URLs with unresolvable hostnames."""
+
+        def empty_resolve(host: str):
+            return set()
+
+        monkeypatch.setattr(uv, "resolve_host_ips", empty_resolve)
+        assert uv.should_block_url("http://unresolvable-host.example/") is True
+
+    @pytest.mark.parametrize(
+        "url,expected_blocked,description",
+        [
+            # Decimal IP encoding (127.0.0.1 = 2130706433)
+            ("http://2130706433/", True, "Decimal encoding of 127.0.0.1"),
+            # Decimal IP encoding (192.168.0.1 = 3232235521)
+            ("http://3232235521/", True, "Decimal encoding of 192.168.0.1"),
+            # Hex IP encoding (127.0.0.1 = 0x7f000001)
+            ("http://0x7f000001/", True, "Hex encoding of 127.0.0.1"),
+            # Hex IP encoding (192.168.0.1 = 0xc0a80001)
+            ("http://0xc0a80001/", True, "Hex encoding of 192.168.0.1"),
+            # Dotted hex (127.0.0.1)
+            ("http://0x7f.0.0.1/", True, "Dotted hex encoding of 127.0.0.1"),
+        ],
+    )
+    def test_encoded_ip_addresses_blocked(self, url, expected_blocked, description):
+        """Encoded IP addresses (decimal, hex) should be blocked via DNS resolution."""
+        assert uv.should_block_url(url) is expected_blocked, description
+
+    @pytest.mark.parametrize(
+        "url,expected_blocked,description",
+        [
+            # Punycode domain that resolves to private IP
+            ("http://xn--n3h.com/", True, "Punycode domain resolving to private IP"),
+            # IDN domain with Cyrillic characters (homograph attack)
+            ("http://xn--pple-43d.com/", True, "IDN homograph domain resolving to private IP"),
+        ],
+    )
+    def test_idn_punycode_domains_blocked_via_resolution(self, monkeypatch, url, expected_blocked, description):
+        """IDN/Punycode domains should be blocked if they resolve to private IPs."""
+
+        def fake_resolve(host: str):
+            # Simulate these domains resolving to private IPs (attack scenario)
+            return {ipaddress.ip_address("10.0.0.1")}
+
+        monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
+        assert uv.should_block_url(url) is expected_blocked, description
+
+    def test_idn_domain_allowed_if_resolves_to_public_ip(self, monkeypatch):
+        """IDN domains should be allowed if they resolve to public IPs."""
+
+        def fake_resolve(host: str):
+            return {ipaddress.ip_address("93.184.216.34")}  # Public IP
+
+        monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
+        ok, err = uv.is_url_allowed("http://xn--n3h.com/")
+        assert ok and err is None
