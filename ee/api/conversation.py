@@ -97,6 +97,7 @@ class MessageSerializer(MessageMinimalSerializer):
     session_id = serializers.CharField(required=False)
     deep_research_mode = serializers.BooleanField(required=False, default=False)
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
+    resume_payload = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, data):
         if data["content"] is not None:
@@ -236,11 +237,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
+        has_resume_payload = serializer.validated_data.get("resume_payload") is not None
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
         # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
-        if not has_message and conversation.status == Conversation.Status.IDLE:
+        if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
         # Skip billing for impersonated sessions (support agents) and mark conversations as internal
@@ -260,6 +262,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             agent_mode=serializer.validated_data.get("agent_mode"),
             use_checkpointer=True,
             is_agent_billable=is_agent_billable,
+            resume_payload=serializer.validated_data.get("resume_payload"),
         )
         workflow_class = ChatAgentWorkflow
 
