@@ -412,6 +412,7 @@ export function SharingModalContent({
                                                             className="block"
                                                             {...iframeProperties}
                                                             onLoad={() => setIframeLoaded(true)}
+                                                            sandbox="allow-scripts allow-same-origin allow-popups"
                                                         />
                                                     </div>
                                                 )}
