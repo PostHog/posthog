@@ -257,8 +257,9 @@ class ManageMemoriesTool(MaxTool):
                 return None
 
             memory.metadata = {**memory.metadata, "deleted": True}
-            memory.embed(EMBEDDING_MODEL)
-            memory.delete()
+            with transaction.atomic():
+                memory.embed(EMBEDDING_MODEL)
+                memory.delete()
             return memory_id
 
         deleted_id = await delete()
