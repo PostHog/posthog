@@ -19,7 +19,6 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
-import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -133,11 +132,6 @@ const _buildToolbarUserIntent = (options?: BuildToolbarParamsOptions): ToolbarUs
 function buildToolbarParams(options?: BuildToolbarParamsOptions): ToolbarParams {
     return {
         userIntent: _buildToolbarUserIntent(options),
-        // Make sure to pass the app url, otherwise the api_host will be used by
-        // the toolbar, which isn't correct when used behind a reverse proxy as
-        // we require e.g. SSO login to the app, which will not work when placed
-        // behind a proxy unless we register each domain with the OAuth2 client.
-        apiURL: apiHostOrigin(),
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
         ...(options?.productTourId && options.productTourId !== 'new' ? { productTourId: options.productTourId } : {}),

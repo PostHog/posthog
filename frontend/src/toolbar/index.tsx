@@ -71,24 +71,24 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
 
 const win = window as any
 
-win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog: PostHog) {
+win['ph_load_toolbar'] = function (toolbarParams: ToolbarParams, posthog: PostHog) {
     // If toolbarFlagsKey is present, fetch the feature flags from the backend
-    if (toolbarParams.toolbarFlagsKey && toolbarParams.apiURL) {
+    if (posthog && toolbarParams.toolbarFlagsKey) {
         try {
-            const url = `${toolbarParams.apiURL}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`
-
-            const response = await fetch(url, {
+            // Use API host from posthog instance, fallback to apiURL from params (set by backend)
+            const apiHost = posthog.config?.api_host || toolbarParams.apiURL || window.location.origin
+            fetch(`${apiHost}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`, {
                 credentials: 'include',
             })
-
-            if (response.ok) {
-                const data = await response.json()
-                if (posthog && data.featureFlags) {
-                    posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
-                }
-            } else {
-                console.warn('[Toolbar Flags] Failed to fetch toolbar feature flags:', response.statusText)
-            }
+                .then((response) => response.json())
+                .then((data) => {
+                    if (data.featureFlags) {
+                        posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
+                    }
+                })
+                .catch((error) => {
+                    console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
+                })
         } catch (error) {
             console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
         }

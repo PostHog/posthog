@@ -33,9 +33,10 @@ export type AccessoryInfo = {
 
 // If loaded via the toolbar the root domain won't be app.posthog.com and so the assets won't load
 // Simple workaround is we detect if the domain is localhost and if not we just use https://us.posthog.com
+// since that will have appropriate assets.
 const baseSpritePath = (): string => {
     let path = `/static/hedgehog/sprites`
-    const toolbarAPIUrl = toolbarConfigLogic.findMounted()?.values.apiURL
+    const toolbarAPIUrl = toolbarConfigLogic.findMounted()?.values.apiHost
 
     if (inStorybook()) {
         // Nothing to do
