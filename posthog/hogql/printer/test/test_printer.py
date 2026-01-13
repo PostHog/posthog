@@ -3310,9 +3310,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(eq_result.results, [("d1",)])
             assert eq_result.clickhouse is not None
             index_name = get_minmax_index_name(mat_col.name)
-            assert get_index_from_explain(
-                eq_result.clickhouse, index_name
-            ), f"Expected skip index {index_name} to be used"
+            assert get_index_from_explain(eq_result.clickhouse, index_name), (
+                f"Expected skip index {index_name} to be used"
+            )
 
             neq_result = execute_hogql_query(
                 team=self.team,
