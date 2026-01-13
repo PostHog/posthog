@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "0969_add_oauth_is_verified"),
+        ("posthog", "0970_add_session_recording_encryption"),
     ]
 
     operations = [

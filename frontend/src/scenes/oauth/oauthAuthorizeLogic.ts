@@ -208,8 +208,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
     })),
-    urlToAction(({ actions }) => ({
-        '/oauth/authorize': (_, searchParams) => {
+    urlToAction(({ actions }) => {
+        const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const scopes = requestedScopes.length === 0 ? DEFAULT_OAUTH_SCOPES : requestedScopes
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
@@ -219,6 +219,11 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()
             actions.loadAllTeams()
-        },
-    })),
+        }
+
+        return {
+            '/oauth/authorize': handleAuthorize,
+            '/oauth/authorize/': handleAuthorize,
+        }
+    }),
 ])
