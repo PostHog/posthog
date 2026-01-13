@@ -9,7 +9,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -77,9 +76,12 @@ export function ConversationsTicketsScene(): JSX.Element {
                 </div>
                 <LemonButton
                     type="secondary"
-                    icon={ticketsLoading ? <Spinner textColored /> : <IconRefresh />}
+                    icon={<IconRefresh />}
+                    loading={ticketsLoading}
+                    disabledReason={ticketsLoading ? 'Loading tickets...' : undefined}
                     onClick={loadTickets}
                     size="small"
+                    data-attr="refresh-tickets"
                 >
                     Refresh
                 </LemonButton>
