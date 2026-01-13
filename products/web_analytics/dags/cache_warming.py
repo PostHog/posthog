@@ -181,6 +181,8 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: dict) -> None:
                         continue
 
                 tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
+
+                # TODO: We shouldn't try to run a query if it failed last run
                 runner.run()
                 increment_counter(team_id, normalized_query_hash, is_cached=False)
                 queries_warmed += 1
