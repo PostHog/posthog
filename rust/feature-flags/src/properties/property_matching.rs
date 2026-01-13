@@ -40,7 +40,7 @@ fn normalize_version_string(version: &str) -> &str {
 
 pub fn to_semver_representation(value: &Value) -> Option<Version> {
     let version_string = to_string_representation(value);
-    let normalized = normalize_version_string(&version_string);
+    let normalized = normalize_version_string(&version_string).trim();
     // TODO: Build metadata (e.g., "1.0.0+build.1") is not currently supported because
     // our `sortableSemver` method in ClickHouse/HogQL doesn't support it yet.
     // For semver equality checks, use regular string equality operators instead.
@@ -128,17 +128,9 @@ pub fn match_property(
                 Ok(operator == OperatorType::IsNot)
             }
         }
-        OperatorType::IsSet => Ok(matching_property_values.contains_key(key)),
-        OperatorType::IsNotSet => {
-            if partial_props {
-                if matching_property_values.contains_key(key) {
-                    Ok(false)
-                } else {
-                    Err(FlagMatchingError::InconclusiveOperatorMatch)
-                }
-            } else {
-                Ok(!matching_property_values.contains_key(key))
-            }
+        // IsSet and IsNotSet are handled early (lines 69-83) and return before reaching this match
+        OperatorType::IsSet | OperatorType::IsNotSet => {
+            unreachable!("IsSet/IsNotSet operators are handled earlier in the function")
         }
         OperatorType::Icontains | OperatorType::NotIcontains => {
             if let Some(match_value) = match_value {
@@ -217,8 +209,8 @@ pub fn match_property(
                 }
             };
 
-            if let Some(override_value) = to_f64_representation(value) {
-                Ok(compare(parsed_value, override_value, operator))
+            if let Some(filter_value) = to_f64_representation(value) {
+                Ok(compare(parsed_value, filter_value, operator))
             } else {
                 tracing::debug!(
                     "Failed to parse filter value '{}' for key '{}' as number for operator {:?}",
@@ -227,7 +219,7 @@ pub fn match_property(
                     operator
                 );
                 Err(FlagMatchingError::ValidationError(
-                    "override value is not a number".to_string(),
+                    "filter value is not a number".to_string(),
                 ))
             }
         }
@@ -306,7 +298,7 @@ pub fn match_property(
 
             // Build the version requirement string based on the operator
             let version_string = to_string_representation(value);
-            let normalized_version = normalize_version_string(&version_string);
+            let normalized_version = normalize_version_string(&version_string).trim();
 
             let requirement_string = match operator {
                 OperatorType::SemverTilde => format!("~{normalized_version}"),

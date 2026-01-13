@@ -84,6 +84,7 @@ const schema14 = {
         'is_cleaned_path_exact',
         'flag_evaluates_to',
         'semver_eq',
+        'semver_neq',
         'semver_gt',
         'semver_gte',
         'semver_lt',

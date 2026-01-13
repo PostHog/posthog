@@ -818,6 +818,7 @@ export enum PropertyOperator {
     IsCleanedPathExact = 'is_cleaned_path_exact',
     FlagEvaluatesTo = 'flag_evaluates_to',
     SemverEq = 'semver_eq',
+    SemverNeq = 'semver_neq',
     SemverGt = 'semver_gt',
     SemverGte = 'semver_gte',
     SemverLt = 'semver_lt',
