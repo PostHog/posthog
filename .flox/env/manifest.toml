@@ -30,6 +30,7 @@ rust-analyzer = { pkg-path = "rust-analyzer", pkg-group = "rust-analyzer" } # ru
 # Go
 go = { pkg-path = "go", version = "1.24", pkg-group = "go" }
 golangci-lint = { pkg-path = "golangci-lint", pkg-group = "go" }
+air = { pkg-path = "air" }
 # CLI tools
 mprocs = { pkg-path = "mprocs" }
 util-linux = { pkg-path = "util-linux" } # flock

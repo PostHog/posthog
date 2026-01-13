@@ -217,17 +217,6 @@ services:
             FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
             REDIS_COMPRESSION_ENABLED: 'true'
 
-    livestream:
-        extends:
-            file: docker-compose.base.yml
-            service: livestream
-        environment:
-            - LIVESTREAM_JWT_SECRET=${SECRET_KEY}
-        ports:
-            - '8666:8080'
-        volumes:
-            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
-
     # Temporal containers
     elasticsearch:
         extends:
