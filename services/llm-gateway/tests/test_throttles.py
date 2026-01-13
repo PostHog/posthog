@@ -20,7 +20,7 @@ def make_user(
     team_id: int | None = 1,
     auth_method: str = "personal_api_key",
     scopes: list[str] | None = None,
-    application_id: int | None = None,
+    application_id: str | None = None,
 ) -> AuthenticatedUser:
     return AuthenticatedUser(
         user_id=user_id,
