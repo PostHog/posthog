@@ -60,6 +60,8 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
+            products: ${{ steps.filter.outputs.products || 'true' }}
+            legacy: ${{ steps.filter.outputs.legacy || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -132,6 +134,14 @@ jobs:
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
                         - 'frontend/src/lib/api-stub-for-orval.ts'
+                      # Bazel-isolated products - triggers fast isolated tests
+                      products:
+                        - 'products/**/backend/**/*'
+                        - 'common/**/*'
+                      # Legacy code - triggers full Django test suite
+                      legacy:
+                        - 'ee/**/*'
+                        - 'posthog/**/*'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -159,160 +169,30 @@ jobs:
                     fi
                   fi
 
-    # Lightweight coordinator job that uses target-determinator to decide what runs
-    # This is the single source of truth for test selection
-    bazel-coordinator:
+    # Bazel tests for isolated products
+    # Runs target-determinator to find affected targets, then runs tests
+    # Outputs run_legacy to signal if legacy Django tests also need to run
+    bazel-tests:
         needs: changes
-        if: needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest
-        timeout-minutes: 15
-        name: Determine affected targets
+        if: needs.changes.outputs.products == 'true'
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
+        name: Bazel tests (products)
         outputs:
             run_legacy: ${{ steps.determine.outputs.run_legacy }}
-            bazel_targets: ${{ steps.determine.outputs.bazel_targets }}
-            has_bazel_targets: ${{ steps.determine.outputs.has_bazel_targets }}
+
         steps:
             - uses: actions/checkout@v4
               with:
                   fetch-depth: 0
                   filter: 'blob:none'
 
-            - name: Check for bazelified products
-              id: check-bazel
-              run: |
-                  if ls products/*/backend/BUILD.bazel 1>/dev/null 2>&1; then
-                    echo "has_products=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "has_products=false" >> $GITHUB_OUTPUT
-                    echo "No bazelified products - legacy pytest will run"
-                  fi
-
-            - name: Install Bazelisk
-              if: steps.check-bazel.outputs.has_products == 'true'
-              run: |
-                  curl -LO https://github.com/bazelbuild/bazelisk/releases/download/v1.20.0/bazelisk-linux-amd64
-                  chmod +x bazelisk-linux-amd64
-                  sudo mv bazelisk-linux-amd64 /usr/local/bin/bazel
-
-            - name: Install target-determinator
-              if: steps.check-bazel.outputs.has_products == 'true' && github.event_name == 'pull_request'
-              run: |
-                  curl -LO https://github.com/bazel-contrib/target-determinator/releases/download/v0.32.0/target-determinator.linux.amd64
-                  chmod +x target-determinator.linux.amd64
-                  sudo mv target-determinator.linux.amd64 /usr/local/bin/target-determinator
-
-            - name: Install uv for wheel building
-              if: steps.check-bazel.outputs.has_products == 'true'
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
-
-            - name: Cache pre-built wheels
-              if: steps.check-bazel.outputs.has_products == 'true'
-              uses: actions/cache@v4
-              with:
-                  path: /tmp/bazel-wheels
-                  key: bazel-wheels-${{ hashFiles('pyproject.toml') }}
-                  restore-keys: bazel-wheels-
-
-            - name: Pre-build wheels for sdist-only packages
-              if: steps.check-bazel.outputs.has_products == 'true'
-              run: |
-                  if [ -z "$(ls /tmp/bazel-wheels/*.whl 2>/dev/null)" ]; then
-                    ./bin/build-bazel-wheels
-                  else
-                    echo "Using cached wheels from /tmp/bazel-wheels"
-                    ls -la /tmp/bazel-wheels/
-                  fi
-
-            - name: Cache Bazel disk cache
-              if: steps.check-bazel.outputs.has_products == 'true'
-              uses: actions/cache@v4
-              with:
-                  path: ~/.cache/bazel-disk-cache
-                  key: bazel-disk-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock.txt') }}
-                  restore-keys: bazel-disk-${{ runner.os }}-
-
-            - name: Generate requirements_lock.txt for Bazel
-              if: steps.check-bazel.outputs.has_products == 'true'
-              run: bazel run //:requirements.update
-
-            - name: Determine affected targets
-              id: determine
-              run: |
-                  # If no bazelified products, always run legacy
-                  if [[ "${{ steps.check-bazel.outputs.has_products }}" != "true" ]]; then
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "bazel_targets=" >> $GITHUB_OUTPUT
-                    echo "has_bazel_targets=false" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  # For pushes to master, run everything
-                  if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-                    echo "Push to master - running all tests"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
-                    echo "has_bazel_targets=true" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  # For PRs, use target-determinator
-                  git fetch origin ${{ github.base_ref }}
-                  echo "Running: target-determinator origin/${{ github.base_ref }}"
-                  if ! TARGETS=$(target-determinator "origin/${{ github.base_ref }}" 2>&1); then
-                    echo "target-determinator failed with output:"
-                    echo "$TARGETS"
-                    echo "Falling back to run all"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
-                    echo "has_bazel_targets=true" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  echo "Affected targets:"
-                  echo "$TARGETS"
-
-                  # Check if legacy pytest needs to run (//ci:legacy_pytest is in output)
-                  if echo "$TARGETS" | grep -q "//ci:legacy_pytest"; then
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "Legacy code changed - pytest will run"
-                  else
-                    echo "run_legacy=false" >> $GITHUB_OUTPUT
-                    echo "No legacy changes - skipping pytest"
-                  fi
-
-                  # Extract bazel test targets (excluding the legacy_pytest marker)
-                  # Match :tests, :tests_*, or /tests (package path with implicit default target)
-                  TEST_TARGETS=$(echo "$TARGETS" | tr ' ' '\n' | grep -E '(:tests($|_)|/tests$)' | grep -v legacy_pytest | grep -v '\.venv' | tr '\n' ' ' || true)
-                  if [[ -n "$TEST_TARGETS" ]]; then
-                    echo "bazel_targets=$TEST_TARGETS" >> $GITHUB_OUTPUT
-                    echo "has_bazel_targets=true" >> $GITHUB_OUTPUT
-                    echo "Bazel test targets: $TEST_TARGETS"
-                  else
-                    echo "bazel_targets=" >> $GITHUB_OUTPUT
-                    echo "has_bazel_targets=false" >> $GITHUB_OUTPUT
-                    echo "No Bazel test targets affected"
-                  fi
-
-    # Bazel tests for bazelified products
-    bazel-tests:
-        needs: [changes, bazel-coordinator]
-        if: needs.changes.outputs.backend == 'true' && needs.bazel-coordinator.outputs.has_bazel_targets == 'true'
-        runs-on: depot-ubuntu-latest
-        timeout-minutes: 30
-        name: Bazel tests (products)
-
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                  fetch-depth: 1
-                  clean: false
-
             - name: Clean up data directories with container permissions
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
-            # Start docker compose in background (matches django job)
+            # Start docker compose in background while we set up Bazel
             - name: Stop/Start stack with Docker Compose
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
@@ -348,16 +228,18 @@ jobs:
                   touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Wait for services
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
-
             - name: Install Bazelisk
               run: |
                   curl -LO https://github.com/bazelbuild/bazelisk/releases/download/v1.20.0/bazelisk-linux-amd64
                   chmod +x bazelisk-linux-amd64
                   sudo mv bazelisk-linux-amd64 /usr/local/bin/bazel
+
+            - name: Install target-determinator
+              if: github.event_name == 'pull_request'
+              run: |
+                  curl -LO https://github.com/bazel-contrib/target-determinator/releases/download/v0.32.0/target-determinator.linux.amd64
+                  chmod +x target-determinator.linux.amd64
+                  sudo mv target-determinator.linux.amd64 /usr/local/bin/target-determinator
 
             - name: Cache Bazel disk cache
               uses: actions/cache@v4
@@ -385,10 +267,63 @@ jobs:
                     ls -la /tmp/bazel-wheels/
                   fi
 
-            - name: Run Bazel tests
+            - name: Determine affected targets
+              id: determine
               run: |
-                  echo "Running targets: ${{ needs.bazel-coordinator.outputs.bazel_targets }}"
-                  bazel test --config=ci ${{ needs.bazel-coordinator.outputs.bazel_targets }}
+                  # For pushes to master, run all product tests and legacy
+                  if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+                    echo "Push to master - running all tests"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  # For PRs, use target-determinator to find affected targets
+                  git fetch origin ${{ github.base_ref }}
+                  echo "Running: target-determinator -targets=//products/... origin/${{ github.base_ref }}"
+
+                  if ! TARGETS=$(target-determinator -targets="//products/..." "origin/${{ github.base_ref }}" 2>&1); then
+                    echo "target-determinator failed:"
+                    echo "$TARGETS"
+                    echo "Falling back to run all product tests"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  echo "Affected targets:"
+                  echo "$TARGETS"
+
+                  # Check if legacy pytest needs to run (product changes affect legacy code)
+                  if echo "$TARGETS" | grep -q "//ci:legacy_pytest"; then
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    echo "Product changes affect legacy code - pytest will run"
+                  else
+                    echo "run_legacy=false" >> $GITHUB_OUTPUT
+                    echo "No legacy impact from product changes"
+                  fi
+
+                  # Extract bazel test targets
+                  TEST_TARGETS=$(echo "$TARGETS" | tr ' ' '\n' | grep -E '(_test$|_tests$|:tests)' | grep -v legacy_pytest | tr '\n' ' ' || true)
+                  if [[ -n "$TEST_TARGETS" ]]; then
+                    echo "bazel_targets=$TEST_TARGETS" >> $GITHUB_OUTPUT
+                    echo "Test targets: $TEST_TARGETS"
+                  else
+                    echo "bazel_targets=" >> $GITHUB_OUTPUT
+                    echo "No test targets affected"
+                  fi
+
+            - name: Wait for services
+              if: steps.determine.outputs.bazel_targets != ''
+              run: |
+                  bin/check_kafka_clickhouse_up
+                  bin/check_postgres_up
+
+            - name: Run Bazel tests
+              if: steps.determine.outputs.bazel_targets != ''
+              run: |
+                  echo "Running targets: ${{ steps.determine.outputs.bazel_targets }}"
+                  bazel test --config=ci ${{ steps.determine.outputs.bazel_targets }}
 
     check-migrations:
         needs: [changes]
@@ -704,9 +639,14 @@ jobs:
                   fi
 
     django:
-        needs: [changes, bazel-coordinator, detect-snapshot-mode]
-        # Only run legacy pytest if bazel-coordinator says so (legacy code changed)
-        if: needs.changes.outputs.backend == 'true' && needs.bazel-coordinator.outputs.run_legacy == 'true'
+        needs: [changes, bazel-tests, detect-snapshot-mode]
+        # Run legacy pytest if:
+        # 1. Legacy code directly changed (ee/, posthog/)
+        # 2. OR product changes affect legacy code (bazel-tests outputs run_legacy=true)
+        if: |
+            always() &&
+            needs.changes.outputs.backend == 'true' &&
+            (needs.changes.outputs.legacy == 'true' || needs.bazel-tests.outputs.run_legacy == 'true')
         # increase for tmate testing
         timeout-minutes: 30
 
@@ -1291,7 +1231,7 @@ jobs:
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
-        needs: [django, check-migrations, async-migrations, bazel-coordinator, bazel-tests, handle-snapshots]
+        needs: [django, check-migrations, async-migrations, bazel-tests, handle-snapshots]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -1317,12 +1257,6 @@ jobs:
                     exit 1
                   fi
 
-                  # Check Bazel coordinator - must pass for Django Tests to be green
-                  if [[ "${{ needs.bazel-coordinator.result }}" != "success" && "${{ needs.bazel-coordinator.result }}" != "skipped" ]]; then
-                    echo "Bazel coordinator failed."
-                    exit 1
-                  fi
-
                   # Check Bazel tests (products) - must pass for Django Tests to be green
                   if [[ "${{ needs.bazel-tests.result }}" != "success" && "${{ needs.bazel-tests.result }}" != "skipped" ]]; then
                     echo "Bazel tests failed."
@@ -1339,13 +1273,16 @@ jobs:
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
-        needs: [changes, bazel-coordinator]
+        needs: [changes, bazel-tests]
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
-        # Only run if bazel-coordinator says legacy code changed
-        if: needs.changes.outputs.backend == 'true' && needs.bazel-coordinator.outputs.run_legacy == 'true'
+        # Run if legacy code changed or product changes affect legacy
+        if: |
+            always() &&
+            needs.changes.outputs.backend == 'true' &&
+            (needs.changes.outputs.legacy == 'true' || needs.bazel-tests.outputs.run_legacy == 'true')
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
