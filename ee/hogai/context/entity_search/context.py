@@ -248,12 +248,16 @@ class EntitySearchContext:
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
 
         total_count = await queryset.acount()
-        insights = queryset[offset : offset + limit].values(
-            "id", "name", "description", "query", "derived_name", "short_id"
-        )
+        insights = await database_sync_to_async(
+            lambda: list(
+                queryset[offset : offset + limit].values(
+                    "id", "name", "description", "query", "derived_name", "short_id"
+                )
+            )
+        )()
 
         all_entities: list[dict[str, Any]] = []
-        async for insight in insights:
+        for insight in insights:
             all_entities.append(
                 {
                     "type": "insight",
