@@ -635,7 +635,8 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
         },
         post: {
             '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                res(ctx.delay(100), ctx.text(longResponseChunk)),
+                // Remove delay to make response immediate and deterministic
+                res(ctx.text(longResponseChunk)),
         },
     })
 
@@ -664,7 +665,8 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
 }
 ThreadScrollsToBottomOnNewMessages.parameters = {
     testOptions: {
-        waitForLoadersToDisappear: false,
+        // Wait for loaders to disappear to ensure content is fully loaded
+        waitForLoadersToDisappear: true,
     },
 }
 
