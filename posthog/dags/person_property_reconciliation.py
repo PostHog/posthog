@@ -512,7 +512,9 @@ def merge_raw_person_property_updates(
     - For $set: newer timestamp replaces older
     - For $set_once: earlier timestamp wins (first-writer-wins semantics)
     - For $unset: newer timestamp replaces older
-    - Cross-map conflicts (set/set_once vs unset): newer timestamp wins, loser is removed
+
+    Cross-map conflicts (set/set_once vs unset) are resolved downstream by
+    filter_event_person_properties after comparison with person state.
 
     Args:
         accumulated: Dict of person_id -> RawPersonPropertyUpdates to merge into (mutated in place)
@@ -540,13 +542,6 @@ def merge_raw_person_property_updates(
             else:
                 existing.set_updates[key] = new_pv
 
-            # Cross-map conflict: if this key was in unset, check timestamps
-            if key in existing.unset_updates:
-                if new_pv.timestamp > existing.unset_updates[key].timestamp:
-                    del existing.unset_updates[key]
-                else:
-                    del existing.set_updates[key]
-
         # Process $set_once updates - earlier timestamp wins
         for key, new_pv in new_update.set_once_updates.items():
             if key in existing.set_once_updates:
@@ -555,13 +550,6 @@ def merge_raw_person_property_updates(
             else:
                 existing.set_once_updates[key] = new_pv
 
-            # Cross-map conflict: if this key was in unset, check timestamps
-            if key in existing.unset_updates:
-                if new_pv.timestamp > existing.unset_updates[key].timestamp:
-                    del existing.unset_updates[key]
-                else:
-                    del existing.set_once_updates[key]
-
         # Process $unset updates - newer timestamp wins
         for key, new_pv in new_update.unset_updates.items():
             if key in existing.unset_updates:
@@ -569,20 +557,6 @@ def merge_raw_person_property_updates(
                     existing.unset_updates[key] = new_pv
             else:
                 existing.unset_updates[key] = new_pv
-
-            # Cross-map conflict: if this key was in set, check timestamps
-            if key in existing.set_updates:
-                if new_pv.timestamp > existing.set_updates[key].timestamp:
-                    del existing.set_updates[key]
-                else:
-                    del existing.unset_updates[key]
-
-            # Cross-map conflict: if this key was in set_once, check timestamps
-            if key in existing.set_once_updates:
-                if new_pv.timestamp > existing.set_once_updates[key].timestamp:
-                    del existing.set_once_updates[key]
-                else:
-                    del existing.unset_updates[key]
 
 
 def compare_raw_updates_with_person_state(
@@ -685,105 +659,6 @@ def compare_raw_updates_with_person_state(
             )
 
     return results
-
-
-def merge_person_property_diffs(
-    accumulated: dict[str, PersonPropertyDiffs],
-    new_diffs: list[PersonPropertyDiffs],
-) -> None:
-    """
-    Merge new_diffs into accumulated dict, keyed by person_id.
-
-    This is used when iterating through time windows to accumulate property diffs
-    across multiple query results. The merge handles:
-
-    - For $set: newer timestamp replaces older
-    - For $set_once: earlier timestamp wins (first-writer-wins semantics)
-    - Cross-map conflicts (set/set_once vs unset): newer timestamp wins, loser is removed
-    - person_version: use max seen across all windows
-
-    Args:
-        accumulated: Dict of person_id -> PersonPropertyDiffs to merge into (mutated in place)
-        new_diffs: List of new PersonPropertyDiffs from the latest window query
-    """
-    for new_diff in new_diffs:
-        person_id = new_diff.person_id
-
-        if person_id not in accumulated:
-            # First time seeing this person - just copy the diff
-            accumulated[person_id] = PersonPropertyDiffs(
-                person_id=person_id,
-                person_version=new_diff.person_version,
-                set_updates=dict(new_diff.set_updates),
-                set_once_updates=dict(new_diff.set_once_updates),
-                unset_updates=dict(new_diff.unset_updates),
-            )
-            continue
-
-        existing = accumulated[person_id]
-
-        # Update person_version to max seen
-        existing.person_version = max(existing.person_version, new_diff.person_version)
-
-        # Process $set updates - newer timestamp wins
-        for key, new_pv in new_diff.set_updates.items():
-            if key in existing.set_updates:
-                if new_pv.timestamp > existing.set_updates[key].timestamp:
-                    existing.set_updates[key] = new_pv
-            else:
-                existing.set_updates[key] = new_pv
-
-            # Cross-map conflict: if this key was in unset, check timestamps
-            if key in existing.unset_updates:
-                if new_pv.timestamp > existing.unset_updates[key].timestamp:
-                    # set is newer - remove from unset
-                    del existing.unset_updates[key]
-                else:
-                    # unset is newer - remove from set
-                    del existing.set_updates[key]
-
-        # Process $set_once updates - earlier timestamp wins
-        for key, new_pv in new_diff.set_once_updates.items():
-            if key in existing.set_once_updates:
-                if new_pv.timestamp < existing.set_once_updates[key].timestamp:
-                    existing.set_once_updates[key] = new_pv
-            else:
-                existing.set_once_updates[key] = new_pv
-
-            # Cross-map conflict: if this key was in unset, check timestamps
-            if key in existing.unset_updates:
-                if new_pv.timestamp > existing.unset_updates[key].timestamp:
-                    # set_once is newer - remove from unset
-                    del existing.unset_updates[key]
-                else:
-                    # unset is newer - remove from set_once
-                    del existing.set_once_updates[key]
-
-        # Process $unset updates - newer timestamp wins
-        for key, new_pv in new_diff.unset_updates.items():
-            if key in existing.unset_updates:
-                if new_pv.timestamp > existing.unset_updates[key].timestamp:
-                    existing.unset_updates[key] = new_pv
-            else:
-                existing.unset_updates[key] = new_pv
-
-            # Cross-map conflict: if this key was in set, check timestamps
-            if key in existing.set_updates:
-                if new_pv.timestamp > existing.set_updates[key].timestamp:
-                    # unset is newer - remove from set
-                    del existing.set_updates[key]
-                else:
-                    # set is newer - remove from unset
-                    del existing.unset_updates[key]
-
-            # Cross-map conflict: if this key was in set_once, check timestamps
-            if key in existing.set_once_updates:
-                if new_pv.timestamp > existing.set_once_updates[key].timestamp:
-                    # unset is newer - remove from set_once
-                    del existing.set_once_updates[key]
-                else:
-                    # set_once is newer - remove from unset
-                    del existing.unset_updates[key]
 
 
 def parse_ch_timestamp(ts: str) -> datetime:

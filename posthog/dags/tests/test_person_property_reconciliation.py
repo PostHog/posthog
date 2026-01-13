@@ -1956,8 +1956,8 @@ class TestMergeRawPersonPropertyUpdates:
 
         assert accumulated["person-1"].set_once_updates["signup_source"].value == "early-source"
 
-    def test_unset_removes_set_when_newer(self):
-        """Test that $unset removes $set when unset timestamp is newer."""
+    def test_set_and_unset_both_retained_for_downstream_filtering(self):
+        """Test that both $set and $unset are retained for downstream conflict resolution."""
         accumulated: dict[str, RawPersonPropertyUpdates] = {
             "person-1": RawPersonPropertyUpdates(
                 person_id="person-1",
@@ -1977,11 +1977,11 @@ class TestMergeRawPersonPropertyUpdates:
 
         merge_raw_person_property_updates(accumulated, new_updates)
 
-        assert "email" not in accumulated["person-1"].set_updates
+        assert "email" in accumulated["person-1"].set_updates
         assert "email" in accumulated["person-1"].unset_updates
 
-    def test_set_removes_unset_when_newer(self):
-        """Test that $set removes $unset when set timestamp is newer."""
+    def test_unset_and_set_both_retained_for_downstream_filtering(self):
+        """Test that both $unset and $set are retained for downstream conflict resolution."""
         accumulated: dict[str, RawPersonPropertyUpdates] = {
             "person-1": RawPersonPropertyUpdates(
                 person_id="person-1",
@@ -2002,7 +2002,7 @@ class TestMergeRawPersonPropertyUpdates:
         merge_raw_person_property_updates(accumulated, new_updates)
 
         assert "email" in accumulated["person-1"].set_updates
-        assert "email" not in accumulated["person-1"].unset_updates
+        assert "email" in accumulated["person-1"].unset_updates
 
     def test_multiple_persons_merged_independently(self):
         """Test that multiple persons are merged independently."""
