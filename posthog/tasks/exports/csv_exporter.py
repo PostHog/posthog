@@ -397,7 +397,10 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
 
 
 def _is_streamable_hogql_query(resource: dict) -> bool:
-    """Check if this is a simple HogQL query that can be streamed."""
+    """Check if this is a raw HogQL query that can be streamed directly from ClickHouse.
+
+    Other query types (Trends, Funnels, etc.) return pre-aggregated API results.
+    """
     source = resource.get("source")
     if not source:
         return False

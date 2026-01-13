@@ -1476,9 +1476,9 @@ class TestCSVExporter(APIBaseTest):
         import tempfile
 
         original_temp_file = tempfile.NamedTemporaryFile
-        temp_file_calls: list = []
+        temp_file_calls: list[dict[str, Any]] = []
 
-        def tracking_temp_file(*args, **kwargs):
+        def tracking_temp_file(*args: Any, **kwargs: Any) -> Any:
             temp_file_calls.append({"args": args, "kwargs": kwargs})
             return original_temp_file(*args, **kwargs)
 
