@@ -20,7 +20,8 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         setContent: (content: JSONContent) =>
             queueMicrotask(() => editor.commands.setContent(content, { emitUpdate: false })),
         setSelection: (position: number) => editor.commands.setNodeSelection(position),
-        setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
+        setTextSelection: (position: number | EditorRange) =>
+            queueMicrotask(() => editor.commands.setTextSelection(position)),
         focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
         clear: () => editor.commands.clearContent(),
         chain: () => editor.chain().focus(),
@@ -31,6 +32,10 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         getMentions: () => getMentions(editor),
         deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
         insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
+        insertContentAt: (position: number, content: JSONContent) => {
+            editor.chain().focus().insertContentAt(position, content).run()
+            editor.commands.scrollIntoView()
+        },
         insertContentAfterNode: (position: number, content: JSONContent) => {
             const endPosition = findEndPositionOfNode(editor, position)
             if (endPosition) {

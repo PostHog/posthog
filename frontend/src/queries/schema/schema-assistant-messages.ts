@@ -320,6 +320,7 @@ export enum AssistantEventType {
     Conversation = 'conversation',
     Notebook = 'notebook',
     Update = 'update',
+    Approval = 'approval',
 }
 
 export interface AssistantUpdateEvent {
@@ -354,18 +355,33 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
+/** Status value indicating an operation requires user approval before execution */
+export const PENDING_APPROVAL_STATUS = 'pending_approval' as const
+
+/** Response returned when a tool operation requires user approval */
+export interface DangerousOperationResponse {
+    status: typeof PENDING_APPROVAL_STATUS
+    proposalId: string
+    toolName: string
+    preview: string
+    payload: Record<string, any>
+}
+
+export type ApprovalDecisionStatus = 'pending' | 'approved' | 'rejected' | 'auto_rejected'
+
+export type ApprovalCardUIStatus = ApprovalDecisionStatus | 'approving' | 'rejecting'
+
 export type AssistantTool =
     | 'search_session_recordings'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
-    | 'create_and_query_insight'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'create_message_template'
     | 'filter_error_tracking_issues'
+    | 'search_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
-    | 'error_tracking_explain_issue'
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
@@ -395,11 +411,13 @@ export type AssistantTool =
     | 'create_form'
     | 'task'
     | 'upsert_dashboard'
+    | 'manage_memories'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
+    ErrorTracking = 'error_tracking',
 }
 
 export enum SlashCommandName {
@@ -455,6 +473,7 @@ export enum AssistantNavigateUrl {
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
     WebAnalyticsHealth = 'webAnalyticsHealth',
+    WebAnalyticsLive = 'webAnalyticsLive',
     Persons = 'persons',
 }
 

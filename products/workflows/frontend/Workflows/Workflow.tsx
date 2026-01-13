@@ -9,7 +9,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
     const { originalWorkflow, workflowLoading } = useValues(workflowLogic(props))
 
     return (
-        <div className="relative border rounded-md h-[calc(100vh-280px)]">
+        <div className="flex flex-col grow relative border rounded-md">
             <BindLogic logic={workflowLogic} props={props}>
                 {!originalWorkflow && workflowLoading ? <SpinnerOverlay /> : <HogFlowEditor />}
             </BindLogic>

@@ -2,7 +2,7 @@ from typing import Optional, Union, cast
 
 from django.conf import settings
 
-from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, QueryIndexUsage
+from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -17,7 +17,6 @@ from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
-from posthog.clickhouse.explain import execute_explain_get_index_use
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 
@@ -85,11 +84,6 @@ def get_hogql_metadata(
             if clickhouse_prepared_ast:
                 ch_table_names = get_table_names(clickhouse_prepared_ast)
                 response.ch_table_names = ch_table_names
-
-            if context.errors:
-                response.isUsingIndices = QueryIndexUsage.UNDECISIVE
-            else:
-                response.isUsingIndices = execute_explain_get_index_use(clickhouse_sql, context)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
         response.warnings = context.warnings

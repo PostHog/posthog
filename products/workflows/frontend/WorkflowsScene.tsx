@@ -10,12 +10,14 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
@@ -92,10 +94,9 @@ export function WorkflowsScene(): JSX.Element {
     const { currentTab } = useValues(workflowSceneLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
-    const { showNewWorkflowModal, createEmptyWorkflow } = useActions(newWorkflowLogic)
+    const { showNewWorkflowModal } = useActions(newWorkflowLogic)
 
     const hasWorkflowsFeatureFlag = useFeatureFlag('WORKFLOWS')
-    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     if (!hasWorkflowsFeatureFlag) {
         return (
@@ -183,11 +184,11 @@ export function WorkflowsScene(): JSX.Element {
                             <LemonButton
                                 data-attr="new-workflow"
                                 onClick={() => {
-                                    if (canCreateTemplates) {
-                                        showNewWorkflowModal()
-                                    } else {
-                                        createEmptyWorkflow()
-                                    }
+                                    void addProductIntent({
+                                        product_type: ProductKey.WORKFLOWS,
+                                        intent_context: ProductIntentContext.WORKFLOW_CREATED,
+                                    })
+                                    showNewWorkflowModal()
                                 }}
                                 type="primary"
                                 size="small"

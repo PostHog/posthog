@@ -1,8 +1,9 @@
 import { HogFlow } from '~/schema/hogflow'
-import { Hub, Team } from '~/types'
-import { PostgresUse } from '~/utils/db/postgres'
+import { Team } from '~/types'
+import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
+import { PubSub } from '~/utils/pubsub'
 
 // TODO: Make sure we only have fields we truly need
 const HOG_FLOW_FIELDS = [
@@ -21,6 +22,7 @@ const HOG_FLOW_FIELDS = [
     'edges',
     'actions',
     'abort_action',
+    'billable_action_types',
 ]
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
@@ -29,7 +31,10 @@ export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
 
-    constructor(private hub: Hub) {
+    constructor(
+        private postgres: PostgresRouter,
+        private pubSub: PubSub
+    ) {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_flow_manager_by_team',
             loader: async (teamIds) => await this.fetchTeamHogFlows(teamIds),
@@ -40,7 +45,7 @@ export class HogFlowManagerService {
             loader: async (ids) => await this.fetchHogFlows(ids),
         })
 
-        this.hub.pubSub.on<{ teamId: Team['id']; hogFlowIds: HogFlow['id'][] }>('reload-hog-flows', (message) => {
+        this.pubSub.on<{ teamId: Team['id']; hogFlowIds: HogFlow['id'][] }>('reload-hog-flows', (message) => {
             const { teamId, hogFlowIds } = message
             logger.debug('⚡', '[PubSub] Reloading hog flows!', { teamId, hogFlowIds })
             this.onHogFlowsReloaded(teamId, hogFlowIds)
@@ -109,7 +114,7 @@ export class HogFlowManagerService {
 
     private async fetchTeamHogFlows(teamIds: string[]): Promise<Record<string, HogFlowTeamInfo[]>> {
         logger.debug('[HogFlowManager]', 'Fetching team hog flows', { teamIds })
-        const response = await this.hub.postgres.query<HogFlowTeamInfo>(
+        const response = await this.postgres.query<HogFlowTeamInfo>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id, version FROM posthog_hogflow WHERE status='active' AND team_id = ANY($1)`,
             [teamIds],
@@ -132,7 +137,7 @@ export class HogFlowManagerService {
     private async fetchHogFlows(ids: string[]): Promise<Record<string, HogFlow | undefined>> {
         logger.debug('[HogFlowManager]', 'Fetching hog flows', { ids })
 
-        const response = await this.hub.postgres.query<HogFlow>(
+        const response = await this.postgres.query<HogFlow>(
             PostgresUse.COMMON_READ,
             `SELECT ${HOG_FLOW_FIELDS.join(', ')} FROM posthog_hogflow WHERE id = ANY($1)`,
             [ids],
@@ -142,6 +147,22 @@ export class HogFlowManagerService {
         const items = response.rows
 
         return items.reduce<Record<string, HogFlow | undefined>>((acc, item) => {
+            // Ensure billable_action_types is properly parsed as an array
+            // PostgreSQL might return empty JSON arrays as empty objects
+            if (item.billable_action_types !== undefined && item.billable_action_types !== null) {
+                if (!Array.isArray(item.billable_action_types)) {
+                    // If it's an empty object, convert to empty array
+                    if (
+                        typeof item.billable_action_types === 'object' &&
+                        Object.keys(item.billable_action_types).length === 0
+                    ) {
+                        item.billable_action_types = []
+                    } else {
+                        // For any other non-array value, default to empty array
+                        item.billable_action_types = []
+                    }
+                }
+            }
             acc[item.id] = item
             return acc
         }, {})

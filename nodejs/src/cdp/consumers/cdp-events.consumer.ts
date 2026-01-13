@@ -5,12 +5,13 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, Hub, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { shouldBlockHogFlowDueToQuota } from '../services/hogflows/hogflow-quota-limiting'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
+import { HogRateLimiterService, HogRateLimiterServiceHub } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
@@ -20,11 +21,20 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
-import { CdpConsumerBase } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
 import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
 import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
 
-export class CdpEventsConsumer extends CdpConsumerBase {
+/**
+ * Hub type for CdpEventsConsumer.
+ * Extends CdpConsumerBaseHub with event consumer-specific fields.
+ */
+export type CdpEventsConsumerHub = CdpConsumerBaseHub &
+    HogRateLimiterServiceHub &
+    PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
+    Pick<Hub, 'teamManager' | 'SITE_URL'>
+
+export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsConsumerHub> extends CdpConsumerBase<THub> {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
@@ -32,7 +42,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     private hogRateLimiter: HogRateLimiterService
 
-    constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
+    constructor(hub: THub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
@@ -266,49 +276,61 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         const validInvocations: CyclotronJobInvocation[] = []
 
         // Iterate over adding them to the list and updating their priority
-        possibleInvocations.forEach((item, index) => {
-            try {
-                const rateLimit = rateLimits[index][1]
-                if (rateLimit.isRateLimited) {
-                    counterRateLimited.labels({ kind: 'hog_flow' }).inc()
+        await Promise.all(
+            possibleInvocations.map(async (item, index) => {
+                try {
+                    const rateLimit = rateLimits[index][1]
+                    if (rateLimit.isRateLimited) {
+                        counterRateLimited.labels({ kind: 'hog_flow' }).inc()
+                        this.hogFunctionMonitoringService.queueAppMetric(
+                            {
+                                team_id: item.teamId,
+                                app_source_id: item.functionId,
+                                metric_kind: 'failure',
+                                metric_name: 'rate_limited',
+                                count: 1,
+                            },
+                            'hog_flow'
+                        )
+                        return
+                    }
+                } catch (e) {
+                    captureException(e)
+                    logger.error('🔴', 'Error checking rate limit for hog flow', { err: e })
+                }
+
+                // Check quota limits for workflow actions
+                const isQuotaLimited = await shouldBlockHogFlowDueToQuota(item, {
+                    hub: this.hub,
+                    hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+                })
+
+                if (isQuotaLimited) {
+                    return
+                }
+
+                const state = states[item.hogFlow.id].state
+                if (state === HogWatcherState.disabled) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
                             app_source_id: item.functionId,
                             metric_kind: 'failure',
-                            metric_name: 'rate_limited',
+                            metric_name: 'disabled_permanently',
                             count: 1,
                         },
                         'hog_flow'
                     )
                     return
                 }
-            } catch (e) {
-                captureException(e)
-                logger.error('🔴', 'Error checking rate limit for hog flow', { err: e })
-            }
 
-            const state = states[item.hogFlow.id].state
-            if (state === HogWatcherState.disabled) {
-                this.hogFunctionMonitoringService.queueAppMetric(
-                    {
-                        team_id: item.teamId,
-                        app_source_id: item.functionId,
-                        metric_kind: 'failure',
-                        metric_name: 'disabled_permanently',
-                        count: 1,
-                    },
-                    'hog_flow'
-                )
-                return
-            }
+                if (state === HogWatcherState.degraded) {
+                    item.queuePriority = 2
+                }
 
-            if (state === HogWatcherState.degraded) {
-                item.queuePriority = 2
-            }
-
-            validInvocations.push(item)
-        })
+                validInvocations.push(item)
+            })
+        )
 
         // Now we can filter by masking configs
         const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)

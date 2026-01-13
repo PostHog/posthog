@@ -6,7 +6,14 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { HealthCheckResult, Hub, PluginServerService, RedisPool, ValueMatcher } from '../types'
+import {
+    HealthCheckResult,
+    PluginServerService,
+    PluginsServerConfig,
+    RedisPool,
+    SessionRecordingConfig,
+    ValueMatcher,
+} from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
@@ -39,6 +46,24 @@ import { TopTracker } from './top-tracker'
 import { CaptureIngestionWarningFn } from './types'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
 
+/** Narrowed Hub type for SessionRecordingIngester */
+export type SessionRecordingIngesterHub = SessionRecordingConfig &
+    Pick<
+        PluginsServerConfig,
+        // For KafkaProducerWrapper.create
+        | 'KAFKA_CLIENT_RACK'
+        // For createRedisPool (common Redis config not in SessionRecordingConfig)
+        | 'REDIS_URL'
+        | 'REDIS_POOL_MIN_SIZE'
+        | 'REDIS_POOL_MAX_SIZE'
+        // For restriction manager redis pool (must match the ingestion redis that Django writes to)
+        | 'INGESTION_REDIS_HOST'
+        | 'INGESTION_REDIS_PORT'
+        | 'POSTHOG_REDIS_HOST'
+        | 'POSTHOG_REDIS_PORT'
+        | 'POSTHOG_REDIS_PASSWORD'
+    >
+
 export class SessionRecordingIngester {
     kafkaConsumer: KafkaConsumer
     topic: string
@@ -51,6 +76,7 @@ export class SessionRecordingIngester {
     private readonly sessionBatchManager: SessionBatchManager
     private readonly kafkaParser: KafkaMessageParser
     private readonly redisPool: RedisPool
+    private readonly restrictionRedisPool: RedisPool
     private readonly teamFilter: TeamFilter
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
@@ -62,7 +88,7 @@ export class SessionRecordingIngester {
     private topTrackerLogInterval?: NodeJS.Timeout
 
     constructor(
-        private hub: Hub,
+        private hub: SessionRecordingIngesterHub,
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
         producer: KafkaProducerWrapper,
@@ -117,15 +143,36 @@ export class SessionRecordingIngester {
                 ? {
                       url: hub.POSTHOG_SESSION_RECORDING_REDIS_HOST,
                       options: { port: hub.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
+                      name: 'session-recording-redis',
                   }
-                : { url: hub.REDIS_URL },
+                : { url: hub.REDIS_URL, name: 'session-recording-redis-fallback' },
+            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+        })
+
+        // Restriction manager needs to read from the same Redis as Django writes to
+        // This must match the ingestion redis fallback chain from hub.ts
+        this.restrictionRedisPool = createRedisPoolFromConfig({
+            connection: hub.INGESTION_REDIS_HOST
+                ? {
+                      url: hub.INGESTION_REDIS_HOST,
+                      options: { port: hub.INGESTION_REDIS_PORT },
+                      name: 'ingestion-redis',
+                  }
+                : hub.POSTHOG_REDIS_HOST
+                  ? {
+                        url: hub.POSTHOG_REDIS_HOST,
+                        options: { port: hub.POSTHOG_REDIS_PORT, password: hub.POSTHOG_REDIS_PASSWORD },
+                        name: 'ingestion-redis',
+                    }
+                  : { url: hub.REDIS_URL, name: 'ingestion-redis' },
             poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
         })
 
         const teamService = new TeamService(postgres)
 
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.hub.redisPool, {
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.restrictionRedisPool, {
             pipeline: 'session_recordings',
         })
 
@@ -297,7 +344,10 @@ export class SessionRecordingIngester {
 
         // Initialize overflow producer if not consuming from overflow
         if (!this.consumeOverflow) {
-            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(this.hub, 'WARPSTREAM_PRODUCER')
+            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(
+                this.hub.KAFKA_CLIENT_RACK,
+                'WARPSTREAM_PRODUCER'
+            )
         }
 
         // Initialize restriction handler with the overflow producer

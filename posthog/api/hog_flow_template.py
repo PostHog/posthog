@@ -17,7 +17,6 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.permissions import get_organization_from_view
 
 logger = structlog.get_logger(__name__)
 
@@ -25,28 +24,9 @@ logger = structlog.get_logger(__name__)
 class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
     message = "You don't have edit permissions for global workflow templates."
 
-    def _has_feature_flag(self, request: Request, view) -> bool:
-        """Check if user has the workflows-template-creation feature flag"""
-        try:
-            organization = get_organization_from_view(view)
-            user = cast(User, request.user)
-            return user.distinct_id is not None and posthoganalytics.feature_enabled(
-                "workflows-template-creation",
-                user.distinct_id,
-                groups={"organization": str(organization.id)},
-                group_properties={"organization": {"id": str(organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except (ValueError, AttributeError):
-            return False
-
     def has_permission(self, request: Request, view) -> bool:
         if request.method in SAFE_METHODS:
             return True
-
-        if not self._has_feature_flag(request, view):
-            return False
 
         if request.method == "POST":
             scope = request.data.get("scope")
@@ -59,7 +39,8 @@ class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
-        if obj.scope == HogFlowTemplate.Scope.GLOBAL:
+        # Prevent non-staff from editing global templates / updating team template to global
+        if obj.scope == HogFlowTemplate.Scope.GLOBAL or request.data.get("scope") == HogFlowTemplate.Scope.GLOBAL:
             return request.user.is_staff
 
         return True
@@ -197,17 +178,29 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         data.pop("team_id", None)
         data.pop("created_at", None)
         data.pop("updated_at", None)
+        data.pop("created_by", None)
+        data.pop("status", None)
+        data.pop("version", None)
 
         return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlowTemplate:
         request = self.context["request"]
         team_id = self.context["team_id"]
-        validated_data["created_by"] = request.user
+        # Allow setting created_by via context (e.g. for imports from admin panel)
+        if "created_by" in self.context:
+            validated_data["created_by"] = self.context["created_by"]
+        else:
+            validated_data["created_by"] = request.user
         validated_data["team_id"] = team_id
         # Ensure scope is always set (defaults to 'team' if not provided)
         if not validated_data.get("scope"):
             validated_data["scope"] = HogFlowTemplate.Scope.ONLY_TEAM
+
+        # Allow preserving ID from context (e.g. for admin panel imports)
+        template_id = self.context.get("template_id")
+        if template_id:
+            validated_data["id"] = template_id
 
         return super().create(validated_data=validated_data)
 

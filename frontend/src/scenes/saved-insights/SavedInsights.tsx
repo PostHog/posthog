@@ -170,6 +170,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
+    [NodeKind.GroupNode]: {
+        name: 'Groups',
+        description: 'List and explore grouped events.',
+        icon: IconCursor,
+        inMenu: false,
+    },
     [NodeKind.EventsQuery]: {
         name: 'Events Query',
         description: 'List and explore events.',
@@ -552,6 +558,21 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.EndpointsUsageOverviewQuery]: {
+        name: 'Endpoints usage overview',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.EndpointsUsageTableQuery]: {
+        name: 'Endpoints usage table',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.EndpointsUsageTrendsQuery]: {
+        name: 'Endpoints usage trends',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -761,6 +782,7 @@ export function SavedInsights(): JSX.Element {
                     </>
                 )
             },
+            sorter: (a, b) => (a.name || summarizeInsight(a.query)).localeCompare(b.name || summarizeInsight(b.query)),
         },
         ...(hasTagging
             ? [

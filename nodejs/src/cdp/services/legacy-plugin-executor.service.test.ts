@@ -43,7 +43,7 @@ describe('LegacyPluginExecutorService', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        service = new LegacyPluginExecutorService(hub)
+        service = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
         team = await getFirstTeam(hub)
 
         fn = createHogFunction({

@@ -4,6 +4,7 @@ use std::time::Instant;
 use super::config::CheckpointConfig;
 use super::downloader::CheckpointDownloader;
 use super::metadata::{DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
+use super::s3_utils::create_s3_client;
 use crate::metrics_const::{
     CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM, CHECKPOINT_FILE_DOWNLOADS_COUNTER,
     CHECKPOINT_FILE_FETCH_HISTOGRAM, CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM,
@@ -12,39 +13,41 @@ use crate::metrics_const::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use aws_config::{meta::region::RegionProviderChain, Region};
-use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion};
-use aws_sdk_s3::{Client, Config};
+use aws_sdk_s3::Client;
 use chrono::{Duration, Utc};
 use tracing::{error, info};
 
 #[derive(Debug, Clone)]
 pub struct S3Downloader {
     client: Client,
-    config: CheckpointConfig,
+    s3_bucket: String,
+    s3_key_prefix: String,
+    checkpoint_import_window_hours: u32,
 }
 
 impl S3Downloader {
-    pub async fn new(config: CheckpointConfig) -> Result<Self> {
-        let region_provider =
-            RegionProviderChain::default_provider().or_else(Region::new(config.aws_region.clone()));
+    pub async fn new(config: &CheckpointConfig) -> Result<Self> {
+        let client = create_s3_client(config).await;
 
-        let timeout_config = TimeoutConfig::builder()
-            .operation_timeout(config.s3_operation_timeout)
-            .operation_attempt_timeout(config.s3_attempt_timeout)
-            .build();
+        client
+            .head_bucket()
+            .bucket(&config.s3_bucket)
+            .send()
+            .await
+            .with_context(|| {
+                format!(
+                    "S3 bucket validation failed for: {}. Check credentials and bucket access.",
+                    config.s3_bucket,
+                )
+            })?;
+        info!("S3 bucket '{}' validated successfully", config.s3_bucket);
 
-        let aws_config = aws_config::defaults(BehaviorVersion::latest())
-            .region(region_provider)
-            .timeout_config(timeout_config)
-            .retry_config(RetryConfig::adaptive())
-            .load()
-            .await;
-
-        let s3_config = Config::from(&aws_config);
-        let client = Client::from_conf(s3_config);
-
-        Ok(Self { client, config })
+        Ok(Self {
+            client,
+            s3_bucket: config.s3_bucket.clone(),
+            s3_key_prefix: config.s3_key_prefix.clone(),
+            checkpoint_import_window_hours: config.checkpoint_import_window_hours,
+        })
     }
 }
 
@@ -55,7 +58,7 @@ impl CheckpointDownloader for S3Downloader {
         let get_object = match self
             .client
             .get_object()
-            .bucket(&self.config.s3_bucket)
+            .bucket(&self.s3_bucket)
             .key(remote_key)
             .send()
             .await
@@ -68,17 +71,19 @@ impl CheckpointDownloader for S3Downloader {
             Err(e) => {
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
-                return Err(anyhow::anyhow!(format!(
-                    "Failed to get object from S3 bucket: s3://{0}/{remote_key}: {e}",
-                    self.config.s3_bucket
-                )));
+                return Err(e).with_context(|| {
+                    format!(
+                        "Failed to get object from S3 bucket {}: {remote_key}",
+                        self.s3_bucket
+                    )
+                });
             }
         };
 
         let body = get_object.body.collect().await.with_context(|| {
             format!(
-                "Failed to read body data from S3 object s3://{0}/{remote_key}",
-                self.config.s3_bucket,
+                "Failed to read body data from S3 object from bucket {}: {remote_key}",
+                self.s3_bucket,
             )
         })?;
 
@@ -95,7 +100,7 @@ impl CheckpointDownloader for S3Downloader {
         let get_object = match self
             .client
             .get_object()
-            .bucket(&self.config.s3_bucket)
+            .bucket(&self.s3_bucket)
             .key(remote_key)
             .send()
             .await
@@ -104,10 +109,12 @@ impl CheckpointDownloader for S3Downloader {
             Err(e) => {
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
-                return Err(anyhow::anyhow!(format!(
-                    "Failed to get object from S3 bucket: s3://{0}/{remote_key}: {e}",
-                    self.config.s3_bucket
-                )));
+                return Err(e).with_context(|| {
+                    format!(
+                        "Failed to get object from S3 bucket {}: {remote_key}",
+                        self.s3_bucket
+                    )
+                });
             }
         };
 
@@ -118,9 +125,9 @@ impl CheckpointDownloader for S3Downloader {
         let mut stream = get_object.body.into_async_read();
         if let Err(e) = tokio::io::copy(&mut stream, &mut file).await {
             metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error").increment(1);
-            return Err(anyhow::anyhow!(
-                "Failed to write remote contents to local file: {local_filepath:?}: {e}"
-            ));
+            return Err(e).with_context(|| {
+                format!("Failed to write remote contents to local file: {local_filepath:?}")
+            });
         }
 
         metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success").increment(1);
@@ -156,9 +163,7 @@ impl CheckpointDownloader for S3Downloader {
                     .await
                 {
                     Ok(()) => Ok::<String, anyhow::Error>(remote_filename),
-                    Err(e) => {
-                        Err::<String, anyhow::Error>(anyhow::anyhow!("In download_files: {e}"))
-                    }
+                    Err(e) => Err::<String, anyhow::Error>(e.context("In download_files")),
                 }
             });
         }
@@ -179,9 +184,8 @@ impl CheckpointDownloader for S3Downloader {
         partition_number: i32,
     ) -> Result<Vec<String>> {
         let start_time = Instant::now();
-        let import_window_hours =
-            Duration::hours(self.config.checkpoint_import_window_hours as i64);
-        let remote_key_prefix = format!("{}/{topic}/{partition_number}", self.config.s3_key_prefix);
+        let import_window_hours = Duration::hours(self.checkpoint_import_window_hours as i64);
+        let remote_key_prefix = format!("{}/{topic}/{partition_number}", self.s3_key_prefix);
         let yesterday_remote_key = format!(
             "{}/{}",
             remote_key_prefix,
@@ -190,7 +194,7 @@ impl CheckpointDownloader for S3Downloader {
 
         info!(
             "Listing checkpoint files newer than {} from S3 bucket: {}",
-            yesterday_remote_key, self.config.s3_bucket
+            yesterday_remote_key, self.s3_bucket
         );
 
         // list_objects_v2 returns results in *lexicographic sort order*
@@ -202,7 +206,7 @@ impl CheckpointDownloader for S3Downloader {
         let base_request = self
             .client
             .list_objects_v2()
-            .bucket(&self.config.s3_bucket)
+            .bucket(&self.s3_bucket)
             .prefix(remote_key_prefix)
             .start_after(&yesterday_remote_key);
 
@@ -215,7 +219,7 @@ impl CheckpointDownloader for S3Downloader {
             let response = req.send().await.with_context(|| {
                 format!(
                     "Failed to list remote objects after s3://{}/{yesterday_remote_key}",
-                    self.config.s3_bucket
+                    self.s3_bucket
                 )
             })?;
 
@@ -261,6 +265,6 @@ impl CheckpointDownloader for S3Downloader {
     }
 
     async fn is_available(&self) -> bool {
-        !self.config.s3_bucket.is_empty()
+        !self.s3_bucket.is_empty()
     }
 }

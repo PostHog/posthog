@@ -89,6 +89,9 @@ export const productToursLogic = kea<productToursLogicType>([
         setTab: ({ tab }) => {
             actions.setFilters({ archived: tab === ProductToursTabs.Archived })
         },
+        deleteProductTourSuccess: () => {
+            router.actions.push(urls.productTours())
+        },
     })),
     selectors({
         filteredProductTours: [

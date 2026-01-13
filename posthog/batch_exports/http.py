@@ -11,6 +11,7 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -101,6 +102,7 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
+@extend_schema(tags=["batch_exports"])
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExportRun.objects.all()
@@ -402,40 +404,60 @@ class BatchExportSerializer(serializers.ModelSerializer):
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
+        config = destination_attrs["config"]
+        view = self.context.get("view")
+
+        if self.instance is not None:
+            existing_config = self.instance.destination.config
+        elif view is not None and "pk" in view.kwargs:
+            # Running validation for a `detail=True` action.
+            instance = view.get_object()
+            existing_config = instance.destination.config
+        else:
+            existing_config = {}
+        merged_config = recursive_dict_merge(existing_config, config)
+
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
-            config = destination_attrs["config"]
-            # for updates, get the existing config
-            self.instance: BatchExport | None
-            view = self.context.get("view")
-
-            if self.instance is not None:
-                existing_config = self.instance.destination.config
-            elif view is not None and "pk" in view.kwargs:
-                # Running validation for a `detail=True` action.
-                instance = view.get_object()
-                existing_config = instance.destination.config
-            else:
-                existing_config = {}
-            merged_config = {**existing_config, **config}
-
             if config.get("authentication_type") == "password" and merged_config.get("password") is None:
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
+
         if destination_type == BatchExportDestination.Destination.S3:
-            config = destination_attrs["config"]
+            # we already validate the required inputs in BatchExportDestinationSerializer::validate
+            # so here we just ensure that the inputs are not empty
+            required_non_empty_inputs = (
+                "bucket_name",
+                "region",
+                "prefix",
+                "aws_access_key_id",
+                "aws_secret_access_key",
+            )
+            empty_inputs = []
+            for required_input in required_non_empty_inputs:
+                value = config.get(required_input)
+                if value is not None and isinstance(value, str) and value.strip() == "":
+                    empty_inputs.append(required_input)
+            if empty_inputs:
+                raise serializers.ValidationError(f"The following inputs are empty: {empty_inputs}")
+
             # JSONLines is the default file format for S3 exports for legacy reasons
-            file_format = config.get("file_format", "JSONLines")
+            file_format = merged_config.get("file_format", "JSONLines")
             supported_file_formats = SUPPORTED_COMPRESSIONS.keys()
             if file_format not in supported_file_formats:
                 raise serializers.ValidationError(
                     f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
                 )
-            compression = config.get("compression", None)
+            compression = merged_config.get("compression", None)
             if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
                 raise serializers.ValidationError(
                     f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
                 )
+
+            # if someone is trying to reset the endpoint url, then we need to convert empty string to None
+            if merged_config.get("endpoint_url") == "":
+                destination_attrs["config"]["endpoint_url"] = None
+
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
             team_id = self.context["team_id"]
             team = Team.objects.get(id=team_id)
@@ -467,21 +489,24 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 DatabricksIntegration(integration)
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
+        if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
 
+            if not posthoganalytics.feature_enabled(
+                "azure-blob-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Azure Blob Storage batch exports are not enabled for this team.")
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
-            config = destination_attrs["config"]
-            view = self.context.get("view")
-
-            if self.instance is not None:
-                existing_config = self.instance.destination.config
-            elif view is not None and "pk" in view.kwargs:
-                # Running validation for a `detail=True` action.
-                instance = view.get_object()
-                existing_config = instance.destination.config
-            else:
-                existing_config = {}
-            merged_config = recursive_dict_merge(existing_config, config)
-
             mode = merged_config.get("mode")
 
             if mode == "COPY":
@@ -684,6 +709,7 @@ def recursive_dict_merge(
     return merged
 
 
+@extend_schema(tags=["batch_exports"])
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()

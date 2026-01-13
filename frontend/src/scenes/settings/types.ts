@@ -42,6 +42,7 @@ export type SettingSectionId =
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'organization-details'
+    | 'organization-integrations'
     | 'organization-members'
     | 'organization-roles'
     | 'organization-authentication'
@@ -62,6 +63,7 @@ export type SettingSectionId =
 
 export type SettingId =
     | 'replay-triggers'
+    | 'replay-integrations'
     | 'display-name'
     | 'snippet'
     | 'authorized-urls'
@@ -102,6 +104,7 @@ export type SettingId =
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
+    | 'integration-linear'
     | 'integration-github'
     | 'integration-other'
     | 'integration-ip-allowlist'
@@ -111,6 +114,7 @@ export type SettingId =
     | 'project-move'
     | 'organization-logo'
     | 'organization-display-name'
+    | 'organization-integrations-list'
     | 'invites'
     | 'members'
     | 'email-members'
@@ -124,6 +128,7 @@ export type SettingId =
     | 'details'
     | 'change-password'
     | '2fa'
+    | 'passkeys'
     | 'personal-api-keys'
     | 'notifications'
     | 'feature-previews'

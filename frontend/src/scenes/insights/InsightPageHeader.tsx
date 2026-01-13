@@ -1,6 +1,5 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
-import { combineUrl } from 'kea-router'
+import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } from '@posthog/icons'
@@ -48,7 +47,6 @@ import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
-import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -79,7 +77,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { EndpointModal } from 'products/endpoints/frontend/EndpointModal'
+import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
 
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
 
@@ -133,7 +131,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { featureFlags } = useValues(featureFlagLogic)
 
     // other logics
-    useMountedLogic(insightCommandLogic(insightProps))
     const { tags: allExistingTags } = useValues(tagsModel)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -224,7 +221,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     )}
                     <NewDashboardModal />
-                    <EndpointModal
+                    <EndpointFromInsightModal
                         isOpen={endpointModalOpen}
                         closeModal={() => setEndpointModalOpen(false)}
                         tabId={insightProps.tabId || ''}
@@ -413,11 +410,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     LemonDialog.openForm({
                                         title: 'Save as static cohort',
                                         description: (
-                                            <div className="mt-2">
-                                                Your query must export a <code>person_id</code>, <code>actor_id</code>{' '}
-                                                or <code>id</code> column, which must match the <code>id</code> of the{' '}
-                                                <code>persons</code> table
-                                            </div>
+                                            <>
+                                                <div className="mt-2">
+                                                    Your query must export a <code>person_id</code>,{' '}
+                                                    <code>actor_id</code>, <code>id</code>, or <code>distinct_id</code>{' '}
+                                                    column. The <code>person_id</code>, <code>actor_id</code>, and{' '}
+                                                    <code>id</code> columns must match the <code>id</code> of the{' '}
+                                                    <code>persons</code> table, while <code>distinct_id</code> will be
+                                                    automatically resolved to the corresponding person.
+                                                </div>
+                                            </>
                                         ),
                                         initialValues: {
                                             name: '',

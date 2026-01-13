@@ -2,17 +2,19 @@ import './WorkflowTemplateChooser.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconTrash } from '@posthog/icons'
+import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import BlankWorkflowHog from 'public/blank-dashboard-hog.png'
 
@@ -24,9 +26,17 @@ import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 export function WorkflowTemplateChooser(): JSX.Element {
     const { filteredTemplates, workflowTemplatesLoading } = useValues(workflowTemplatesLogic)
     const { deleteHogflowTemplate } = useActions(workflowTemplatesLogic)
-    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
+    const { user } = useValues(userLogic)
 
     const { createWorkflowFromTemplate, createEmptyWorkflow } = useActions(newWorkflowLogic)
+
+    const canManageTemplate = (template: HogFlowTemplate): boolean => {
+        if (template.scope === 'global') {
+            return user?.is_staff ?? false
+        }
+
+        return true
+    }
 
     return (
         <div>
@@ -50,10 +60,17 @@ export function WorkflowTemplateChooser(): JSX.Element {
                             key={template.id}
                             template={template}
                             onClick={() => createWorkflowFromTemplate(template)}
+                            onEdit={
+                                canManageTemplate(template)
+                                    ? (e) => {
+                                          e.stopPropagation()
+                                          router.actions.push(urls.workflowNew(), { editTemplateId: template.id })
+                                      }
+                                    : undefined
+                            }
                             onDelete={
-                                template.scope === 'global' && !canCreateTemplates
-                                    ? undefined
-                                    : (e) => {
+                                canManageTemplate(template)
+                                    ? (e) => {
                                           e.stopPropagation()
                                           LemonDialog.open({
                                               title: 'Delete template?',
@@ -84,6 +101,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                               secondaryButton: { children: 'Cancel' },
                                           })
                                       }
+                                    : undefined
                             }
                             index={index + 1}
                             data-attr="create-workflow-from-template"
@@ -98,12 +116,14 @@ export function WorkflowTemplateChooser(): JSX.Element {
 function TemplateItem({
     template,
     onClick,
+    onEdit,
     onDelete,
     index,
     'data-attr': dataAttr,
 }: {
     template: Pick<HogFlowTemplate, 'name' | 'description' | 'image_url' | 'scope'>
     onClick: () => void
+    onEdit?: (e: React.MouseEvent) => void
     onDelete?: (e: React.MouseEvent) => void
     index: number
     'data-attr': string
@@ -121,7 +141,7 @@ function TemplateItem({
             onMouseLeave={() => setIsHovering(false)}
             data-attr={dataAttr}
         >
-            {onDelete && (
+            {(onEdit || onDelete) && (
                 <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
                     <More
                         size="small"
@@ -134,15 +154,31 @@ function TemplateItem({
                         overlay={
                             <LemonMenuOverlay
                                 items={[
-                                    {
-                                        label: 'Delete',
-                                        status: 'danger' as const,
-                                        icon: <IconTrash />,
-                                        onClick: (e) => {
-                                            setIsMenuOpen(false)
-                                            onDelete(e)
-                                        },
-                                    },
+                                    ...(onEdit
+                                        ? [
+                                              {
+                                                  label: 'Edit',
+                                                  icon: <IconPencil />,
+                                                  onClick: (e: any) => {
+                                                      setIsMenuOpen(false)
+                                                      onEdit(e)
+                                                  },
+                                              },
+                                          ]
+                                        : []),
+                                    ...(onDelete
+                                        ? [
+                                              {
+                                                  label: 'Delete',
+                                                  status: 'danger' as const,
+                                                  icon: <IconTrash />,
+                                                  onClick: (e: any) => {
+                                                      setIsMenuOpen(false)
+                                                      onDelete(e)
+                                                  },
+                                              },
+                                          ]
+                                        : []),
                                 ]}
                             />
                         }
