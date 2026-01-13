@@ -18,7 +18,6 @@ const createMockTask = (id: string): Task => ({
     created_by: null,
     distinct_user_count: 0,
     occurrence_count: 0,
-    avg_impact_score: 0,
     last_occurrence_at: null,
     segment_link_count: 0,
 })

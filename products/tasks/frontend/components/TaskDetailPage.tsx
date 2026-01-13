@@ -193,13 +193,6 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                                 <strong>{humanFriendlyNumber(task.occurrence_count)}</strong> occurrences
                             </span>
                         </div>
-                        {task.avg_impact_score > 0 && (
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm">
-                                    Avg. impact: <strong>{Math.round(task.avg_impact_score * 100)}%</strong>
-                                </span>
-                            </div>
-                        )}
                     </div>
 
                     {/* Segment list */}

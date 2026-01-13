@@ -21,10 +21,6 @@ CLUSTER_SELECTION_EPSILON = 0.0  # No epsilon for leaf method
 # Task matching threshold (for deduplication)
 TASK_MATCH_THRESHOLD = 0.3  # Cosine distance - lower = more strict matching
 
-# High-impact noise handling
-# Noise segments with impact score above this threshold get individual Tasks
-HIGH_IMPACT_NOISE_THRESHOLD = 0.3
-
 # PCA dimensionality reduction
 PCA_COMPONENTS = 100  # Reduce from 3072 to 100 dimensions for clustering
 
@@ -34,12 +30,6 @@ EMBEDDING_DIMENSION = 3072
 PRODUCT = "session-replay"
 DOCUMENT_TYPE = "video-segment"
 RENDERING = "video-analysis"
-
-# Priority calculation weights
-USERS_AFFECTED_WEIGHT = 1.0
-IMPACT_WEIGHT = 0.5
-RECENCY_WEIGHT = 0.3
-RECENCY_HALF_LIFE_DAYS = 7  # Half-life for recency decay
 
 # Concurrency settings
 MAX_CONCURRENT_TEAMS = 3

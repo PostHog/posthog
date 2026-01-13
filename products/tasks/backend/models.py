@@ -89,10 +89,6 @@ class Task(DeletedMetaFields, models.Model):
         default=0,
         help_text="Total number of video segment occurrences (cases)",
     )
-    avg_impact_score = models.FloatField(
-        default=0.0,
-        help_text="Average impact score across all linked segments (0-1 scale)",
-    )
     last_occurrence_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -581,15 +577,6 @@ class TaskSegmentLink(models.Model):
         blank=True,
         help_text="The segment description text from video analysis",
     )
-
-    # Impact metrics
-    impact_score = models.FloatField(
-        default=0.0,
-        help_text="Impact score for this segment (0-1 scale)",
-    )
-    failure_detected = models.BooleanField(default=False)
-    confusion_detected = models.BooleanField(default=False)
-    abandonment_detected = models.BooleanField(default=False)
 
     # Clustering metadata
     distance_to_centroid = models.FloatField(

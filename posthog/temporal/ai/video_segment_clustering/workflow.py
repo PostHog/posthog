@@ -6,7 +6,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.ai.video_segment_clustering import constants
     from posthog.temporal.ai.video_segment_clustering.activities import (
         cluster_segments_activity,
-        create_high_impact_clusters_activity,
+        create_noise_clusters_activity,
         create_update_tasks_activity,
         fetch_recent_sessions_activity,
         fetch_segments_activity,
@@ -19,18 +19,16 @@ with workflow.unsafe.imports_passed_through():
         ClusterForLabeling,
         ClusteringWorkflowInputs,
         ClusterSegmentsActivityInputs,
-        CreateHighImpactClustersActivityInputs,
+        CreateNoiseClustersActivityInputs,
         CreateUpdateTasksActivityInputs,
         FetchRecentSessionsActivityInputs,
         FetchSegmentsActivityInputs,
         GenerateLabelsActivityInputs,
         LinkSegmentsActivityInputs,
         MatchClustersActivityInputs,
-        SegmentImpactData,
         SummarizeSessionsActivityInputs,
         WorkflowResult,
     )
-    from posthog.temporal.ai.video_segment_clustering.priority import enrich_segments_with_impact
 
 
 @workflow.defn(name="video-segment-clustering")
@@ -41,7 +39,7 @@ class VideoSegmentClusteringWorkflow:
     0. Prime: Run session summarization on recently-ended sessions to populate embeddings
     1. Fetch: Query unprocessed video segments from ClickHouse
     2. Cluster: HDBSCAN clustering with PCA dimensionality reduction
-    3. Handle high-impact noise: Create single-segment clusters for impactful unclustered segments
+    3. Handle noise: Create single-segment clusters for all unclustered segments
     4. Match: Match clusters to existing Tasks (deduplication)
     5. Label: Generate LLM-based labels for new clusters
     6. Create/Update: Create new Tasks and update existing ones
@@ -133,11 +131,6 @@ class VideoSegmentClusteringWorkflow:
                     error=None,
                 )
 
-            # Enrich segments with impact data early (needed for high-impact noise detection)
-            # This is a deterministic operation so it's safe in the workflow
-            segments_with_impact = enrich_segments_with_impact(segments)
-            impact_lookup = {swi.segment.document_id: swi for swi in segments_with_impact}
-
             # Get document IDs for clustering
             document_ids = [s.document_id for s in segments]
 
@@ -154,29 +147,20 @@ class VideoSegmentClusteringWorkflow:
                 retry_policy=constants.COMPUTE_ACTIVITY_RETRY_POLICY,
             )
 
-            # Handle high-impact noise segments
-            # Find noise segments with high impact that should become individual Tasks
-            high_impact_noise_ids = [
-                doc_id
-                for doc_id in clustering_result.noise_segment_ids
-                if impact_lookup.get(doc_id)
-                and impact_lookup[doc_id].impact_score > constants.HIGH_IMPACT_NOISE_THRESHOLD
-            ]
-
-            # Combine regular clusters with single-segment clusters for high-impact noise
+            # Handle noise segments - ALL noise segments become individual clusters
             all_clusters = list(clustering_result.clusters)
             segment_to_cluster = dict(clustering_result.segment_to_cluster)
 
-            if high_impact_noise_ids:
+            if clustering_result.noise_segment_ids:
                 max_cluster_id = max((c.cluster_id for c in clustering_result.clusters), default=-1)
 
-                # Activity 2b: Create single-segment clusters for high-impact noise
+                # Activity 2b: Create single-segment clusters for noise segments
                 single_segment_clusters = await workflow.execute_activity(
-                    create_high_impact_clusters_activity,
+                    create_noise_clusters_activity,
                     args=[
-                        CreateHighImpactClustersActivityInputs(
+                        CreateNoiseClustersActivityInputs(
                             team_id=inputs.team_id,
-                            document_ids=high_impact_noise_ids,
+                            document_ids=clustering_result.noise_segment_ids,
                             starting_cluster_id=max_cluster_id + 1,
                         )
                     ],
@@ -191,11 +175,11 @@ class VideoSegmentClusteringWorkflow:
                         segment_to_cluster[doc_id] = cluster.cluster_id
 
                 workflow.logger.info(
-                    f"Created {len(single_segment_clusters)} single-segment clusters " f"for high-impact noise segments"
+                    f"Created {len(single_segment_clusters)} single-segment clusters for noise segments"
                 )
 
             if not all_clusters:
-                workflow.logger.info("No clusters or high-impact segments found")
+                workflow.logger.info("No clusters found")
                 return WorkflowResult(
                     team_id=inputs.team_id,
                     segments_processed=len(segments),
@@ -221,7 +205,6 @@ class VideoSegmentClusteringWorkflow:
             )
 
             # Activity 4: Generate labels for NEW clusters only (includes actionability check)
-            # Create lightweight data structures to avoid exceeding Temporal payload size limits
             labeling_result = None
             if matching_result.new_clusters:
                 # Convert to lightweight cluster format (no centroid embeddings)
@@ -230,26 +213,13 @@ class VideoSegmentClusteringWorkflow:
                     for c in matching_result.new_clusters
                 ]
 
-                # Convert to lightweight segment impact data (no embeddings)
-                segment_impact_data = [
-                    SegmentImpactData(
-                        document_id=swi.segment.document_id,
-                        content=swi.segment.content,
-                        distinct_id=swi.segment.distinct_id,
-                        timestamp=swi.segment.timestamp,
-                        impact_score=swi.impact_score,
-                        impact_flags=swi.impact_flags,
-                    )
-                    for swi in segments_with_impact
-                ]
-
                 labeling_result = await workflow.execute_activity(
                     generate_labels_activity,
                     args=[
                         GenerateLabelsActivityInputs(
                             team_id=inputs.team_id,
                             clusters=clusters_for_labeling,
-                            segment_impact_data=segment_impact_data,
+                            segments=segments,
                         )
                     ],
                     start_to_close_timeout=constants.LLM_ACTIVITY_TIMEOUT,
@@ -273,7 +243,7 @@ class VideoSegmentClusteringWorkflow:
                         new_clusters=actionable_new_clusters,
                         matched_clusters=matching_result.matched_clusters,
                         labels=labeling_result.labels if labeling_result else {},
-                        segments_with_impact=segments_with_impact,
+                        segments=segments,
                     )
                 ],
                 start_to_close_timeout=constants.TASK_ACTIVITY_TIMEOUT,
@@ -297,7 +267,7 @@ class VideoSegmentClusteringWorkflow:
                     LinkSegmentsActivityInputs(
                         team_id=inputs.team_id,
                         task_ids=task_result.task_ids,
-                        segments_with_impact=segments_with_impact,
+                        segments=segments,
                         segment_to_cluster=segment_to_cluster,  # Use updated mapping with single-segment clusters
                         cluster_to_task=cluster_to_task,
                         latest_timestamp=fetch_result.latest_timestamp,

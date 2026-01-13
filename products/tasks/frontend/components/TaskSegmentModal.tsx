@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPerson, IconQuestion, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
+import { IconPerson, IconX } from '@posthog/icons'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -79,7 +79,7 @@ export function TaskSegmentModal({ isOpen, onClose, segment }: TaskSegmentModalP
                     </header>
 
                     {/* Context Grid */}
-                    <div className="grid grid-cols-3 gap-6 p-4 border-b bg-bg-light">
+                    <div className="grid grid-cols-2 gap-6 p-4 border-b bg-bg-light">
                         {/* User Info */}
                         <div className="space-y-3">
                             <h4 className="text-xs font-semibold text-muted uppercase">User</h4>
@@ -95,38 +95,6 @@ export function TaskSegmentModal({ isOpen, onClose, segment }: TaskSegmentModalP
                                     {segment.session_id}
                                 </p>
                             </div>
-                        </div>
-
-                        {/* Impact Info */}
-                        <div className="space-y-3">
-                            <h4 className="text-xs font-semibold text-muted uppercase">Impact</h4>
-                            <div className="flex items-center gap-4">
-                                <div>
-                                    <span className="text-xs text-muted">Score</span>
-                                    <p className="text-lg font-semibold">{Math.round(segment.impact_score * 100)}%</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    {segment.failure_detected && (
-                                        <Tooltip title="Failure detected">
-                                            <span className="flex items-center gap-1 text-danger text-sm">
-                                                <IconWarning className="w-4 h-4" />
-                                                Failure
-                                            </span>
-                                        </Tooltip>
-                                    )}
-                                    {segment.confusion_detected && (
-                                        <Tooltip title="User showed signs of confusion">
-                                            <span className="flex items-center gap-1 text-warning text-sm">
-                                                <IconQuestion className="w-4 h-4" />
-                                                Confusion
-                                            </span>
-                                        </Tooltip>
-                                    )}
-                                </div>
-                            </div>
-                            {segment.abandonment_detected && (
-                                <p className="text-sm text-muted">User abandoned this flow</p>
-                            )}
                         </div>
 
                         {/* Clustering Info */}

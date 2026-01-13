@@ -1,5 +1,5 @@
-import { IconEye, IconPerson, IconPlay, IconQuestion, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { IconPerson, IconPlay } from '@posthog/icons'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -11,34 +11,6 @@ export interface TaskSegmentListProps {
     hasMore: boolean
     onSegmentClick: (segment: TaskSegmentLink) => void
     onLoadMore: () => void
-}
-
-function ImpactBadges({ segment }: { segment: TaskSegmentLink }): JSX.Element {
-    return (
-        <div className="flex items-center gap-1">
-            {segment.failure_detected && (
-                <Tooltip title="Failure detected">
-                    <span className="text-danger">
-                        <IconWarning className="w-3.5 h-3.5" />
-                    </span>
-                </Tooltip>
-            )}
-            {segment.confusion_detected && (
-                <Tooltip title="User confusion detected">
-                    <span className="text-warning">
-                        <IconQuestion className="w-3.5 h-3.5" />
-                    </span>
-                </Tooltip>
-            )}
-            {segment.abandonment_detected && (
-                <Tooltip title="User abandoned">
-                    <span className="text-muted">
-                        <IconEye className="w-3.5 h-3.5" />
-                    </span>
-                </Tooltip>
-            )}
-        </div>
-    )
 }
 
 function SegmentItem({ segment, onClick }: { segment: TaskSegmentLink; onClick: () => void }): JSX.Element {
@@ -54,14 +26,6 @@ function SegmentItem({ segment, onClick }: { segment: TaskSegmentLink; onClick: 
                     <IconPlay className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                        <ImpactBadges segment={segment} />
-                        {segment.impact_score > 0 && (
-                            <span className="text-xs text-muted">
-                                Impact: {Math.round(segment.impact_score * 100)}%
-                            </span>
-                        )}
-                    </div>
                     <p className="text-sm mb-1 line-clamp-2">{segment.content || 'No description available'}</p>
                     <div className="flex items-center gap-3 text-xs text-muted">
                         <span className="flex items-center gap-1">

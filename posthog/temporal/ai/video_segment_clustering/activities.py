@@ -41,7 +41,7 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     ClusteringResult,
     ClusterLabel,
     ClusterSegmentsActivityInputs,
-    CreateHighImpactClustersActivityInputs,
+    CreateNoiseClustersActivityInputs,
     CreateUpdateTasksActivityInputs,
     FetchRecentSessionsActivityInputs,
     FetchRecentSessionsResult,
@@ -53,10 +53,10 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     LinkSegmentsActivityInputs,
     MatchClustersActivityInputs,
     MatchingResult,
-    SegmentImpactData,
     SummarizeSessionsActivityInputs,
     SummarizeSessionsResult,
     TaskCreationResult,
+    VideoSegmentMetadata,
 )
 from posthog.temporal.ai.video_segment_clustering.priority import calculate_priority_score, calculate_task_metrics
 from posthog.temporal.common.client import async_connect
@@ -116,9 +116,9 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
     return await asyncio.to_thread(_cluster_segments, inputs)
 
 
-# Activity 2b: Create single-segment clusters for high-impact noise
-def _create_high_impact_clusters(inputs: CreateHighImpactClustersActivityInputs) -> list[Cluster]:
-    """Create single-segment clusters for high-impact noise segments."""
+# Activity 2b: Create single-segment clusters for noise segments
+def _create_noise_clusters(inputs: CreateNoiseClustersActivityInputs) -> list[Cluster]:
+    """Create single-segment clusters for noise segments."""
     team = Team.objects.get(id=inputs.team_id)
 
     # Fetch embeddings for these specific documents
@@ -143,13 +143,13 @@ def _create_high_impact_clusters(inputs: CreateHighImpactClustersActivityInputs)
 
 
 @activity.defn
-async def create_high_impact_clusters_activity(inputs: CreateHighImpactClustersActivityInputs) -> list[Cluster]:
-    """Activity 2b: Create single-segment clusters for high-impact noise segments.
+async def create_noise_clusters_activity(inputs: CreateNoiseClustersActivityInputs) -> list[Cluster]:
+    """Activity 2b: Create single-segment clusters for noise segments.
 
-    For noise segments that have high impact (errors, confusion, etc.),
+    For noise segments that didn't cluster with others,
     create individual clusters so they become Tasks.
     """
-    return await asyncio.to_thread(_create_high_impact_clusters, inputs)
+    return await asyncio.to_thread(_create_noise_clusters, inputs)
 
 
 # Activity 3: Match clusters to existing tasks
@@ -174,18 +174,50 @@ async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> Matchi
     return await asyncio.to_thread(_match_clusters, inputs)
 
 
+def _calculate_metrics_from_segments(segments: list[VideoSegmentMetadata]) -> dict:
+    """Calculate aggregate metrics from segment metadata."""
+    if not segments:
+        return {
+            "distinct_user_count": 0,
+            "occurrence_count": 0,
+            "last_occurrence_at": None,
+        }
+
+    # Count unique users
+    distinct_ids = {s.distinct_id for s in segments}
+    distinct_user_count = len(distinct_ids)
+
+    # Find most recent occurrence
+    timestamps = []
+    for s in segments:
+        if s.timestamp:
+            try:
+                ts = datetime.fromisoformat(s.timestamp.replace("Z", "+00:00"))
+                timestamps.append(ts)
+            except ValueError:
+                pass
+
+    last_occurrence_at = max(timestamps) if timestamps else None
+
+    return {
+        "distinct_user_count": distinct_user_count,
+        "occurrence_count": len(segments),
+        "last_occurrence_at": last_occurrence_at,
+    }
+
+
 # Activity 4: Generate labels
 async def _generate_labels(inputs: GenerateLabelsActivityInputs) -> LabelingResult:
     """Generate LLM labels for clusters with actionability filtering."""
-    # Build segment impact lookup
-    impact_lookup = {s.document_id: s for s in inputs.segment_impact_data}
+    # Build segment lookup
+    segment_lookup = {s.document_id: s for s in inputs.segments}
 
     async def generate_label_for_cluster(cluster):
         """Generate label for a single cluster."""
-        # Get segment impact data for this cluster
-        cluster_impacts = [impact_lookup[sid] for sid in cluster.segment_ids if sid in impact_lookup]
+        # Get segments for this cluster
+        cluster_segments = [segment_lookup[sid] for sid in cluster.segment_ids if sid in segment_lookup]
 
-        if not cluster_impacts:
+        if not cluster_segments:
             # No segments = not actionable
             return cluster.cluster_id, ClusterLabel(
                 actionable=False,
@@ -194,15 +226,13 @@ async def _generate_labels(inputs: GenerateLabelsActivityInputs) -> LabelingResu
             )
 
         # Calculate metrics for this cluster
-        metrics = _calculate_metrics_from_impact_data(cluster_impacts)
+        metrics = _calculate_metrics_from_segments(cluster_segments)
 
         # Build context for LLM
-        sample_impacts = cluster_impacts[: constants.DEFAULT_SEGMENTS_PER_CLUSTER_FOR_LABELING]
+        sample_segments = cluster_segments[: constants.DEFAULT_SEGMENTS_PER_CLUSTER_FOR_LABELING]
 
         context = ClusterContext(
-            segment_contents=[s.content for s in sample_impacts],
-            segment_impact_flags=[s.impact_flags for s in sample_impacts],
-            aggregate_impact_score=metrics["avg_impact_score"],
+            segment_contents=[s.content for s in sample_segments],
             distinct_user_count=metrics["distinct_user_count"],
             occurrence_count=metrics["occurrence_count"],
             last_occurrence_iso=metrics["last_occurrence_at"].isoformat() if metrics["last_occurrence_at"] else None,
@@ -234,46 +264,6 @@ async def _generate_labels(inputs: GenerateLabelsActivityInputs) -> LabelingResu
     return LabelingResult(labels=labels)
 
 
-def _calculate_metrics_from_impact_data(impacts: list[SegmentImpactData]) -> dict:
-    """Calculate aggregate metrics from lightweight segment impact data."""
-    from datetime import datetime
-
-    if not impacts:
-        return {
-            "distinct_user_count": 0,
-            "occurrence_count": 0,
-            "avg_impact_score": 0.0,
-            "last_occurrence_at": None,
-        }
-
-    # Count unique users
-    distinct_ids = {s.distinct_id for s in impacts}
-    distinct_user_count = len(distinct_ids)
-
-    # Calculate average impact
-    total_impact = sum(s.impact_score for s in impacts)
-    avg_impact_score = total_impact / len(impacts)
-
-    # Find most recent occurrence
-    timestamps = []
-    for s in impacts:
-        if s.timestamp:
-            try:
-                ts = datetime.fromisoformat(s.timestamp.replace("Z", "+00:00"))
-                timestamps.append(ts)
-            except ValueError:
-                pass
-
-    last_occurrence_at = max(timestamps) if timestamps else None
-
-    return {
-        "distinct_user_count": distinct_user_count,
-        "occurrence_count": len(impacts),
-        "avg_impact_score": avg_impact_score,
-        "last_occurrence_at": last_occurrence_at,
-    }
-
-
 @activity.defn
 async def generate_labels_activity(inputs: GenerateLabelsActivityInputs) -> LabelingResult:
     """Activity 4: Generate LLM-based labels for new clusters, i.e. actionable task titles and descriptions."""
@@ -286,7 +276,7 @@ def _create_update_tasks(inputs: CreateUpdateTasksActivityInputs) -> TaskCreatio
     team = Team.objects.get(id=inputs.team_id)
 
     # Build segment lookup by document_id
-    segment_lookup = {swi.segment.document_id: swi for swi in inputs.segments_with_impact}
+    segment_lookup = {s.document_id: s for s in inputs.segments}
 
     task_ids: list[str] = []
     tasks_created = 0
@@ -307,11 +297,9 @@ def _create_update_tasks(inputs: CreateUpdateTasksActivityInputs) -> TaskCreatio
         # Calculate metrics
         metrics = calculate_task_metrics(cluster_segments)
 
-        # Calculate priority
+        # Calculate priority (based on user count only)
         priority = calculate_priority_score(
             distinct_user_count=metrics["distinct_user_count"],
-            avg_impact_score=metrics["avg_impact_score"],
-            last_occurrence=metrics["last_occurrence_at"],
         )
 
         task = Task.objects.create(
@@ -324,7 +312,6 @@ def _create_update_tasks(inputs: CreateUpdateTasksActivityInputs) -> TaskCreatio
             priority_score=priority,
             distinct_user_count=metrics["distinct_user_count"],
             occurrence_count=metrics["occurrence_count"],
-            avg_impact_score=metrics["avg_impact_score"],
             last_occurrence_at=metrics["last_occurrence_at"],
         )
 
@@ -371,23 +358,14 @@ def _create_update_tasks(inputs: CreateUpdateTasksActivityInputs) -> TaskCreatio
         task.distinct_user_count += new_metrics["distinct_user_count"]  # May overcount
         task.occurrence_count += new_metrics["occurrence_count"]
 
-        # Update average impact (weighted)
-        total_count = task.occurrence_count
-        if total_count > 0:
-            old_weight = (task.occurrence_count - new_metrics["occurrence_count"]) / total_count
-            new_weight = new_metrics["occurrence_count"] / total_count
-            task.avg_impact_score = task.avg_impact_score * old_weight + new_metrics["avg_impact_score"] * new_weight
-
         # Update last occurrence
         if new_metrics["last_occurrence_at"]:
             if task.last_occurrence_at is None or new_metrics["last_occurrence_at"] > task.last_occurrence_at:
                 task.last_occurrence_at = new_metrics["last_occurrence_at"]
 
-        # Recalculate priority
+        # Recalculate priority (based on user count only)
         task.priority_score = calculate_priority_score(
             distinct_user_count=task.distinct_user_count,
-            avg_impact_score=task.avg_impact_score,
-            last_occurrence=task.last_occurrence_at,
         )
 
         task.save()
@@ -425,8 +403,7 @@ def _link_segments(inputs: LinkSegmentsActivityInputs) -> LinkingResult:
 
     links_created = 0
 
-    for swi in inputs.segments_with_impact:
-        segment = swi.segment
+    for segment in inputs.segments:
         cluster_id = inputs.segment_to_cluster.get(segment.document_id)
 
         if cluster_id is None:
@@ -464,10 +441,6 @@ def _link_segments(inputs: LinkSegmentsActivityInputs) -> LinkingResult:
                 "team": team,
                 "distinct_id": segment.distinct_id,
                 "content": segment.content[:1000],  # Truncate if too long
-                "impact_score": swi.impact_score,
-                "failure_detected": swi.impact_flags.get("failure_detected", False),
-                "confusion_detected": swi.impact_flags.get("confusion_detected", False),
-                "abandonment_detected": swi.impact_flags.get("abandonment_detected", False),
                 "distance_to_centroid": distance,
                 "segment_timestamp": segment_timestamp,
             },
@@ -483,7 +456,7 @@ def _link_segments(inputs: LinkSegmentsActivityInputs) -> LinkingResult:
                 team=team,
                 defaults={
                     "last_processed_at": latest_ts,
-                    "segments_processed": len(inputs.segments_with_impact),
+                    "segments_processed": len(inputs.segments),
                 },
             )
             watermark_updated = True

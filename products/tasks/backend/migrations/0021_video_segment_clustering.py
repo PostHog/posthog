@@ -61,14 +61,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="task",
-            name="avg_impact_score",
-            field=models.FloatField(
-                default=0.0,
-                help_text="Average impact score across all linked segments (0-1 scale)",
-            ),
-        ),
-        migrations.AddField(
-            model_name="task",
             name="last_occurrence_at",
             field=models.DateTimeField(
                 blank=True,
@@ -100,16 +92,6 @@ class Migration(migrations.Migration):
                         help_text="The segment description text from video analysis",
                     ),
                 ),
-                (
-                    "impact_score",
-                    models.FloatField(
-                        default=0.0,
-                        help_text="Impact score for this segment (0-1 scale)",
-                    ),
-                ),
-                ("failure_detected", models.BooleanField(default=False)),
-                ("confusion_detected", models.BooleanField(default=False)),
-                ("abandonment_detected", models.BooleanField(default=False)),
                 (
                     "distance_to_centroid",
                     models.FloatField(

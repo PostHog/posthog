@@ -17,13 +17,10 @@ logger = structlog.get_logger(__name__)
 
 LABELING_SYSTEM_PROMPT = """You are an expert at analyzing user behavior patterns from session replay video analysis.
 
-Given video segment descriptions grouped as similar issues, along with impact metrics,
-determine if this cluster represents an actionable issue for an engineering team.
+Given video segment descriptions grouped as similar issues, determine if this cluster represents an actionable issue for an engineering team.
 
 ## Context provided
 - Segment descriptions: What users experienced (up to 5 examples)
-- Impact flags per segment: failure_detected, confusion_detected, abandonment_detected
-- Aggregate impact score: 0-1 (higher = more impactful)
 - Distinct user count: Unique users affected
 - Occurrence count: Total occurrences
 - Last occurrence: When last seen
@@ -63,7 +60,7 @@ async def generate_cluster_labels_llm(
 
     Args:
         team_id: Team ID for logging
-        context: ClusterContext with segments, impact data, and metrics
+        context: ClusterContext with segments and metrics
         model: LLM model to use
 
     Returns:
@@ -77,17 +74,7 @@ async def generate_cluster_labels_llm(
         )
 
     # Build prompt with full context
-    segment_texts = []
-    for i, (content, flags) in enumerate(zip(context.segment_contents, context.segment_impact_flags), 1):
-        flag_strs = []
-        if flags.get("failure_detected"):
-            flag_strs.append("failure")
-        if flags.get("confusion_detected"):
-            flag_strs.append("confusion")
-        if flags.get("abandonment_detected"):
-            flag_strs.append("abandonment")
-        flag_info = f" [Impact: {', '.join(flag_strs)}]" if flag_strs else ""
-        segment_texts.append(f"{i}. {content}{flag_info}")
+    segment_texts = [f"{i}. {content}" for i, content in enumerate(context.segment_contents, 1)]
 
     user_prompt = f"""Cluster analysis:
 
@@ -95,7 +82,6 @@ async def generate_cluster_labels_llm(
 {chr(10).join(segment_texts)}
 
 ## Metrics:
-- Aggregate impact score: {context.aggregate_impact_score:.2f}
 - Distinct users affected: {context.distinct_user_count}
 - Total occurrences: {context.occurrence_count}
 - Last occurred: {context.last_occurrence_iso or 'Unknown'}

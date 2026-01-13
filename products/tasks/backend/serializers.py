@@ -40,7 +40,6 @@ class TaskSerializer(serializers.ModelSerializer):
             # Video segment clustering fields
             "distinct_user_count",
             "occurrence_count",
-            "avg_impact_score",
             "last_occurrence_at",
             "segment_link_count",
         ]
@@ -54,7 +53,6 @@ class TaskSerializer(serializers.ModelSerializer):
             "latest_run",
             "distinct_user_count",
             "occurrence_count",
-            "avg_impact_score",
             "last_occurrence_at",
             "segment_link_count",
         ]
@@ -282,10 +280,6 @@ class TaskSegmentLinkSerializer(serializers.ModelSerializer):
             "segment_end_time",
             "distinct_id",
             "content",
-            "impact_score",
-            "failure_detected",
-            "confusion_detected",
-            "abandonment_detected",
             "distance_to_centroid",
             "segment_timestamp",
             "created_at",

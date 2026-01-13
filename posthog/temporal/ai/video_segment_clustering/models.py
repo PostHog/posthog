@@ -1,7 +1,6 @@
 """Data models for video segment clustering workflow."""
 
 from dataclasses import dataclass
-from typing import TypedDict
 
 from pydantic import BaseModel
 
@@ -59,42 +58,11 @@ class FetchSegmentsResult:
     latest_timestamp: str | None  # ISO format, for updating watermark
 
 
-class ImpactFlags(TypedDict):
-    """Impact flags for a segment derived from session data."""
-
-    failure_detected: bool
-    confusion_detected: bool
-    abandonment_detected: bool
-
-
-@dataclass
-class SegmentWithImpact:
-    """A segment with computed impact data (no embedding)."""
-
-    segment: VideoSegmentMetadata
-    impact_score: float
-    impact_flags: ImpactFlags
-
-
-@dataclass
-class SegmentImpactData:
-    """Lightweight segment impact data for labeling (no embeddings)."""
-
-    document_id: str
-    content: str
-    distinct_id: str
-    timestamp: str | None
-    impact_score: float
-    impact_flags: ImpactFlags
-
-
 @dataclass
 class ClusterContext:
     """Context data for a cluster passed to LLM for labeling/actionability."""
 
     segment_contents: list[str]
-    segment_impact_flags: list[ImpactFlags]
-    aggregate_impact_score: float
     distinct_user_count: int
     occurrence_count: int
     last_occurrence_iso: str | None
@@ -204,8 +172,8 @@ class ClusterSegmentsActivityInputs:
 
 
 @dataclass
-class CreateHighImpactClustersActivityInputs:
-    """Input for creating single-segment clusters for high-impact noise segments."""
+class CreateNoiseClustersActivityInputs:
+    """Input for creating single-segment clusters for noise segments."""
 
     team_id: int
     document_ids: list[str]
@@ -234,7 +202,7 @@ class GenerateLabelsActivityInputs:
 
     team_id: int
     clusters: list[ClusterForLabeling]
-    segment_impact_data: list[SegmentImpactData]
+    segments: list[VideoSegmentMetadata]
 
 
 @dataclass
@@ -245,7 +213,7 @@ class CreateUpdateTasksActivityInputs:
     new_clusters: list[Cluster]
     matched_clusters: list[TaskMatch]
     labels: dict[int, ClusterLabel]
-    segments_with_impact: list[SegmentWithImpact]
+    segments: list[VideoSegmentMetadata]
 
 
 @dataclass
@@ -254,7 +222,7 @@ class LinkSegmentsActivityInputs:
 
     team_id: int
     task_ids: list[str]  # All task IDs (new and existing)
-    segments_with_impact: list[SegmentWithImpact]
+    segments: list[VideoSegmentMetadata]
     segment_to_cluster: dict[str, int]
     cluster_to_task: dict[int, str]  # cluster_id -> task_id
     latest_timestamp: str | None

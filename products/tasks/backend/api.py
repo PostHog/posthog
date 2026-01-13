@@ -233,13 +233,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="Task not found"),
         },
         summary="List task segment links",
-        description="Get paginated list of video segment links for a task, sorted by impact score.",
+        description="Get paginated list of video segment links for a task, sorted by creation date.",
     )
     @action(detail=True, methods=["get"], url_path="segment_links", required_scopes=["task:read"])
     def segment_links(self, request, pk=None, **kwargs):
         """Get video segment links for a task.
 
-        Returns segments sorted by impact_score (descending), with pagination.
+        Returns segments sorted by created_at (descending), with pagination.
         Query params:
         - limit: Max items to return (default 10)
         - offset: Number of items to skip (default 0)
@@ -249,7 +249,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         limit = int(request.query_params.get("limit", 10))
         offset = int(request.query_params.get("offset", 0))
 
-        segment_links = TaskSegmentLink.objects.filter(task=task).order_by("-impact_score", "-created_at")
+        segment_links = TaskSegmentLink.objects.filter(task=task).order_by("-created_at")
 
         total_count = segment_links.count()
         segment_links = segment_links[offset : offset + limit]
