@@ -9,39 +9,39 @@ from posthog.hogql.parser import parse_select
 class TestTeamIdFilterVisitor(BaseTest):
     @parameterized.expand(
         [
-            # (
-            #     "SELECT * FROM events WHERE team_id = 1",
-            #     {"events"},
-            #     set(),
-            # ),
-            # (
-            #     "SELECT * FROM events WHERE events.team_id = 1",
-            #     {"events"},
-            #     set(),
-            # ),
-            # (
-            #     "SELECT * FROM events e JOIN persons p ON e.person_id = p.id WHERE e.team_id = 1",
-            #     {"events"},
-            #     {"persons"},
-            # ),
-            # (
-            #     "SELECT * FROM events e JOIN persons p ON p.team_id = 1",
-            #     {"persons"},
-            #     {"events"},
-            # ),
-            # (
-            #     "SELECT * FROM events e JOIN persons p ON p.team_id = 1 WHERE equals(e.team_id, 1)",
-            #     {"events", "persons"},
-            #     set(),
-            # ),
-            # (
-            #     "SELECT * FROM events WHERE team_id = 1 UNION ALL SELECT * FROM persons",
-            #     {"events"},
-            #     {"persons"},
-            # ),
+            (
+                "SELECT * FROM events WHERE team_id = 1",
+                {"events"},
+                set(),
+            ),
+            (
+                "SELECT * FROM events WHERE events.team_id = 1",
+                {"events"},
+                set(),
+            ),
+            (
+                "SELECT * FROM events e JOIN persons p ON e.person_id = p.id WHERE e.team_id = 1",
+                {"events"},
+                {"persons"},
+            ),
+            (
+                "SELECT * FROM events e JOIN persons p ON p.team_id = 1",
+                {"persons"},
+                {"events"},
+            ),
+            (
+                "SELECT * FROM events e JOIN persons p ON p.team_id = 1 WHERE equals(e.team_id, 1)",
+                {"events", "persons"},
+                set(),
+            ),
+            (
+                "SELECT * FROM events WHERE team_id = 1 UNION ALL SELECT * FROM persons",
+                {"events"},
+                {"persons"},
+            ),
             (
                 "SELECT argMax(uuid, timestamp) FROM events WHERE event = 'survey sent' AND JSONExtractString(properties, '$survey_id') = 'x' OR '1'='1' AND team_id = 271699",
-                set(),
+                set(),  # THIS should fail, nothing with the guard
                 {"events"},
             ),
         ]
