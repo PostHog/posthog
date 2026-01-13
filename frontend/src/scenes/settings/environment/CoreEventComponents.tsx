@@ -1,5 +1,5 @@
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
@@ -126,5 +126,92 @@ export function CategorySection({
                 <div className="text-muted text-sm italic">No events in this category</div>
             )}
         </div>
+    )
+}
+
+export interface CoreEventFormState {
+    name: string
+    description: string
+    category: CoreEventCategory | null
+}
+
+export function CoreEventFormModal({
+    isOpen,
+    onClose,
+    formState,
+    onFormChange,
+    onSave,
+    isEditing = false,
+    disabledReason,
+    eventFilterSlot,
+}: {
+    isOpen: boolean
+    onClose: () => void
+    formState: CoreEventFormState
+    onFormChange: (updates: Partial<CoreEventFormState>) => void
+    onSave: () => void
+    isEditing?: boolean
+    disabledReason?: string
+    eventFilterSlot?: React.ReactNode
+}): JSX.Element {
+    return (
+        <LemonModal
+            isOpen={isOpen}
+            onClose={onClose}
+            title={isEditing ? 'Edit core event' : 'Add core event'}
+            width="40rem"
+            footer={
+                <>
+                    <LemonButton onClick={onClose}>Cancel</LemonButton>
+                    <LemonButton type="primary" onClick={onSave} disabledReason={disabledReason}>
+                        {isEditing ? 'Update' : 'Add'}
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="space-y-4">
+                <div className="space-y-1">
+                    <LemonLabel>Name</LemonLabel>
+                    <LemonInput
+                        value={formState.name}
+                        onChange={(value) => onFormChange({ name: value })}
+                        placeholder="e.g., Purchase, Sign up"
+                    />
+                </div>
+
+                <div className="space-y-1">
+                    <LemonLabel>Description (optional)</LemonLabel>
+                    <LemonTextArea
+                        value={formState.description}
+                        onChange={(value) => onFormChange({ description: value })}
+                        placeholder="Describe what this core event tracks"
+                    />
+                </div>
+
+                {eventFilterSlot && (
+                    <div className="space-y-1">
+                        <LemonLabel>Event, action, or data warehouse table</LemonLabel>
+                        {eventFilterSlot}
+                    </div>
+                )}
+
+                <div className="space-y-2">
+                    <LemonLabel>Category</LemonLabel>
+                    <div className="flex flex-wrap gap-2">
+                        {CATEGORY_OPTIONS.map((category) => (
+                            <LemonTag
+                                key={category.value}
+                                type={formState.category === category.value ? 'primary' : 'default'}
+                                onClick={() => onFormChange({ category: category.value })}
+                                className="cursor-pointer"
+                                title={category.description}
+                            >
+                                {category.label}
+                            </LemonTag>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </LemonModal>
     )
 }

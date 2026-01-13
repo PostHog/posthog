@@ -3,7 +3,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useStorybookMocks } from '~/mocks/browser'
 import { CoreEventCategory, NodeKind } from '~/queries/schema/schema-general'
 
-import { CATEGORY_OPTIONS, CategorySection, CoreEventCard } from './CoreEventComponents'
+import { CATEGORY_OPTIONS, CategorySection, CoreEventCard, CoreEventFormModal } from './CoreEventComponents'
 import { CoreEventsSettings } from './CoreEventsSettings'
 
 const meta: Meta = {
@@ -182,4 +182,63 @@ export const FullSettingsEmpty: StoryFn = () => {
     })
 
     return <CoreEventsSettings />
+}
+
+export const ModalEmpty: StoryFn = () => {
+    return (
+        <CoreEventFormModal
+            isOpen={true}
+            onClose={() => {}}
+            formState={{ name: '', description: '', category: null }}
+            onFormChange={() => {}}
+            onSave={() => {}}
+            disabledReason="Please enter a name for this core event"
+        />
+    )
+}
+
+export const ModalWithCategorySelected: StoryFn = () => {
+    return (
+        <CoreEventFormModal
+            isOpen={true}
+            onClose={() => {}}
+            formState={{ name: '', description: '', category: CoreEventCategory.Monetization }}
+            onFormChange={() => {}}
+            onSave={() => {}}
+            disabledReason="Please enter a name for this core event"
+        />
+    )
+}
+
+export const ModalFilled: StoryFn = () => {
+    return (
+        <CoreEventFormModal
+            isOpen={true}
+            onClose={() => {}}
+            formState={{
+                name: 'Purchase Completed',
+                description: 'User completed a purchase in the checkout flow',
+                category: CoreEventCategory.Monetization,
+            }}
+            onFormChange={() => {}}
+            onSave={() => {}}
+        />
+    )
+}
+
+export const ModalEditing: StoryFn = () => {
+    return (
+        <CoreEventFormModal
+            isOpen={true}
+            onClose={() => {}}
+            formState={{
+                name: 'Sign Up',
+                description: 'User created an account',
+                category: CoreEventCategory.Acquisition,
+            }}
+            onFormChange={() => {}}
+            onSave={() => {}}
+            isEditing={true}
+        />
+    )
 }
