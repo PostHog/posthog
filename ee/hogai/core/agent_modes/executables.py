@@ -463,7 +463,7 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
 
         if isinstance(result.artifact, ToolMessagesArtifact):
             return PartialAssistantState(
-                messages=result.artifact.messages,
+                messages=list(result.artifact.messages),
             )
 
         tool_message = AssistantToolCallMessage(

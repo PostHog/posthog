@@ -4,7 +4,11 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, useRef } from 'react'
 
 import { TTEditor } from 'lib/components/RichContentEditor/types'
-import { tryJsonParse, uuid } from 'lib/utils'
+import { percentage, tryJsonParse, uuid } from 'lib/utils'
+import { formatCurrency } from 'lib/utils/geography/currency'
+
+import { CurrencyCode } from '~/queries/schema/schema-general'
+import { Group } from '~/types'
 
 import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../types'
 
@@ -193,4 +197,90 @@ export function sortProperties(entries: [string, any][], pinnedProperties: strin
 
         return aKey.localeCompare(bKey)
     })
+}
+
+// Group revenue-related utilities
+
+/**
+ * Represents MRR data with forecasted trend
+ */
+export interface MRRData {
+    mrr: number
+    forecastedMrr: number | null
+    percentageDiff: number | null
+    tooltipText: string | null
+    trendDirection: 'up' | 'down' | 'flat' | null
+}
+
+/**
+ * Calculates MRR data with trend analysis and tooltip text
+ * @param group Group data containing MRR information
+ * @param baseCurrency Currency code for formatting
+ * @returns MRRData object or null if no valid MRR
+ */
+export function calculateMRRData(group: Group, baseCurrency: CurrencyCode): MRRData | null {
+    const mrrValue = group.group_properties.mrr
+    const mrr: number | null = typeof mrrValue === 'number' && !isNaN(mrrValue) ? mrrValue : null
+    const forecastedMrrValue = group.group_properties.forecasted_mrr
+    const forecastedMrr: number | null =
+        typeof forecastedMrrValue === 'number' && !isNaN(forecastedMrrValue) ? forecastedMrrValue : null
+
+    if (mrr === null) {
+        return null
+    }
+
+    const percentageDiff = forecastedMrr === null || mrr === 0 ? null : (forecastedMrr - mrr) / mrr
+
+    let tooltipText: string | null = null
+    let trendDirection: 'up' | 'down' | 'flat' | null = null
+
+    if (percentageDiff !== null && forecastedMrr !== null) {
+        if (percentageDiff > 0) {
+            tooltipText = `${percentage(percentageDiff)} MRR growth forecasted to ${formatCurrency(forecastedMrr, baseCurrency)}`
+            trendDirection = 'up'
+        } else if (percentageDiff < 0) {
+            tooltipText = `${percentage(-percentageDiff)} MRR decrease forecasted to ${formatCurrency(forecastedMrr, baseCurrency)}`
+            trendDirection = 'down'
+        } else {
+            tooltipText = `No MRR change forecasted, flat at ${formatCurrency(mrr, baseCurrency)}`
+            trendDirection = 'flat'
+        }
+    }
+
+    return {
+        mrr,
+        forecastedMrr,
+        percentageDiff,
+        tooltipText,
+        trendDirection,
+    }
+}
+
+/**
+ * Gets paid products with formatted names from group MRR data
+ * @param group Group data containing MRR per product
+ * @returns Array of formatted product names with positive MRR
+ */
+export function getPaidProducts(group: Group): string[] {
+    const mrrPerProduct: Record<string, number> = group.group_properties.mrr_per_product || {}
+
+    return Object.entries(mrrPerProduct)
+        .filter(([, mrr]) => typeof mrr === 'number' && mrr > 0)
+        .map(([product]) =>
+            product
+                .replaceAll('_', ' ')
+                .split(' ')
+                .map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+                .join(' ')
+        )
+}
+
+/**
+ * Extracts customer lifetime value from group properties
+ * @param group Group data containing customer lifetime value
+ * @returns Lifetime value as number or null if invalid/missing
+ */
+export function getLifetimeValue(group: Group): number | null {
+    const value = group.group_properties.customer_lifetime_value
+    return typeof value === 'number' && !isNaN(value) ? value : null
 }
