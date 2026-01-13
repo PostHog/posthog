@@ -545,9 +545,6 @@ async def materialize_model(
 
         if delta_table is None:
             error_message = "Query returned no results. Check that the query returns data before materializing."
-            saved_query.latest_error = error_message
-            await database_sync_to_async(saved_query.save)()
-            await mark_job_as_failed(job, error_message, logger)
             raise NonRetryableException(f"Query for model {model_label} failed: {error_message}")
     except Exception as e:
         error_message = str(e)
