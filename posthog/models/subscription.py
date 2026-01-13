@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -8,14 +8,11 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from dateutil.rrule import FR, MO, SA, SU, TH, TU, WE, rrule
+from dateutil.rrule import FR, FREQNAMES, MO, SA, SU, TH, TU, WE, rrule
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.utils import absolute_uri
-
-# Copied from rrule as it is not exported
-FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
@@ -111,8 +108,7 @@ class Subscription(models.Model):
 
     @property
     def rrule(self):
-        freq = FREQNAMES.index(self.frequency.upper())
-
+        freq = cast(Literal[0, 1, 2, 3, 4, 5, 6], FREQNAMES.index(self.frequency.upper()))
         return rrule(
             freq=freq,
             count=self.count,
