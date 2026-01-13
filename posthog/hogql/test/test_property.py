@@ -1186,15 +1186,6 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "person", "key": "version", "operator": "semver_caret", "value": "abc.def"})
 
         # Test wildcard requires valid pattern
-<<<<<<< HEAD
-        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver pattern"):
-            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": "*"})
-
-        # Test wildcard requires valid pattern
-        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver pattern"):
-            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": ".*"})
-
-=======
         with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
             self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": "*"})
 
@@ -1316,7 +1307,6 @@ class TestProperty(BaseTest):
             ),
         )
 
->>>>>>> master
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     # Sentinel to indicate a property should not be included in the event
