@@ -2007,6 +2007,7 @@ class IntegrationKind(StrEnum):
     TIKTOK_ADS = "tiktok-ads"
     BING_ADS = "bing-ads"
     VERCEL = "vercel"
+    AZURE_BLOB = "azure-blob"
 
 
 class IntervalType(StrEnum):
