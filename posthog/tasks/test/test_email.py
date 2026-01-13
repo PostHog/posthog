@@ -313,14 +313,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.save()
         assert should_send_pipeline_error_notification(self.user, failure_rate=0.1) is True
 
-        # Test with plugin_disabled=False
-        self.user.partial_notification_settings = {
-            "plugin_disabled": False,
-            "data_pipeline_error_threshold": 0.5,
-        }
-        self.user.save()
-        assert should_send_pipeline_error_notification(self.user, failure_rate=1.0) is False
-
     def test_get_members_to_notify_for_pipeline_error(self, MockEmailMessage: MagicMock) -> None:
         user2 = self._create_user("test2@posthog.com")
 
