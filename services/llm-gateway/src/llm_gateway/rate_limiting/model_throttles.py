@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+from typing import Literal
 
 from cachetools import TTLCache
 from redis.asyncio import Redis
@@ -9,12 +10,14 @@ from llm_gateway.rate_limiting.model_cost_service import get_model_limits
 from llm_gateway.rate_limiting.redis_limiter import TokenRateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
 
+LimitKey = Literal["input_tph", "output_tph"]
+
 
 class TokenThrottle(Throttle):
     """Base class for token-based throttles with Redis fallback."""
 
     scope: str
-    limit_key: str  # "input_tph" or "output_tph"
+    limit_key: LimitKey
     limit_multiplier: int = 1  # Override in subclass for global throttles (e.g., 10)
 
     def __init__(self, redis: Redis[bytes] | None):
