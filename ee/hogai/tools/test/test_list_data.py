@@ -37,7 +37,7 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
         formatted_str = "Entity type: Insight\nID|Name|Description|URL\ninsight-123|Test Insight|A test insight|-"
 
-        with patch("ee.hogai.tools.list_entities.EntitySearchContext") as MockEntitySearchContext:
+        with patch("ee.hogai.tools.list_data.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=(entities_data, 1))
             mock_instance.format_entities = MagicMock(return_value=formatted_str)
@@ -64,7 +64,7 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
         formatted_str = "Entity type: Dashboard\nID|Name|URL\ndash-1|Dashboard 1|-\ndash-2|Dashboard 2|-"
 
-        with patch("ee.hogai.tools.list_entities.EntitySearchContext") as MockEntitySearchContext:
+        with patch("ee.hogai.tools.list_data.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=(entities_data, 5))
             mock_instance.format_entities = MagicMock(return_value=formatted_str)
@@ -83,7 +83,12 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
             await self.tool._arun_impl(kind="all", limit=100, offset=0)
 
         error_message = str(context.exception)
-        self.assertIn("Cannot list all entities", error_message)
+        self.assertIn("Invalid entity kind for listing", error_message)
+
+    async def test_list_entities_rejects_invalid_kind(self):
+        """Test that list entities rejects invalid entity kinds."""
+        with self.assertRaises(ValueError):
+            await self.tool._arun_impl(kind="invalid_kind", limit=100, offset=0)
 
     async def test_list_entities_default_pagination(self):
         """Test that list entities uses default pagination values."""
@@ -92,7 +97,7 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
         formatted_str = "Entity type: Insight\nID|Name|URL\ninsight-1|Insight 1|-"
 
-        with patch("ee.hogai.tools.list_entities.EntitySearchContext") as MockEntitySearchContext:
+        with patch("ee.hogai.tools.list_data.EntitySearchContext") as MockEntitySearchContext:
             mock_instance = MagicMock()
             mock_instance.list_entities = AsyncMock(return_value=(entities_data, 1))
             mock_instance.format_entities = MagicMock(return_value=formatted_str)
@@ -102,11 +107,3 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
             mock_instance.list_entities.assert_called_once_with("insight", 100, 0)
             self.assertIn("Offset 0, limit 100", result)
-
-    async def test_list_entities_rejects_docs_kind(self):
-        """Test that list entities rejects 'docs' kind."""
-        with self.assertRaises(MaxToolRetryableError) as context:
-            await self.tool._arun_impl(kind="docs", limit=100, offset=0)
-
-        error_message = str(context.exception)
-        self.assertIn("Invalid entity kind", error_message)
