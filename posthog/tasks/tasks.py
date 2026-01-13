@@ -59,9 +59,16 @@ def delete_expired_exported_assets() -> None:
 
 @shared_task(ignore_result=True)
 def clear_expired_sessions() -> None:
-    from django.core.management import call_command
+    from django.contrib.sessions.models import Session
 
-    call_command("clearsessions")
+    deleted_count, _ = Session.objects.filter(expire_date__lt=timezone.now()).delete()
+
+    with pushed_metrics_registry("celery_clear_expired_sessions") as registry:
+        Gauge(
+            "posthog_celery_clear_expired_sessions_deleted_count",
+            "Number of expired Django sessions deleted",
+            registry=registry,
+        ).set(deleted_count)
 
 
 @shared_task(ignore_result=True)
