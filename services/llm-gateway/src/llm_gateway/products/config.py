@@ -8,10 +8,16 @@ from llm_gateway.config import get_settings
 
 @dataclass(frozen=True)
 class ProductConfig:
-    allowed_application_ids: frozenset[int] | None = None  # None = all allowed
+    allowed_application_ids: frozenset[str] | None = None  # None = all allowed
     allowed_models: frozenset[str] | None = None  # None = all allowed
     allow_api_keys: bool = True
 
+
+# OAuth application IDs per region
+ARRAY_US_APP_ID = "019a3066-4aa2-0000-ca70-48ecdcc519cf"
+ARRAY_EU_APP_ID = "019a3067-5be7-0000-33c7-c6743eb59a79"
+WIZARD_US_APP_ID = "019a0c79-b69d-0000-f31b-b41345208c9d"
+WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
     "llm_gateway": ProductConfig(
@@ -20,12 +26,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "array": ProductConfig(
-        allowed_application_ids=frozenset(),  # No OAuth clients allowed yet
+        allowed_application_ids=frozenset({ARRAY_US_APP_ID, ARRAY_EU_APP_ID}),
         allowed_models=None,
         allow_api_keys=False,
     ),
     "wizard": ProductConfig(
-        allowed_application_ids=frozenset(),  # No OAuth clients allowed yet
+        allowed_application_ids=frozenset({WIZARD_US_APP_ID, WIZARD_EU_APP_ID}),
         allowed_models=None,
         allow_api_keys=True,
     ),
@@ -39,7 +45,7 @@ def get_product_config(product: str) -> ProductConfig | None:
 def check_product_access(
     product: str,
     auth_method: str,
-    application_id: int | None,
+    application_id: str | None,
     model: str | None,
 ) -> tuple[bool, str | None]:
     """
