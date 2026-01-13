@@ -461,12 +461,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             results = []
 
-            # Get failed materializations from DataWarehouseSavedQuery
-            failed_materializations = DataWarehouseSavedQuery.objects.filter(
-                team_id=self.team_id,
-                deleted=False,
-            ).filter(
-                Q(status=DataWarehouseSavedQuery.Status.FAILED) | Q(is_materialized=False, latest_error__isnull=False)
+            # Get failed materializations from DataWarehouseSavedQuery (excluding managed viewsets like revenue analytics)
+            failed_materializations = (
+                DataWarehouseSavedQuery.objects.filter(
+                    team_id=self.team_id,
+                    deleted=False,
+                )
+                .exclude(origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET)
+                .filter(
+                    Q(status=DataWarehouseSavedQuery.Status.FAILED)
+                    | Q(is_materialized=False, latest_error__isnull=False)
+                )
             )
 
             for query in failed_materializations:
