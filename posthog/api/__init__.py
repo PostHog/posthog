@@ -69,6 +69,10 @@ from products.llm_analytics.backend.api import (
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
+from products.visual_review.backend.presentation.views import (
+    ProjectViewSet as VisualReviewProjectViewSet,
+    RunViewSet as VisualReviewRunViewSet,
+)
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
@@ -890,6 +894,20 @@ environments_router.register(
     r"quick_filters",
     quick_filters.QuickFilterViewSet,
     "project_quick_filters",
+    ["team_id"],
+)
+
+# Visual review
+projects_router.register(
+    r"visual_review/projects",
+    VisualReviewProjectViewSet,
+    "project_visual_review_projects",
+    ["team_id"],
+)
+projects_router.register(
+    r"visual_review/runs",
+    VisualReviewRunViewSet,
+    "project_visual_review_runs",
     ["team_id"],
 )
 
