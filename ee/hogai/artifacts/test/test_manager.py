@@ -1,13 +1,10 @@
 from uuid import uuid4
 
+from posthog.test.base import BaseTest
+
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.artifacts.manager import ArtifactManager
-from ee.hogai.artifacts.types import StoredNotebookArtifactContent
-from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import AgentArtifact, Conversation
-from posthog.models import Insight
 from posthog.schema import (
     ArtifactContentType,
     ArtifactMessage,
@@ -21,7 +18,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
     VisualizationMessage,
 )
-from posthog.test.base import BaseTest
+
+from posthog.models import Insight
+
+from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.artifacts.types import StoredNotebookArtifactContent
+from ee.hogai.utils.types.base import ArtifactRefMessage
+from ee.models.assistant import AgentArtifact, Conversation
 
 
 class TestArtifactManagerCreateMessage(BaseTest):
@@ -112,9 +115,7 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
             team=self.team,
         )
 
-        content = await self.manager.aget(
-            artifact.short_id, VisualizationArtifactContent
-        )
+        content = await self.manager.aget(artifact.short_id, VisualizationArtifactContent)
 
         self.assertEqual(content.name, "Test")
 
@@ -131,9 +132,7 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
             team=self.team,
         )
 
-        content = async_to_sync(self.manager.aget)(
-            artifact.short_id, NotebookArtifactContent
-        )
+        content = async_to_sync(self.manager.aget)(artifact.short_id, NotebookArtifactContent)
 
         self.assertIsInstance(content, NotebookArtifactContent)
         self.assertEqual(len(content.blocks), 1)
@@ -147,9 +146,7 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
             team=self.team,
         )
 
-        content = async_to_sync(self.manager.aget)(
-            artifact.short_id, VisualizationArtifactContent
-        )
+        content = async_to_sync(self.manager.aget)(artifact.short_id, VisualizationArtifactContent)
 
         self.assertIsInstance(content, VisualizationArtifactContent)
         self.assertEqual(content.name, "Test")
@@ -166,12 +163,8 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
         with self.assertRaises(TypeError) as ctx:
             async_to_sync(self.manager.aget)(artifact.short_id, NotebookArtifactContent)
 
-        self.assertIn(
-            "Expected content type=NotebookArtifactContent", str(ctx.exception)
-        )
-        self.assertIn(
-            "got content type=VisualizationArtifactContent", str(ctx.exception)
-        )
+        self.assertIn("Expected content type=NotebookArtifactContent", str(ctx.exception))
+        self.assertIn("got content type=VisualizationArtifactContent", str(ctx.exception))
 
 
 class TestArtifactManagerGetEnrichedMessage(BaseTest):
@@ -217,9 +210,7 @@ class TestArtifactManagerGetEnrichedMessage(BaseTest):
             source=ArtifactSource.STATE,
         )
 
-        enriched = await self.manager.aenrich_message(
-            artifact_message, state_messages=[viz_message, artifact_message]
-        )
+        enriched = await self.manager.aenrich_message(artifact_message, state_messages=[viz_message, artifact_message])
 
         self.assertIsNotNone(enriched)
         assert enriched is not None
@@ -291,9 +282,7 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
             ),
         ]
 
-        contents = await self.manager._aget_contents_by_id(
-            messages, aggregate_by="message_id"
-        )
+        contents = await self.manager._aget_contents_by_id(messages, aggregate_by="message_id")
 
         self.assertEqual(len(contents), 2)
         content1 = contents[msg1_id]
@@ -323,9 +312,7 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
             artifact_message,
         ]
 
-        contents = await self.manager._aget_contents_by_id(
-            messages, aggregate_by="message_id"
-        )
+        contents = await self.manager._aget_contents_by_id(messages, aggregate_by="message_id")
 
         self.assertEqual(len(contents), 1)
         content = contents[artifact_msg_id]
@@ -451,9 +438,7 @@ class TestArtifactManagerEnrichMessages(BaseTest):
         )
 
         viz_handler = VisualizationHandler()
-        results = await viz_handler._from_insights_with_models(
-            [insight.short_id], self.team
-        )
+        results = await viz_handler._from_insights_with_models([insight.short_id], self.team)
 
         self.assertEqual(len(results), 1)
         content, _ = results[insight.short_id]
@@ -475,9 +460,7 @@ class TestArtifactManagerEnrichMessages(BaseTest):
         )
 
         viz_handler = VisualizationHandler()
-        results = await viz_handler._from_insights_with_models(
-            [insight.short_id], self.team
-        )
+        results = await viz_handler._from_insights_with_models([insight.short_id], self.team)
 
         self.assertEqual(len(results), 0)
 
@@ -538,9 +521,7 @@ class TestArtifactManagerGetConversationArtifacts(BaseTest):
                 team=self.team,
             )
 
-        artifacts, total_count = await self.manager.aget_conversation_artifacts(
-            limit=2, offset=3
-        )
+        artifacts, total_count = await self.manager.aget_conversation_artifacts(limit=2, offset=3)
 
         self.assertEqual(len(artifacts), 2)
         self.assertEqual(total_count, 5)
@@ -558,9 +539,7 @@ class TestArtifactManagerGetConversationArtifacts(BaseTest):
                 team=self.team,
             )
 
-        artifacts, total_count = await self.manager.aget_conversation_artifacts(
-            offset=3
-        )
+        artifacts, total_count = await self.manager.aget_conversation_artifacts(offset=3)
 
         self.assertEqual(len(artifacts), 2)
         self.assertEqual(total_count, 5)
@@ -572,9 +551,7 @@ class TestArtifactManagerGetConversationArtifacts(BaseTest):
         self.assertEqual(total_count, 0)
 
     async def test_only_returns_artifacts_from_same_conversation(self):
-        other_conversation = await Conversation.objects.acreate(
-            user=self.user, team=self.team
-        )
+        other_conversation = await Conversation.objects.acreate(user=self.user, team=self.team)
         await AgentArtifact.objects.acreate(
             name="Same Conversation",
             type=AgentArtifact.Type.VISUALIZATION,
@@ -643,9 +620,7 @@ class TestArtifactManagerGetVisualizationWithSource(BaseTest):
         )
 
         # Request in specific order
-        results = await self.manager.aget_visualizations(
-            [], [insight2.short_id, insight1.short_id, "nonexistent"]
-        )
+        results = await self.manager.aget_visualizations([], [insight2.short_id, insight1.short_id, "nonexistent"])
 
         self.assertEqual(len(results), 3)
         # Results should match input order
@@ -719,9 +694,7 @@ class TestArtifactManagerGetContentsByArtifactId(BaseTest):
             ),
         ]
 
-        contents = await self.manager._aget_contents_by_id(
-            messages, aggregate_by="artifact_id"
-        )
+        contents = await self.manager._aget_contents_by_id(messages, aggregate_by="artifact_id")
 
         self.assertEqual(len(contents), 1)
         self.assertIn(artifact.short_id, contents)
