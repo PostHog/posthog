@@ -56,7 +56,7 @@ dependencies = [
     "djangorestframework-csv~=3.0.2",
     "djangorestframework-dataclasses~=1.4.0",
     "dlt==1.18.2",
-    "dnspython==2.2.1",
+    "dnspython==2.6.1",
     "drf-exceptions-hog==0.4.0",
     "drf-extensions~=0.8.0",
     "drf-spectacular~=0.28.0",
