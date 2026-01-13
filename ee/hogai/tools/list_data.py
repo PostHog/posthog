@@ -16,9 +16,11 @@ Use this tool to browse PostHog entities with pagination, sorted by most recentl
 - You need to find entities but don't have the ID
 - The user asks "what insights do I have?" or similar
 - After searching, to discover additional relevant entities that search may have missed due to different naming
+- The user wants to browse artifacts created in the conversation
+- The user asks "what artifacts did we create?" or similar
 
 # Parameters:
-- kind: Type to list (e.g., "insights", "dashboards")
+- kind: Type to list (e.g., "insights", "dashboards", "artifacts")
 - limit: Results per page (1-100, default 100)
 - offset: Number to skip for pagination (default 0)
 
@@ -30,6 +32,7 @@ Use this tool to browse PostHog entities with pagination, sorted by most recentl
 # Examples:
 - "Show me my recent insights" → kind="insights"
 - "List all dashboards" → kind="dashboards"
+- "What artifacts did we create?" → kind="artifacts"
 
 **Note**: To search/filter by name or description, use the search tool instead.
 """.strip()

@@ -25,6 +25,7 @@ class FTSKind(StrEnum):
     FEATURE_FLAGS = "feature_flags"
     NOTEBOOKS = "notebooks"
     SURVEYS = "surveys"
+    ARTIFACTS = "artifacts"
     ALL = "all"
 
 
@@ -37,6 +38,7 @@ SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[FTSKind, str] = {
     FTSKind.ACTIONS: "action",
     FTSKind.COHORTS: "cohort",
     FTSKind.SURVEYS: "survey",
+    FTSKind.ARTIFACTS: "artifact",
 }
 
 

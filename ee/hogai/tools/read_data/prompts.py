@@ -12,7 +12,7 @@ Use this tool to read user data created in PostHog. This tool returns data that 
 - A single entity (e.g. fetching an insight by ID or retrieving a table schema by name)
 - A paginated response (e.g. listing insights or dashboards).
 
-This tool should be used for direct retrieval (by ID, name, etc.) or enumeration (listing all of a type). For finding entities by name, description, or content, use the search tool instead. If the search tool doesn't return matching entities, try enumerating instead.
+This tool should be used for direct retrieval (by ID, name, etc.). For finding entities by name, description, or content, use the search tool instead. For listing entities (enumeration), use the list_data tool.
 
 # Data warehouse schema
 
@@ -38,28 +38,6 @@ Retrieves and optionally retrieves data for an existing insight by its ID.
 - You have an insight ID and want to retrieve the data for that insight or read the insight schema.
 - The user wants to see or discuss a specific saved insight.
 - You need to understand what an existing insight shows.
-
-# List artifacts
-
-Lists conversation artifacts with pagination.
-
-## Use this when:
-- The user wants to browse artifacts created in the conversation
-- You need to find artifacts but don't have the ID
-- The user asks "what artifacts did we create?" or similar
-
-## Parameters:
-- limit: Results per page (1-100, default 100)
-- offset: Number to skip for pagination (default 0)
-
-**Sorting**: Results are always sorted by `updated_at DESC` (most recently updated first).
-
-**Note**: To list other entities like insights, dashboards, cohorts, etc., use the search tool with mode="list" instead.
-
-## Pagination workflow:
-1. First call: offset=0, limit=100 (gets first 100)
-2. If has_more=true, next call: offset=100, limit=100 (gets next 100)
-3. Continue incrementing offset by limit
 
 {{{billing_prompt}}}
 """.strip()
@@ -94,19 +72,4 @@ READ_DATA_WAREHOUSE_SCHEMA_PROMPT = """
 <system_reminder>
 Use the `read_data` tool with the `data_warehouse_table` kind to get column and relationship details for a specific table.
 </system_reminder>
-""".strip()
-
-READ_DATA_ENTITY_LIST_PROMPT = """
-Offset {{{offset}}}, limit {{{limit}}}.
-
-# Results
-{{{results}}}
-
----
-{{#next_offset}}
-<system_reminder>To see more results, use offset={{{next_offset}}}</system_reminder>
-{{/next_offset}}
-{{^next_offset}}
-<system_reminder>You reached the end of results for this entity type.</system_reminder>
-{{/next_offset}}
 """.strip()

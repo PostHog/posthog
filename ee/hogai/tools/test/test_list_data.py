@@ -107,3 +107,88 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
             mock_instance.list_entities.assert_called_once_with("insight", 100, 0)
             self.assertIn("Offset 0, limit 100", result)
+
+    async def test_list_artifacts_returns_formatted_data(self):
+        """Test that artifacts kind returns formatted artifact data."""
+        entities_data = [
+            {
+                "type": "artifact",
+                "result_id": "artifact-123",
+                "extra_fields": {"name": "Test Chart", "description": "A test visualization"},
+            }
+        ]
+        formatted_str = "Entity type: Artifact\nID|Name|Description|URL\nartifact-123|Test Chart|A test visualization|-"
+
+        with patch("ee.hogai.tools.list_data.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=(entities_data, 1))
+            mock_instance.format_entities = MagicMock(return_value=formatted_str)
+            MockEntitySearchContext.return_value = mock_instance
+
+            result, _ = await self.tool._arun_impl(kind="artifacts", limit=100, offset=0)
+
+            MockEntitySearchContext.assert_called_once_with(
+                team=self.team, user=self.user, context_manager=self.context_manager
+            )
+            mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
+            mock_instance.format_entities.assert_called_once_with(entities_data)
+
+            self.assertIn("Offset 0, limit 100", result)
+            self.assertIn("Test Chart", result)
+            self.assertIn("Artifact", result)
+            self.assertIn("artifact-123", result)
+            self.assertIn("You reached the end of results", result)
+
+    async def test_list_artifacts_returns_empty_results(self):
+        """Test that artifacts kind returns empty results when no entities found."""
+        with patch("ee.hogai.tools.list_data.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=([], 0))
+            mock_instance.format_entities = MagicMock(return_value="")
+            MockEntitySearchContext.return_value = mock_instance
+
+            result, _ = await self.tool._arun_impl(kind="artifacts", limit=100, offset=0)
+
+            mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
+            self.assertIn("Offset 0, limit 100", result)
+            self.assertIn("You reached the end of results", result)
+
+    async def test_list_artifacts_with_pagination(self):
+        """Test pagination functionality with multiple pages."""
+        # First page: offset=0, limit=2, total=5
+        first_page_data = [
+            {"type": "artifact", "result_id": "artifact-1", "extra_fields": {"name": "Chart 1"}},
+            {"type": "artifact", "result_id": "artifact-2", "extra_fields": {"name": "Chart 2"}},
+        ]
+        first_page_str = "Entity type: Artifact\nID|Name|URL\nartifact-1|Chart 1|-\nartifact-2|Chart 2|-"
+
+        with patch("ee.hogai.tools.list_data.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=(first_page_data, 5))
+            mock_instance.format_entities = MagicMock(return_value=first_page_str)
+            MockEntitySearchContext.return_value = mock_instance
+
+            result, _ = await self.tool._arun_impl(kind="artifacts", limit=2, offset=0)
+
+            self.assertIn("Offset 0, limit 2", result)
+            self.assertIn("To see more results, use offset=2", result)
+            self.assertIn("Chart 1", result)
+            self.assertIn("Chart 2", result)
+
+        # Last page: offset=4, limit=2, total=5 (only 1 item left)
+        last_page_data = [
+            {"type": "artifact", "result_id": "artifact-5", "extra_fields": {"name": "Chart 5"}},
+        ]
+        last_page_str = "Entity type: Artifact\nID|Name|URL\nartifact-5|Chart 5|-"
+
+        with patch("ee.hogai.tools.list_data.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=(last_page_data, 5))
+            mock_instance.format_entities = MagicMock(return_value=last_page_str)
+            MockEntitySearchContext.return_value = mock_instance
+
+            result, _ = await self.tool._arun_impl(kind="artifacts", limit=2, offset=4)
+
+            self.assertIn("Offset 4, limit 2", result)
+            self.assertIn("You reached the end of results", result)
+            self.assertIn("Chart 5", result)

@@ -17,7 +17,6 @@ from ee.hogai.artifacts.manager import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
-from ee.hogai.context.entity_search import EntitySearchContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
@@ -27,7 +26,6 @@ from ee.hogai.tools.read_data.prompts import (
     DASHBOARD_NOT_FOUND_PROMPT,
     INSIGHT_NOT_FOUND_PROMPT,
     READ_DATA_BILLING_PROMPT,
-    READ_DATA_ENTITY_LIST_PROMPT,
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
 )
@@ -77,14 +75,6 @@ class ReadBillingInfo(BaseModel):
     kind: Literal["billing_info"] = "billing_info"
 
 
-class ReadArtifactsList(BaseModel):
-    """Lists conversation artifacts with pagination, sorted by most recently updated first."""
-
-    kind: Literal["artifacts_list"] = "artifacts_list"
-    limit: int = Field(default=100, ge=1, le=100, description="The number of artifacts to return per page.")
-    offset: int = Field(default=0, ge=0, description="The number of artifacts to skip.")
-
-
 class ReadErrorTrackingIssue(BaseModel):
     """Retrieves error tracking issue details including stack trace for analysis."""
 
@@ -99,7 +89,6 @@ ReadDataQuery = (
     | ReadDashboard
     | ReadBillingInfo
     | ReadErrorTrackingIssue
-    | ReadArtifactsList
 )
 
 
@@ -124,7 +113,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
-        can_read_artifacts: bool = False,
     ) -> Self:
         """
         Factory that creates a ReadDataTool with a dynamic args schema.
@@ -149,7 +137,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ReadInsight,
             ReadDashboard,
             ReadErrorTrackingIssue,
-            ReadArtifactsList,
         )
         ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
@@ -195,8 +182,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_data_warehouse_schema(), None
             case ReadDataWarehouseTableSchema() as data_warehouse_table:
                 return await self._read_data_warehouse_table_schema(data_warehouse_table.table_name), None
-            case ReadArtifactsList() as schema:
-                return await self._list_artifacts(schema.limit, schema.offset)
             case ReadInsight() as schema:
                 return await self._read_insight(schema.insight_id, schema.execute)
             case ReadDashboard() as schema:
@@ -250,28 +235,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         )
 
         return "", ToolMessagesArtifact(messages=[artifact_message, tool_call_message])
-
-    async def _list_artifacts(
-        self,
-        limit: int,
-        offset: int,
-    ) -> tuple[str, None]:
-        entities_context = EntitySearchContext(team=self._team, user=self._user, context_manager=self._context_manager)
-        all_entities, total_count = await entities_context.list_entities("artifact", limit, offset)
-
-        formatted_entities = entities_context.format_entities(all_entities)
-
-        # Build pagination metadata
-        has_more = total_count > offset + limit
-        next_offset = offset + limit if has_more else None
-
-        return format_prompt_string(
-            READ_DATA_ENTITY_LIST_PROMPT,
-            results=formatted_entities,
-            offset=offset,
-            limit=limit,
-            next_offset=next_offset,
-        ), None
 
     async def _read_data_warehouse_schema(self) -> str:
         database = await self._aget_database()
