@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FeatureFlagEvaluationRuntime, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -395,7 +397,15 @@ describe('featureFlagConditionWarningLogic', () => {
     })
 
     describe('client runtime - static cohorts', () => {
-        it('warns when static cohort is used', () => {
+        it('warns when static cohort is used', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/': {
+                        results: [{ id: 1, name: 'Test Static Cohort', is_static: true }],
+                    },
+                },
+            })
+
             const properties: AnyPropertyFilter[] = [
                 {
                     key: 'id',
@@ -405,18 +415,13 @@ describe('featureFlagConditionWarningLogic', () => {
                 },
             ]
 
+            cohortsModel.mount()
+            await expectLogic(cohortsModel).toFinishAllListeners()
+
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
             })
-
-            // Override cohortsById to include a static cohort before mounting so the logic
-            // picks it up during initialization.
-            const mockCohortsById = {
-                1: { id: 1, name: 'Test Static Cohort', is_static: true },
-            }
-            logic.cache.cohortsById = mockCohortsById
-
             logic.mount()
 
             expect(logic.values.warning).toBe(
@@ -445,7 +450,15 @@ describe('featureFlagConditionWarningLogic', () => {
             })
         })
 
-        it('does not warn for non-static cohorts', () => {
+        it('does not warn for non-static cohorts', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/': {
+                        results: [{ id: 1, name: 'Test Dynamic Cohort', is_static: false }],
+                    },
+                },
+            })
+
             const properties: AnyPropertyFilter[] = [
                 {
                     key: 'id',
@@ -455,17 +468,13 @@ describe('featureFlagConditionWarningLogic', () => {
                 },
             ]
 
+            cohortsModel.mount()
+            await expectLogic(cohortsModel).toFinishAllListeners()
+
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
             })
-
-            // Override cohortsById to include a non-static cohort before mounting
-            const mockCohortsById = {
-                1: { id: 1, name: 'Test Dynamic Cohort', is_static: false },
-            }
-            logic.cache.cohortsById = mockCohortsById
-
             logic.mount()
 
             expect(logic.values.warning).toBeUndefined()
