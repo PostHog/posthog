@@ -5496,6 +5496,8 @@ export type BatchExportConfiguration = {
     name: string
     destination: BatchExportService
     interval: PipelineInterval
+    timezone: string | null
+    interval_offset: number | null
     created_at: string
     start_at: string | null
     end_at: string | null

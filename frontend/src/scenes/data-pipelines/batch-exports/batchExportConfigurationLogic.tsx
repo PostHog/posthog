@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaBatchExportTable, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -77,6 +78,8 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         destination: destinationType,
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
+        timezone: batchExportConfig.timezone,
+        interval_offset: batchExportConfig.interval_offset,
         model: batchExportConfig.model,
         filters: batchExportConfig.filters,
         ...batchExportConfig.destination.config,
@@ -628,6 +631,9 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         return `NEW:${service}`
     }),
     path((id) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', id]),
+    connect(() => ({
+        values: [teamLogic, ['timezone']],
+    })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
@@ -649,6 +655,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         name,
                         destination,
                         interval,
+                        timezone,
+                        interval_offset,
                         paused,
                         created_at,
                         start_at,
@@ -712,6 +720,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         paused,
                         name,
                         interval,
+                        timezone,
+                        interval_offset,
                         model,
                         filters,
                         destination: destinationObj,
@@ -779,6 +789,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         name,
                         destination,
                         interval,
+                        timezone,
+                        interval_offset,
                         paused,
                         created_at,
                         start_at,
@@ -839,6 +851,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         paused,
                         name,
                         interval,
+                        timezone,
+                        interval_offset,
                         model,
                         filters,
                         destination: destinationObj,
@@ -1036,6 +1050,16 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             }
 
             actions.updateBatchExportConfigTest(batchExportConfig.destination.type)
+
+            // Set timezone to team's timezone if interval is day/week but timezone is not set
+            // Check values.configuration since the reducer has already updated it
+            if (
+                (values.configuration.interval === 'day' || values.configuration.interval === 'week') &&
+                !values.configuration.timezone
+            ) {
+                const teamTz = teamLogic.findMounted()?.values.timezone || 'UTC'
+                actions.setConfigurationValue('timezone', teamTz)
+            }
         },
         runBatchExportConfigTestStepSuccess: ({ batchExportConfigTestStep }) => {
             if (!values.batchExportConfigTest) {
@@ -1075,7 +1099,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             actions.setRunningStep(null)
         },
         setConfigurationValue: async ({ name, value }) => {
-            if (name[0] === 'json_config_file' && value) {
+            const fieldName = Array.isArray(name) ? name[0] : name
+            if (fieldName === 'json_config_file' && value) {
                 try {
                     const loadedFile: string = await new Promise((resolve, reject) => {
                         const filereader = new FileReader()
@@ -1098,6 +1123,12 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                     actions.setConfigurationManualErrors({
                         json_config_file: 'The config file is not valid',
                     })
+                }
+            } else if (fieldName === 'interval' && (value === 'day' || value === 'week')) {
+                // Set timezone to team's timezone if not already set when interval is day or week
+                if (!values.configuration.timezone) {
+                    const teamTz = teamLogic.findMounted()?.values.timezone || 'UTC'
+                    actions.setConfigurationValue('timezone', teamTz)
                 }
             }
         },
