@@ -301,7 +301,7 @@ pub fn match_property(
             };
 
             // Build the version requirement string based on the operator
-            let version_string = to_string_representation(value);
+            let version_string = to_string_representation(value).trim();
             let normalized_version = version_string.strip_prefix('v').unwrap_or(&version_string);
 
             let requirement_string = match operator {
