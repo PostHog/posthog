@@ -48,7 +48,7 @@ export function AppMetricSummary({
     }, [previousPeriodTimeSeries])
 
     const diff = (total - totalPreviousPeriod) / totalPreviousPeriod
-    const diffForDisplay = isNaN(diff)
+    const diffForDisplay = !isFinite(diff)
         ? null
         : diff > 0
           ? `(+${(diff * 100).toFixed(1)}%)`
