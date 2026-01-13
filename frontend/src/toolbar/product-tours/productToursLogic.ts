@@ -31,6 +31,7 @@ import type { productToursLogicType } from './productToursLogicType'
 import { ElementScreenshot, captureAndUploadElementScreenshot, captureScreenshot, getElementMetadata } from './utils'
 
 const RECENT_GOALS_KEY = 'posthog-product-tours-recent-goals'
+const DISABLE_ELEMENT_SCREENSHOTS = true
 
 export type AIGenerationStep = 'idle' | 'capturing' | 'analyzing' | 'generating' | 'done' | 'error'
 
@@ -556,7 +557,15 @@ export const productToursLogic = kea<productToursLogicType>([
 
             const inferenceData = inferSelector(element)?.selector
 
-            const screenshotPromise = captureAndUploadElementScreenshot(element).catch((e) => {
+            // domToJpeg is extremely heavy and blocking - for complex sites
+            // like the PostHog app, the entire page freezes for multiple seconds
+            // while the screenshot happens. hard-code disabling this for now until
+            // we come up with a better solution.
+            const screenshotPromise = (
+                DISABLE_ELEMENT_SCREENSHOTS
+                    ? Promise.reject('element screenshots disabled')
+                    : captureAndUploadElementScreenshot(element)
+            ).catch((e) => {
                 console.warn('[Product Tours] Failed to capture element screenshot:', e)
                 return null
             })
