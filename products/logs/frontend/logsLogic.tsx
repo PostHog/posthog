@@ -49,6 +49,7 @@ const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const isValidSeverityLevel = (level: string): level is LogSeverityLevel =>
     VALID_SEVERITY_LEVELS.includes(level as LogSeverityLevel)
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
+export const ALL_SERVICES_VALUE = '*'
 const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
@@ -468,7 +469,7 @@ export const logsLogic = kea<logsLogicType>([
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
-                            serviceNames: values.serviceNames,
+                            serviceNames: values.serviceNamesForQuery,
                         },
                         signal,
                     })
@@ -495,7 +496,7 @@ export const logsLogic = kea<logsLogicType>([
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
-                            serviceNames: values.serviceNames,
+                            serviceNames: values.serviceNamesForQuery,
                             after: values.nextCursor,
                         },
                         signal,
@@ -523,7 +524,7 @@ export const logsLogic = kea<logsLogicType>([
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
-                            serviceNames: values.serviceNames,
+                            serviceNames: values.serviceNamesForQuery,
                             sparklineBreakdownBy: values.sparklineBreakdownBy,
                         },
                         signal,
@@ -538,6 +539,24 @@ export const logsLogic = kea<logsLogicType>([
 
     selectors({
         tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
+        isAllServicesSelected: [
+            (s) => [s.serviceNames],
+            (serviceNames): boolean => serviceNames?.includes(ALL_SERVICES_VALUE) ?? false,
+        ],
+        hasServiceNameSelected: [
+            (s) => [s.serviceNames],
+            (serviceNames): boolean => (serviceNames?.length ?? 0) > 0,
+        ],
+        serviceNamesForQuery: [
+            (s) => [s.serviceNames, s.isAllServicesSelected],
+            (serviceNames, isAllServicesSelected): LogsQuery['serviceNames'] => {
+                // When "All services" (*) is selected, send empty array to API which means no filtering
+                if (isAllServicesSelected) {
+                    return []
+                }
+                return serviceNames
+            },
+        ],
         liveTailDisabledReason: [
             (s) => [s.orderBy, s.dateRange, s.logsLoading, s.liveTailExpired],
             (
@@ -951,7 +970,7 @@ export const logsLogic = kea<logsLogicType>([
                         searchTerm: values.searchTerm,
                         filterGroup: values.filterGroup as PropertyGroupFilter,
                         severityLevels: values.severityLevels,
-                        serviceNames: values.serviceNames,
+                        serviceNames: values.serviceNamesForQuery,
                         liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,
                     },
                     signal,
@@ -1064,7 +1083,8 @@ export const logsLogic = kea<logsLogicType>([
     })),
 
     afterMount(({ values, actions }) => {
-        if (values.parsedLogs.length === 0) {
+        // Only run query on mount if service name is selected (from URL params or default)
+        if (values.parsedLogs.length === 0 && values.hasServiceNameSelected) {
             actions.runQuery()
         }
     }),
