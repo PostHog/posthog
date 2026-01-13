@@ -17,6 +17,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.tasks.email import (
+    get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
     send_async_migration_complete_email,
     send_async_migration_errored_email,
@@ -29,6 +30,7 @@ from posthog.tasks.email import (
     send_invite,
     send_member_join,
     send_password_reset,
+    should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
@@ -211,6 +213,158 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_batch_export_run_failure(batch_export_run.id)
         # should be sent to both
         assert len(mocked_email_messages[1].to) == 2
+
+    def test_send_batch_export_run_failure_with_threshold(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        batch_export = BatchExport.objects.create(  # type: ignore
+            team=self.user.team, name="A batch export", destination=batch_export_destination
+        )
+        now = dt.datetime.now()
+        batch_export_run = BatchExportRun.objects.create(
+            batch_export=batch_export,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+
+        # Test with threshold 0.0 (default) - should notify on any failure
+        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.5)
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+        # Test with threshold 0.5 and failure rate 0.6 - should notify
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "data_pipeline_error_threshold": 0.5,
+        }
+        self.user.save()
+        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.6)
+        assert len(mocked_email_messages) == 2
+        assert mocked_email_messages[1].send.call_count == 1
+
+        # Test with threshold 0.5 and failure rate 0.4 - should NOT notify
+        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.4)
+        # Should still be 2 messages (no new message sent)
+        assert len(mocked_email_messages) == 2
+
+        # Test with threshold 0.5 and failure rate exactly 0.5 - should NOT notify (threshold is exclusive)
+        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.5)
+        assert len(mocked_email_messages) == 2
+
+        # Test with threshold 0.0 explicitly set - should notify on any failure
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "data_pipeline_error_threshold": 0.0,
+        }
+        self.user.save()
+        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.1)
+        assert len(mocked_email_messages) == 3
+        assert mocked_email_messages[2].send.call_count == 1
+
+    def test_send_batch_export_run_failure_with_threshold_disabled(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        batch_export = BatchExport.objects.create(  # type: ignore
+            team=self.user.team, name="A batch export", destination=batch_export_destination
+        )
+        now = dt.datetime.now()
+        batch_export_run = BatchExportRun.objects.create(
+            batch_export=batch_export,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+
+        # Test with plugin_disabled=False - should not notify even with high failure rate
+        self.user.partial_notification_settings = {
+            "plugin_disabled": False,
+            "data_pipeline_error_threshold": 0.5,
+        }
+        self.user.save()
+        send_batch_export_run_failure(batch_export_run.id, failure_rate=1.0)
+        assert len(mocked_email_messages) == 0
+
+    def test_should_send_pipeline_error_notification(self, MockEmailMessage: MagicMock) -> None:
+        # Test default behavior (threshold 0.0) - should notify on any failure
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.1) is True
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.0) is True
+
+        # Test with threshold 0.5
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "data_pipeline_error_threshold": 0.5,
+        }
+        self.user.save()
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.6) is True
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.5) is False
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.4) is False
+
+        # Test with threshold 0.0 explicitly set
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "data_pipeline_error_threshold": 0.0,
+        }
+        self.user.save()
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.1) is True
+
+        # Test with plugin_disabled=False
+        self.user.partial_notification_settings = {
+            "plugin_disabled": False,
+            "data_pipeline_error_threshold": 0.5,
+        }
+        self.user.save()
+        assert should_send_pipeline_error_notification(self.user, failure_rate=1.0) is False
+
+    def test_get_members_to_notify_for_pipeline_error(self, MockEmailMessage: MagicMock) -> None:
+        user2 = self._create_user("test2@posthog.com")
+
+        # Test with default settings (threshold 0.0) - both users should be notified
+        memberships = get_members_to_notify_for_pipeline_error(self.user.team, failure_rate=0.5)
+        assert len(memberships) == 2
+        assert {m.user.email for m in memberships} == {self.user.email, user2.email}
+
+        # Test with threshold 0.6 and failure rate 0.5 - no users should be notified
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "data_pipeline_error_threshold": 0.6,
+        }
+        self.user.save()
+        user2.partial_notification_settings = {
+            "plugin_disabled": True,
+            "data_pipeline_error_threshold": 0.6,
+        }
+        user2.save()
+        memberships = get_members_to_notify_for_pipeline_error(self.user.team, failure_rate=0.5)
+        assert len(memberships) == 0
+
+        # Test with threshold 0.4 and failure rate 0.5 - both users should be notified
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "data_pipeline_error_threshold": 0.4,
+        }
+        self.user.save()
+        user2.partial_notification_settings = {
+            "plugin_disabled": True,
+            "data_pipeline_error_threshold": 0.4,
+        }
+        user2.save()
+        memberships = get_members_to_notify_for_pipeline_error(self.user.team, failure_rate=0.5)
+        assert len(memberships) == 2
+
+        # Test with one user having plugin_disabled=False
+        self.user.partial_notification_settings = {
+            "plugin_disabled": False,
+            "data_pipeline_error_threshold": 0.4,
+        }
+        self.user.save()
+        memberships = get_members_to_notify_for_pipeline_error(self.user.team, failure_rate=0.5)
+        assert len(memberships) == 1
+        assert memberships[0].user.email == user2.email
 
     def test_send_canary_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

@@ -81,6 +81,24 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
     return memberships_to_email
 
 
+def get_members_to_notify_for_pipeline_error(team: Team, failure_rate: float = 1.0) -> list[OrganizationMembership]:
+    """
+    Get members to notify for a data pipeline error, respecting threshold.
+
+    Args:
+        team: The team that owns the pipeline
+        failure_rate: The current failure rate (0.0 to 1.0). Defaults to 1.0 (100%) for single failures.
+
+    Returns:
+        List of organization memberships to notify
+    """
+    members_to_notify = get_members_to_notify(team, "plugin_disabled")
+
+    return [
+        member for member in members_to_notify if should_send_pipeline_error_notification(member.user, failure_rate)
+    ]
+
+
 def should_send_notification(
     user: User,
     notification_type: NotificationSettingType,
@@ -128,6 +146,31 @@ def should_send_notification(
     # types above, so technically it's unreachable. However if another is added but
     # not handled in this function, we want this as a fallback.
     return True  # type: ignore
+
+
+def should_send_pipeline_error_notification(
+    user: User,
+    failure_rate: float = 1.0,
+) -> bool:
+    """
+    Determines if a data pipeline error notification should be sent to a user.
+
+    Args:
+        user: The user to check settings for
+        failure_rate: The current failure rate (0.0 to 1.0) for this pipeline. Defaults to 1.0 (100%) for single failures.
+
+    Returns:
+        bool: True if the notification should be sent, False otherwise
+    """
+    settings = user.notification_settings
+
+    # Check threshold - if threshold is 0.0, notify on any failure
+    threshold = settings.get("data_pipeline_error_threshold", 0.0)
+    if threshold == 0.0:
+        return True
+
+    # If threshold > 0.0, only notify if failure rate exceeds threshold
+    return failure_rate > threshold
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -286,7 +329,7 @@ def send_fatal_plugin_error(
     plugin: Plugin = plugin_config.plugin
     team: Team = plugin_config.team
 
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
         return
 
@@ -314,8 +357,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     hog_function: HogFunction = HogFunction.objects.prefetch_related("team").get(id=hog_function_id)
     team = hog_function.team
 
-    # We re-use the setting as it is the same from a user perspective
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
         return
 
@@ -333,6 +375,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
 
 def send_batch_export_run_failure(
     batch_export_run_id: str | UUIDT,
+    failure_rate: float = 1.0,
 ) -> None:
     logger = structlog.get_logger(__name__)
 
@@ -346,7 +389,7 @@ def send_batch_export_run_failure(
     )
     team: Team = batch_export_run.batch_export.team
 
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate)
     if not memberships_to_email:
         return
 

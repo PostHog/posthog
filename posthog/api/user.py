@@ -271,6 +271,18 @@ class UserSerializer(serializers.ModelSerializer):
                         )
                 # Merge with existing settings
                 current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+            elif key == "data_pipeline_error_threshold":
+                if not isinstance(value, (int, float)):
+                    raise serializers.ValidationError(
+                        f"data_pipeline_error_threshold must be a number, got {type(value)} instead",
+                        code="invalid_input",
+                    )
+                if value < 0.0 or value > 1.0:
+                    raise serializers.ValidationError(
+                        f"data_pipeline_error_threshold must be between 0.0 and 1.0, got {value}",
+                        code="invalid_input",
+                    )
+                current_settings[key] = float(value)
             else:
                 # For non-dict settings, validate type directly
                 if not isinstance(value, expected_type):
