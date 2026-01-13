@@ -1,3 +1,6 @@
+import re
+from typing import Any
+
 from rest_framework.request import Request
 
 from posthog.models.organization_domain import OrganizationDomain
@@ -5,6 +8,73 @@ from posthog.models.organization_domain import OrganizationDomain
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 from .auth import generate_scim_token
+
+PII_FIELDS = {"userName", "displayName", "givenName", "familyName", "value", "display", "formatted"}
+EMAIL_PATTERN = re.compile(r"^[^@]+@[^@]+\.[^@]+$")
+FILTER_QUOTED_VALUE = re.compile(r'"([^"]*)"')
+
+
+def mask_string(value: str) -> str:
+    """Mask a string: 1-2 chars -> *, 3+ chars -> a***b"""
+    if len(value) <= 2:
+        return "*" * len(value)
+    return f"{value[0]}***{value[-1]}"
+
+
+def mask_email(email: str) -> str:
+    """Mask email local part only: a***b@example.com"""
+    if "@" not in email:
+        return mask_string(email)
+    local, domain = email.rsplit("@", 1)
+    return f"{mask_string(local)}@{domain}"
+
+
+def mask_pii_value(value: Any) -> Any:
+    """Mask a single PII value"""
+    if not isinstance(value, str) or not value:
+        return value
+    if EMAIL_PATTERN.match(value):
+        return mask_email(value)
+    return mask_string(value)
+
+
+def mask_scim_filter(filter_str: str) -> str:
+    """Mask quoted values in SCIM filter strings, e.g. userName eq "email@example.com" """
+
+    def replace_quoted(match: re.Match) -> str:
+        value = match.group(1)
+        return f'"{mask_pii_value(value)}"'
+
+    return FILTER_QUOTED_VALUE.sub(replace_quoted, filter_str)
+
+
+def mask_scim_payload(data: Any, parent_key: str | None = None) -> Any:
+    """
+    Recursively mask PII fields in a SCIM payload.
+    Handles nested dicts, lists, and the special 'emails' array structure.
+    """
+    if isinstance(data, dict):
+        result = {}
+        for key, value in data.items():
+            if key in PII_FIELDS:
+                if isinstance(value, dict):
+                    result[key] = mask_scim_payload(value, key)
+                else:
+                    result[key] = mask_pii_value(value)
+            elif key == "emails" and isinstance(value, list):
+                result[key] = [mask_scim_payload(item, "emails") for item in value]
+            elif key == "name" and isinstance(value, dict):
+                result[key] = mask_scim_payload(value, "name")
+            elif key == "members" and isinstance(value, list):
+                result[key] = [mask_scim_payload(item, "members") for item in value]
+            elif key == "Operations" and isinstance(value, list):
+                result[key] = [mask_scim_payload(op, "Operations") for op in value]
+            else:
+                result[key] = mask_scim_payload(value, key)
+        return result
+    elif isinstance(data, list):
+        return [mask_scim_payload(item, parent_key) for item in data]
+    return data
 
 
 def enable_scim_for_domain(domain: OrganizationDomain) -> str:
