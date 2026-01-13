@@ -185,9 +185,11 @@ export function SidePanel({
     }, [desiredSize, sidePanelOpen, setMainContentRect, mainContentRef])
 
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && visibleTabs.includes(selectedTab)
-    const sidePanelWidth = sidePanelOpenAndAvailable
-        ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH)
-        : SIDE_PANEL_BAR_WIDTH
+    const sidePanelWidth = !visibleTabs.length
+        ? 0
+        : sidePanelOpenAndAvailable
+          ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH)
+          : SIDE_PANEL_BAR_WIDTH
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {
