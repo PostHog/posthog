@@ -1142,7 +1142,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: `
                 SELECT
-                    argMax(user_tuple, timestamp) as user,
+                    argMax(user_tuple, timestamp) as __llm_person,
                     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
                     count() as generations,
                     countIf(notEmpty(ai_error) OR ai_is_error = 'true') as errors,
@@ -1178,7 +1178,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         properties: propertyFilters,
                     },
                 },
-                columns: ['user', 'traces', 'generations', 'errors', 'total_cost', 'first_seen', 'last_seen'],
+                columns: ['__llm_person', 'traces', 'generations', 'errors', 'total_cost', 'first_seen', 'last_seen'],
                 showDateRange: true,
                 showReload: true,
                 showSearch: true,

@@ -334,8 +334,9 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             return <PersonColumnCell person={null} />
         },
     },
-    // User column for Users tab - clicking filter redirects to traces page
-    user: {
+    // LLM person column for Users tab - clicking filter redirects to traces page
+    // Uses __llm_person to avoid collision with user-defined 'user' columns in SQL queries
+    __llm_person: {
         title: 'Person',
         render: ({ value }) => {
             // User data from HogQL query comes as a tuple [distinct_id, created_at, properties_json]
