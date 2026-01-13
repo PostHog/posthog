@@ -76,7 +76,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         # SSRF protection for webhook subscriptions
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
-        target_value = attrs.get("target_value")
+        target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else None)
         if target_type == Subscription.SubscriptionTarget.WEBHOOK and target_value:
             allowed, error = is_url_allowed(target_value)
             if not allowed:

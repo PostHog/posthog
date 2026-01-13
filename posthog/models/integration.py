@@ -1824,6 +1824,8 @@ class GitLabIntegration:
         response = requests.get(
             url,
             headers={"PRIVATE-TOKEN": project_access_token},
+            # disallow redirects to prevent SSRF on redirected host
+            allow_redirects=False,
         )
 
         return response.json()
@@ -1839,6 +1841,8 @@ class GitLabIntegration:
             url,
             json=json,
             headers={"PRIVATE-TOKEN": project_access_token},
+            # disallow redirects to prevent SSRF on redirected host
+            allow_redirects=False,
         )
 
         return response.json()

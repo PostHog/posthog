@@ -120,6 +120,8 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
         return False, "Private IP address not allowed"
 
     ips = resolve_host_ips(host)
+    if not ips:
+        return False, "Could not resolve host"
     for ip in ips:
         if _is_internal_ip(ip):
             return False, f"Disallowed target IP: {ip}"
