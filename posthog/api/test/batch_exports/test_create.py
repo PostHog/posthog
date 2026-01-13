@@ -10,9 +10,13 @@ from django.test.client import Client as HttpClient
 
 from asgiref.sync import async_to_sync
 from rest_framework import status
-from temporalio.client import ScheduleActionStartWorkflow, ScheduleDescription, ScheduleRange
+from temporalio.client import ScheduleActionStartWorkflow
 
-from posthog.api.test.batch_exports.conftest import describe_schedule
+from posthog.api.test.batch_exports.conftest import (
+    assert_is_daily_schedule,
+    assert_is_weekly_schedule,
+    describe_schedule,
+)
 from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.api.test.test_team import create_team
@@ -24,23 +28,6 @@ from posthog.temporal.common.codec import EncryptionCodec
 pytestmark = [
     pytest.mark.django_db,
 ]
-
-
-def _assert_is_daily_schedule(schedule: ScheduleDescription, expected_hour: int):
-    """Assert the schedule is a daily schedule."""
-    calendars = schedule.schedule.spec.calendars
-    assert len(calendars) == 1
-    assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
-    assert schedule.schedule.spec.jitter == dt.timedelta(hours=1)
-
-
-def _assert_is_weekly_schedule(schedule: ScheduleDescription, expected_day: int, expected_hour: int):
-    """Assert the schedule is a weekly schedule."""
-    calendars = schedule.schedule.spec.calendars
-    assert len(calendars) == 1
-    assert calendars[0].day_of_week == (ScheduleRange(start=expected_day, end=expected_day),)
-    assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
-    assert schedule.schedule.spec.jitter == dt.timedelta(hours=1)
 
 
 def test_create_batch_export_with_interval_schedule(client: HttpClient, temporal, organization, team, user):
@@ -245,12 +232,12 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
         assert batch_export.jitter == dt.timedelta(minutes=1)
     elif interval == "day":
         expected_hour = interval_offset // 3600
-        _assert_is_daily_schedule(schedule, expected_hour)
+        assert_is_daily_schedule(schedule, expected_hour)
     elif interval == "week":
         offset_in_hours = interval_offset // 3600
         expected_day = offset_in_hours // 24
         expected_hour = offset_in_hours % 24
-        _assert_is_weekly_schedule(schedule, expected_day, expected_hour)
+        assert_is_weekly_schedule(schedule, expected_day, expected_hour)
 
     # Assert next run time is what we expect based on the interval and interval offset
     next_runs = schedule.info.next_action_times
@@ -1526,7 +1513,7 @@ def test_creating_workflows_batch_export(
     assert data["destination"] == destination_data
 
     schedule = describe_schedule(temporal, data["id"])
-    _assert_is_daily_schedule(schedule, 0)
+    assert_is_daily_schedule(schedule, 0)
 
 
 def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(

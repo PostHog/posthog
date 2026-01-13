@@ -1,9 +1,14 @@
 import logging
+import datetime as dt
 
 import pytest
 
 from asgiref.sync import async_to_sync
-from temporalio.client import Client as TemporalClient
+from temporalio.client import (
+    Client as TemporalClient,
+    ScheduleDescription,
+    ScheduleRange,
+)
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.fixtures import create_organization, create_team, create_user
@@ -82,3 +87,20 @@ def team(organization):
 @pytest.fixture
 def user(organization):
     return create_user("test@user.com", "Test User", organization)
+
+
+def assert_is_daily_schedule(schedule: ScheduleDescription, expected_hour: int):
+    """Assert the schedule is a daily schedule."""
+    calendars = schedule.schedule.spec.calendars
+    assert len(calendars) == 1
+    assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
+    assert schedule.schedule.spec.jitter == dt.timedelta(hours=1)
+
+
+def assert_is_weekly_schedule(schedule: ScheduleDescription, expected_day: int, expected_hour: int):
+    """Assert the schedule is a weekly schedule."""
+    calendars = schedule.schedule.spec.calendars
+    assert len(calendars) == 1
+    assert calendars[0].day_of_week == (ScheduleRange(start=expected_day, end=expected_day),)
+    assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
+    assert schedule.schedule.spec.jitter == dt.timedelta(hours=1)

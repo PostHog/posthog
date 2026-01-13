@@ -798,11 +798,18 @@ async def acount_failed_batch_export_runs(batch_export_id: UUID, last_n: int) ->
 
 
 def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
+    # default to UTC if no timezone is provided
+    timezone = batch_export.timezone or "UTC"
+    # default interval offset to 0 if not provided
+    interval_offset = batch_export.interval_offset or 0
     # if daily or weekly interval, use ScheduleCalendarSpec so we can set the time of day to run (and ensure timezones
     # are respected)
     if batch_export.interval == "day":
         # at the moment we don't support sub-hour offsets, so it is safe to round down to the nearest hour
-        hour_offset = batch_export.interval_offset // 3600
+        hour_offset = interval_offset // 3600
+        # we already have validation at the API-level but it's good to be defensive here
+        if hour_offset < 0 or hour_offset > 23:
+            raise ValueError(f"Invalid hour offset: {hour_offset}")
         return ScheduleSpec(
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
@@ -813,27 +820,32 @@ def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
                 )
             ],
             jitter=batch_export.jitter,
-            time_zone_name=batch_export.timezone,
+            time_zone_name=timezone,
         )
     elif batch_export.interval == "week":
         # at the moment we don't support sub-hour offsets, so it is safe to round down to the nearest hour
-        offset_in_hours = batch_export.interval_offset // 3600
+        offset_in_hours = interval_offset // 3600
         # Temporal treats Sunday as the first day of the week, so day offsets are calculated from there (eg Monday is 1)
         day_offset = offset_in_hours // 24
+        # we already have validation at the API-level but it's good to be defensive here
+        if day_offset < 0 or day_offset > 6:
+            raise ValueError(f"Invalid day offset: {day_offset}")
         hour_offset = offset_in_hours % 24
+        day_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        day_name = day_names[day_offset]
 
         return ScheduleSpec(
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             calendars=[
                 ScheduleCalendarSpec(
-                    comment="Weekly at midnight local time",
+                    comment=f"Weekly on {day_name} at {hour_offset} hours after midnight local time",
                     day_of_week=[ScheduleRange(start=day_offset, end=day_offset)],
                     hour=[ScheduleRange(start=hour_offset, end=hour_offset)],
                 )
             ],
             jitter=batch_export.jitter,
-            time_zone_name=batch_export.timezone,
+            time_zone_name=timezone,
         )
     # for other intervals, use ScheduleIntervalSpec
     else:
@@ -842,7 +854,7 @@ def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
             jitter=batch_export.jitter,
-            time_zone_name=batch_export.timezone,
+            time_zone_name=timezone,
         )
 
 
@@ -909,11 +921,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     if created:
         create_schedule(temporal, id=str(batch_export.id), schedule=schedule)
     else:
-        # For the time being, do not update existing time_zone_name to avoid losing
-        # data due to the shift in start times.
-        # TODO: This should require input from the user for example when changing a project's timezone.
-        # With user's input, then we can more confidently do the update.
-        update_schedule(temporal, id=str(batch_export.id), schedule=schedule, keep_tz=True)
+        update_schedule(temporal, id=str(batch_export.id), schedule=schedule)
 
     return batch_export
 

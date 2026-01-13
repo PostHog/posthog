@@ -409,8 +409,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def validate_interval_offset(self, interval_offset: int) -> int:
+    def validate_interval_offset(self, interval_offset: int | None) -> int | None:
         """Validate interval_offset based on the interval.
+
+        If interval_offset is not provided, it means it's not being updated, so we need to check if the interval does
+        not support an offset, and if not we reset it to 0.
 
         Rules:
         1. Minimum interval offset is 0
@@ -423,6 +426,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         interval = self.initial_data.get("interval")
         if interval is None and self.instance:
             interval = self.instance.interval
+
+        if interval_offset is None:
+            if interval not in ("day", "week"):
+                return 0
+            return None
 
         # 1. minimum interval offset is 0
         if interval_offset < 0:
