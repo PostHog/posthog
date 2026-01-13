@@ -53,6 +53,12 @@ class NonRetryableResponseError(Exception):
 async def raise_for_status(response: aiohttp.ClientResponse):
     """Like aiohttp raise_for_status, but it distinguishes between retryable and non-retryable
     errors."""
+    # Redirect responses (3xx) indicate endpoint misconfiguration when redirects are disabled
+    if 300 <= response.status < 400:
+        raise NonRetryableResponseError(
+            response.status, f"Unexpected redirect to: {response.headers.get('Location', 'unknown')}"
+        )
+
     if not response.ok:
         if response.status >= 500 or response.status == 429 or response.status == 408:
             raise RetryableResponseError(response.status)
