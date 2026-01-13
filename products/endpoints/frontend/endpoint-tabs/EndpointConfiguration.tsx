@@ -65,15 +65,9 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
 export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
     const { loadMaterializationStatus } = useActions(endpointLogic({ tabId }))
     const { endpoint, materializationStatusLoading } = useValues(endpointLogic({ tabId }))
-    const {
-        setCacheAge,
-        setSyncFrequency,
-        setIsMaterialized,
-        selectVersion,
-        returnToCurrentVersion,
-        updateVersionMaterialization,
-        loadSelectedVersion,
-    } = useActions(endpointSceneLogic({ tabId }))
+    const { setCacheAge, setSyncFrequency, setIsMaterialized, selectVersion, returnToCurrentVersion } = useActions(
+        endpointSceneLogic({ tabId })
+    )
     const {
         cacheAge,
         syncFrequency,
@@ -118,17 +112,7 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
     const canMaterialize = activeMaterialization?.can_materialize ?? false
 
     const handleToggleMaterialization = (): void => {
-        if (isViewingOldVersion && selectedVersionData && viewingVersion !== null) {
-            const nextValue = !selectedVersionData.is_materialized
-            const nextFrequency = selectedVersionData.sync_frequency ?? ('24hour' as DataWarehouseSyncInterval)
-            updateVersionMaterialization(viewingVersion, {
-                is_materialized: nextValue,
-                sync_frequency: nextFrequency,
-            })
-            loadSelectedVersion({ name: endpoint.name, version: viewingVersion })
-            return
-        }
-        if (!canMaterialize) {
+        if (!canMaterialize && !isViewingOldVersion) {
             return
         }
         setIsMaterialized(!displayIsMaterialized)
@@ -141,15 +125,18 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
             width: 120,
             render: function RenderVersion(_, item) {
                 const isCurrent = item.version === endpoint.current_version
+                const isViewing = viewingVersion === item.version
                 return (
                     <div className="flex items-center gap-2">
-                        <span className="font-semibold">v{item.version}</span>
+                        <LemonButton
+                            type="tertiary"
+                            onClick={() => (isCurrent ? returnToCurrentVersion() : selectVersion(item.version))}
+                            className="font-semibold"
+                        >
+                            v{item.version}
+                        </LemonButton>
                         {isCurrent && <LemonTag size="small">Current</LemonTag>}
-                        {viewingVersion === item.version && !isViewingOldVersion && (
-                            <LemonTag size="small" type="default">
-                                Latest
-                            </LemonTag>
-                        )}
+                        {isViewing && <LemonTag size="small">Viewing</LemonTag>}
                     </div>
                 )
             },
@@ -196,22 +183,6 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                 return <LemonTag type="default">Not materialized</LemonTag>
             },
         },
-        {
-            title: 'Actions',
-            width: 140,
-            render: function RenderActions(_, item) {
-                const isCurrent = item.version === endpoint.current_version
-                return (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        onClick={() => (isCurrent ? returnToCurrentVersion() : selectVersion(item.version))}
-                    >
-                        View
-                    </LemonButton>
-                )
-            },
-        },
     ]
 
     return (
@@ -228,7 +199,12 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                         value={displayCacheAge}
                         onChange={setCacheAge}
                         options={CACHE_AGE_OPTIONS}
-                        disabled={false}
+                        disabled={isViewingOldVersion}
+                        disabledReason={
+                            isViewingOldVersion
+                                ? 'Cache age cannot be modified for historical versions. Only materialization and sync frequency can be changed.'
+                                : undefined
+                        }
                     />
                 </LemonField.Pure>
                 <LemonField.Pure
@@ -295,17 +271,7 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                         >
                             <LemonSelect
                                 value={displaySyncFrequency || '24hour'}
-                                onChange={(val) => {
-                                    if (isViewingOldVersion && viewingVersion !== null) {
-                                        updateVersionMaterialization(viewingVersion, {
-                                            is_materialized: true,
-                                            sync_frequency: val,
-                                        })
-                                        loadSelectedVersion({ name: endpoint.name, version: viewingVersion })
-                                        return
-                                    }
-                                    setSyncFrequency(val)
-                                }}
+                                onChange={setSyncFrequency}
                                 options={SYNC_FREQUENCY_OPTIONS}
                             />
                         </LemonField.Pure>
