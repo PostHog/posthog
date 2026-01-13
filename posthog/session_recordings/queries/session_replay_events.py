@@ -380,7 +380,7 @@ class SessionReplayEvents:
             },
         )
         # Build metadata for each session
-        result: dict[str, Optional[RecordingMetadata]] = {session_id: None for session_id in session_ids}
+        result: dict[str, Optional[RecordingMetadata]] = dict.fromkeys(session_ids)
         for row in replay_response:
             session_id = row[0]
             metadata = self.build_recording_metadata(session_id, [row])
@@ -630,7 +630,7 @@ def get_person_emails_for_session_ids(
         },
     )
     result = HogQLQueryRunner(team=team, query=query).calculate()
-    email_mapping: dict[str, str | None] = {session_id: None for session_id in session_ids}
+    email_mapping: dict[str, str | None] = dict.fromkeys(session_ids)
     if result.results:
         for row in result.results:
             session_id = row[0]

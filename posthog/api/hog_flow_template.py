@@ -17,7 +17,6 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.permissions import get_organization_from_view
 
 logger = structlog.get_logger(__name__)
 
@@ -25,28 +24,9 @@ logger = structlog.get_logger(__name__)
 class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
     message = "You don't have edit permissions for global workflow templates."
 
-    def _has_feature_flag(self, request: Request, view) -> bool:
-        """Check if user has the workflows-template-creation feature flag"""
-        try:
-            organization = get_organization_from_view(view)
-            user = cast(User, request.user)
-            return user.distinct_id is not None and posthoganalytics.feature_enabled(
-                "workflows-template-creation",
-                user.distinct_id,
-                groups={"organization": str(organization.id)},
-                group_properties={"organization": {"id": str(organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except (ValueError, AttributeError):
-            return False
-
     def has_permission(self, request: Request, view) -> bool:
         if request.method in SAFE_METHODS:
             return True
-
-        if not self._has_feature_flag(request, view):
-            return False
 
         if request.method == "POST":
             scope = request.data.get("scope")
