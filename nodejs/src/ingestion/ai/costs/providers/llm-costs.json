@@ -95,6 +95,19 @@
         }
     },
     {
+        "model": "allenai/molmo-2-8b:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "parasail-bf16": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
         "model": "allenai/olmo-2-0325-32b-instruct",
         "cost": {
             "default": {
@@ -2195,27 +2208,6 @@
                 "prompt_token": 2.07e-7,
                 "completion_token": 8.28e-7,
                 "cache_read_token": 4.14e-8
-            }
-        }
-    },
-    {
-        "model": "kwaipilot/kat-coder-pro:free",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "atlas-cloud-fp16": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "novita-fp16": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "streamlake-fp16": {
-                "prompt_token": 0,
-                "completion_token": 0
             }
         }
     },

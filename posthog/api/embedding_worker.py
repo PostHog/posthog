@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -113,7 +112,7 @@ def emit_embedding_request(
         "document_id": document_id,
         "timestamp": timestamp.isoformat(),
         "content": content,
-        "metadata": json.dumps(metadata, separators=(",", ":")),
+        "metadata": metadata or {},
         "models": models,
     }
 

@@ -135,7 +135,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         # We've got a result that either passed the quality check or we've exhausted all attempts at iterating - return
         # Create an artifact with the visualization content
-        artifact = await self.context_manager.artifacts.create(
+        artifact = await self.context_manager.artifacts.acreate(
             content=VisualizationArtifactContent(
                 query=result.query,
                 name=state.visualization_title,
