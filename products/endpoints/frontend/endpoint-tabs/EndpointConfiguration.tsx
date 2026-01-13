@@ -1,12 +1,24 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconDatabase, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonSelect,
+    LemonSwitch,
+    LemonTable,
+    type LemonTableColumns,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { DataWarehouseSyncInterval } from '~/types'
+import type { DataWarehouseSyncInterval, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic } from '../endpointSceneLogic'
@@ -53,21 +65,154 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
 export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
     const { loadMaterializationStatus } = useActions(endpointLogic({ tabId }))
     const { endpoint, materializationStatusLoading } = useValues(endpointLogic({ tabId }))
-    const { setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(endpointSceneLogic({ tabId }))
-    const { cacheAge, syncFrequency, isMaterialized: localIsMaterialized } = useValues(endpointSceneLogic({ tabId }))
+    const {
+        setCacheAge,
+        setSyncFrequency,
+        setIsMaterialized,
+        selectVersion,
+        returnToCurrentVersion,
+        updateVersionMaterialization,
+        loadSelectedVersion,
+    } = useActions(endpointSceneLogic({ tabId }))
+    const {
+        cacheAge,
+        syncFrequency,
+        isMaterialized: localIsMaterialized,
+        isViewingOldVersion,
+        selectedVersionData,
+        versions,
+        versionsLoading,
+        viewingVersion,
+    } = useValues(endpointSceneLogic({ tabId }))
+    const sortedVersions = useMemo(() => [...versions].sort((a, b) => b.version - a.version), [versions])
 
     if (!endpoint) {
         return <></>
     }
 
-    const canMaterialize = endpoint.materialization?.can_materialize ?? false
-    const isMaterialized = localIsMaterialized !== null ? localIsMaterialized : endpoint.is_materialized
-    const materializationStatus = endpoint.materialization?.status
-    const lastMaterializedAt = endpoint.materialization?.last_materialized_at
+    const activeVersionData: EndpointType | EndpointVersionType | null =
+        isViewingOldVersion && selectedVersionData ? selectedVersionData : endpoint
+    const baseCacheAge = activeVersionData?.cache_age_seconds ?? null
+    const displayCacheAge = isViewingOldVersion ? baseCacheAge : (cacheAge ?? baseCacheAge)
+    const displayIsMaterialized = isViewingOldVersion
+        ? !!activeVersionData?.is_materialized
+        : localIsMaterialized !== null
+          ? localIsMaterialized
+          : endpoint.is_materialized
+    const displaySyncFrequency = isViewingOldVersion
+        ? (activeVersionData?.sync_frequency ?? null)
+        : (syncFrequency ?? endpoint.materialization?.sync_frequency ?? null)
+
+    const activeMaterialization = activeVersionData?.materialization ?? endpoint.materialization
+    const versionMaterializationError =
+        activeVersionData && 'materialization_error' in activeVersionData
+            ? activeVersionData.materialization_error
+            : undefined
+    const materializationStatus = activeMaterialization?.status
+    const lastMaterializedAt =
+        activeMaterialization?.last_materialized_at ||
+        (activeVersionData && 'last_materialized_at' in activeVersionData
+            ? activeVersionData.last_materialized_at
+            : undefined)
+    const materializationError = activeMaterialization?.error ?? versionMaterializationError
+    const canMaterialize = activeMaterialization?.can_materialize ?? false
 
     const handleToggleMaterialization = (): void => {
-        setIsMaterialized(!isMaterialized)
+        if (isViewingOldVersion && selectedVersionData && viewingVersion !== null) {
+            const nextValue = !selectedVersionData.is_materialized
+            const nextFrequency = selectedVersionData.sync_frequency ?? ('24hour' as DataWarehouseSyncInterval)
+            updateVersionMaterialization(viewingVersion, {
+                is_materialized: nextValue,
+                sync_frequency: nextFrequency,
+            })
+            loadSelectedVersion({ name: endpoint.name, version: viewingVersion })
+            return
+        }
+        if (!canMaterialize) {
+            return
+        }
+        setIsMaterialized(!displayIsMaterialized)
     }
+
+    const columns: LemonTableColumns<EndpointVersionType> = [
+        {
+            title: 'Version',
+            dataIndex: 'version',
+            width: 120,
+            render: function RenderVersion(_, item) {
+                const isCurrent = item.version === endpoint.current_version
+                return (
+                    <div className="flex items-center gap-2">
+                        <span className="font-semibold">v{item.version}</span>
+                        {isCurrent && <LemonTag size="small">Current</LemonTag>}
+                        {viewingVersion === item.version && !isViewingOldVersion && (
+                            <LemonTag size="small" type="default">
+                                Latest
+                            </LemonTag>
+                        )}
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Created',
+            dataIndex: 'created_at',
+            render: function RenderCreated(createdAt: string) {
+                return <TZLabel time={createdAt} />
+            },
+        },
+        {
+            title: 'Created by',
+            render: function RenderCreatedBy(_, item) {
+                return item.created_by ? <ProfilePicture user={item.created_by} showName size="sm" /> : 'Unknown'
+            },
+        },
+        {
+            title: 'Status',
+            width: 200,
+            render: function RenderStatus(_, item) {
+                const isCurrent = item.version === endpoint.current_version
+                const materialized = isCurrent ? endpoint.is_materialized : item.is_materialized
+                const materializationStatus = isCurrent
+                    ? endpoint.materialization?.status
+                    : item.materialization?.status
+                const sync = isCurrent ? endpoint.materialization?.sync_frequency : item.sync_frequency
+
+                if (materialized) {
+                    return (
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                                <LemonTag type="success">Materialized</LemonTag>
+                                {materializationStatus && (
+                                    <LemonTag type={getStatusTagType(materializationStatus)}>
+                                        {materializationStatus}
+                                    </LemonTag>
+                                )}
+                            </div>
+                            {sync && <span className="text-xs text-muted">Sync: {sync}</span>}
+                        </div>
+                    )
+                }
+                return <LemonTag type="default">Not materialized</LemonTag>
+            },
+        },
+        {
+            title: 'Actions',
+            width: 140,
+            render: function RenderActions(_, item) {
+                const isCurrent = item.version === endpoint.current_version
+                return (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => (isCurrent ? returnToCurrentVersion() : selectVersion(item.version))}
+                    >
+                        View
+                    </LemonButton>
+                )
+            },
+        },
+    ]
 
     return (
         <SceneSection
@@ -79,7 +224,12 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                     label="Cache age"
                     info="How long cached results are served before re-running the query. Longer cache times improve performance but may return stale data."
                 >
-                    <LemonSelect value={cacheAge} onChange={setCacheAge} options={CACHE_AGE_OPTIONS} />
+                    <LemonSelect
+                        value={displayCacheAge}
+                        onChange={setCacheAge}
+                        options={CACHE_AGE_OPTIONS}
+                        disabled={false}
+                    />
                 </LemonField.Pure>
                 <LemonField.Pure
                     label="Materialization"
@@ -87,16 +237,16 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                 >
                     <LemonSwitch
                         label="Enable materialization"
-                        checked={isMaterialized}
+                        checked={displayIsMaterialized}
                         onChange={handleToggleMaterialization}
                         disabled={!canMaterialize}
-                        disabledReason={!canMaterialize ? endpoint.materialization?.reason : undefined}
+                        disabledReason={!canMaterialize ? activeMaterialization?.reason : undefined}
                         bordered
                     />
                 </LemonField.Pure>
 
                 <div className="space-y-4">
-                    {isMaterialized && (
+                    {displayIsMaterialized && (
                         <div className="space-y-3 p-4 bg-accent-3000 border border-border rounded">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
@@ -107,13 +257,19 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                                     <LemonTag type={getStatusTagType(materializationStatus)}>
                                         {materializationStatus || 'Pending'}
                                     </LemonTag>
-                                    <LemonButton
-                                        size="xsmall"
-                                        icon={<IconRefresh />}
-                                        onClick={() => endpoint.name && loadMaterializationStatus(endpoint.name)}
-                                        loading={materializationStatusLoading}
-                                        tooltip="Refresh status"
-                                    />
+                                    {!isViewingOldVersion && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconRefresh />}
+                                            onClick={() => {
+                                                if (endpoint.name) {
+                                                    loadMaterializationStatus(endpoint.name)
+                                                }
+                                            }}
+                                            loading={materializationStatusLoading}
+                                            tooltip="Refresh status"
+                                        />
+                                    )}
                                 </div>
                             </div>
 
@@ -124,30 +280,51 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                                 </div>
                             )}
 
-                            {endpoint.materialization?.error && (
+                            {materializationError && (
                                 <LemonBanner type="error" className="mt-2">
-                                    {endpoint.materialization.error}
+                                    {materializationError}
                                 </LemonBanner>
                             )}
                         </div>
                     )}
 
-                    {isMaterialized && (
+                    {displayIsMaterialized && (
                         <LemonField.Pure
                             label="Sync frequency"
                             info="How often the materialized data is refreshed with new query results. More frequent syncs = fresher data but higher costs."
                         >
                             <LemonSelect
-                                value={syncFrequency || '24hour'}
-                                onChange={setSyncFrequency}
+                                value={displaySyncFrequency || '24hour'}
+                                onChange={(val) => {
+                                    if (isViewingOldVersion && viewingVersion !== null) {
+                                        updateVersionMaterialization(viewingVersion, {
+                                            is_materialized: true,
+                                            sync_frequency: val,
+                                        })
+                                        loadSelectedVersion({ name: endpoint.name, version: viewingVersion })
+                                        return
+                                    }
+                                    setSyncFrequency(val)
+                                }}
                                 options={SYNC_FREQUENCY_OPTIONS}
-                                disabledReason={!isMaterialized ? 'Requires materializing the endpoint.' : undefined}
                             />
                         </LemonField.Pure>
                     )}
                 </div>
             </div>
             <LemonDivider />
+            <div className="mt-4">
+                <h3 className="text-lg font-semibold mb-1">Version history</h3>
+                <p className="text-muted mb-3">View previous versions and switch between snapshots.</p>
+                <LemonTable
+                    dataSource={sortedVersions}
+                    columns={columns}
+                    loading={versionsLoading}
+                    rowKey="version"
+                    pagination={{ pageSize: 10, hideOnSinglePage: true }}
+                    emptyState="No versions yet"
+                />
+            </div>
         </SceneSection>
     )
 }

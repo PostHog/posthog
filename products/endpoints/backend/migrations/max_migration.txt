@@ -1,1 +1,1 @@
-0008_endpoint_last_executed_at
+0009_endpointversion_configuration_fields

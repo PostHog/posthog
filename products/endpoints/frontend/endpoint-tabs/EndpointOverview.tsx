@@ -6,6 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { endpointLogic } from '../endpointLogic'
+import { endpointSceneLogic } from '../endpointSceneLogic'
 
 interface EndpointOverviewProps {
     tabId: string
@@ -13,12 +14,14 @@ interface EndpointOverviewProps {
 
 export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
+    const { viewingVersion, isViewingOldVersion } = useValues(endpointSceneLogic({ tabId }))
 
     if (!endpoint) {
         return <></>
     }
 
     const hasParameters = endpoint.parameters && Object.keys(endpoint.parameters).length > 0
+    const displayedVersion = isViewingOldVersion && viewingVersion ? viewingVersion : endpoint.current_version
 
     return (
         <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1200px]:grid-cols-[1fr_26rem]">
@@ -32,10 +35,15 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                     </div>
                     <div className="flex flex-col">
                         <LemonLabel info="Versions auto-increment when the query changes. Access older versions via the 'version' parameter in requests. Useful for gradual rollouts and rollbacks.">
-                            Current version
+                            {isViewingOldVersion ? 'Viewing version' : 'Current version'}
                         </LemonLabel>
                         <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold">v{endpoint.current_version}</span>
+                            <span className="text-sm font-semibold">v{displayedVersion}</span>
+                            {isViewingOldVersion && (
+                                <LemonTag size="small" type="default">
+                                    Current v{endpoint.current_version}
+                                </LemonTag>
+                            )}
                             <span className="text-xs text-muted">({endpoint.versions_count} total)</span>
                         </div>
                     </div>

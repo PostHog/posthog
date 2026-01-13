@@ -33,7 +33,7 @@ interface EndpointQueryProps {
 
 export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { queryToRender, endpointLoading } = useValues(endpointSceneLogic({ tabId }))
+    const { queryToRender, endpointLoading, isViewingOldVersion } = useValues(endpointSceneLogic({ tabId }))
     const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
     const { newTab } = useActions(sceneLogic)
 
@@ -67,7 +67,16 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
                 <div className="flex-1 flex flex-col gap-2">
                     <CodeEditor value={hogqlQuery.query} language="hogQL" height="300px" options={{ readOnly: true }} />
                     <div>
-                        <LemonButton type="secondary" onClick={handleEditQuery} sideIcon={<IconOpenInNew />}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={handleEditQuery}
+                            sideIcon={<IconOpenInNew />}
+                            disabledReason={
+                                isViewingOldVersion
+                                    ? 'Return to the latest version to edit this query and create a new version.'
+                                    : undefined
+                            }
+                        >
                             Edit query in SQL Editor
                         </LemonButton>
                     </div>
@@ -104,8 +113,8 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
         <div>
             <Query
                 query={queryToRender}
-                editMode={true}
-                setQuery={handleQueryChange}
+                editMode={!isViewingOldVersion}
+                setQuery={isViewingOldVersion ? undefined : handleQueryChange}
                 context={{ showOpenEditorButton: false }}
             />
         </div>

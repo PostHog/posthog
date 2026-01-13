@@ -10,12 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import {
-    Breadcrumb,
-    DataWarehouseSyncInterval,
-    EndpointType,
-    EndpointVersionType,
-} from '~/types'
+import { Breadcrumb, DataWarehouseSyncInterval, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
@@ -135,7 +130,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 try {
                     return await api.endpoint.listVersions(name)
                 } catch (error) {
-                    return []
+                    const errorResponse = {
+                        error: true,
+                        message: error.message || 'Unknown error',
+                        status: error.status,
+                        detail: error.detail || error.data,
+                    }
+                    return JSON.stringify(errorResponse, null, 2)
                 }
             },
         },
@@ -145,7 +146,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 try {
                     return await api.endpoint.getVersion(name, version)
                 } catch (error) {
-                    return null
+                    const errorResponse = {
+                        error: true,
+                        message: error.message || 'Unknown error',
+                        status: error.status,
+                        detail: error.detail || error.data,
+                    }
+                    return JSON.stringify(errorResponse, null, 2)
                 }
             },
         },
@@ -292,7 +299,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.endpoint(':name')]: ({ name }: { name?: string }) => {
             const { searchParams } = router.values
-            if (name) {
+            if (name && (!values.endpoint || values.endpoint.name !== name)) {
                 actions.loadEndpoint(name)
             }
             if (searchParams.tab && searchParams.tab !== values.activeTab) {

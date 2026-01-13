@@ -97,36 +97,32 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                 name={endpointName || endpoint?.name}
                 description={endpointDescription || endpoint?.description}
                 resourceType={{ type: 'endpoints' }}
-                canEdit={!isViewingOldVersion}
+                canEdit={true}
                 // onNameChange={} - we explicitly disallow this
-                onDescriptionChange={
-                    isViewingOldVersion ? undefined : (description) => setEndpointDescription(description)
-                }
+                onDescriptionChange={(description) => setEndpointDescription(description)}
                 isLoading={endpointLoading}
                 renameDebounceMs={200}
                 actions={
-                    !isViewingOldVersion ? (
-                        <>
-                            {endpoint && (
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={handleDiscardChanges}
-                                    disabledReason={!hasChanges && 'No changes to discard'}
-                                >
-                                    Discard changes
-                                </LemonButton>
-                            )}
+                    <>
+                        {endpoint && (
                             <LemonButton
-                                type="primary"
-                                onClick={handleSave}
-                                disabledReason={
-                                    !endpoint ? 'Endpoint not loaded' : !hasChanges ? 'No changes to save' : undefined
-                                }
+                                type="secondary"
+                                onClick={handleDiscardChanges}
+                                disabledReason={!hasChanges && 'No changes to discard'}
                             >
-                                Update
+                                Discard changes
                             </LemonButton>
-                        </>
-                    ) : undefined
+                        )}
+                        <LemonButton
+                            type="primary"
+                            onClick={handleSave}
+                            disabledReason={
+                                !endpoint ? 'Endpoint not loaded' : !hasChanges ? 'No changes to save' : undefined
+                            }
+                        >
+                            Update
+                        </LemonButton>
+                    </>
                 }
             />
         </>
