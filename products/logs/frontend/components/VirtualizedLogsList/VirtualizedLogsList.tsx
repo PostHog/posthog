@@ -247,7 +247,7 @@ export function VirtualizedLogsList({
     if (dataSource.length === 0) {
         if (loading) {
             return (
-                <div className="flex flex-col gap-1 rounded p-4 w-full h-full justify-center items-center">
+                <div className="flex flex-col gap-1 rounded p-4 w-full items-center mt-8">
                     <span className="font-semibold mb-1 text-center">Loading logs...</span>
                     <div className="flex flex-col gap-2 justify-center items-center max-w-120">
                         <LoadingBar />
