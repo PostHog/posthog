@@ -614,7 +614,7 @@ async def materialize_model(
             await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
             if isinstance(e, NonRetryableException):
-                raise NonRetryableException(error_message)
+                raise
             raise Exception(error_message) from e
 
     data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)

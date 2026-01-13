@@ -1648,7 +1648,7 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
 
 async def test_materialize_model_empty_results(ateam, bucket_name, minio_client):
     """Test that materialize_model raises NonRetryableException when query returns no results."""
-    query = "SELECT 1 as test_column FROM events WHERE 1 = 0"
+    query = "SELECT 1 WHERE 1 = 0"
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
         team=ateam,
         name="empty_results_test_model",

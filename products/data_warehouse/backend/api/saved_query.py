@@ -618,9 +618,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         saved_query: DataWarehouseSavedQuery = self.get_object()
         schedule_exists = saved_query_workflow_exists(saved_query)
         if schedule_exists:
-            saved_query.latest_error = None
-            saved_query.status = None
-            saved_query.save(update_fields=["latest_error", "status"])
             unpause_saved_query_schedule(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 

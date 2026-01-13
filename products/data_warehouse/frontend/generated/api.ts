@@ -984,6 +984,45 @@ export const environmentsWarehouseSavedQueriesMaterializeCreate = async (
 }
 
 /**
+ * Resume a paused materialization schedule for matviews.
+
+This endpoint is idempotent - calling it on an already running schedule
+or non-existent schedule is safe.
+ */
+export type environmentsWarehouseSavedQueriesResumeScheduleCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type environmentsWarehouseSavedQueriesResumeScheduleCreateResponseSuccess =
+    environmentsWarehouseSavedQueriesResumeScheduleCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseSavedQueriesResumeScheduleCreateResponse =
+    environmentsWarehouseSavedQueriesResumeScheduleCreateResponseSuccess
+
+export const getEnvironmentsWarehouseSavedQueriesResumeScheduleCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/${id}/resume_schedule/`
+}
+
+export const environmentsWarehouseSavedQueriesResumeScheduleCreate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseSavedQueriesResumeScheduleCreateResponse> => {
+    return apiMutator<environmentsWarehouseSavedQueriesResumeScheduleCreateResponse>(
+        getEnvironmentsWarehouseSavedQueriesResumeScheduleCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+/**
  * Undo materialization, revert back to the original view.
 (i.e. delete the materialized table and the schedule)
  */
@@ -2342,6 +2381,44 @@ export const warehouseSavedQueriesMaterializeCreate = async (
 ): Promise<warehouseSavedQueriesMaterializeCreateResponse> => {
     return apiMutator<warehouseSavedQueriesMaterializeCreateResponse>(
         getWarehouseSavedQueriesMaterializeCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
+/**
+ * Resume a paused materialization schedule for matviews.
+
+This endpoint is idempotent - calling it on an already running schedule
+or non-existent schedule is safe.
+ */
+export type warehouseSavedQueriesResumeScheduleCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesResumeScheduleCreateResponseSuccess =
+    warehouseSavedQueriesResumeScheduleCreateResponse200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueriesResumeScheduleCreateResponse = warehouseSavedQueriesResumeScheduleCreateResponseSuccess
+
+export const getWarehouseSavedQueriesResumeScheduleCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${id}/resume_schedule/`
+}
+
+export const warehouseSavedQueriesResumeScheduleCreate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesResumeScheduleCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesResumeScheduleCreateResponse>(
+        getWarehouseSavedQueriesResumeScheduleCreateUrl(projectId, id),
         {
             ...options,
             method: 'POST',
