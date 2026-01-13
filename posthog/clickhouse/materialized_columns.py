@@ -12,9 +12,6 @@ MATERIALIZATION_VALID_TABLES = {"events", "person", "groups"}
 class MaterializedColumn(Protocol):
     name: ColumnName
     is_nullable: bool
-    has_minmax_index: bool
-    has_bloom_filter_index: bool
-    has_ngram_lower_index: bool
 
 
 if EE_AVAILABLE:
