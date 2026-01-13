@@ -172,10 +172,8 @@
       distinct_id String,
       uuid UUID,
       key String,
-      value_string Nullable(String),
-      value_numeric Nullable(Float64),
-      value_bool Nullable(UInt8),
-      value_datetime Nullable(DateTime64(6, 'UTC'))
+      raw_value String,
+      property_type LowCardinality(String)
   
   )
   ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_event_properties_test', kafka_group_name = 'clickhouse_event_properties', kafka_format = 'JSONEachRow')
@@ -1054,10 +1052,14 @@
       distinct_id,
       uuid,
       key,
-      value_string,
-      value_numeric,
-      value_bool,
-      value_datetime,
+      -- String: passthrough
+      if(property_type = 'String', raw_value, NULL) as value_string,
+      -- Numeric: toFloat64OrNull (matches backfill/HogQL toFloat)
+      if(property_type = 'Numeric', toFloat64OrNull(raw_value), NULL) as value_numeric,
+      -- Boolean: transform with lowercase (matches backfill/HogQL toBool pattern)
+      if(property_type = 'Boolean', transform(lower(raw_value), ['true', 'false'], [1, 0], NULL), NULL) as value_bool,
+      -- DateTime: parseDateTime64BestEffortOrNull (matches backfill/HogQL toDateTime)
+      if(property_type = 'DateTime', parseDateTime64BestEffortOrNull(raw_value, 6), NULL) as value_datetime,
       _timestamp,
       _offset,
       _partition
@@ -1622,10 +1624,8 @@
       distinct_id String,
       uuid UUID,
       key String,
-      value_string Nullable(String),
-      value_numeric Nullable(Float64),
-      value_bool Nullable(UInt8),
-      value_datetime Nullable(DateTime64(6, 'UTC'))
+      raw_value String,
+      property_type LowCardinality(String)
   
   )
   ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_event_properties_test', kafka_group_name = 'clickhouse_event_properties', kafka_format = 'JSONEachRow')
