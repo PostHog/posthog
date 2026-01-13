@@ -11,7 +11,7 @@ requires-python = "==3.12.12" # Pin full version to control Python upgrades expl
 #
 dependencies = [
     "aioboto3==15.4.0",
-    "aiohttp==3.13.2",
+    "aiohttp==3.13.3",
     "aiokafka~=0.12.0",
     "anthropic==0.69.0",
     "antlr4-python3-runtime==4.13.1",
