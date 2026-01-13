@@ -9,32 +9,51 @@ from redis.asyncio import Redis
 from llm_gateway.rate_limiting.redis_limiter import TokenRateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
 
-# Explicit limits per model family (tokens per minute)
+# Explicit limits per model family (tokens per hour)
+# Limits are set to cap worst-case cost at ~$30/user/hour for expensive models
 # Unknown models default to expensive tier
 # NOTE: Order matters! More specific keys must come before less specific ones
 # (e.g., "gpt-4o-mini" before "gpt-4o")
 MODEL_TOKEN_LIMITS: Final[dict[str, dict[str, int]]] = {
-    # Anthropic models
-    "claude-3-5-haiku": {"input_tpm": 4_000_000, "output_tpm": 800_000},
-    "claude-3-5-sonnet": {"input_tpm": 2_000_000, "output_tpm": 400_000},
-    "claude-3-opus": {"input_tpm": 2_000_000, "output_tpm": 400_000},
-    "claude-sonnet-4": {"input_tpm": 2_000_000, "output_tpm": 400_000},
-    "claude-opus-4": {"input_tpm": 2_000_000, "output_tpm": 400_000},
-    # OpenAI models (more specific first)
-    "gpt-4o-mini": {"input_tpm": 4_000_000, "output_tpm": 800_000},
-    "gpt-4-turbo": {"input_tpm": 2_000_000, "output_tpm": 400_000},
-    "gpt-4o": {"input_tpm": 2_000_000, "output_tpm": 400_000},
-    "gpt-5-mini": {"input_tpm": 4_000_000, "output_tpm": 800_000},
-    "gpt-5": {"input_tpm": 2_000_000, "output_tpm": 400_000},
+    # Anthropic models (more specific first)
+    # Haiku: ~$10/hr at 20M input + 4M output
+    "claude-3-5-haiku": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "claude-3-5-sonnet": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "claude-3-opus": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "claude-haiku-4-5": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "claude-haiku-4": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "claude-sonnet-4-5": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "claude-sonnet-4": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "claude-opus-4-5": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "claude-opus-4-1": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "claude-opus-4": {"input_tph": 1_000_000, "output_tph": 200_000},
+    # OpenAI GPT models (more specific first)
+    # Mini/nano: ~$10/hr at 20M input + 4M output
+    "gpt-4.1-nano": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "gpt-4.1-mini": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "gpt-4.1": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "gpt-4o-mini": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "gpt-4-turbo": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "gpt-4o": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "gpt-5-mini": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "gpt-5": {"input_tph": 1_000_000, "output_tph": 200_000},
+    # OpenAI reasoning models (o-series) - all use standard tier due to reasoning costs
+    "o1-mini": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "o1-pro": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "o1": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "o3-mini": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "o3": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "o4-mini": {"input_tph": 1_000_000, "output_tph": 200_000},
     # Gemini models (more specific first)
-    "gemini-2.5-flash-lite": {"input_tpm": 4_000_000, "output_tpm": 800_000},
-    "gemini-2.5-flash": {"input_tpm": 4_000_000, "output_tpm": 800_000},
-    "gemini-2.5-pro": {"input_tpm": 2_000_000, "output_tpm": 400_000},
-    "gemini-2.0-flash": {"input_tpm": 4_000_000, "output_tpm": 800_000},
-    "gemini-3-flash": {"input_tpm": 4_000_000, "output_tpm": 800_000},
-    "gemini-3-pro": {"input_tpm": 2_000_000, "output_tpm": 400_000},
+    # Flash: ~$10/hr at 20M input + 4M output
+    "gemini-2.5-flash-lite": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "gemini-2.5-flash": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "gemini-2.5-pro": {"input_tph": 1_000_000, "output_tph": 200_000},
+    "gemini-2.0-flash": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "gemini-3-flash": {"input_tph": 20_000_000, "output_tph": 4_000_000},
+    "gemini-3-pro": {"input_tph": 1_000_000, "output_tph": 200_000},
     # Default for unknown models (assume expensive)
-    "default": {"input_tpm": 500_000, "output_tpm": 100_000},
+    "default": {"input_tph": 250_000, "output_tph": 50_000},
 }
 
 
@@ -51,7 +70,7 @@ class TokenThrottle(Throttle):
     """Base class for token-based throttles with Redis fallback."""
 
     scope: str
-    limit_key: str  # "input_tpm" or "output_tpm"
+    limit_key: str  # "input_tph" or "output_tph"
     limit_multiplier: int = 1  # Override in subclass for global throttles (e.g., 10)
 
     def __init__(self, redis: Redis[bytes] | None):
@@ -65,7 +84,7 @@ class TokenThrottle(Throttle):
             self._limiters[model] = TokenRateLimiter(
                 redis=self._redis,
                 limit=limit,
-                window_seconds=60,
+                window_seconds=3600,
             )
         return self._limiters[model]
 
@@ -83,7 +102,7 @@ class TokenThrottle(Throttle):
 class InputTokenThrottle(TokenThrottle):
     """Base for input token throttles."""
 
-    limit_key = "input_tpm"
+    limit_key = "input_tph"
 
     def _get_tokens(self, context: ThrottleContext) -> int | None:
         return context.input_tokens
@@ -108,7 +127,7 @@ class InputTokenThrottle(TokenThrottle):
 class OutputTokenThrottle(TokenThrottle):
     """Base for output token throttles with reservation support."""
 
-    limit_key = "output_tpm"
+    limit_key = "output_tph"
     RESERVATION_TTL_SECONDS = 300  # 5 minutes - reservations expire if response never completes
     RESERVATION_MAX_SIZE = 10_000  # Max concurrent requests tracked
 

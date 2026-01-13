@@ -42,23 +42,44 @@ class TestGetModelLimits:
     @pytest.mark.parametrize(
         "model,expected_input,expected_output",
         [
-            ("claude-3-5-haiku-20241022", 4_000_000, 800_000),
-            ("claude-3-opus-20240229", 2_000_000, 400_000),
-            ("gpt-4o-mini", 4_000_000, 800_000),
-            ("gpt-4o", 2_000_000, 400_000),
-            ("gemini-2.5-flash-lite", 4_000_000, 800_000),
-            ("gemini-2.5-flash", 4_000_000, 800_000),
-            ("gemini-2.5-pro", 2_000_000, 400_000),
-            ("gemini-2.0-flash", 4_000_000, 800_000),
-            ("gemini-3-flash-preview", 4_000_000, 800_000),
-            ("gemini-3-pro-preview", 2_000_000, 400_000),
-            ("unknown-model-xyz", 500_000, 100_000),  # Default expensive
+            # Anthropic models
+            ("claude-3-5-haiku-20241022", 20_000_000, 4_000_000),
+            ("claude-3-opus-20240229", 1_000_000, 200_000),
+            ("claude-haiku-4-5", 20_000_000, 4_000_000),
+            ("claude-haiku-4", 20_000_000, 4_000_000),
+            ("claude-sonnet-4-5-20250929", 1_000_000, 200_000),
+            ("claude-sonnet-4-20250514", 1_000_000, 200_000),
+            ("claude-opus-4-5", 1_000_000, 200_000),
+            ("claude-opus-4-1", 1_000_000, 200_000),
+            ("claude-opus-4", 1_000_000, 200_000),
+            # OpenAI GPT models
+            ("gpt-4.1-nano-2025-04-14", 20_000_000, 4_000_000),
+            ("gpt-4.1-mini-2025-04-14", 20_000_000, 4_000_000),
+            ("gpt-4.1-2025-04-14", 1_000_000, 200_000),
+            ("gpt-4o-mini", 20_000_000, 4_000_000),
+            ("gpt-4o", 1_000_000, 200_000),
+            # OpenAI reasoning models (all standard tier due to reasoning costs)
+            ("o1-mini", 1_000_000, 200_000),
+            ("o1-pro", 1_000_000, 200_000),
+            ("o1", 1_000_000, 200_000),
+            ("o3-mini", 1_000_000, 200_000),
+            ("o3-2025-04-16", 1_000_000, 200_000),
+            ("o4-mini-2025-04-16", 1_000_000, 200_000),
+            # Gemini models
+            ("gemini-2.5-flash-lite", 20_000_000, 4_000_000),
+            ("gemini-2.5-flash", 20_000_000, 4_000_000),
+            ("gemini-2.5-pro", 1_000_000, 200_000),
+            ("gemini-2.0-flash", 20_000_000, 4_000_000),
+            ("gemini-3-flash-preview", 20_000_000, 4_000_000),
+            ("gemini-3-pro-preview", 1_000_000, 200_000),
+            # Default
+            ("unknown-model-xyz", 250_000, 50_000),
         ],
     )
     def test_model_limits(self, model: str, expected_input: int, expected_output: int) -> None:
         limits = get_model_limits(model)
-        assert limits["input_tpm"] == expected_input
-        assert limits["output_tpm"] == expected_output
+        assert limits["input_tph"] == expected_input
+        assert limits["output_tph"] == expected_output
 
 
 class TestInputTokenThrottle:
@@ -91,19 +112,19 @@ class TestInputTokenThrottle:
         user_throttle = UserModelInputTokenThrottle(redis=None)
 
         # Both are using fallback (limit/10)
-        # Global: 4M * 10 / 10 = 4M
-        # User: 4M / 10 = 400K
+        # Global: 20M * 10 / 10 = 20M tokens per hour
+        # User: 20M / 10 = 2M tokens per hour
 
         assert global_throttle.limit_multiplier == 10
         assert user_throttle.limit_multiplier == 1
 
     async def test_denies_over_limit(self) -> None:
         throttle = UserModelInputTokenThrottle(redis=None)
-        # Fallback limit is 4M/10 = 400K tokens
+        # Fallback limit is 20M/10 = 2M tokens per hour
         # Consume all at once
         context = make_context(
             model="claude-3-5-haiku",
-            input_tokens=400_000,
+            input_tokens=2_000_000,
         )
         result = await throttle.allow_request(context)
         assert result.allowed is True
@@ -181,12 +202,12 @@ class TestOutputTokenAdjustment:
 
     async def test_released_tokens_allow_subsequent_requests(self) -> None:
         throttle = UserModelOutputTokenThrottle(redis=None)
-        # Fallback limit: 800K / 10 = 80K tokens
+        # Fallback limit: 4M / 10 = 400K tokens per hour
 
         # Reserve all capacity
         ctx1 = make_context(
             model="claude-3-5-haiku",
-            max_output_tokens=80_000,
+            max_output_tokens=400_000,
             request_id="req-1",
         )
         result = await throttle.allow_request(ctx1)
@@ -201,7 +222,7 @@ class TestOutputTokenAdjustment:
         result = await throttle.allow_request(ctx2)
         assert result.allowed is False
 
-        # Adjust first request - only used 1000 tokens, release 79000
+        # Adjust first request - only used 1000 tokens, release 399000
         await throttle.adjust_after_response("req-1", 1000)
 
         # Now the same request should succeed
@@ -210,20 +231,20 @@ class TestOutputTokenAdjustment:
 
     async def test_exact_usage_releases_nothing(self) -> None:
         throttle = UserModelOutputTokenThrottle(redis=None)
-        # Fallback limit: 80K tokens
+        # Fallback limit: 400K tokens per hour
 
-        # Reserve 40K
+        # Reserve 200K
         ctx1 = make_context(
             model="claude-3-5-haiku",
-            max_output_tokens=40_000,
+            max_output_tokens=200_000,
             request_id="req-1",
         )
         await throttle.allow_request(ctx1)
 
-        # Reserve another 40K (at limit now)
+        # Reserve another 200K (at limit now)
         ctx2 = make_context(
             model="claude-3-5-haiku",
-            max_output_tokens=40_000,
+            max_output_tokens=200_000,
             request_id="req-2",
         )
         await throttle.allow_request(ctx2)
@@ -238,7 +259,7 @@ class TestOutputTokenAdjustment:
         assert result.allowed is False
 
         # Adjust first request with exact usage (no release)
-        await throttle.adjust_after_response("req-1", 40_000)
+        await throttle.adjust_after_response("req-1", 200_000)
 
         # Third request should still be denied
         result = await throttle.allow_request(ctx3)
@@ -262,32 +283,32 @@ class TestOutputTokenAdjustment:
 
     async def test_partial_release_restores_partial_capacity(self) -> None:
         throttle = UserModelOutputTokenThrottle(redis=None)
-        # Fallback limit: 80K tokens
+        # Fallback limit: 400K tokens per hour
 
         # Reserve all capacity
         ctx1 = make_context(
             model="claude-3-5-haiku",
-            max_output_tokens=80_000,
+            max_output_tokens=400_000,
             request_id="req-1",
         )
         await throttle.allow_request(ctx1)
 
-        # Release half (used 40K, release 40K)
-        await throttle.adjust_after_response("req-1", 40_000)
+        # Release half (used 200K, release 200K)
+        await throttle.adjust_after_response("req-1", 200_000)
 
-        # Should allow a 40K request now
+        # Should allow a 200K request now
         ctx2 = make_context(
             model="claude-3-5-haiku",
-            max_output_tokens=40_000,
+            max_output_tokens=200_000,
             request_id="req-2",
         )
         result = await throttle.allow_request(ctx2)
         assert result.allowed is True
 
-        # But not another 40K (only 40K was released)
+        # But not another 200K (only 200K was released)
         ctx3 = make_context(
             model="claude-3-5-haiku",
-            max_output_tokens=40_000,
+            max_output_tokens=200_000,
             request_id="req-3",
         )
         result = await throttle.allow_request(ctx3)
@@ -296,18 +317,18 @@ class TestOutputTokenAdjustment:
     async def test_adjustment_is_model_specific(self) -> None:
         throttle = UserModelOutputTokenThrottle(redis=None)
 
-        # Reserve all haiku capacity
+        # Reserve all haiku capacity (400K fallback)
         ctx_haiku = make_context(
             model="claude-3-5-haiku",
-            max_output_tokens=80_000,
+            max_output_tokens=400_000,
             request_id="req-haiku",
         )
         await throttle.allow_request(ctx_haiku)
 
-        # Opus should have its own capacity (40K fallback for opus)
+        # Opus should have its own capacity (20K fallback for opus = 200K/10)
         ctx_opus = make_context(
             model="claude-3-opus",
-            max_output_tokens=40_000,
+            max_output_tokens=20_000,
             request_id="req-opus",
         )
         result = await throttle.allow_request(ctx_opus)
@@ -319,7 +340,7 @@ class TestOutputTokenAdjustment:
         # Haiku should now have capacity again
         ctx_haiku2 = make_context(
             model="claude-3-5-haiku",
-            max_output_tokens=79_000,
+            max_output_tokens=399_000,
             request_id="req-haiku-2",
         )
         result = await throttle.allow_request(ctx_haiku2)
@@ -329,8 +350,8 @@ class TestOutputTokenAdjustment:
         global_throttle = GlobalModelOutputTokenThrottle(redis=None)
         user_throttle = UserModelOutputTokenThrottle(redis=None)
 
-        # Global limit: 800K * 10 / 10 = 800K
-        # User limit: 800K / 10 = 80K
+        # Global limit: 4M * 10 / 10 = 4M tokens per hour
+        # User limit: 4M / 10 = 400K tokens per hour
 
         user = make_user(user_id=1)
 
@@ -338,7 +359,7 @@ class TestOutputTokenAdjustment:
         ctx = make_context(
             user=user,
             model="claude-3-5-haiku",
-            max_output_tokens=80_000,
+            max_output_tokens=400_000,
             request_id="req-1",
         )
 
