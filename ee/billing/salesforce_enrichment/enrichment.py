@@ -201,46 +201,30 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
         period_data = historical.get(period, {})
         return period_data.get("value")
 
+    def _extract_first_tag(tag_list: list, type_filter: str | None = None) -> str | None:
+        """Extract first tag with non-empty displayValue, optionally filtered by type."""
+        for tag in tag_list:
+            if isinstance(tag, dict) and (not type_filter or tag.get("type") == type_filter):
+                if value := tag.get("displayValue"):
+                    return value
+        return None
+
     # Extract primary tag from tags array (prefer isPrimaryTag=true, fallback to first tag, then tagsV2)
     tags_v2 = harmonic_data.get("tagsV2", [])
     primary_tag = None
 
     if tags:
-        # First try to find a tag marked as primary with non-empty displayValue
+        # First try isPrimaryTag, then first valid tag
         for tag in tags:
-            if isinstance(tag, dict) and tag.get("isPrimaryTag"):
-                value = tag.get("displayValue")
-                if value:  # Skip empty strings
-                    primary_tag = value
-                    break
-
-        # If no primary tag found, use the first tag with non-empty displayValue
+            if isinstance(tag, dict) and tag.get("isPrimaryTag") and (value := tag.get("displayValue")):
+                primary_tag = value
+                break
         if not primary_tag:
-            for tag in tags:
-                if isinstance(tag, dict):
-                    value = tag.get("displayValue")
-                    if value:
-                        primary_tag = value
-                        break
+            primary_tag = _extract_first_tag(tags)
 
-    # If tags is empty or no valid tag found, fallback to tagsV2 with MARKET_VERTICAL type
+    # Fallback to tagsV2: MARKET_VERTICAL first, then any
     if not primary_tag and tags_v2:
-        # Look for MARKET_VERTICAL type first with non-empty displayValue
-        for tag in tags_v2:
-            if isinstance(tag, dict) and tag.get("type") == "MARKET_VERTICAL":
-                value = tag.get("displayValue")
-                if value:
-                    primary_tag = value
-                    break
-
-        # If no MARKET_VERTICAL found, use first tag with non-empty displayValue
-        if not primary_tag:
-            for tag in tags_v2:
-                if isinstance(tag, dict):
-                    value = tag.get("displayValue")
-                    if value:
-                        primary_tag = value
-                        break
+        primary_tag = _extract_first_tag(tags_v2, "MARKET_VERTICAL") or _extract_first_tag(tags_v2)
 
     update_data = {
         "Id": account_id,
