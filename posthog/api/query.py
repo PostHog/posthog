@@ -35,7 +35,7 @@ from posthog.clickhouse.client.execute_async import cancel_query, get_query_stat
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError, get_exposed_error_detail
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -169,7 +169,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             )
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
+            detail = get_exposed_error_detail(e)
+            if isinstance(detail, dict):
+                return Response(
+                    {
+                        "type": "validation_error",
+                        "code": getattr(e, "code_name", None),
+                        "detail": detail,
+                        "attr": None,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            raise ValidationError(detail, getattr(e, "code_name", None))
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)

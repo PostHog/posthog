@@ -69,7 +69,7 @@ export async function pollForResults(
                 onPoll(statusResponse)
             }
         } catch (e: any) {
-            e.detail = e.data?.query_status?.error_message
+            e.detail = e.data?.query_status?.error_detail ?? e.data?.query_status?.error_message
             throw e
         }
     }

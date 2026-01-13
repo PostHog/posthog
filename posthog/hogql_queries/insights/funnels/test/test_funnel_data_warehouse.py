@@ -205,8 +205,11 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             with pytest.raises(ExposedCHQueryError) as exc_info:
                 runner.calculate()
 
-        assert type(exc_info.value).__name__ == "CHQueryErrorFunctionThrowIfValueIsNonZero"
-        assert "posthog_test_test_table_1.id_with_nulls, but a non-null value" in str(exc_info.value)
+        error = exc_info.value
+        assert type(error).__name__ == "CHQueryErrorFunctionThrowIfValueIsNonZero"
+        assert error.table_name == table_name
+        assert error.column_name == "id_with_nulls"
+        assert f"Encountered a null value in {table_name}.id_with_nulls" in str(error)
 
         # nulls can be filtered to make the query work
         not_null_filter: list[AnyPropertyFilter] = [
