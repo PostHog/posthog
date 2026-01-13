@@ -133,12 +133,19 @@ def cleanup_stale_flags_expiry_tracking_task(self: PushGatewayTask) -> None:
         logger.info("Flags Redis URL not set, skipping flags expiry tracking cleanup")
         return
 
+    duration_gauge = Gauge(
+        "posthog_cleanup_stale_flags_expiry_duration_seconds",
+        "Duration of cleanup_stale_flags_expiry_tracking_task",
+        registry=self.metrics_registry,
+    )
     entries_cleaned_gauge = Gauge(
         "posthog_cleanup_stale_flags_expiry_entries_cleaned",
         "Number of stale expiry tracking entries cleaned up",
         registry=self.metrics_registry,
     )
 
+    start_time = time.time()
     removed_count = cleanup_stale_expiry_tracking()
+    duration_gauge.set(time.time() - start_time)
     entries_cleaned_gauge.set(removed_count)
     logger.info("Completed flags expiry tracking cleanup", removed_count=removed_count)
