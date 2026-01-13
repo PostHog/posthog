@@ -67,6 +67,9 @@ class ClickHouseUser(StrEnum):
     MAX_AI = "max_ai"
     ENDPOINTS = "endpoints"
 
+    # queries that run for the purpose to prepare a query or decide how to run it
+    META = "meta"
+
     # Dev Operations - do not normally use
     OPS = "ops"
     # Only for migrations - do not normally use

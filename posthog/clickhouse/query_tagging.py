@@ -111,6 +111,7 @@ class QueryTags(BaseModel):
 
     route_id: Optional[str] = None
     workload: Optional[str] = None  # enum connection.Workload
+    query_weight: Optional[str] = None  # QueryWeight enum value
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
     exported_asset_id: Optional[int] = None
