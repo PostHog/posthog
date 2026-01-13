@@ -864,6 +864,23 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Manage memories to store and retrieve persistent information',
         icon: <IconMemory />,
     },
+    create_notebook: {
+        name: 'Create a document',
+        description: 'Create a document to write down your thoughts',
+        icon: iconForType('notebook'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.args.draft_content) {
+                if (toolCall.status === 'completed') {
+                    return 'Created a draft document'
+                }
+                return 'Creating a draft document...'
+            }
+            if (toolCall.status === 'completed') {
+                return 'Created a document'
+            }
+            return 'Creating a document...'
+        },
+    },
 }
 
 export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {

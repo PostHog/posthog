@@ -1953,7 +1953,8 @@
                 "create_form",
                 "task",
                 "upsert_dashboard",
-                "manage_memories"
+                "manage_memories",
+                "create_notebook"
             ],
             "type": "string"
         },
