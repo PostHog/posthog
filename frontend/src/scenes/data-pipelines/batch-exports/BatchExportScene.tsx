@@ -30,6 +30,7 @@ import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
 import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { normalizeBatchExportService } from './utils'
+import { humanizeBatchExportName } from './utils'
 
 const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'runs', 'backfills'] as const
 export type BatchExportSceneTab = (typeof BATCH_EXPORT_SCENE_TABS)[number]
@@ -122,7 +123,7 @@ function BatchExportSceneHeader({ logicProps }: { logicProps: BatchExportConfigu
     return (
         <>
             <SceneTitleSection
-                name={configuration.name}
+                name={humanizeBatchExportName(configuration.name)}
                 description={null}
                 // TODO: follow up at some point and add description support
                 // description={configuration.description || ''}

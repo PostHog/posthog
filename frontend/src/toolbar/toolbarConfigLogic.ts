@@ -158,7 +158,7 @@ export interface ToolbarMediaUploadResponse {
  * This is a separate function from toolbarFetch because it needs to handle FormData
  * instead of JSON payloads.
  */
-export async function toolbarUploadMedia(file: File): Promise<{ url: string; fileName: string }> {
+export async function toolbarUploadMedia(file: File): Promise<{ id: string; url: string; fileName: string }> {
     const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
     const apiURL = toolbarConfigLogic.findMounted()?.values.apiURL
 
@@ -196,6 +196,7 @@ export async function toolbarUploadMedia(file: File): Promise<{ url: string; fil
 
     const data: ToolbarMediaUploadResponse = await response.json()
     return {
+        id: data.id,
         url: data.image_location,
         fileName: data.name,
     }
