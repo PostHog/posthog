@@ -1219,7 +1219,7 @@ def test_creating_http_batch_export_only_allows_events_model(
     destination_data = {
         "type": "HTTP",
         "config": {
-            "url": "https://test.i.posthog.com/batch/",
+            "url": "https://us.i.posthog.com/batch/",
             "token": "secret-token",
         },
     }

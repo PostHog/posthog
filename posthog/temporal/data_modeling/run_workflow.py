@@ -544,12 +544,11 @@ async def materialize_model(
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
         if delta_table is None:
-            delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
+            error_message = "Query returned no results. Check that the query returns data before materializing."
+            raise NonRetryableException(f"Query for model {model_label} failed: {error_message}")
     except Exception as e:
         error_message = str(e)
-
         await logger.aerror(f"Error materializing model {model_label}: {error_message}")
-
         if "Query exceeds memory limits" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -609,7 +608,9 @@ async def materialize_model(
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
-            raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e
+            if isinstance(e, NonRetryableException):
+                raise NonRetryableException(error_message)
+            raise Exception(error_message) from e
 
     data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
     if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
