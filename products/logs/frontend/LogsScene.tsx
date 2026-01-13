@@ -46,13 +46,17 @@ const LogsSceneContent = (): JSX.Element => {
         isAllServicesSelected,
     } = useValues(logsLogic)
     const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
-    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
-        useActions(logsLogic)
+    const {
+        runQuery,
+        fetchNextLogsPage,
+        setOrderBy,
+        addFilter,
+        setDateRange,
+        setSparklineBreakdownBy,
+        openServiceFilter,
+    } = useActions(logsLogic)
 
-    const slowLoadingHint =
-        showSlowLoadingHint && isAllServicesSelected
-            ? 'Taking a long time? Try selecting a specific service to speed things up.'
-            : null
+    const shouldShowSlowLoadingHint = showSlowLoadingHint && isAllServicesSelected
 
     return (
         <>
@@ -105,7 +109,8 @@ const LogsSceneContent = (): JSX.Element => {
                     onDateRangeChange={setDateRange}
                     sparklineBreakdownBy={sparklineBreakdownBy}
                     onSparklineBreakdownByChange={setSparklineBreakdownBy}
-                    slowLoadingHint={slowLoadingHint}
+                    showSlowLoadingHint={shouldShowSlowLoadingHint}
+                    onOpenServiceFilter={openServiceFilter}
                 />
             </div>
         </>

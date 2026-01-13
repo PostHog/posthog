@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useEffect, useState } from 'react'
 
 import { LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
@@ -11,9 +12,17 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { ALL_SERVICES_VALUE, logsLogic } from '../logsLogic'
 
 export const ServiceFilter = (): JSX.Element => {
-    const { serviceNames, dateRange, isAllServicesSelected } = useValues(logsLogic)
+    const { serviceNames, dateRange, isAllServicesSelected, openServiceFilterRequest } = useValues(logsLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { setServiceNames } = useActions(logsLogic)
+    const [dropdownVisible, setDropdownVisible] = useState(false)
+
+    // Listen for requests to open the service filter from other components
+    useEffect(() => {
+        if (openServiceFilterRequest) {
+            setDropdownVisible(true)
+        }
+    }, [openServiceFilterRequest])
 
     const endpoint = combineUrl(`api/environments/${currentProjectId}/logs/values`, {
         key: 'service.name',
@@ -24,6 +33,8 @@ export const ServiceFilter = (): JSX.Element => {
     if (isAllServicesSelected) {
         return (
             <LemonDropdown
+                visible={dropdownVisible}
+                onVisibilityChange={setDropdownVisible}
                 overlay={
                     <div className="p-2 w-64">
                         <PropertyValue
@@ -36,6 +47,7 @@ export const ServiceFilter = (): JSX.Element => {
                             onSet={(values) => {
                                 if (values && values.length > 0) {
                                     setServiceNames(values)
+                                    setDropdownVisible(false)
                                 }
                             }}
                             placeholder="Search services..."
