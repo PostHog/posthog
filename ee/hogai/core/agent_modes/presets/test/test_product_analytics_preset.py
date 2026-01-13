@@ -33,40 +33,6 @@ class TestProductAnalyticsAgentToolkit(BaseTest):
         tool_class_names = [tool_class.__name__ for tool_class in tool_classes]
         self.assertIn("CreateInsightTool", tool_class_names)
 
-    @patch(
-        "ee.hogai.core.agent_modes.presets.product_analytics.ProductAnalyticsAgentToolkit._has_session_summarization_feature_flag"
-    )
-    @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
-    @patch("posthoganalytics.feature_enabled")
-    async def test_legacy_tools_when_agent_modes_disabled(
-        self, mock_agent_modes_feature_flag, mock_model, mock_has_session_summarization_feature_flag
-    ):
-        """
-        Test that legacy tools (create_and_query_insight and session_summarization) are included
-        when the agent modes feature flag is disabled.
-
-        TODO: Remove this test after agent modes feature flag is fully rolled out.
-        """
-        mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
-        mock_agent_modes_feature_flag.return_value = False
-        mock_has_session_summarization_feature_flag.return_value = True
-
-        toolkit = ProductAnalyticsAgentToolkit(
-            team=self.team,
-            user=self.user,
-            context_manager=AssistantContextManager(self.team, self.user, RunnableConfig(configurable={})),
-        )
-
-        # Check the tools property instead of calling get_tools
-        tool_classes = toolkit.tools
-        tool_class_names = [tool_class.__name__ for tool_class in tool_classes]
-
-        # When agent modes is disabled, we should have the legacy tools
-        self.assertIn("CreateAndQueryInsightTool", tool_class_names)
-        self.assertIn("SessionSummarizationTool", tool_class_names)
-        self.assertNotIn("CreateInsightTool", tool_class_names)
-        self.assertNotIn("SwitchModeTool", tool_class_names)
-
 
 class TestProductAnalyticsAgentNode(BaseTest):
     @parameterized.expand(
@@ -89,7 +55,7 @@ class TestProductAnalyticsAgentNode(BaseTest):
                         tool_calls=[
                             {
                                 "id": "xyz",
-                                "name": "create_and_query_insight",
+                                "name": "create_insight",
                                 "args": {"query_description": "Foobar", "query_kind": insight_type},
                             }
                         ],
@@ -114,9 +80,10 @@ class TestProductAnalyticsAgentNode(BaseTest):
             state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
             next_state = await node.arun(state_1, {})
             assert isinstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 1)
-            self.assertIsInstance(next_state.messages[0], AssistantMessage)
-            assistant_message = next_state.messages[0]
+            # The state includes context messages + original message + generated message
+            self.assertGreaterEqual(len(next_state.messages), 1)
+            assistant_message = next_state.messages[-1]
+            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, content)
             self.assertIsNotNone(assistant_message.id)
@@ -127,7 +94,7 @@ class TestProductAnalyticsAgentNode(BaseTest):
                 assistant_message.tool_calls[0],
                 AssistantToolCall(
                     id="xyz",
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={"query_description": "Foobar", "query_kind": insight_type},
                 ),
             )

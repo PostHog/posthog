@@ -19,6 +19,7 @@
     "scripts": {
         "prepare": "husky install",
         "schema:build": "bin/hogli build:schema",
+        "openapi:build": "bin/hogli build:openapi",
         "schema:build:python": "bash bin/build-schema-python.sh",
         "taxonomy:build": "pnpm run taxonomy:build:json",
         "taxonomy:build:json": "python bin/build-taxonomy-json.py",
@@ -61,6 +62,7 @@
         "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/uuid": "^10.0.0",
         "markdownlint-cli2": "^0.18.1",
+        "orval": "8.0.0-rc.5",
         "oxlint": "^1.8.0",
         "prettier": "^3.6.2",
         "stylelint": "^15.11.0",
@@ -111,7 +113,7 @@
         "*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
         "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
-        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:plugin-server",
+        "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",

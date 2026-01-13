@@ -2,7 +2,7 @@ import uuid
 import itertools
 from abc import ABC
 from functools import cached_property
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -134,25 +134,6 @@ class FunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    # This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
-    # We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
-    # arrayRotateRight turns [1,2,3] into [3,1,2]
-    # arrayRotateLeft turns [1,2,3] into [2,3,1]
-    # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
-    def event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
-        return f"""arrayFilter(
-                    (x, x_before, x_after) -> not (
-                        length(x.{steps_index}) <= 1
-                        and x.{steps_index} == x_before.{steps_index}
-                        and x.{steps_index} == x_after.{steps_index}
-                        and x.{prop_val_index} == x_before.{prop_val_index}
-                        and x.{prop_val_index} == x_after.{prop_val_index}
-                        and x.{timestamp_index} > x_before.{timestamp_index}
-                        and x.{timestamp_index} < x_after.{timestamp_index}),
-                    events_array,
-                    arrayRotateRight(events_array, 1),
-                    arrayRotateLeft(events_array, 1))"""
-
     @cached_property
     def breakdown_cohorts(self) -> list[Cohort]:
         team, breakdown = self.context.team, self.context.breakdown
@@ -165,17 +146,6 @@ class FunnelBase(ABC):
             cohorts = Cohort.objects.filter(team__project_id=team.project_id, pk=breakdown)
 
         return list(cohorts)
-
-    @cached_property
-    def breakdown_cohorts_ids(self) -> list[int]:
-        breakdown = self.context.breakdown
-
-        ids = [int(cohort.pk) for cohort in self.breakdown_cohorts]
-
-        if isinstance(breakdown, list) and "all" in breakdown:
-            ids.append(ALL_USERS_COHORT_ID)
-
-        return ids
 
     def _format_results(
         self, results
@@ -270,8 +240,8 @@ class FunnelBase(ABC):
             name = step.event
             action_id = step.event
         elif isinstance(step, DataWarehouseNode):
-            name = ""
-            action_id = ""
+            name = f"{step.table_name}.{step.distinct_id_field}"
+            action_id = None
         else:
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
@@ -377,55 +347,6 @@ class FunnelBase(ABC):
             self.context.limit_context
         )
 
-    def _order_by(self) -> list[ast.OrderExpr]:
-        max_steps = self.context.max_steps
-        return [ast.OrderExpr(expr=ast.Field(chain=[f"step_{i}"]), order="DESC") for i in range(max_steps, 0, -1)]
-
-    # Wrap funnel query in another query to determine the top X breakdowns, and bucket all others into "Other" bucket
-    def _breakdown_other_subquery(self) -> ast.SelectQuery:
-        max_steps = self.context.max_steps
-        row_number = ast.Alias(
-            alias="row_number",
-            expr=ast.WindowFunction(
-                name="row_number",
-                over_expr=ast.WindowExpr(
-                    order_by=[ast.OrderExpr(expr=ast.Field(chain=[f"step_{max_steps}"]), order="DESC")]
-                    # TODO: this function doesn't support multiple order_by for some reason
-                    # order_by=[ast.OrderExpr(expr=ast.Field(chain=[f"step_{i}"]), order="DESC") for i in range(max_steps, 0, -1)],
-                ),
-            ),
-        )
-        select_query = ast.SelectQuery(
-            select=[
-                *self._get_count_columns(max_steps),
-                *self._get_step_time_array(max_steps),
-                *self._get_breakdown_prop_expr(),
-                row_number,
-            ],
-            select_from=ast.JoinExpr(table=self.get_step_counts_query()),
-        )
-        select_query.group_by = [ast.Field(chain=["prop"])]
-        other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
-
-        final_prop = ast.Alias(
-            alias="final_prop",
-            expr=parse_expr(
-                f"if(row_number < {self.get_breakdown_limit() + 1}, prop, {other_aggregation})",
-            ),
-        )
-        return ast.SelectQuery(
-            select=[
-                *self._get_sum_step_columns(max_steps),
-                *self._get_step_time_array_avgs(max_steps),
-                *self._get_step_time_array_median(max_steps),
-                final_prop,
-            ],
-            select_from=ast.JoinExpr(table=select_query),
-            group_by=[ast.Field(chain=["final_prop"])],
-            order_by=self._order_by(),
-            limit=ast.Constant(value=self.get_breakdown_limit() + 1),
-        )
-
     def _get_timestamp_outer_select(self) -> list[ast.Expr]:
         if self.context.includePrecedingTimestamp:
             return [ast.Field(chain=["max_timestamp"]), ast.Field(chain=["min_timestamp"])]
@@ -488,22 +409,6 @@ class FunnelBase(ABC):
                 raise ValueError("Missing funnelStep actors query property")
             return [parse_expr(f"step_{absolute_actors_step}_matching_events as matching_events")]
         return []
-
-    def _get_count_columns(self, max_steps: int) -> list[ast.Expr]:
-        exprs: list[ast.Expr] = []
-
-        for i in range(max_steps):
-            exprs.append(parse_expr(f"countIf(steps = {i + 1}) as step_{i + 1}"))
-
-        return exprs
-
-    def _get_sum_step_columns(self, max_steps: int) -> list[ast.Expr]:
-        exprs: list[ast.Expr] = []
-
-        for i in range(max_steps):
-            exprs.append(parse_expr(f"sum(step_{i + 1}) as step_{i + 1}"))
-
-        return exprs
 
     def _get_step_time_names(self, max_steps: int) -> list[ast.Expr]:
         exprs: list[ast.Expr] = []
@@ -576,38 +481,6 @@ class FunnelBase(ABC):
 
         return exprs
 
-    def _get_step_time_array(self, max_steps: int) -> list[ast.Expr]:
-        exprs: list[ast.Expr] = []
-
-        for i in range(1, max_steps):
-            exprs.append(parse_expr(f"groupArray(step_{i}_conversion_time) as step_{i}_conversion_time_array"))
-
-        return exprs
-
-    def _get_step_time_array_avgs(self, max_steps: int) -> list[ast.Expr]:
-        exprs: list[ast.Expr] = []
-
-        for i in range(1, max_steps):
-            exprs.append(
-                parse_expr(
-                    f"if(isNaN(avgArray(step_{i}_conversion_time_array) as inter_{i}_conversion), NULL, inter_{i}_conversion) as step_{i}_average_conversion_time"
-                )
-            )
-
-        return exprs
-
-    def _get_step_time_array_median(self, max_steps: int) -> list[ast.Expr]:
-        exprs: list[ast.Expr] = []
-
-        for i in range(1, max_steps):
-            exprs.append(
-                parse_expr(
-                    f"if(isNaN(medianArray(step_{i}_conversion_time_array) as inter_{i}_median), NULL, inter_{i}_median) as step_{i}_median_conversion_time"
-                )
-            )
-
-        return exprs
-
     def _get_timestamp_selects(self) -> tuple[list[ast.Expr], list[ast.Expr]]:
         """
         Returns timestamp selectors for the target step and optionally the preceding step.
@@ -648,79 +521,14 @@ class FunnelBase(ABC):
         else:
             return [], []
 
-    def _get_step_times(self, max_steps: int) -> list[ast.Expr]:
-        windowInterval = self.context.funnelWindowInterval
-        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
-
-        exprs: list[ast.Expr] = []
-
-        for i in range(1, max_steps):
-            exprs.append(
-                parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i - 1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
-                ),
-            )
-
-        return exprs
-
-    def _get_partition_cols(self, level_index: int, max_steps: int) -> list[ast.Expr]:
-        query, funnelsFilter = self.context.query, self.context.funnelsFilter
-        exclusions = funnelsFilter.exclusions
-        series = query.series
-
-        exprs: list[ast.Expr] = []
-
-        for i in range(0, max_steps):
-            exprs.append(ast.Field(chain=[f"step_{i}"]))
-
-            if i < level_index:
-                exprs.append(ast.Field(chain=[f"latest_{i}"]))
-
-                for field in self.extra_event_fields_and_properties:
-                    exprs.append(ast.Field(chain=[f"{field}_{i}"]))
-
-                for exclusion_id, exclusion in enumerate(exclusions or []):
-                    if cast(int, exclusion.funnelFromStep) + 1 == i:
-                        exprs.append(ast.Field(chain=[f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"]))
-
-            else:
-                duplicate_event = 0
-
-                if i > 0 and (is_equal(series[i], series[i - 1]) or is_superset(series[i], series[i - 1])):
-                    duplicate_event = 1
-
-                exprs.append(
-                    parse_expr(
-                        f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) as latest_{i}"
-                    )
-                )
-
-                for field in self.extra_event_fields_and_properties:
-                    exprs.append(
-                        parse_expr(
-                            f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) as "{field}_{i}"'
-                        )
-                    )
-
-                for exclusion_id, exclusion in enumerate(exclusions or []):
-                    # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
-                    if cast(int, exclusion.funnelFromStep) + 1 == i:
-                        exprs.append(
-                            parse_expr(
-                                f"min(exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) as exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
-                            )
-                        )
-
-        return exprs
-
-    def _get_breakdown_prop_expr(self, group_remaining=False) -> list[ast.Expr]:
+    def _get_breakdown_prop_expr(self) -> list[ast.Expr]:
         # SEE BELOW for a string implementation of the following
         if self.context.breakdown:
             return [ast.Field(chain=["prop"])]
         else:
             return []
 
-    def _get_breakdown_prop(self, group_remaining=False) -> str:
+    def _get_breakdown_prop(self) -> str:
         # SEE ABOVE for an ast implementation of the following
         if self.context.breakdown:
             return ", prop"
@@ -730,36 +538,6 @@ class FunnelBase(ABC):
     def _query_has_array_breakdown(self) -> bool:
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
         return breakdown is not None and not isinstance(breakdown, str) and breakdownType != "cohort"
-
-    def _get_exclusion_condition(self) -> list[ast.Expr]:
-        funnelsFilter = self.context.funnelsFilter
-        windowInterval = self.context.funnelWindowInterval
-        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
-
-        if not funnelsFilter.exclusions:
-            return []
-
-        conditions: list[ast.Expr] = []
-
-        for exclusion_id, exclusion in enumerate(funnelsFilter.exclusions):
-            from_time = f"latest_{exclusion.funnelFromStep}"
-            to_time = f"latest_{exclusion.funnelToStep}"
-            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
-            condition = parse_expr(
-                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
-            )
-            conditions.append(condition)
-
-        if conditions:
-            return [
-                ast.Alias(
-                    alias="exclusion",
-                    expr=ast.Call(name="arraySum", args=[ast.Array(exprs=conditions)]),
-                )
-            ]
-
-        else:
-            return []
 
     def _get_sorting_condition(self, curr_index: int, max_steps: int) -> ast.Expr:
         series = self.context.query.series

@@ -295,9 +295,13 @@ export function getViewRecordingFiltersLegacy(
         return []
     } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
-            const exposure_filter = seriesToFilterLegacy(metric.exposure_query.series[0], featureFlagKey, variantKey)
-            if (exposure_filter) {
-                filters.push(exposure_filter)
+            const exposureSeries = metric.exposure_query.series[0]
+            // Experiments don't support GroupNode yet - skip if it's a group
+            if (exposureSeries.kind !== NodeKind.GroupNode) {
+                const exposure_filter = seriesToFilterLegacy(exposureSeries, featureFlagKey, variantKey)
+                if (exposure_filter) {
+                    filters.push(exposure_filter)
+                }
             }
         } else {
             filters.push({
@@ -320,9 +324,13 @@ export function getViewRecordingFiltersLegacy(
                 ],
             })
         }
-        const count_filter = seriesToFilterLegacy(metric.count_query.series[0], featureFlagKey, variantKey)
-        if (count_filter) {
-            filters.push(count_filter)
+        const countSeries = metric.count_query.series[0]
+        // Experiments don't support GroupNode yet - skip if it's a group
+        if (countSeries.kind !== NodeKind.GroupNode) {
+            const count_filter = seriesToFilterLegacy(countSeries, featureFlagKey, variantKey)
+            if (count_filter) {
+                filters.push(count_filter)
+            }
         }
         return filters
     }
@@ -813,52 +821,6 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         interval: 'day',
         filterTestAccounts,
     }
-}
-
-/**
- * Appends a metric UUID to the appropriate ordering array
- * Returns a new array with the UUID added
- */
-export function appendMetricToOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
-    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-    const orderingArray = experiment[orderingField] ?? []
-
-    if (!orderingArray.includes(uuid)) {
-        return [...orderingArray, uuid]
-    }
-
-    return orderingArray
-}
-
-/**
- * Removes a metric UUID from the appropriate ordering array
- * Returns a new array with the UUID removed
- */
-export function removeMetricFromOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
-    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-    const orderingArray = experiment[orderingField] ?? []
-
-    return orderingArray.filter((existingUuid) => existingUuid !== uuid)
-}
-
-/**
- * Inserts a metric UUID into the ordering array right after another UUID
- * Returns a new array with the UUID inserted at the correct position
- */
-export function insertMetricIntoOrderingArray(
-    experiment: Experiment,
-    newUuid: string,
-    afterUuid: string,
-    isSecondary: boolean
-): string[] {
-    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-    const orderingArray = experiment[orderingField] ?? []
-
-    const afterIndex = orderingArray.indexOf(afterUuid)
-
-    const newArray = [...orderingArray]
-    newArray.splice(afterIndex + 1, 0, newUuid)
-    return newArray
 }
 
 /**

@@ -7,12 +7,13 @@ services:
         image: caddy
         entrypoint: sh
         restart: always
-        command: -c 'set -x && echo "$$CADDYFILE" > /etc/caddy/Caddyfile && exec caddy run -c /etc/caddy/Caddyfile'
+        command: -c 'set -x && echo "$$CADDYFILE" > /etc/caddy/Caddyfile && echo "$$CADDY_EXTRA_CONFIG" >> /etc/caddy/Caddyfile && exec caddy run -c /etc/caddy/Caddyfile'
         volumes:
             - /root/.caddy
         environment:
             CADDY_TLS_BLOCK: ''
             CADDY_HOST: 'http://localhost:8000'
+            CADDY_EXTRA_CONFIG: ''
             CADDYFILE: |
                 {
                 ${CADDY_TLS_BLOCK:-}
@@ -57,6 +58,19 @@ services:
                         path /public/webhooks/*
                         path /public/m/
                         path /public/m/*
+                    }
+
+                    @livestream {
+                        path /livestream
+                        path /livestream/
+                        path /livestream/*
+                    }
+
+                    handle @livestream {
+                        uri strip_prefix /livestream
+                        reverse_proxy livestream:8080 {
+                            flush_interval -1
+                        }
                     }
 
                     handle @capture-ai {
@@ -346,7 +360,7 @@ services:
             COOKIELESS_REDIS_PORT: 6379
 
     plugins:
-        command: ./bin/plugin-server --no-restart-loop
+        command: ./bin/posthog-node --no-restart-loop
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'

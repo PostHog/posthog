@@ -2,7 +2,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { useLayoutEffect, useMemo, useState } from 'react'
-import { twMerge } from 'tailwind-merge'
 
 import {
     IconBrain,
@@ -44,6 +43,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -72,6 +72,7 @@ import { isHogQLQuery } from '~/queries/utils'
 import { Region } from '~/types'
 
 import { ContextSummary } from './Context'
+import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
 import { TicketPrompt } from './TicketPrompt'
@@ -128,7 +129,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
 
     return (
         <div
-            className={twMerge(
+            className={cn(
                 '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
                 className
             )}
@@ -281,7 +282,7 @@ function MessageContainer({
 }): JSX.Element {
     return (
         <div
-            className={twMerge(
+            className={cn(
                 'relative flex',
                 groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
                 className
@@ -310,10 +311,38 @@ interface MessageProps {
 function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
-    const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
+    const { threadLoading, isSharedThread, pendingApprovalsData } = useValues(maxThreadLogic)
+    const { conversationId } = useValues(maxLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
+
+    // Compute pending approval cards that match this message's tool_calls
+    // Must be at component level (not inside conditional) to satisfy React hooks rules
+    const approvalCardElements = useMemo(() => {
+        if (!conversationId || !isAssistantMessage(message) || !message.tool_calls?.length) {
+            return null
+        }
+        const toolCallIds = new Set(message.tool_calls.map((tc) => tc.id).filter(Boolean))
+        const matchingApprovals = Object.values(pendingApprovalsData).filter(
+            (approval) => approval.original_tool_call_id && toolCallIds.has(approval.original_tool_call_id)
+        )
+        if (matchingApprovals.length === 0) {
+            return null
+        }
+        return matchingApprovals.map((approval) => (
+            <DangerousOperationApprovalCard
+                key={`approval-${approval.proposal_id}`}
+                operation={{
+                    status: 'pending_approval',
+                    proposalId: approval.proposal_id,
+                    toolName: approval.tool_name,
+                    preview: approval.preview,
+                    payload: approval.payload as Record<string, any>,
+                }}
+            />
+        ))
+    }, [conversationId, message, pendingApprovalsData])
 
     return (
         <MessageContainer groupType={groupType}>
@@ -507,6 +536,7 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                 {thinkingElements}
                                 {textElement}
                                 {toolCallElements}
+                                {approvalCardElements}
                                 {multiQuestionFormElement}
                                 {actionsElement}
                             </div>

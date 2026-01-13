@@ -613,7 +613,7 @@ export function DataTable({
                                       sessionId={event?.properties?.$session_id}
                                       recordingStatus={event?.properties?.$recording_status}
                                       timestamp={event?.timestamp}
-                                      hasRecording={event?.properties?.has_recording as boolean | undefined}
+                                      hasRecording={event?.properties?.$has_recording as boolean | undefined}
                                       openPlayerIn={RecordingPlayerType.Modal}
                                       size="xsmall"
                                       type="secondary"

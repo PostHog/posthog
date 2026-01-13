@@ -2,36 +2,29 @@ import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isEventsNode } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../constants'
 import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import { buildDashboardItemId } from '../../utils'
+import { buildDashboardItemId, isPageviewWithoutFilters } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 
 export function ActiveUsersInsights(): JSX.Element {
     const { activityEvent, activeUsersInsights, customerLabel, tabId } = useValues(customerAnalyticsSceneLogic)
-    const activityEventBannerCopy = useFeatureFlag('ACTIVITY_EVENT_BANNER_WORDING', 'test')
-        ? 'What makes a user active in your product? Choose an event that signals real engagement, like completing a core action, rather than generic pageviews.'
-        : 'You are currently using the pageview event to define user activity. Consider using a more specific event or action to track activity accurately.'
 
     // Check if using pageview as default, with no properties filter
-    const isOnlyPageview =
-        isEventsNode(activityEvent) &&
-        activityEvent.event === '$pageview' &&
-        (!activityEvent.properties || activityEvent.properties.length === 0)
+    const isOnlyPageview = isPageviewWithoutFilters(activityEvent)
 
     return (
         <div className="space-y-2">
             {isOnlyPageview && (
                 <LemonBanner type="warning">
-                    {activityEventBannerCopy}
+                    What makes a user active in your product? Choose an event that signals real engagement, like
+                    completing a core action, rather than generic pageviews.
                     <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
                         <LemonButton
                             data-attr="customer-analytics-configure-activity-event"

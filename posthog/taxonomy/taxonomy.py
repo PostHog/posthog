@@ -901,6 +901,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "used_for_debug": True,
         },
+        "$has_recording": {
+            "label": "Has recording",
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
+            "system": True,
+            "used_for_debug": True,
+        },
         "$cymbal_errors": {
             "label": "Exception processing errors",
             "description": "Errors encountered while trying to process exceptions.",
@@ -2099,9 +2105,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this person in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_mrr": {
+            "description": "The current MRR for this person.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": True,
         },
@@ -2213,9 +2219,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this group in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_mrr": {
+            "description": "The current MRR for this group.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": True,
         },

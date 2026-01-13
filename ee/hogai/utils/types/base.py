@@ -71,11 +71,25 @@ AssistantResultUnion = Union[
     AssistantStreamedMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent, SubagentUpdateEvent
 ]
 
+
+class ApprovalPayload(BaseModel):
+    """Payload for dangerous operation approval requests."""
+
+    proposal_id: str
+    decision_status: str
+    tool_name: str
+    preview: str
+    payload: dict
+    original_tool_call_id: str | None
+    message_id: str | None
+
+
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]
     | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusEvent]
     | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent | SubagentUpdateEvent]
+    | tuple[Literal[AssistantEventType.APPROVAL], ApprovalPayload]
 )
 
 AnyAssistantGeneratedQuery = (
@@ -442,6 +456,10 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     visualization_title: Optional[str] = Field(default=None)
     """
     The title of the visualization to be created.
+    """
+    visualization_description: Optional[str] = Field(default=None)
+    """
+    The description of the visualization to be created.
     """
 
 

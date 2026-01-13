@@ -8,6 +8,7 @@ use crate::{
         flag_models::{FeatureFlag, FeatureFlagList},
         flag_service::FlagService,
     },
+    utils::user_agent::{RuntimeType, UserAgentInfo},
 };
 use axum::extract::State;
 use common_types::TeamId;
@@ -16,7 +17,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use super::{evaluation, types::FeatureFlagEvaluationContext};
+use super::{evaluation, types::FeatureFlagEvaluationContext, with_canonical_log};
 use crate::router;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -78,41 +79,14 @@ fn detect_evaluation_runtime_from_request(
         return Some(runtime);
     }
 
-    // Analyze User-Agent header
-    if let Some(user_agent) = headers.get("user-agent").and_then(|v| v.to_str().ok()) {
-        // Browser patterns - these typically indicate client-side execution
-        if user_agent.contains("Mozilla/")
-            || user_agent.contains("Chrome/")
-            || user_agent.contains("Safari/")
-            || user_agent.contains("Firefox/")
-            || user_agent.contains("Edge/")
-        {
-            return Some(EvaluationRuntime::Client);
-        }
+    // Analyze User-Agent header using shared parsing logic
+    let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
+    let ua_info = UserAgentInfo::parse(user_agent);
 
-        // Server SDK patterns - these indicate server-side execution
-        if user_agent.starts_with("posthog-python/")
-            || user_agent.starts_with("posthog-ruby/")
-            || user_agent.starts_with("posthog-php/")
-            || user_agent.starts_with("posthog-java/")
-            || user_agent.starts_with("posthog-go/")
-            || user_agent.starts_with("posthog-node/") // Note: server-side Node.js
-            || user_agent.starts_with("posthog-dotnet/")
-            || user_agent.starts_with("posthog-elixir/")
-            || user_agent.contains("python-requests/")
-            || user_agent.contains("curl/")
-        {
-            return Some(EvaluationRuntime::Server);
-        }
-
-        // Mobile SDK patterns - these indicate client-side mobile execution
-        if user_agent.starts_with("posthog-android/")
-            || user_agent.starts_with("posthog-ios/")
-            || user_agent.starts_with("posthog-react-native/")
-            || user_agent.starts_with("posthog-flutter/")
-        {
-            return Some(EvaluationRuntime::Client);
-        }
+    match ua_info.runtime {
+        RuntimeType::Client => return Some(EvaluationRuntime::Client),
+        RuntimeType::Server => return Some(EvaluationRuntime::Server),
+        RuntimeType::Unknown => {}
     }
 
     // Check for browser-specific headers that indicate client-side
@@ -177,6 +151,9 @@ pub async fn fetch_and_filter(
     environment_tags: Option<&Vec<String>>,
 ) -> Result<FeatureFlagList, FlagError> {
     let flag_result = flag_service.get_flags_from_cache_or_pg(team_id).await?;
+
+    // Record cache source in canonical log for observability
+    with_canonical_log(|log| log.flags_cache_source = Some(flag_result.cache_source.as_log_str()));
 
     // First filter by survey flags if requested
     let flags_after_survey_filter = filter_survey_flags(
@@ -280,6 +257,10 @@ pub async fn evaluate_for_request(
         groups,
         hash_key_override,
         flag_keys,
+        optimize_experience_continuity_lookups: state
+            .config
+            .optimize_experience_continuity_lookups
+            .0,
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

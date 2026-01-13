@@ -10,7 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication

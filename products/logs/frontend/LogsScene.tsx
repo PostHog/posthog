@@ -1,19 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ListHog } from 'lib/components/hedgehogs'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsFilters } from 'products/logs/frontend/components/LogsFilters'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
+import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
+import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 
 import { logsLogic } from './logsLogic'
 
@@ -24,6 +22,16 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
+    return (
+        <SceneContent>
+            <LogsSetupPrompt>
+                <LogsSceneContent />
+            </LogsSetupPrompt>
+        </SceneContent>
+    )
+}
+
+const LogsSceneContent = (): JSX.Element => {
     const {
         tabId,
         parsedLogs,
@@ -33,17 +41,14 @@ export function LogsScene(): JSX.Element {
         hasMoreLogsToLoad,
         orderBy,
         sparklineData,
+        sparklineBreakdownBy,
     } = useValues(logsLogic)
-    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange } = useActions(logsLogic)
-
-    useEffect(() => {
-        if (parsedLogs.length === 0) {
-            runQuery()
-        }
-    }, [runQuery, parsedLogs.length])
+    const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
+        useActions(logsLogic)
 
     return (
-        <SceneContent>
+        <>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
                 description={sceneConfigurations[Scene.Logs].description}
@@ -51,6 +56,19 @@ export function LogsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
             />
+            {teamHasLogsCheckFailed && (
+                <LemonBanner
+                    type="info"
+                    dismissKey="logs-setup-hint-banner"
+                    action={{
+                        to: 'https://posthog.com/docs/logs/',
+                        targetBlank: true,
+                        children: 'Setup guide',
+                    }}
+                >
+                    Unable to verify logs setup. If you haven't configured logging yet, check out our setup guide.
+                </LemonBanner>
+            )}
             <LemonBanner
                 type="warning"
                 dismissKey="logs-beta-banner"
@@ -62,15 +80,6 @@ export function LogsScene(): JSX.Element {
                     limits, we want to hear from you.
                 </p>
             </LemonBanner>
-            <ProductIntroduction
-                productName="logs"
-                productKey={ProductKey.LOGS}
-                thingName="log"
-                description={sceneConfigurations[Scene.Logs].description ?? ''}
-                docsURL="https://posthog.com/docs/logs"
-                customHog={ListHog}
-                isEmpty={false}
-            />
             <LogsFilters />
             <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
                 <LogsViewer
@@ -87,8 +96,10 @@ export function LogsScene(): JSX.Element {
                     sparklineData={sparklineData}
                     sparklineLoading={sparklineLoading}
                     onDateRangeChange={setDateRange}
+                    sparklineBreakdownBy={sparklineBreakdownBy}
+                    onSparklineBreakdownByChange={setSparklineBreakdownBy}
                 />
             </div>
-        </SceneContent>
+        </>
     )
 }

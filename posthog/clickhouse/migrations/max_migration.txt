@@ -1,1 +1,1 @@
-0193_add_lc_is_impersonated_to_query_log_archive
+0194_add_person_id_to_precalculated_person_properties

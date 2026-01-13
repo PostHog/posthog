@@ -171,6 +171,32 @@ export const CollectSurveyResponsesContent = (): JSX.Element => (
     </div>
 )
 
+export const IngestFirstLLMEventContent = (): JSX.Element => (
+    <div className="text-sm text-muted space-y-2">
+        <p>
+            Start tracking your LLM usage by installing one of our SDKs. LLM analytics helps you monitor costs, latency,
+            and performance across all your AI-powered features.
+        </p>
+        <p>
+            Follow our <Link to="https://posthog.com/docs/llm-analytics/installation">installation guide</Link> to get
+            started with Python, JavaScript, or other supported languages.
+        </p>
+    </div>
+)
+
+export const ViewFirstTraceContent = (): JSX.Element => (
+    <div className="text-sm text-muted space-y-2">
+        <p>
+            View your first LLM trace to see how requests flow through your AI pipeline. Traces show you the full
+            context of each generation including prompts, responses, and performance metrics.
+        </p>
+        <p>
+            Visit the <Link to={urls.llmAnalyticsTraces()}>traces page</Link> to explore your LLM activity and learn{' '}
+            <Link to="https://posthog.com/docs/llm-analytics/traces">how to use traces effectively</Link>.
+        </p>
+    </div>
+)
+
 export const CreateFeatureFlagContent = (): JSX.Element => (
     <div className="text-sm text-muted space-y-2">
         <p>
@@ -218,4 +244,6 @@ export const activationTaskContentMap: Partial<Record<ActivationTask, React.FC>>
     [ActivationTask.ConnectSource]: ConnectSourceContent,
     [ActivationTask.LaunchSurvey]: LaunchSurveyContent,
     [ActivationTask.CollectSurveyResponses]: CollectSurveyResponsesContent,
+    [ActivationTask.IngestFirstLLMEvent]: IngestFirstLLMEventContent,
+    [ActivationTask.ViewFirstTrace]: ViewFirstTraceContent,
 }

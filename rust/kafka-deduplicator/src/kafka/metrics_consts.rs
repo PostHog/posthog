@@ -73,3 +73,12 @@ pub const PARTITION_WORKER_BACKPRESSURE_TOTAL: &str = "kafka_partition_worker_ba
 /// Histogram for time spent waiting due to partition worker backpressure (in milliseconds)
 pub const PARTITION_WORKER_BACKPRESSURE_WAIT_MS: &str =
     "kafka_partition_worker_backpressure_wait_ms";
+
+// ==== Offset Tracker metrics ====
+/// Counter for out-of-order batch processing events
+/// Incremented when a batch completes with a batch_id lower than or equal to the last processed batch_id
+pub const OFFSET_TRACKER_OUT_OF_ORDER_BATCH: &str = "kafka_offset_tracker_out_of_order_batch_total";
+
+/// Counter for offset commits skipped during rebalancing
+pub const OFFSET_TRACKER_COMMITS_SKIPPED_REBALANCING: &str =
+    "kafka_offset_tracker_commits_skipped_rebalancing_total";

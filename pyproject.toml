@@ -16,12 +16,12 @@ dependencies = [
     "brotli==1.1.0",
     "celery==5.3.6",
     "celery-redbeat==2.1.1",
-    "certifi==2025.8.3",
+    "certifi==2026.1.4",
     "clickhouse-connect==0.8.17",
     "clickhouse-driver==0.2.9",
     "clickhouse-pool==0.5.3",
     "conditional-cache==1.2",
-    "cryptography==39.0.2",
+    "cryptography==46.0.3",
     "dagster==1.10.18",
     "dagster-cloud==1.10.18",
     "dagster-aws==0.26.18",
@@ -34,13 +34,13 @@ dependencies = [
     "dagster-webserver==1.10.18",
     "deltalake==0.25.2",
     "dj-database-url==0.5.0",
-    "django~=4.2.26",
+    "django~=4.2.27",
     "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
     "django-extensions~=4.1.0",
     "django-filter~=25.1",
-    "django-loginas==0.3.11",
+    "django-loginas==0.3.14",
     "django-picklefield==3.0.1",
     "django-prometheus==2.2.0",
     "django-redis==6.0.0",
@@ -50,7 +50,7 @@ dependencies = [
     "djangorestframework~=3.16.1",
     "djangorestframework-csv~=3.0.2",
     "djangorestframework-dataclasses~=1.4.0",
-    "dlt==1.3.0",
+    "dlt==1.18.2",
     "dnspython==2.2.1",
     "drf-exceptions-hog==0.4.0",
     "drf-extensions~=0.8.0",
@@ -68,10 +68,11 @@ dependencies = [
     "jsonref==1.1.0",
     "kafka-python==2.0.6",
     "kombu==5.3.7",
-    "langchain==0.3.26",
-    "langchain-community==0.3.27",
-    "langchain-openai==0.3.33",
-    "langchain-anthropic==0.3.22",
+    "langchain~=0.3.27",
+    "langchain-community~=0.3.31",
+    "langchain-core~=0.3.81",
+    "langchain-openai~=0.3.35",
+    "langchain-anthropic~=0.3.22",
     "langgraph==0.4.10",
     "lxml==5.2.1",
     "lzstring==1.0.4",
@@ -116,10 +117,10 @@ dependencies = [
     "semantic-version==2.8.5",
     "simple-salesforce>=1.12.6",
     "slack-sdk==3.17.1",
-    "snowflake-connector-python==3.15.0",
-    "snowflake-sqlalchemy==1.7.3",
-    "social-auth-app-django~=5.4.0",
-    "social-auth-core~=4.7.0",
+    "snowflake-connector-python==4.1.1",
+    "snowflake-sqlalchemy==1.8.2",
+    "social-auth-app-django~=5.4.3",
+    "social-auth-core~=4.8.3",
     "django-scim2==0.19.0",
     "sqlalchemy==2.0.38",
     "sqlalchemy-bigquery[bqstorage]==1.12.1",
@@ -143,18 +144,20 @@ dependencies = [
     "tree-sitter-typescript==0.23.2",
     "types-cachetools==5.5.0.20240820",
     "tzlocal~=5.1",
+    "umap-learn>=0.5.0",
     "webdriver-manager==4.0.2",
     "whitenoise~=6.10.0",
     "xmlsec==1.3.14",
     "zstd==1.5.7.2",
-    "zxcvbn==4.4.28",
+    "zxcvbn==4.5.0",
     "pyyaml==6.0.1",
     "chdb==3.3.0",
     "elevenlabs>=1.58.1",
-    "django-oauth-toolkit>=3.0.1",
+    "django-oauth-toolkit==3.0.1",
     "langchain-perplexity>=0.1.1",
     "azure-ai-projects>=1.0.0b11",
     "azure-ai-inference>=1.0.0b9",
+    "azure-storage-blob~=12.27.0",
     "opentelemetry-sdk==1.33.1",
     "opentelemetry-instrumentation-django==0.54b1",
     "opentelemetry-instrumentation-asgi==0.54b1",
@@ -176,7 +179,6 @@ dependencies = [
     "modal>=1.2.1",
     "databricks-sql-connector~=4.1.3",
     "databricks-sdk~=0.67.0",
-    "litellm==1.80.0",
     "free-email-domains>=1.0.1",
     "disposable-email-domains>=0.0.140",
     "pymediainfo>=7.0.1",
@@ -184,8 +186,11 @@ dependencies = [
     "textcase>=0.4.5",
     "gitpython>=3.1.44",
     "duckdb>=1.3.0",
-    "bingads>=13.0.25.3",
+    "bingads~=13.0.26",
     "markdown-to-mrkdwn>=0.2.0",
+    "webauthn>=2.1.0,<2.3.0",
+    "botocore[crt]>=1.40.49",
+    "defusedxml>=0.7.1",
 ]
 
 [dependency-groups]
@@ -208,7 +213,7 @@ dev = [
     "pytest-rerunfailures~=16.1",
     "freezegun==1.2.2",
     "ipython>=9.3.0",
-    "mypy~=1.18.2",
+    "mypy~=1.19.1",
     "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
     "ty==0.0.4",
@@ -274,7 +279,7 @@ profile = "black"
 line-length = 120
 exclude = [
     ".git",
-    "./plugin-server/node_modules/",
+    "./nodejs/node_modules/",
     "./plugins/node_modules/",
     "./env",
     "./posthog/hogql/grammar",
@@ -354,6 +359,39 @@ section-order = [
 
 [tool.dagster]
 python_version = "3.12"
+
+[tool.mypy]
+python_version = "3.12"
+plugins = [
+    "mypy_django_plugin.main",
+    "mypy_drf_plugin.main",
+    "pydantic.mypy",
+]
+strict_optional = true
+no_implicit_optional = true
+warn_unused_ignores = true
+check_untyped_defs = true
+warn_unreachable = true
+strict_equality = true
+ignore_missing_imports = true
+exclude_gitignore = true
+exclude = ["^(bin/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+
+[[tool.mypy.overrides]]
+module = "bin.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "posthog.hogql.grammar.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "posthog.tasks.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.django-stubs]
+django_settings_module = "posthog.settings"
 
 [tool.mypy-baseline]
 sort_baseline = true

@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -32,6 +33,7 @@ export enum TraceViewMode {
     Raw = 'raw',
     Summary = 'summary',
     Evals = 'evals',
+    Clusters = 'clusters',
 }
 
 export interface LLMAnalyticsTraceDataNodeLogicParams {
@@ -110,6 +112,9 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     }
                     if (tab === 'evals') {
                         return TraceViewMode.Evals
+                    }
+                    if (tab === 'clusters') {
+                        return TraceViewMode.Clusters
                     }
                     return TraceViewMode.Conversation
                 },
@@ -367,6 +372,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         traceId: (traceId: string) => {
             if (traceId) {
                 actions.loadCommentCount()
+
+                // Mark both tasks as completed - viewing a trace implies AI events were sent
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.IngestFirstLLMEvent)
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.ViewFirstTrace)
             }
         },
     })),
@@ -391,4 +400,38 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             actions.setSearchQuery(search || '')
         },
     })),
+
+    actionToUrl(({ values }) => {
+        const buildUrl = (): string | undefined => {
+            if (!values.traceId) {
+                return undefined
+            }
+            const params: Record<string, string> = {}
+            if (values.eventId) {
+                params.event = values.eventId
+            }
+            if (values.dateRange) {
+                if (values.dateRange.dateFrom && !values.dateRange.dateTo) {
+                    params.timestamp = values.dateRange.dateFrom
+                } else if (values.dateRange.dateFrom && values.dateRange.dateTo) {
+                    params.exception_ts = dayjs(values.dateRange.dateFrom)
+                        .add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes')
+                        .toISOString()
+                }
+            }
+            if (values.searchQuery) {
+                params.search = values.searchQuery
+            }
+            if (values.lineNumber) {
+                params.line = values.lineNumber.toString()
+            }
+            // Always include tab parameter
+            params.tab = values.viewMode
+            return urls.llmAnalyticsTrace(values.traceId, params)
+        }
+
+        return {
+            setViewMode: buildUrl,
+        }
+    }),
 ])
