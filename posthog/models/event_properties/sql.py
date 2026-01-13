@@ -143,6 +143,8 @@ def EVENT_PROPERTIES_MV_SQL():
     # The MV receives raw_value as a string from Kafka
     value_expr = "raw_value"
 
+    # For value_string: default to string for any unknown property_type (fallback to avoid data loss)
+    # Known types that use other columns (Numeric, Boolean) explicitly get NULL in value_string
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
 AS SELECT
@@ -152,7 +154,7 @@ AS SELECT
     distinct_id,
     uuid,
     key,
-    if(property_type IN ('String', 'DateTime'), {string_transform}, NULL) as value_string,
+    if(property_type IN ('Numeric', 'Boolean'), NULL, {string_transform}) as value_string,
     if(property_type = 'Numeric', {numeric_transform}, NULL) as value_numeric,
     if(property_type = 'Boolean', {boolean_transform}, NULL) as value_bool,
     _timestamp,

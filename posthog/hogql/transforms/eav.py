@@ -48,7 +48,12 @@ class EAVResolver(TraversingVisitor):
         if not isinstance(resolved_table, EventsTable):
             return
 
-        property_name = str(node.chain[0])
+        # Skip integer indices - they do positional array access on the JSON object,
+        # not named property access (e.g., properties[1] returns value at position 1)
+        if not isinstance(node.chain[0], str):
+            return
+
+        property_name = node.chain[0]
         prop_info = self.context.property_swapper.event_properties.get(property_name, {})
         eav_column = prop_info.get("eav")
 

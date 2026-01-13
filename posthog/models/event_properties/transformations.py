@@ -25,7 +25,7 @@ def numeric_transform(value_expr: str) -> str:
 
 def boolean_transform(value_expr: str) -> str:
     """Convert 'true'/'false' (case-sensitive) to 1/0, NULL otherwise. Matches HogQL toBool()."""
-    return f"toBool(transform(toString({value_expr}), ['true', 'false'], [1, 0], NULL))"
+    return f"transform(toString({value_expr}), ['true', 'false'], [1, 0], NULL)"
 
 
 def datetime_transform(value_expr: str) -> str:

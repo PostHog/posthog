@@ -168,10 +168,13 @@ class PropertyFinder(TraversingVisitor):
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.field_type.name == "properties" and len(node.chain) == 1:
+            # Skip integer indices - they do positional array access, not named property access
+            if not isinstance(node.chain[0], str):
+                return
             if isinstance(node.field_type.table_type, ast.BaseTableType):
                 table_type = node.field_type.table_type
                 table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
-                property_name = str(node.chain[0])
+                property_name = node.chain[0]
                 if table_name == "persons" or table_name == "raw_persons":
                     self.person_properties.add(property_name)
                 if table_name == "groups":

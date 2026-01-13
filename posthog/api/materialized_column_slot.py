@@ -331,6 +331,23 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         if not property_type:
             return response.Response({"error": "property_type is required"}, status=400)
 
+        # Validate type matches PropertyDefinition if it exists (can't change type after EAV slot created)
+        if not property_definition_id:
+            existing_definition = PropertyDefinition.objects.filter(
+                team_id=self.team_id,
+                name=property_name,
+                type=PropertyDefinition.Type.EVENT,
+            ).first()
+            if existing_definition and existing_definition.property_type:
+                if existing_definition.property_type != property_type:
+                    return response.Response(
+                        {
+                            "error": f"Property type mismatch: property '{property_name}' is defined as "
+                            f"'{existing_definition.property_type}' but you specified '{property_type}'"
+                        },
+                        status=400,
+                    )
+
         # Parse materialization type, default to DMAT for backwards compatibility
         materialization_type_str = request.data.get("materialization_type", MaterializationType.DMAT)
         try:

@@ -445,3 +445,40 @@ class TestEAVJoinsComplexQueries(BaseTest):
         assert "LEFT ANY JOIN" not in result
         # Should use JSON extraction for nested access
         assert "JSONExtract" in result or "replaceRegexpAll" in result
+
+    def test_integer_index_access_not_eav(self):
+        """Integer index access (properties[1]) should not use EAV.
+
+        properties[1] does positional array-style access on the JSON object,
+        returning the value at position 1 - NOT a property named "1".
+        EAV is for named property access only, so integer indices should be skipped.
+        """
+        # Create an EAV property - even if "1" were a valid property name,
+        # integer index access is different semantics
+        self._create_eav_property("1")
+
+        # Access via integer index - should NOT use EAV
+        query = parse_select("SELECT properties[1] FROM events")
+        result, _ = prepare_and_print_ast(query, self._get_context(), dialect="clickhouse")
+
+        # Should NOT have an EAV join for integer index access
+        assert "LEFT ANY JOIN" not in result
+        # Should use JSON extraction
+        assert "JSONExtract" in result or "replaceRegexpAll" in result
+
+    def test_string_index_access_uses_eav(self):
+        """String index access (properties['plan']) should use EAV if materialized.
+
+        properties['plan'] is named property access (equivalent to properties.plan),
+        and should use EAV materialization if available.
+        """
+        self._create_eav_property("plan")
+
+        # Access via string index - should use EAV
+        query = parse_select("SELECT properties['plan'] FROM events")
+        result, _ = prepare_and_print_ast(query, self._get_context(), dialect="clickhouse")
+
+        # Should have an EAV join for string index access
+        assert "LEFT ANY JOIN" in result
+        assert "eav_events_plan" in result
+        assert "value_string" in result

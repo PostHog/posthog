@@ -113,9 +113,9 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> None:
             uuid,
             %(property_name)s AS key,
             {value_extraction} AS {value_column},
-            now() AS _timestamp,
-            0 AS _offset,
-            0 AS _partition
+            timestamp AS _timestamp,
+            -1 AS _offset,
+            -1 AS _partition
         FROM events
         WHERE
             team_id = %(team_id)s
