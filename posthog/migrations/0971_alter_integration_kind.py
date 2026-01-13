@@ -67,7 +67,6 @@ class AlterPosthogIntegrationKindField(Operation):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("workflows", "0001_hogflowbatchjob"),
         ("posthog", "0970_add_session_recording_encryption"),
     ]
 
