@@ -3,6 +3,7 @@ import { KMSClient } from '@aws-sdk/client-kms'
 import { Redis } from 'ioredis'
 
 import { RetentionService } from '../session-recording/retention/retention-service'
+import { TeamService } from '../session-recording/teams/team-service'
 import { Hub, RedisPool } from '../types'
 import * as redisUtils from '../utils/db/redis'
 import * as envUtils from '../utils/env-utils'
@@ -24,6 +25,7 @@ describe('KeyStore', () => {
     let mockDynamoDBClient: jest.Mocked<DynamoDBClient>
     let mockKMSClient: jest.Mocked<KMSClient>
     let mockRetentionService: jest.Mocked<RetentionService>
+    let mockTeamService: jest.Mocked<TeamService>
 
     const mockPlaintextKey = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
     const mockEncryptedKey = new Uint8Array([101, 102, 103, 104, 105])
@@ -41,8 +43,11 @@ describe('KeyStore', () => {
             const retentionService = {
                 getSessionRetentionDays: jest.fn(),
             } as unknown as jest.Mocked<RetentionService>
+            const teamService = {
+                getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
+            } as unknown as jest.Mocked<TeamService>
 
-            const store = await KeyStore.create(redisPool, dynamoDBClient, kmsClient, retentionService)
+            const store = await KeyStore.create(redisPool, dynamoDBClient, kmsClient, retentionService, teamService)
 
             expect(store).toBeInstanceOf(KeyStore)
         })
@@ -78,7 +83,17 @@ describe('KeyStore', () => {
             getSessionRetentionDays: jest.fn().mockResolvedValue(30),
         } as unknown as jest.Mocked<RetentionService>
 
-        keyStore = await KeyStore.create(mockRedisPool, mockDynamoDBClient, mockKMSClient, mockRetentionService)
+        mockTeamService = {
+            getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
+        } as unknown as jest.Mocked<TeamService>
+
+        keyStore = await KeyStore.create(
+            mockRedisPool,
+            mockDynamoDBClient,
+            mockKMSClient,
+            mockRetentionService,
+            mockTeamService
+        )
     })
 
     afterEach(() => {
@@ -187,6 +202,7 @@ describe('KeyStore', () => {
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
                     nonce: { B: mockNonce },
+                    encrypted_session: { BOOL: true },
                 },
             })
             ;(mockKMSClient.send as jest.Mock).mockResolvedValue({
@@ -211,6 +227,7 @@ describe('KeyStore', () => {
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
                     nonce: { B: mockNonce },
+                    encrypted_session: { BOOL: true },
                 },
             })
             ;(mockKMSClient.send as jest.Mock).mockResolvedValue({
@@ -223,43 +240,67 @@ describe('KeyStore', () => {
             expect(mockRedisClient.setex).toHaveBeenCalledWith('recording-key:1:session-123', 86400, expect.any(String))
         })
 
-        it('should throw error if key not found in DynamoDB', async () => {
+        it('should return empty key if key not found in DynamoDB', async () => {
             mockRedisClient.get.mockResolvedValue(null)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({ Item: undefined })
 
-            await expect(keyStore.getKey('session-123', 1)).rejects.toThrow(
-                'Key not found for session session-123 team 1'
-            )
+            const result = await keyStore.getKey('session-123', 1)
+
+            expect(result.plaintextKey).toEqual(Buffer.alloc(0))
+            expect(result.encryptedKey).toEqual(Buffer.alloc(0))
+            expect(result.nonce).toEqual(Buffer.alloc(0))
+            expect(result.encryptedSession).toBe(false)
         })
 
-        it('should throw error if encrypted_key missing in DynamoDB result', async () => {
+        it('should throw error if encrypted_key missing in DynamoDB result for encrypted session', async () => {
             mockRedisClient.get.mockResolvedValue(null)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
                     team_id: { N: '1' },
                     nonce: { B: mockNonce },
+                    encrypted_session: { BOOL: true },
                 },
             })
 
             await expect(keyStore.getKey('session-123', 1)).rejects.toThrow(
-                'Key not found for session session-123 team 1'
+                'Missing key data for session session-123 team 1'
             )
         })
 
-        it('should throw error if nonce missing in DynamoDB result', async () => {
+        it('should throw error if nonce missing in DynamoDB result for encrypted session', async () => {
             mockRedisClient.get.mockResolvedValue(null)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
+                    encrypted_session: { BOOL: true },
                 },
             })
 
             await expect(keyStore.getKey('session-123', 1)).rejects.toThrow(
-                'Key not found for session session-123 team 1'
+                'Missing key data for session session-123 team 1'
             )
+        })
+
+        it('should return empty key if session is not encrypted', async () => {
+            mockRedisClient.get.mockResolvedValue(null)
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
+                Item: {
+                    session_id: { S: 'session-123' },
+                    team_id: { N: '1' },
+                    encrypted_session: { BOOL: false },
+                },
+            })
+
+            const result = await keyStore.getKey('session-123', 1)
+
+            expect(result.plaintextKey).toEqual(Buffer.alloc(0))
+            expect(result.encryptedKey).toEqual(Buffer.alloc(0))
+            expect(result.nonce).toEqual(Buffer.alloc(0))
+            expect(result.encryptedSession).toBe(false)
+            expect(mockKMSClient.send).not.toHaveBeenCalled()
         })
 
         it('should throw error if DynamoDB query fails', async () => {
@@ -283,6 +324,7 @@ describe('KeyStore', () => {
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
                     nonce: { B: mockNonce },
+                    encrypted_session: { BOOL: true },
                 },
             })
             ;(mockKMSClient.send as jest.Mock).mockResolvedValue({
