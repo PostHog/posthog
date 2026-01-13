@@ -10,24 +10,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
 export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
-    const { integration, integrationLoading, verification, verificationLoading } = useValues(
-        emailSetupModalLogic(props)
-    )
+    const { integration, integrationLoading, verificationLoading, dnsRecords } = useValues(emailSetupModalLogic(props))
     const { verifyDomain, submitEmailSender } = useActions(emailSetupModalLogic(props))
-
-    const parseHostname = (hostname: string, rootDomain: string): { subdomain: string; rootDomain: string } => {
-        if (hostname === '@') {
-            return { subdomain: '@', rootDomain: '' }
-        }
-
-        if (hostname.endsWith(`.${rootDomain}`)) {
-            const subdomain = hostname.slice(0, -rootDomain.length - 1)
-            return { subdomain, rootDomain: `.${rootDomain}` }
-        }
-
-        // Fallback: return as subdomain if we can't parse it
-        return { subdomain: hostname, rootDomain: '' }
-    }
 
     let modalContent = <></>
 
@@ -85,12 +69,8 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                             </tr>
                         </thead>
                         <tbody>
-                            {verification?.dnsRecords?.map((record: DnsRecord, index: number) => {
-                                const rootDomain = integration?.config?.domain || ''
-                                const { subdomain, rootDomain: rootDomainSuffix } = parseHostname(
-                                    record.recordHostname,
-                                    rootDomain
-                                )
+                            {dnsRecords?.map((record: DnsRecord, index: number) => {
+                                const { subdomain, rootDomain: rootDomainSuffix } = record.parsedHostname
 
                                 return (
                                     <tr key={index} className="border-b">
