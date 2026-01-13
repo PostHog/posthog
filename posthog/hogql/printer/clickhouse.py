@@ -394,7 +394,7 @@ class ClickHousePrinter(HogQLPrinter):
 
             if node.op == ast.CompareOperationOp.ILike:
                 if property_source.has_ngram_lower_index:
-                    return f"like(lower({materialized_column_sql}),lower({pattern_sql}))"
+                    return f"like(lower({materialized_column_sql}), lower({pattern_sql}))"
                 else:
                     return f"ilike({materialized_column_sql}, {pattern_sql})"
             else:
