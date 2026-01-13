@@ -115,7 +115,7 @@ class TestThrottleRunner:
         assert result.scope == "first"
 
     @pytest.mark.asyncio
-    async def test_stops_at_first_denial(self) -> None:
+    async def test_runs_all_throttles_in_parallel(self) -> None:
         call_count = 0
 
         class CountingThrottle(Throttle):
@@ -130,7 +130,7 @@ class TestThrottleRunner:
         context = make_context()
 
         await runner.check(context)
-        assert call_count == 1
+        assert call_count == 3
 
     @pytest.mark.asyncio
     async def test_empty_throttle_list_allows_all(self) -> None:

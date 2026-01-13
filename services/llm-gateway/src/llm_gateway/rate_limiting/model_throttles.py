@@ -1,69 +1,13 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Final
 
 from cachetools import TTLCache
 from redis.asyncio import Redis
 
+from llm_gateway.rate_limiting.model_cost_service import get_model_limits
 from llm_gateway.rate_limiting.redis_limiter import TokenRateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
-
-# Explicit limits per model family (tokens per hour)
-# Limits are set to cap worst-case cost at ~$30/user/hour for expensive models
-# Unknown models default to expensive tier
-# NOTE: Order matters! More specific keys must come before less specific ones
-# (e.g., "gpt-4o-mini" before "gpt-4o")
-MODEL_TOKEN_LIMITS: Final[dict[str, dict[str, int]]] = {
-    # Anthropic models (more specific first)
-    # Haiku: ~$10/hr at 20M input + 4M output
-    "claude-3-5-haiku": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "claude-3-5-sonnet": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "claude-3-opus": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "claude-haiku-4-5": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "claude-haiku-4": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "claude-sonnet-4-5": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "claude-sonnet-4": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "claude-opus-4-5": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "claude-opus-4-1": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "claude-opus-4": {"input_tph": 1_000_000, "output_tph": 200_000},
-    # OpenAI GPT models (more specific first)
-    # Mini/nano: ~$10/hr at 20M input + 4M output
-    "gpt-4.1-nano": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "gpt-4.1-mini": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "gpt-4.1": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "gpt-4o-mini": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "gpt-4-turbo": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "gpt-4o": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "gpt-5-mini": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "gpt-5": {"input_tph": 1_000_000, "output_tph": 200_000},
-    # OpenAI reasoning models (o-series) - all use standard tier due to reasoning costs
-    "o1-mini": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "o1-pro": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "o1": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "o3-mini": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "o3": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "o4-mini": {"input_tph": 1_000_000, "output_tph": 200_000},
-    # Gemini models (more specific first)
-    # Flash: ~$10/hr at 20M input + 4M output
-    "gemini-2.5-flash-lite": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "gemini-2.5-flash": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "gemini-2.5-pro": {"input_tph": 1_000_000, "output_tph": 200_000},
-    "gemini-2.0-flash": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "gemini-3-flash": {"input_tph": 20_000_000, "output_tph": 4_000_000},
-    "gemini-3-pro": {"input_tph": 1_000_000, "output_tph": 200_000},
-    # Default for unknown models (assume expensive)
-    "default": {"input_tph": 250_000, "output_tph": 50_000},
-}
-
-
-def get_model_limits(model: str) -> dict[str, int]:
-    """Get limits for model, defaulting to expensive tier for unknown models."""
-    model_lower = model.lower()
-    for model_key, limits in MODEL_TOKEN_LIMITS.items():
-        if model_key != "default" and model_key in model_lower:
-            return limits
-    return MODEL_TOKEN_LIMITS["default"]
 
 
 class TokenThrottle(Throttle):

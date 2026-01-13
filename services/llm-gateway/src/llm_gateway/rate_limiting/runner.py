@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import structlog
 
 from llm_gateway.metrics.prometheus import RATE_LIMIT_EXCEEDED
@@ -13,8 +15,9 @@ class ThrottleRunner:
         self._throttles = throttles
 
     async def check(self, context: ThrottleContext) -> ThrottleResult:
-        for throttle in self._throttles:
-            result = await throttle.allow_request(context)
+        results = await asyncio.gather(*[t.allow_request(context) for t in self._throttles])
+
+        for throttle, result in zip(self._throttles, results, strict=True):
             if not result.allowed:
                 scope = result.scope or throttle.scope
                 RATE_LIMIT_EXCEEDED.labels(scope=scope).inc()
