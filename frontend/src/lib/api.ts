@@ -1942,11 +1942,18 @@ const api = {
         async getMaterializationStatus(name: string): Promise<EndpointType['materialization']> {
             return await new ApiRequest().endpointDetail(name).withAction('materialization_status').get()
         },
-        async listVersions(name: string): Promise<EndpointVersion[]> {
+        async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
-        async getVersion(name: string, version: number): Promise<EndpointVersion> {
+        async getVersion(name: string, version: number): Promise<EndpointVersionType> {
             return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).get()
+        },
+        async updateVersion(
+            name: string,
+            version: number,
+            data: Partial<Pick<EndpointVersionType, 'is_materialized' | 'sync_frequency'>>
+        ): Promise<EndpointVersionType> {
+            return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).update({ data })
         },
     },
 

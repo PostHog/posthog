@@ -40,6 +40,40 @@ class EndpointVersion(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="endpoint_versions_created")
 
+    # Configuration snapshot fields
+    cache_age_seconds = models.IntegerField(
+        default=300,
+        help_text="Cache age in seconds when this version was created",
+    )
+    is_materialized = models.BooleanField(
+        default=False,
+        help_text="Whether this version's query results are materialized",
+    )
+    sync_frequency = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        help_text="Sync frequency for materialization (hourly, daily, weekly)",
+    )
+    last_materialized_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this version was last materialized",
+    )
+    materialization_error = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Error message from last materialization attempt",
+    )
+    saved_query = models.ForeignKey(
+        "data_warehouse.DataWarehouseSavedQuery",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="endpoint_versions",
+        help_text="The underlying materialized view for this version",
+    )
+
     class Meta:
         db_table = "endpoints_endpointversion"
         constraints = [
@@ -233,16 +267,22 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
         This increments current_version and creates an EndpointVersion record.
         Should be called when the query changes during an update.
+        Snapshots current configuration values (cache_age, sync_frequency).
         """
         self.current_version += 1
         self.query = query
         self.save(update_fields=["current_version", "query", "updated_at"])
 
+        # Snapshot configuration values from current endpoint state
         version = EndpointVersion.objects.create(
             endpoint=self,
             version=self.current_version,
             query=query,
             created_by=user,
+            cache_age_seconds=self.cache_age_seconds or 300,
+            # Note: New versions are not auto-materialized, even if the current version is materialized
+            is_materialized=False,
+            sync_frequency=None,
         )
 
         return version

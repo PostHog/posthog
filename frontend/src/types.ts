@@ -2228,6 +2228,20 @@ export interface EndpointMaterializationType {
     sync_frequency?: DataWarehouseSyncInterval
 }
 
+export interface EndpointVersionType {
+    id: string
+    version: number
+    query: HogQLQuery | InsightQueryNode
+    created_at: string
+    created_by: UserBasicType | null
+    cache_age_seconds: number
+    is_materialized: boolean
+    sync_frequency?: DataWarehouseSyncInterval
+    last_materialized_at?: string
+    materialization_error?: string
+    materialization?: EndpointMaterializationType
+}
+
 export interface DashboardBasicType extends WithAccessControl {
     id: number
     name: string
