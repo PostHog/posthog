@@ -152,21 +152,11 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
             render: function RenderStatus(_, item) {
                 const isCurrent = item.version === endpoint.current_version
                 const materialized = isCurrent ? endpoint.is_materialized : item.is_materialized
-                const sync = isCurrent ? endpoint.materialization?.sync_frequency : item.sync_frequency
 
-                if (materialized && sync) {
-                    return (
-                        <span className="text-sm">
-                            <LemonTag type="success" size="small">
-                                {sync}
-                            </LemonTag>
-                        </span>
-                    )
-                }
                 if (materialized) {
                     return (
                         <LemonTag type="success" size="small">
-                            Enabled
+                            Materialized
                         </LemonTag>
                     )
                 }

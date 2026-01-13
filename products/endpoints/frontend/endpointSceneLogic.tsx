@@ -346,17 +346,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             } else if (!searchParams.tab && values.activeTab !== EndpointTab.QUERY) {
                 actions.setActiveTab(EndpointTab.QUERY)
             }
-            // Handle version parameter
-            if (searchParams.version) {
-                const version = parseInt(searchParams.version, 10)
-                if (!isNaN(version) && version !== values.viewingVersion) {
-                    actions.setViewingVersion(version)
-                    actions.selectVersion(version)
-                }
-            } else if (values.viewingVersion !== null) {
-                // Reset to current version if no version param
-                actions.setViewingVersion(null)
-            }
+            // Version parameter is handled in loadEndpointSuccess after endpoint loads
         },
     })),
 ])
