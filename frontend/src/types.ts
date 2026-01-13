@@ -3332,6 +3332,8 @@ export interface ProductTourStep {
     progressionTrigger?: ProductTourProgressionTriggerType
     /** Custom width for the tooltip - can be a preset name or pixel value */
     maxWidth?: ProductTourStepWidth | number
+    /** Screenshot media ID from uploaded_media - for element steps */
+    screenshotMediaId?: string
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
