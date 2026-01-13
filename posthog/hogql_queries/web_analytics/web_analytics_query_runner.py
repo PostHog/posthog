@@ -25,7 +25,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.schema.exchange_rate import revenue_where_expr_for_events
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -200,48 +199,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             return None
 
     @cached_property
-    def conversion_revenue_expr(self) -> ast.Expr:
-        if not self.team.revenue_analytics_config.events:
-            return ast.Constant(value=None)
-
-        if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
-            event_name = self.query.conversionGoal.customEventName
-            revenue_property = next(
-                (
-                    event_item.revenueProperty
-                    for event_item in self.team.revenue_analytics_config.events
-                    if event_item.eventName == event_name
-                ),
-                None,
-            )
-
-            if not revenue_property:
-                return ast.Constant(value=None)
-
-            return ast.Call(
-                name="sumIf",
-                args=[
-                    ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Call(
-                                name="toFloat", args=[ast.Field(chain=["events", "properties", revenue_property])]
-                            ),
-                            ast.Constant(value=0),
-                        ],
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=event_name),
-                    ),
-                ],
-            )
-        else:
-            # for now, don't support conversion revenue for actions
-            return ast.Constant(value=None)
-
-    @cached_property
     def event_type_expr(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -254,10 +211,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
         if self.conversion_goal_expr:
             exprs.append(self.conversion_goal_expr)
-        elif self.query.includeRevenue:
-            # Use elif here, we don't need to include revenue events if we already included conversion events, because
-            # if there is a conversion goal set then we only show revenue from conversion events.
-            exprs.append(revenue_where_expr_for_events(self.team))
 
         return ast.Or(exprs=exprs)
 
@@ -416,7 +369,8 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
     def _sample_rate_cache_key(self) -> str:
         return generate_cache_key(
-            f"web_analytics_sample_rate_{self.query.dateRange.model_dump_json() if self.query.dateRange else None}_{self.team.pk}_{self.team.timezone}"
+            self.team.pk,
+            f"web_analytics_sample_rate_{self.query.dateRange.model_dump_json() if self.query.dateRange else None}_{self.team.pk}_{self.team.timezone}",
         )
 
     def _get_or_calculate_sample_ratio(self) -> SamplingRate:

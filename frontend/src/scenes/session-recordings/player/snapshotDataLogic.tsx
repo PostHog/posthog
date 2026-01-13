@@ -5,12 +5,10 @@ import posthog from 'posthog-js'
 import '@posthog/rrweb-types'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { normalizeMode } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 
 import '~/queries/utils'
 import {
@@ -39,8 +37,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+    connect((props: SnapshotLogicProps) => ({
+        actions: [windowIdRegistryLogic({ sessionRecordingId: props.sessionRecordingId }), ['registerWindowId']],
+        values: [
+            windowIdRegistryLogic({ sessionRecordingId: props.sessionRecordingId }),
+            ['uuidToIndex', 'getWindowId'],
+        ],
     })),
     actions({
         setSnapshots: (snapshots: RecordingSnapshot[]) => ({ snapshots }),
@@ -86,7 +88,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             },
         ],
     })),
-    loaders(({ values, props, cache }) => ({
+    loaders(({ values, props, cache, actions }) => ({
         snapshotSources: [
             null as SessionRecordingSnapshotSource[] | null,
             {
@@ -100,16 +102,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const blob_v2 = true
-                    const blob_v2_lts = true
-                    const response = await api.recordings.listSnapshotSources(
-                        props.sessionRecordingId,
-                        {
-                            blob_v2,
-                            blob_v2_lts,
-                        },
-                        headers
-                    )
+                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, headers)
 
                     if (!response || !response.sources) {
                         return []
@@ -129,7 +122,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 loadSnapshotsForSource: async ({ sources }, breakpoint) => {
                     let params: SessionRecordingSnapshotParams
 
-                    if (sources.length > 1) {
+                    const source = sources[0]
+
+                    if (source.source === SnapshotSourceType.blob_v2_lts) {
+                        if (!source.blob_key) {
+                            throw new Error('Missing key')
+                        }
+                        params = { blob_key: source.blob_key, source: 'blob_v2_lts' }
+                    } else if (source.source === SnapshotSourceType.blob_v2) {
                         // they all have to be blob_v2
                         if (sources.some((s) => s.source !== SnapshotSourceType.blob_v2)) {
                             throw new Error('Unsupported source for multiple sources')
@@ -140,22 +140,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                             start_blob_key: sources[0].blob_key,
                             end_blob_key: sources[sources.length - 1].blob_key,
                         }
+                    } else if (source.source === SnapshotSourceType.file) {
+                        // no need to load a file source, it is already loaded
+                        return { source }
                     } else {
-                        const source = sources[0]
-
-                        if (source.source === SnapshotSourceType.blob) {
-                            if (!source.blob_key) {
-                                throw new Error('Missing key')
-                            }
-                            params = { blob_key: source.blob_key, source: 'blob' }
-                        } else if (source.source === SnapshotSourceType.blob_v2) {
-                            params = { source: 'blob_v2', blob_key: source.blob_key }
-                        } else if (source.source === SnapshotSourceType.file) {
-                            // no need to load a file source, it is already loaded
-                            return { source }
-                        } else {
-                            throw new Error(`Unsupported source: ${source.source}`)
-                        }
+                        throw new Error(`Unsupported source: ${source.source}`)
                     }
 
                     await breakpoint(1)
@@ -165,21 +154,39 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const clientSideDecompression = values.featureFlags[FEATURE_FLAGS.REPLAY_CLIENT_SIDE_DECOMPRESSION]
-                    if (clientSideDecompression) {
-                        params = { ...params, decompress: false }
+                    const response = await api.recordings.getSnapshots(
+                        props.sessionRecordingId,
+                        { decompress: false, ...params },
+                        headers
+                    )
+
+                    // Create a local copy of the registry state for synchronous lookups during parsing
+                    const localWindowIds: Record<string, number> = { ...values.uuidToIndex }
+                    const registerWindowIdCallback = (uuid: string): number => {
+                        if (uuid in localWindowIds) {
+                            return localWindowIds[uuid]
+                        }
+                        const index = Object.keys(localWindowIds).length + 1
+                        localWindowIds[uuid] = index
+                        return index
                     }
 
-                    const response = await api.recordings.getSnapshots(props.sessionRecordingId, params, headers)
-
-                    const featureFlagValue = values.featureFlags[FEATURE_FLAGS.REPLAY_DECOMPRESSION_WORKER]
-                    const decompressionMode = normalizeMode(
-                        typeof featureFlagValue === 'string' ? featureFlagValue : undefined
-                    )
                     // sorting is very cheap for already sorted lists
                     const parsedSnapshots = (
-                        await parseEncodedSnapshots(response, props.sessionRecordingId, decompressionMode, posthog)
+                        await parseEncodedSnapshots(
+                            response,
+                            props.sessionRecordingId,
+                            posthog,
+                            registerWindowIdCallback
+                        )
                     ).sort((a, b) => a.timestamp - b.timestamp)
+
+                    // Sync any newly discovered window IDs to the shared registry
+                    for (const uuid of Object.keys(localWindowIds)) {
+                        if (!(uuid in values.uuidToIndex)) {
+                            actions.registerWindowId(uuid)
+                        }
+                    }
                     // we store the data in the cache because we want to avoid copying this data as much as possible
                     // and kea's immutability means we were copying all the data on every snapshot call
                     cache.snapshotsBySource = cache.snapshotsBySource || {}
@@ -204,12 +211,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 'file-file': {
                     snapshots: snapshots,
                     source: { source: SnapshotSourceType.file },
+                    sourceLoaded: true,
                 },
             }
+            // Set sources first, then trigger the success action
+            // Otherwise processSnapshotsAsync will see null sources
+            actions.loadSnapshotSourcesSuccess([{ source: SnapshotSourceType.file }])
             actions.loadSnapshotsForSourceSuccess({
                 source: { source: SnapshotSourceType.file },
             })
-            actions.loadSnapshotSourcesSuccess([{ source: SnapshotSourceType.file }])
         },
 
         loadSnapshots: () => {
@@ -250,7 +260,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             const sourceKey = snapshotsForSource.sources
                 ? keyForSource(snapshotsForSource.sources[0])
                 : keyForSource(snapshotsForSource.source)
-            const snapshots = (cache.snapshotsBySource || {})[sourceKey] || []
+            const snapshotsData = (cache.snapshotsBySource || {})[sourceKey]
+            const snapshots = snapshotsData?.snapshots || []
 
             if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
                 // We got only a single source to load, loaded it successfully, but it had no snapshots.

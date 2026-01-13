@@ -1,9 +1,11 @@
 import os
+import json
 import time
 import uuid
 import tempfile
 from datetime import timedelta
 from typing import Literal, Optional
+from urllib.parse import quote
 
 from django.conf import settings
 
@@ -18,18 +20,26 @@ from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
-from posthog.hogql.constants import LimitContext
-
-from posthog.api.services.query import process_query_dict
+from posthog.api.insight_variable import map_stale_to_latest
+from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import InsightVariable
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.tasks.exporter import EXPORT_FAILED_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
+from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
+
+
+def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str:
+    if not insight_cache_keys:
+        return ""
+    return f"&cache_keys={quote(json.dumps(insight_cache_keys))}"
+
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
@@ -74,15 +84,24 @@ def get_driver() -> webdriver.Chrome:
     )
 
 
-def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None) -> None:
+def _export_to_png(
+    exported_asset: ExportedAsset,
+    max_height_pixels: Optional[int] = None,
+    insight_cache_keys: Optional[dict[int, str]] = None,
+) -> None:
     """
     Exporting an Insight means:
     1. Loading the Insight from the web app in a dedicated rendering mode
     2. Waiting for the page to have fully loaded before taking a screenshot to disk
     3. Loading that screenshot into memory and saving the data representation to the relevant Insight
     4. Cleanup: Remove the old file and close the browser session
-    """
 
+    Args:
+        exported_asset: The asset to export
+        max_height_pixels: Maximum height for the screenshot
+        insight_cache_keys: Map of insight IDs to their cache keys, used to ensure
+            the exporter fetches data from the exact cache that was warmed
+    """
     image_path = None
 
     try:
@@ -103,11 +122,15 @@ def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[in
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
         if exported_asset.insight is not None:
-            url_to_render = absolute_uri(f"/exporter?token={access_token}&legend")
+            show_legend = exported_asset.insight.show_legend
+            legend_param = "&legend=true" if show_legend else ""
+            cache_keys_param = _build_cache_keys_param(insight_cache_keys)
+            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
         elif exported_asset.dashboard is not None:
-            url_to_render = absolute_uri(f"/exporter?token={access_token}")
+            cache_keys_param = _build_cache_keys_param(insight_cache_keys)
+            url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
@@ -201,7 +224,7 @@ def _screenshot_asset(
 
         try:
             WebDriverWait(driver, timeout).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
-        except TimeoutException:
+        except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
                 try:
@@ -209,14 +232,14 @@ def _screenshot_asset(
                     posthoganalytics.tag("image_path", image_path)
                 except Exception:
                     pass
-                capture_exception()
+                capture_exception(e)
 
             raise Exception(f"Timeout while waiting for the page to load")
 
         try:
             # Also wait until nothing is loading
             WebDriverWait(driver, 20).until_not(lambda x: x.find_element(By.CLASS_NAME, "Spinner"))
-        except TimeoutException:
+        except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
                 try:
@@ -224,7 +247,7 @@ def _screenshot_asset(
                     posthoganalytics.tag("image_path", image_path)
                 except Exception:
                     pass
-                capture_exception()
+                capture_exception(e)
 
         # Get the height of the visualization container specifically
         height = driver.execute_script(
@@ -329,32 +352,88 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
         posthoganalytics.tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
         try:
+            # Track cache keys for insights so we can pass them to Chrome for guaranteed cache hits
+            insight_cache_keys: dict[int, str] = {}
+
             if exported_asset.insight:
-                # NOTE: Dashboards are regularly updated but insights are not
-                # so, we need to trigger a manual update to ensure the results are good
+                logger.info(
+                    "export_image.calculate_insight",
+                    insight_id=exported_asset.insight.id,
+                    dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
+                )
+
+                # When exporting a single insight from a dashboard, apply the tile's filter overrides and dashboard variables
+                dashboard_variables = None
+                tile_filters_override = None
+                if exported_asset.dashboard:
+                    if exported_asset.dashboard.variables:
+                        variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                        dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
+                    tile = DashboardTile.objects.filter(
+                        dashboard=exported_asset.dashboard,
+                        insight=exported_asset.insight,
+                    ).first()
+                    if tile:
+                        tile_filters_override = tile.filters_overrides
+
                 with upgrade_query(exported_asset.insight):
-                    process_query_dict(
-                        exported_asset.team,
-                        exported_asset.insight.query,
-                        dashboard_filters_json=exported_asset.dashboard.filters if exported_asset.dashboard else None,
-                        limit_context=LimitContext.QUERY_ASYNC,
+                    result = calculate_for_query_based_insight(
+                        exported_asset.insight,
+                        team=exported_asset.team,
+                        dashboard=exported_asset.dashboard,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                        insight_id=exported_asset.insight.id,
-                        dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
+                        user=None,
+                        variables_override=dashboard_variables,
+                        tile_filters_override=tile_filters_override,
                     )
+                    if result.cache_key:
+                        insight_cache_keys[exported_asset.insight.id] = result.cache_key
+            elif exported_asset.dashboard:
+                logger.info(
+                    "export_image.calculate_dashboard_insights",
+                    dashboard_id=exported_asset.dashboard.id,
+                )
+                dashboard_variables = None
+                if exported_asset.dashboard.variables:
+                    variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                    dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
+
+                tiles = (
+                    exported_asset.dashboard.tiles.select_related("insight")
+                    .filter(insight__isnull=False, insight__deleted=False)
+                    .all()
+                )
+                for tile in tiles:
+                    insight = tile.insight
+                    if not insight or not insight.query:
+                        continue
+
+                    with upgrade_query(insight):
+                        result = calculate_for_query_based_insight(
+                            insight,
+                            team=exported_asset.team,
+                            dashboard=exported_asset.dashboard,
+                            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                            user=None,
+                            variables_override=dashboard_variables,
+                            tile_filters_override=tile.filters_overrides,
+                        )
+                        if result.cache_key:
+                            insight_cache_keys[insight.id] = result.cache_key
 
             if exported_asset.export_format == "image/png":
-                with EXPORT_TIMER.labels(type="image").time():
-                    _export_to_png(exported_asset, max_height_pixels=max_height_pixels)
-                EXPORT_SUCCEEDED_COUNTER.labels(type="image").inc()
+                with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
+                    _export_to_png(
+                        exported_asset,
+                        max_height_pixels=max_height_pixels,
+                        insight_cache_keys=insight_cache_keys or None,
+                    )
             else:
                 raise NotImplementedError(
                     f"Export to format {exported_asset.export_format} is not supported for insights"
                 )
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
-            capture_exception(e, additional_properties={"celery_task": "image_export", "team_id": team_id})
-
+            capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             logger.error("image_exporter.failed", exception=e, exc_info=True)
-            EXPORT_FAILED_COUNTER.labels(type="image").inc()
             raise

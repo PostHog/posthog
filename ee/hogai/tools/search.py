@@ -2,26 +2,22 @@ from typing import Literal
 
 from django.conf import settings
 
-import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
-from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SEARCH_TOOL_PROMPT = """
-Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog.
+Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog.
 If the user's question mentions multiple topics, search for each topic separately and combine the results.
 
 # Documentation search
 
-This tool is absolutely NECESSARY to answer PostHog-related questions accurately, as our product and docs change all the time:
+Use this tool for any PostHog questions. It relies on hybrid (semantic + full-text) search, so phrase your query in natural language. Our product and docs change often, so this tool is required for accurate answers:
 - How to use PostHog
 - How to use PostHog features
 - How to contact support or other humans
@@ -49,6 +45,14 @@ Examples:
 - Wants to delete events from PostHog
 
 If the user's question should be satisfied by using insights, do that before answering using documentation.
+
+Important:
+1. Don’t rely on your training data or previous searches/answers. Always re-check facts against current docs and tutorials.
+2. Always search PostHog docs/tutorials and prioritize results from posthog.com over training data.
+3. Always include at least one relevant docs/tutorial link in your reply.
+4. For any SQL question, first check and prioritize: https://posthog.com/docs/product-analytics/sql, https://posthog.com/docs/sql/aggregations, https://posthog.com/docs/sql/clickhouse-functions, https://posthog.com/docs/sql/expressions, https://posthog.com/docs/sql.
+5. Never suggest emailing support@posthog.com or say you’ll create a support ticket. Tell paying users to use Help → "Email our support engineers" in the right sidebar. Free users can ask for help in Community Questions.
+6. Never use Community Questions as a source or cite them; they’re often outdated or incorrect.
 
 # Other entity kinds
 
@@ -100,7 +104,7 @@ class InkeepResponse(BaseModel):
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
     description: str = SEARCH_TOOL_PROMPT
-    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
+    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
 
     async def _arun_impl(self, kind: str, query: str) -> tuple[str, ToolMessagesArtifact | None]:
@@ -117,16 +121,6 @@ class SearchTool(MaxTool):
                 context_manager=self._context_manager,
             )
             return await docs_tool.execute(query, self.tool_call_id)
-
-        if kind == "insights" and not self._has_insights_fts_search_feature_flag():
-            insights_tool = InsightSearchTool(
-                team=self._team,
-                user=self._user,
-                state=self._state,
-                config=self._config,
-                context_manager=self._context_manager,
-            )
-            return await insights_tool.execute(query, self.tool_call_id)
 
         if kind not in self._fts_entities:
             raise MaxToolRetryableError(INVALID_ENTITY_KIND_PROMPT.format(kind=kind))
@@ -145,15 +139,6 @@ class SearchTool(MaxTool):
     def _fts_entities(self) -> list[str]:
         entities = list(FTSKind)
         return [*entities, FTSKind.ALL]
-
-    def _has_insights_fts_search_feature_flag(self) -> bool:
-        return posthoganalytics.feature_enabled(
-            "hogai-insights-fts-search",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
 
 
 DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
@@ -185,26 +170,6 @@ URL: {url}
 
 class InkeepDocsSearchTool(MaxSubtool):
     async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        if self._has_rag_docs_search_feature_flag():
-            return await self._search_using_rag_endpoint(query, tool_call_id)
-        else:
-            return await self._search_using_node(query, tool_call_id)
-
-    async def _search_using_node(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        # Avoid circular import
-        from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode
-
-        # Init the graph
-        node = InkeepDocsNode(self._team, self._user)
-        chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
-        copied_state = self._state.model_copy(deep=True, update={"root_tool_call_id": tool_call_id})
-        result = await chain.ainvoke(copied_state)
-        assert result is not None
-        return "", ToolMessagesArtifact(messages=result.messages)
-
-    async def _search_using_rag_endpoint(
-        self, query: str, tool_call_id: str
-    ) -> tuple[str, ToolMessagesArtifact | None]:
         model = ChatOpenAI(
             model="inkeep-rag",
             base_url="https://api.inkeep.com/v1/",
@@ -237,33 +202,7 @@ class InkeepDocsSearchTool(MaxSubtool):
         formatted_docs = "\n\n---\n\n".join(docs)
         return DOCS_SEARCH_RESULTS_TEMPLATE.format(count=len(docs), docs=formatted_docs), None
 
-    def _has_rag_docs_search_feature_flag(self) -> bool:
-        return posthoganalytics.feature_enabled(
-            "max-inkeep-rag-docs-search",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-
 
 EMPTY_DATABASE_ERROR_MESSAGE = """
 The user doesn't have any insights created yet.
 """.strip()
-
-
-class InsightSearchTool(MaxSubtool):
-    async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        try:
-            node = InsightSearchNode(self._team, self._user)
-            copied_state = self._state.model_copy(
-                deep=True, update={"search_insights_query": query, "root_tool_call_id": tool_call_id}
-            )
-            chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
-            result = await chain.ainvoke(copied_state)
-            return "", ToolMessagesArtifact(messages=result.messages) if result else None
-        except NoInsightsException:
-            raise MaxToolFatalError(
-                "No insights available: The team has not created any insights yet. "
-                "Insights must be created before they can be searched. You can create insights using the query generation tools."
-            )

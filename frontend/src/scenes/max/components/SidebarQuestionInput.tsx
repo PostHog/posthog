@@ -14,7 +14,7 @@ import { QuestionInput } from './QuestionInput'
 
 export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean }): JSX.Element {
     const { focusCounter, threadVisible } = useValues(maxLogic)
-    const { threadLoading, showDeepResearchModeToggle } = useValues(maxThreadLogic)
+    const { threadLoading } = useValues(maxThreadLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -35,9 +35,8 @@ export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean 
         <QuestionInput
             isSticky={isSticky}
             textAreaRef={textAreaRef}
-            containerClassName="px-3 mx-auto self-center pb-1"
+            containerClassName="px-3 mx-auto self-center pb-1 bg-[var(--scene-layout-background)]/50 backdrop-blur-sm z-50"
             isThreadVisible={threadVisible}
-            showDeepResearchModeToggle={showDeepResearchModeToggle}
         >
             <SuggestionsList />
         </QuestionInput>
@@ -73,7 +72,7 @@ function SuggestionsList(): JSX.Element {
             <ToggleGroup
                 ref={focusElementRef}
                 type="single"
-                className="QuestionInput__SuggestionsList absolute inset-x-2 top-full grid auto-rows-auto p-1 border-x border-b rounded-b-lg backdrop-blur-sm bg-[var(--glass-bg-3000)] z-10"
+                className="QuestionInput__SuggestionsList absolute inset-x-2 top-full grid auto-rows-auto p-1 border-x border-b rounded-b-lg bg-surface-primary z-10"
                 onValueChange={(index) => {
                     const suggestion = activeSuggestionGroup?.suggestions[Number(index)]
                     if (!suggestion) {
@@ -86,6 +85,7 @@ function SuggestionsList(): JSX.Element {
                         focusInput()
                     } else {
                         // Otherwise, just launch the generation
+                        setQuestion(suggestion.content)
                         askMax(suggestion.content)
                     }
 

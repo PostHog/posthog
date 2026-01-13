@@ -156,6 +156,7 @@ export function AddToDashboardModal({
                     placeholder="Search for dashboards..."
                     value={searchQuery}
                     onChange={(newValue) => setSearchQuery(newValue)}
+                    autoFocus
                 />
                 <div className="text-secondary">
                     This insight is referenced on <strong className="text-text-3000">{currentDashboards.length}</strong>{' '}

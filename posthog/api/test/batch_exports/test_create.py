@@ -59,28 +59,26 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
     with mock.patch(
         "posthog.batch_exports.http.posthoganalytics.feature_enabled",
         return_value=True,
-    ):
+    ) as feature_enabled:
         response = create_batch_export(
             client,
             team.pk,
             batch_export_data,
         )
 
-    # TODO: Removed while `managed-viewsets` feature flag is active since this messes up this check
-    # This can be uncommented once the `managed-viewsets` feature flag is fully rolled out
-    # if interval == "every 5 minutes":
-    #     feature_enabled.assert_called_once_with(
-    #         "high-frequency-batch-exports",
-    #         str(team.uuid),
-    #         groups={"organization": str(team.organization.id)},
-    #         group_properties={
-    #             "organization": {
-    #                 "id": str(team.organization.id),
-    #                 "created_at": team.organization.created_at,
-    #             }
-    #         },
-    #         send_feature_flag_events=False,
-    #     )
+    if interval == "every 5 minutes":
+        feature_enabled.assert_any_call(
+            "high-frequency-batch-exports",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
 
     assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -700,6 +698,40 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
         assert response.json()["detail"] == expected_error_message
 
 
+def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, temporal, organization, team, user):
+    """Test creating a BatchExport with S3 destination validates that expected inputs are not empty."""
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "events/",
+            "aws_access_key_id": "",
+            "aws_secret_access_key": "",
+            "file_format": "JSONLines",
+            "compression": "gzip",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-s3-bucket",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "The following inputs are empty: ['aws_access_key_id', 'aws_secret_access_key']"
+
+
 @pytest.mark.parametrize(
     "type,config,expected_error_message",
     [
@@ -799,23 +831,22 @@ def databricks_integration(team, user):
 
 @pytest.fixture
 def enable_databricks(team):
-    with mock.patch("posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True):
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
+    ) as feature_enabled:
         yield
-
-        # TODO: Removed while `managed-viewsets` feature flag is active since this messes up this check
-        # This can be uncommented once the `managed-viewsets` feature flag is fully rolled out
-        # feature_enabled.assert_called_once_with(
-        #     "databricks-batch-exports",
-        #     str(team.uuid),
-        #     groups={"organization": str(team.organization.id)},
-        #     group_properties={
-        #         "organization": {
-        #             "id": str(team.organization.id),
-        #             "created_at": team.organization.created_at,
-        #         }
-        #     },
-        #     send_feature_flag_events=False,
-        # )
+        feature_enabled.assert_any_call(
+            "databricks-batch-exports",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
 
 
 def test_creating_databricks_batch_export_using_integration(
@@ -1076,6 +1107,102 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     assert response.json()["detail"] == "Integration is not a Databricks integration."
 
 
+def test_creating_azure_blob_batch_export_fails_if_feature_flag_is_not_enabled(
+    client: HttpClient,
+    team,
+    user,
+):
+    """Test that creating an Azure Blob batch export fails if the feature flag is not enabled."""
+    destination_data = {
+        "type": "AzureBlob",
+        "config": {
+            "container_name": "test-container",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-azure-blob-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        return_value=False,
+    ):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+    assert "Azure Blob Storage batch exports are not enabled for this team." in response.json()["detail"]
+
+
+@pytest.fixture
+def azure_blob_integration(team, user):
+    """Create an Azure Blob integration."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.AZURE_BLOB,
+        integration_id="my-storage-account",
+        config={},
+        sensitive_config={
+            "connection_string": "DefaultEndpointsProtocol=https;AccountName=my-storage-account;AccountKey=my-key;EndpointSuffix=core.windows.net"
+        },
+        created_by=user,
+    )
+
+
+def test_creating_azure_blob_batch_export_using_integration(
+    client: HttpClient, temporal, organization, team, user, azure_blob_integration
+):
+    """Test that we can create an Azure Blob batch export using an integration."""
+    destination_data = {
+        "type": "AzureBlob",
+        "config": {
+            "container_name": "test-container",
+            "prefix": "test-prefix/",
+        },
+        "integration": azure_blob_integration.id,
+    }
+
+    batch_export_data = {
+        "name": "my-azure-blob-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        return_value=True,
+    ):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    data = response.json()
+    assert data["destination"]["type"] == "AzureBlob"
+    assert data["destination"]["config"]["container_name"] == "test-container"
+    assert data["destination"]["config"]["prefix"] == "test-prefix/"
+    assert data["interval"] == "hour"
+
+    temporal_schedule = describe_schedule(temporal, data["id"])
+    assert temporal_schedule is not None
+    assert temporal_schedule.schedule is not None
+    assert isinstance(temporal_schedule.schedule.action, ScheduleActionStartWorkflow)
+    assert temporal_schedule.schedule.action.workflow == "azure-blob-export"
+
+
 @pytest.mark.parametrize(
     "model,expected_status,expected_error",
     [
@@ -1217,3 +1344,95 @@ def test_creating_batch_export_with_filters(
 
     if expected_error:
         assert expected_error in response.json()["detail"]
+
+
+@pytest.fixture
+def enable_backfilling_workflows(team):
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
+    ) as feature_enabled:
+        yield
+
+        feature_enabled.assert_any_call(
+            "backfill-workflows-destination",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
+
+
+def test_creating_workflows_batch_export(
+    client: HttpClient, temporal, organization, team, user, enable_backfilling_workflows
+):
+    """Test that we can create a Workflows batch export if the feature flag is enabled."""
+
+    destination_data = {
+        "type": "Workflows",
+        "config": {
+            "topic": "my-topic",
+        },
+        "integration": None,
+    }
+
+    batch_export_data = {
+        "name": "my-workflows-destination",
+        "destination": destination_data,
+        "interval": "day",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    data = response.json()
+    assert data["destination"] == destination_data
+
+    schedule = describe_schedule(temporal, data["id"])
+    intervals = schedule.schedule.spec.intervals
+
+    assert len(intervals) == 1
+    assert schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
+    assert isinstance(schedule.schedule.action, ScheduleActionStartWorkflow)
+    assert schedule.schedule.action.workflow == "workflows-export"
+
+
+def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(
+    client: HttpClient, temporal, organization, team, user
+):
+    """Test that creating a Workflows batch export fails if the feature flag is not enabled."""
+
+    destination_data = {
+        "type": "Workflows",
+        "config": {
+            "topic": "my-topic",
+        },
+        "integration": None,
+    }
+
+    batch_export_data = {
+        "name": "my-workflows-destination",
+        "destination": destination_data,
+        "interval": "day",
+    }
+
+    client.force_login(user)
+
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+    assert "Backfilling Workflows is not enabled for this team." in response.json()["detail"]

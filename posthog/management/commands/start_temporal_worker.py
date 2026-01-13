@@ -1,14 +1,15 @@
+import os
 import signal
-import typing as t
+import typing
 import asyncio
 import datetime as dt
 import functools
+import threading
 import faulthandler
 from collections import defaultdict
 
 import structlog
 from temporalio import workflow
-from temporalio.worker import Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -22,7 +23,7 @@ from posthog.temporal.ai import (
     WORKFLOWS as AI_WORKFLOWS,
 )
 from posthog.temporal.common.logger import configure_logger, get_logger
-from posthog.temporal.common.worker import create_worker
+from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_imports.settings import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
@@ -39,13 +40,29 @@ from posthog.temporal.delete_recordings import (
     ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
     WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
 )
+from posthog.temporal.dlq_replay import (
+    ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
+    WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
+)
+from posthog.temporal.ducklake import (
+    ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
+    WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
+)
 from posthog.temporal.enforce_max_replay_retention import (
     ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
+from posthog.temporal.export_recording import (
+    ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
+    WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
+)
 from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
     WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
+)
+from posthog.temporal.import_recording import (
+    ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
+    WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
 )
 from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
@@ -75,6 +92,10 @@ from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
+from posthog.temporal.sync_person_distinct_ids import (
+    ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
+    WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
+)
 from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
     WORKFLOWS as TEST_WORKFLOWS,
@@ -97,6 +118,8 @@ from products.tasks.backend.temporal import (
     WORKFLOWS as TASKS_WORKFLOWS,
 )
 
+# When adding modules to a queue, also update the corresponding CI trigger
+# in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
@@ -125,14 +148,23 @@ _task_queue_specs = [
         + USAGE_REPORTS_WORKFLOWS
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
-        + LLM_ANALYTICS_WORKFLOWS,
+        + LLM_ANALYTICS_WORKFLOWS
+        + DLQ_REPLAY_WORKFLOWS
+        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
-        + LLM_ANALYTICS_ACTIVITIES,
+        + LLM_ANALYTICS_ACTIVITIES
+        + DLQ_REPLAY_ACTIVITIES
+        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
+    ),
+    (
+        settings.DUCKLAKE_TASK_QUEUE,
+        DUCKLAKE_COPY_WORKFLOWS,
+        DUCKLAKE_COPY_ACTIVITIES,
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -166,8 +198,14 @@ _task_queue_specs = [
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        DELETE_RECORDING_WORKFLOWS + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
-        DELETE_RECORDING_ACTIVITIES + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
+        DELETE_RECORDING_WORKFLOWS
+        + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+        + EXPORT_RECORDING_WORKFLOWS
+        + IMPORT_RECORDING_WORKFLOWS,
+        DELETE_RECORDING_ACTIVITIES
+        + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
+        + EXPORT_RECORDING_ACTIVITIES
+        + IMPORT_RECORDING_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
@@ -187,7 +225,7 @@ _task_queue_specs = [
 # registered for a shared queue name are combined, ensuring the worker registers
 # everything it should.
 _workflows: defaultdict[str, set[type[PostHogWorkflow]]] = defaultdict(set)
-_activities: defaultdict[str, set[t.Callable[..., t.Any]]] = defaultdict(set)
+_activities: defaultdict[str, set[typing.Callable[..., typing.Any]]] = defaultdict(set)
 for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_specs:
     _workflows[task_queue_name].update(workflows_for_queue)  # type: ignore
     _activities[task_queue_name].update(activities_for_queue)
@@ -271,6 +309,16 @@ class Command(BaseCommand):
             default=settings.TEMPORAL_USE_PYDANTIC_CONVERTER,
             help="Use Pydantic data converter for this worker",
         )
+        parser.add_argument(
+            "--target-memory-usage",
+            default=settings.TARGET_MEMORY_USAGE,
+            help="Fraction of available memory to use",
+        )
+        parser.add_argument(
+            "--target-cpu-usage",
+            default=settings.TARGET_CPU_USAGE,
+            help="Fraction of available CPU to use",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -284,6 +332,8 @@ class Command(BaseCommand):
         max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
         max_concurrent_activities = options.get("max_concurrent_activities", None)
         use_pydantic_converter = options["use_pydantic_converter"]
+        target_memory_usage = options.get("target_memory_usage", None)
+        target_cpu_usage = options.get("target_cpu_usage", None)
 
         try:
             workflows = list(WORKFLOWS_DICT[task_queue])
@@ -305,13 +355,13 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
+        def shutdown_worker_on_signal(worker: ManagedWorker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
             nonlocal shutdown_task
 
             logger.info("Signal %s received", sig)
 
-            if worker.is_shutdown:
+            if worker.is_shutdown():
                 logger.info("Temporal worker already shut down")
                 return
 
@@ -330,6 +380,8 @@ class Command(BaseCommand):
                 graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
+                target_memory_usage=target_memory_usage,
+                target_cpu_usage=target_cpu_usage,
             )
             logger.info("Starting Temporal Worker")
 
@@ -354,6 +406,8 @@ class Command(BaseCommand):
                     max_concurrent_activities=max_concurrent_activities,
                     metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
                     use_pydantic_converter=use_pydantic_converter,
+                    target_memory_usage=target_memory_usage,
+                    target_cpu_usage=target_cpu_usage,
                 )
             )
 
@@ -369,3 +423,23 @@ class Command(BaseCommand):
                 logger.info("Waiting on shutdown_task")
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
+
+                logger.info("Listing active threads at shutdown:")
+                for t in threading.enumerate():
+                    logger.info(
+                        "Thread still alive at shutdown",
+                        thread_name=t.name,
+                        daemon=t.daemon,
+                        ident=t.ident,
+                    )
+
+                # _something_ is preventing clean exit after worker shutdown
+                logger.info("Temporal Worker has shut down, starting hard exit timer of 5 mins")
+
+                def hard_exit():
+                    logger.info("Hard exiting")
+                    os._exit(0)
+
+                timer = threading.Timer(60 * 5, hard_exit)
+                timer.daemon = True
+                timer.start()

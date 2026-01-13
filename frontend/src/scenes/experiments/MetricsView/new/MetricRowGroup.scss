@@ -10,3 +10,14 @@
     text-transform: uppercase;
     letter-spacing: 0.03125rem;
 }
+
+// Breakdown section collapse - match parent row background
+.breakdown-collapse {
+    &--alt-row .LemonCollapsePanel__header {
+        background: var(--bg-table) !important;
+    }
+
+    &--normal-row .LemonCollapsePanel__header {
+        background: var(--bg-light) !important;
+    }
+}

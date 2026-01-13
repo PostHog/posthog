@@ -1,4 +1,9 @@
 from enum import StrEnum
+from uuid import UUID
+
+from posthog.hogql.escape_sql import escape_clickhouse_string
+
+from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 
 
 class SurveyEventName(StrEnum):
@@ -16,6 +21,7 @@ class SurveyEventProperties(StrEnum):
     SURVEY_RESPONDED = "$survey_responded"
     SURVEY_DISMISSED = "$survey_dismissed"
     SURVEY_COMPLETED = "$survey_completed"
+    SURVEY_LAST_SEEN_DATE = "$last_seen_survey_date"
 
 
 def get_survey_response_clickhouse_query(
@@ -31,21 +37,21 @@ def get_survey_response_clickhouse_query(
     Returns:
         The survey response or empty string if not found
     """
-    id_based_key = _build_id_based_key(question_index, question_id)
+    _DANGEROUS_id_based_key = _build_id_based_key(question_index, question_id)
     index_based_key = _build_index_based_key(question_index)
 
     if is_multiple_choice is True:
-        return _build_multiple_choice_query(id_based_key, index_based_key)
+        return _build_multiple_choice_query(_DANGEROUS_id_based_key, index_based_key)
 
-    return _build_coalesce_query(id_based_key, index_based_key)
+    return _build_coalesce_query(_DANGEROUS_id_based_key, index_based_key)
 
 
 def _build_id_based_key(question_index: int, question_id: str | None = None) -> str:
     if question_id:
-        return f"'{SurveyEventProperties.SURVEY_RESPONSE}_{question_id}'"
+        return escape_clickhouse_string(f"{SurveyEventProperties.SURVEY_RESPONSE}_{question_id}")
 
     # Extract the ID from the question at the given index in the questions array
-    return f"CONCAT('{SurveyEventProperties.SURVEY_RESPONSE}_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[{question_index + 1}], 'id'))"
+    return f"CONCAT({escape_clickhouse_string(SurveyEventProperties.SURVEY_RESPONSE + '_')}, JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[{int(question_index) + 1}], 'id'))"
 
 
 def _build_index_based_key(question_index: int) -> str:
@@ -54,25 +60,25 @@ def _build_index_based_key(question_index: int) -> str:
     return f"{SurveyEventProperties.SURVEY_RESPONSE}_{question_index}"
 
 
-def _build_coalesce_query(id_based_key: str, index_based_key: str) -> str:
+def _build_coalesce_query(_DANGEROUS_id_based_key: str, index_based_key: str) -> str:
     return f"""COALESCE(
-        NULLIF(JSONExtractString(properties, {id_based_key}), ''),
-        NULLIF(JSONExtractString(properties, '{index_based_key}'), '')
+        NULLIF(JSONExtractString(properties, {_DANGEROUS_id_based_key}), ''),
+        NULLIF(JSONExtractString(properties, {escape_clickhouse_string(index_based_key)}), '')
     )"""
 
 
-def _build_multiple_choice_query(id_based_key: str, index_based_key: str) -> str:
+def _build_multiple_choice_query(_DANGEROUS_id_based_key: str, index_based_key: str) -> str:
     return f"""if(
-        JSONHas(properties, {id_based_key}) AND length(JSONExtractArrayRaw(properties, {id_based_key})) > 0,
-        JSONExtractArrayRaw(properties, {id_based_key}),
-        JSONExtractArrayRaw(properties, '{index_based_key}')
+        JSONHas(properties, {_DANGEROUS_id_based_key}) AND length(JSONExtractArrayRaw(properties, {_DANGEROUS_id_based_key})) > 0,
+        JSONExtractArrayRaw(properties, {_DANGEROUS_id_based_key}),
+        JSONExtractArrayRaw(properties, {escape_clickhouse_string(index_based_key)}')
     )"""
 
 
-def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
+def filter_survey_sent_events_by_unique_submission(survey_id: str, team_id: int | None = None) -> str:
     """
     Generates a SQL condition string to filter 'survey sent' events, ensuring uniqueness based on submission ID,
-    using an optimized approach with argMax(). Usage with uniqueSurveySubmissionsFilter(survey_id).
+    using an optimized approach with argMax(). Usage with uniqueSurveySubmissionsFilter(survey_id, team_id).
 
     This handles two scenarios for identifying relevant 'survey sent' events:
     1. Events recorded before the introduction of `$survey_submission_id` (submission_id is empty/null):
@@ -82,6 +88,7 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
 
     Args:
         survey_id: The ID of the survey to filter events for.
+        team_id: Optional team ID to filter events
 
     Returns:
         A SQL condition string (part of a WHERE clause) filtering event UUIDs.
@@ -96,12 +103,17 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
         f"CASE WHEN COALESCE({submission_id_col}, '') = '' THEN toString(uuid) ELSE {submission_id_col} END"
     )
 
+    extra_filters = ""
+    if team_id is not None:
+        extra_filters += f" AND team_id = {team_id}"
+
     query = f"""uuid IN (
         SELECT
             argMax(uuid, timestamp) -- Selects the UUID of the event with the latest timestamp within each group
         FROM events
         WHERE event = '{SurveyEventName.SENT}' -- Filter for 'survey sent' events
-          AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = '{survey_id}' -- Filter for the specific survey
+          AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = {escape_clickhouse_string(survey_id)} -- Filter for the specific survey
+          {extra_filters}
           -- Date range filters from the outer query are intentionally NOT included here.
           -- This ensures we find the globally latest unique submission, which is then
           -- filtered by the outer query's date range.
@@ -160,3 +172,24 @@ def get_unique_survey_event_uuids_sql_subquery(
     group_by_clause = ", ".join([*group_by_prefix_expressions, deduplication_group_by_key])
 
     return f"(SELECT argMax(uuid, timestamp) FROM events WHERE {where_clause} GROUP BY {group_by_clause})"
+
+
+def get_archived_response_uuids(survey_id: str | UUID | None, team_id: int) -> set[str]:
+    """
+    Get set of archived response UUIDs from PostgreSQL.
+
+    Args:
+        survey_id: UUID of the survey, or None to get all archived responses for the team
+        team_id: Team ID
+
+    Returns:
+        Set of archived response UUIDs as strings
+    """
+    filter_kwargs: dict[str, int | str | UUID] = {"team_id": team_id}
+    if survey_id is not None:
+        filter_kwargs["survey_id"] = survey_id
+
+    return {
+        str(uuid)
+        for uuid in SurveyResponseArchive.objects.filter(**filter_kwargs).values_list("response_uuid", flat=True)
+    }

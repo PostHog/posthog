@@ -10,6 +10,7 @@ pub mod timestamp;
 pub use event::CapturedEvent;
 pub use event::CapturedEventHeaders;
 pub use event::ClickHouseEvent;
+pub use event::HasEventName;
 pub use event::InternallyCapturedEvent;
 pub use event::PersonMode;
 pub use event::RawEngageEvent;
@@ -40,6 +41,9 @@ pub mod embedding {
     pub use crate::embeddings::EmbeddingModel;
     pub use crate::embeddings::EmbeddingRecord;
     pub use crate::embeddings::EmbeddingRequest;
+    pub use crate::embeddings::EmbeddingResponse;
+    pub use crate::embeddings::EmbeddingResult;
+    pub use crate::embeddings::ModelResult;
 }
 
 pub mod format {

@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Literal, Optional, Union, cast
 
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, connections
+from django.db import DatabaseError, IntegrityError
 from django.db.models import CharField, Expression, F, Func, Q
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
@@ -29,6 +29,7 @@ from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
 from posthog.models.team.team import Team
 from posthog.models.utils import execute_with_timeout
+from posthog.person_db_router import PERSONS_DB_FOR_READ, PERSONS_DB_FOR_WRITE
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 from posthog.utils import label_for_team_id_to_track
 
@@ -67,18 +68,9 @@ FLAG_CACHE_HIT_COUNTER = Counter(
 ENTITY_EXISTS_PREFIX = "flag_entity_exists_"
 PERSON_KEY = "person"
 
-# Define which database to use for persons only.
-# This is temporary while we migrate persons to its own database.
-# It'll use `replica` until we set the PERSONS_DB_WRITER_URL env var
-READ_ONLY_DATABASE_FOR_PERSONS = (
-    "persons_db_reader"
-    if "persons_db_reader" in connections
-    else "replica"
-    if "replica" in connections and "decide" in settings.READ_REPLICA_OPT_IN
-    else "default"
-)  # Fallback if persons DB not configured
-
-WRITE_DATABASE_FOR_PERSONS = "persons_db_writer" if "persons_db_writer" in connections else "default"
+# Use centralized database routing constants
+READ_ONLY_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_READ
+WRITE_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_WRITE
 
 
 class FeatureFlagMatchReason(StrEnum):
@@ -140,8 +132,8 @@ class FlagsMatcherCache:
         if self.failed_to_fetch_flags:
             raise DatabaseError("Failed to fetch group type mapping previously, not trying again.")
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING):
-                group_type_mapping_rows = GroupTypeMapping.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, READ_ONLY_DATABASE_FOR_PERSONS):
+                group_type_mapping_rows = GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
                     project_id=self.project_id
                 )
                 return {row.group_type: cast(GroupTypeIndex, row.group_type_index) for row in group_type_mapping_rows}
@@ -610,6 +602,7 @@ class FeatureFlagMatcher:
                                 **type_property_annotations,
                                 **{
                                     key: ExpressionWrapper(
+                                        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (literal "true", no user input)
                                         cast(Expression, expr if expr else RawSQL("true", [])),
                                         output_field=BooleanField(),
                                     ),
@@ -629,6 +622,7 @@ class FeatureFlagMatcher:
                                 **type_property_annotations,
                                 **{
                                     key: ExpressionWrapper(
+                                        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (literal "true", no user input)
                                         cast(Expression, expr if expr else RawSQL("true", [])),
                                         output_field=BooleanField(),
                                     ),
@@ -746,6 +740,8 @@ class FeatureFlagMatcher:
             # NB: A flag with 0.0 hash will always evaluate to false
             return 0
         hash_key = f"{prefix}{hash_identifier}{salt}"
+        # this hash is for uniform distribution and has no security impact
+        # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
@@ -959,28 +955,49 @@ def get_all_feature_flags_with_details(
         # So, if an extra query check helps us avoid the write path, it's worth it.
 
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
+            # Split cross-database query into separate queries for persons_db and default db
+            # Step 1: Get person_ids from persons database with explicit join
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, READ_ONLY_DATABASE_FOR_PERSONS) as cursor:
                 distinct_ids = [distinct_id, str(hash_key_override)]
-                query = """
-                    WITH target_person_ids AS (
-                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
-                        distinct_id = ANY(%(distinct_ids)s)
-                    ),
-                    existing_overrides AS (
-                        SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
-                        WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
-                    )
-                    SELECT key FROM posthog_featureflag flag
-                    JOIN posthog_team team ON flag.team_id = team.id
-                    WHERE team.project_id = %(project_id)s
-                        AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
-                        AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+                pdi_table = PersonDistinctId._meta.db_table
+                person_table = Person._meta.db_table
+                person_query = f"""
+                    SELECT DISTINCT p.id
+                    FROM {person_table} p
+                    INNER JOIN {pdi_table} pdi ON p.id = pdi.person_id AND p.team_id = pdi.team_id
+                    WHERE p.team_id = %(team_id)s AND pdi.distinct_id = ANY(%(distinct_ids)s)
                 """
-                cursor.execute(
-                    query,
-                    {"team_id": team.id, "project_id": team.project_id, "distinct_ids": distinct_ids},
-                )
-                flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
+                cursor.execute(person_query, {"team_id": team.id, "distinct_ids": distinct_ids})
+                person_ids = [row[0] for row in cursor.fetchall()]
+
+            if not person_ids:
+                # No person IDs found, so no need to check for overrides
+                should_write_hash_key_override = False
+            else:
+                # Step 2: Get existing overrides from persons database
+                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, READ_ONLY_DATABASE_FOR_PERSONS) as cursor:
+                    override_query = """
+                        SELECT DISTINCT feature_flag_key FROM posthog_featureflaghashkeyoverride
+                        WHERE team_id = %(team_id)s AND person_id = ANY(%(person_ids)s)
+                    """
+                    cursor.execute(override_query, {"team_id": team.id, "person_ids": person_ids})
+                    existing_flag_keys = {row[0] for row in cursor.fetchall()}
+
+                # Step 3: Get flags with experience continuity from default database
+                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
+                    flag_query = """
+                        SELECT key FROM posthog_featureflag flag
+                        JOIN posthog_team team ON flag.team_id = team.id
+                        WHERE team.project_id = %(project_id)s
+                            AND flag.ensure_experience_continuity = TRUE
+                            AND flag.active = TRUE
+                            AND flag.deleted = FALSE
+                    """
+                    cursor.execute(flag_query, {"project_id": team.project_id})
+                    all_experience_continuity_flags = {row[0] for row in cursor.fetchall()}
+
+                # Step 4: Find flags that need overrides (in Python)
+                flags_with_no_overrides = list(all_experience_continuity_flags - existing_flag_keys)
                 should_write_hash_key_override = len(flags_with_no_overrides) > 0
         except Exception as e:
             handle_feature_flag_exception(e, "[Feature Flags] Error figuring out hash key overrides")
@@ -1075,50 +1092,75 @@ def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], has
 
     for retry in range(max_retries):
         try:
-            # make the entire hash key override logic a single transaction
-            # with a small timeout
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as cursor:
-                query = """
-                    WITH target_person_ids AS (
-                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
-                        distinct_id = ANY(%(distinct_ids)s)
-                    ),
-                    existing_overrides AS (
-                        SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
-                        WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
-                    ),
-                    flags_to_override AS (
-                        SELECT key FROM posthog_featureflag flag
-                        JOIN posthog_team team ON flag.team_id = team.id
-                        WHERE team.project_id = %(project_id)s
-                            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
-                            AND flag.key NOT IN (SELECT feature_flag_key FROM existing_overrides)
-                    )
-                    INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                        SELECT team_id, person_id, key, %(hash_key_override)s
-                        FROM flags_to_override, target_person_ids
-                        WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = %(team_id)s)
-                        ON CONFLICT DO NOTHING
+            # Split cross-database query: get data from persons_db, then insert into persons_db
+            # Step 1: Get person_ids from persons database
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, WRITE_DATABASE_FOR_PERSONS) as cursor:
+                pdi_table = PersonDistinctId._meta.db_table
+                person_table = Person._meta.db_table
+                person_query = f"""
+                    SELECT DISTINCT pdi.person_id
+                    FROM {pdi_table} pdi
+                    INNER JOIN {person_table} p ON pdi.person_id = p.id AND pdi.team_id = p.team_id
+                    WHERE pdi.team_id = %(team_id)s AND pdi.distinct_id = ANY(%(distinct_ids)s)
                 """
-                # The EXISTS clause is to make sure we don't try to add overrides for deleted persons, as this results in erroring out.
+                cursor.execute(person_query, {"team_id": team.id, "distinct_ids": distinct_ids})
+                person_ids = [row[0] for row in cursor.fetchall()]
 
-                # :TRICKY: regarding the ON CONFLICT DO NOTHING clause:
-                # This can happen if the same person is being processed by multiple workers
-                # / we got multiple requests for the same person at the same time. In this case, we can safely ignore the error
-                # because they're all trying to add the same overrides.
-                # We don't want to return an error response for `/decide` just because of this.
-                # There can be cases where it's a different override (like a person on two different browser sending the same request at the same time),
-                # but we don't care about that case because first override wins.
-                cursor.execute(
-                    query,
-                    {
-                        "team_id": team.id,
-                        "project_id": team.project_id,
-                        "distinct_ids": distinct_ids,
-                        "hash_key_override": hash_key_override,
-                    },
-                )
-                return cursor.rowcount > 0
+            if not person_ids:
+                return False
+
+            # Step 2: Get existing overrides from persons database
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, WRITE_DATABASE_FOR_PERSONS) as cursor:
+                override_query = """
+                    SELECT DISTINCT feature_flag_key FROM posthog_featureflaghashkeyoverride
+                    WHERE team_id = %(team_id)s AND person_id = ANY(%(person_ids)s)
+                """
+                cursor.execute(override_query, {"team_id": team.id, "person_ids": person_ids})
+                existing_flag_keys = {row[0] for row in cursor.fetchall()}
+
+            # Step 3: Get flags that need overrides from default database
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
+                flag_query = """
+                    SELECT key FROM posthog_featureflag flag
+                    JOIN posthog_team team ON flag.team_id = team.id
+                    WHERE team.project_id = %(project_id)s
+                        AND flag.ensure_experience_continuity = TRUE
+                        AND flag.active = TRUE
+                        AND flag.deleted = FALSE
+                """
+                cursor.execute(flag_query, {"project_id": team.project_id})
+                all_experience_continuity_flags = {row[0] for row in cursor.fetchall()}
+
+            # Step 4: Insert overrides for flags that don't have them yet
+            flags_to_override = all_experience_continuity_flags - existing_flag_keys
+            if not flags_to_override:
+                return False
+
+            # Step 5: Insert into persons database
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, WRITE_DATABASE_FOR_PERSONS) as cursor:
+                # Create cartesian product of person_ids and flag_keys
+                import itertools
+
+                person_flag_pairs = list(itertools.product(person_ids, flags_to_override))
+                if person_flag_pairs:
+                    # Build VALUES clause with explicit values to avoid unnest type ambiguity
+                    values_placeholders = []
+                    params: dict[str, int | str] = {"team_id": team.id, "hash_key_override": hash_key_override}
+                    for i, (person_id, flag_key) in enumerate(person_flag_pairs):
+                        values_placeholders.append(
+                            f"(%(team_id)s, %(person_id_{i})s, %(flag_key_{i})s, %(hash_key_override)s)"
+                        )
+                        params[f"person_id_{i}"] = person_id
+                        params[f"flag_key_{i}"] = flag_key
+
+                    insert_query = f"""
+                        INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                        VALUES {", ".join(values_placeholders)}
+                        ON CONFLICT DO NOTHING
+                    """
+                    cursor.execute(insert_query, params)
+                    return cursor.rowcount > 0
+                return False
 
         except IntegrityError as e:
             if "violates foreign key constraint" in str(e) and retry < max_retries - 1:
@@ -1258,6 +1300,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int, p
             **type_property_annotations,
             **{
                 key: ExpressionWrapper(
+                    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (literal "true", no user input)
                     cast(Expression, expr if expr else RawSQL("true", [])),
                     output_field=BooleanField(),
                 ),

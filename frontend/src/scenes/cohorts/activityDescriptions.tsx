@@ -36,7 +36,18 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
             description: (
                 <>
                     <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the cohort:{' '}
-                    {logItem.detail.name}
+                    {nameOrLinkToCohort(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'restored') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> restored the cohort:{' '}
+                    {nameOrLinkToCohort(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
         }
@@ -52,5 +63,5 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
             ),
         }
     }
-    return defaultDescriber(logItem, asNotification, nameOrLinkToCohort(logItem?.detail.short_id))
+    return defaultDescriber(logItem, asNotification, nameOrLinkToCohort(logItem?.item_id, logItem?.detail.name))
 }

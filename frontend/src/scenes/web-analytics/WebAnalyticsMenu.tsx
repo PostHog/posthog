@@ -57,7 +57,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                                 setShouldFilterTestAccounts(!shouldFilterTestAccounts)
                             }}
                             fullWidth={true}
-                            label="Filter test accounts"
+                            label="Filter out internal and test users"
                         />
                     ),
                 },

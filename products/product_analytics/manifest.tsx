@@ -1,7 +1,7 @@
 import { combineUrl } from 'kea-router'
 
 import { AlertType } from 'lib/components/Alerts/types'
-import { INSIGHT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import {
@@ -10,6 +10,7 @@ import {
     HogQLVariable,
     Node,
     NodeKind,
+    ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
@@ -159,13 +160,64 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Product analytics',
+            intents: [ProductKey.PRODUCT_ANALYTICS],
             category: 'Analytics',
             type: 'insight',
             href: urls.insights(),
             iconType: 'product_analytics',
-            iconColor: ['var(--color-product-product-analytics-light)'] as FileSystemIconColor,
+            iconColor: ['var(--color-product-product-analytics-light)'],
             sceneKey: 'SavedInsights',
             sceneKeys: ['SavedInsights', 'Insight'],
+        },
+        {
+            path: 'Notebooks',
+            category: 'Tools',
+            type: 'notebook',
+            iconType: 'notebook',
+            href: urls.notebooks(),
+            sceneKey: 'Notebooks',
+            sceneKeys: ['Notebook', 'Notebooks'],
+        },
+    ],
+    treeItemsMetadata: [
+        {
+            path: 'Event definitions',
+            category: 'Schema',
+            iconType: 'event_definition',
+            href: urls.eventDefinitions(),
+            sceneKey: 'EventDefinitions',
+            sceneKeys: ['EventDefinition', 'EventDefinitions'],
+        },
+        {
+            path: 'Property definitions',
+            category: 'Schema',
+            iconType: 'property_definition',
+            href: urls.propertyDefinitions(),
+            sceneKey: 'PropertyDefinitions',
+            sceneKeys: ['PropertyDefinition', 'PropertyDefinitions'],
+        },
+        {
+            path: 'Property groups',
+            category: 'Schema',
+            iconType: 'event_definition',
+            href: urls.schemaManagement(),
+            flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
+        },
+        {
+            path: 'Annotations',
+            category: 'Metadata',
+            iconType: 'annotation',
+            href: urls.annotations(),
+            sceneKey: 'Annotations',
+            sceneKeys: ['Annotations'],
+        },
+        {
+            path: 'Comments',
+            category: 'Metadata',
+            iconType: 'comment',
+            href: urls.comments(),
+            sceneKey: 'Comments',
+            sceneKeys: ['Comments'],
         },
     ],
 }

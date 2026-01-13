@@ -13,7 +13,7 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from posthog.sync import database_sync_to_async
 from posthog.user_permissions import UserPermissions
 
-from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
+from ee.hogai.chat_agent.dashboards.nodes import DashboardCreationNode
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import AssistantState, InsightQuery
 
@@ -50,6 +50,9 @@ IMPORTANT: When adding insights, you must provide a complete description of what
 """.strip()
 
     args_schema: type[BaseModel] = EditCurrentDashboardArgs
+
+    def get_required_resource_access(self):
+        return [("dashboard", "editor")]
 
     @database_sync_to_async
     def _check_user_permissions(self, dashboard: Dashboard) -> bool | None:

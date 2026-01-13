@@ -168,6 +168,7 @@ const surveyActionsMapping: Record<
 
         const fieldNameMapping: Record<keyof SurveyAppearance, string> = {
             backgroundColor: 'background color',
+            textColor: 'text color',
             submitButtonColor: 'submit button color',
             submitButtonText: 'submit button text',
             submitButtonTextColor: 'submit button text color',
@@ -183,6 +184,7 @@ const surveyActionsMapping: Record<
             thankYouMessageCloseButtonText: 'thank you message close button text',
             autoDisappear: 'auto-disappear option',
             position: 'survey position',
+            tabPosition: 'survey button position',
             shuffleQuestions: 'question shuffling',
             surveyPopupDelaySeconds: 'survey popup delay',
             widgetType: 'widget type',
@@ -198,6 +200,7 @@ const surveyActionsMapping: Record<
             maxWidth: 'max width',
             textSubtleColor: 'text subtle color',
             inputBackground: 'input background',
+            inputTextColor: 'input text color',
         }
 
         Object.entries(fieldNameMapping).forEach(([field, readableFieldName]) => {

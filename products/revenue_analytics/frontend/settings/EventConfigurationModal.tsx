@@ -9,10 +9,16 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
+import {
+    ProductIntentContext,
+    ProductKey,
+    RevenueAnalyticsEventItem,
+    SubscriptionDropoffMode,
+} from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
@@ -38,6 +44,8 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
         updateEventSubscriptionDropoffMode,
         save,
     } = useActions(revenueAnalyticsSettingsLogic)
+    const { reportRevenueAnalyticsEventCreated, reportRevenueAnalyticsEventEdited } = useActions(eventUsageLogic)
+    const { addProductIntent } = useActions(teamLogic)
 
     // Track the name of the event we care about
     const [eventName, setEventName] = useState<string | null>(() => event?.eventName ?? null)
@@ -54,6 +62,18 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
 
     const handleSave = (): void => {
         save()
+        if (eventName) {
+            if (originalEvent) {
+                reportRevenueAnalyticsEventEdited(eventName)
+            } else {
+                reportRevenueAnalyticsEventCreated(eventName)
+                addProductIntent({
+                    product_type: ProductKey.REVENUE_ANALYTICS,
+                    intent_context: ProductIntentContext.REVENUE_ANALYTICS_EVENT_CREATED,
+                    metadata: { event_name: eventName },
+                })
+            }
+        }
         onClose()
     }
 

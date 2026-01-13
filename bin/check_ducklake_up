@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import time
+from importlib import util as importlib_util
+from pathlib import Path
+from types import ModuleType
+
+import duckdb
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_ducklake_common() -> ModuleType:
+    """Load ducklake helpers directly from the repo without relying on editable installs."""
+    module_path = REPO_ROOT / "posthog" / "ducklake" / "common.py"
+    spec = importlib_util.spec_from_file_location("ducklake_common", module_path)
+    if not spec or not spec.loader:
+        raise ImportError(f"Unable to locate DuckLake helpers at {module_path}")
+    module = importlib_util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+ducklake_common = _load_ducklake_common()
+
+HEALTHCHECK_ALIAS = "ducklake_dev_health"
+
+
+def check_once(config: dict[str, str]) -> None:
+    conn = duckdb.connect()
+    try:
+        conn.execute("LOAD ducklake")
+        ducklake_common.attach_catalog(conn, config, alias=HEALTHCHECK_ALIAS)
+        ducklake_common.run_smoke_check(conn, alias=HEALTHCHECK_ALIAS)
+    finally:
+        conn.close()
+
+
+def main() -> int:
+    while True:
+        config = ducklake_common.get_config()
+        try:
+            check_once(config)
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:  # noqa: BLE001 - any failure should trigger a retry
+            print(f"Awaiting DuckLake warmup... ({exc})")
+            try:
+                initialized = ducklake_common.initialize_ducklake(config, alias="ducklake_dev")
+                if initialized:
+                    print("Reinitialized DuckLake catalog, retrying health check...")
+            except Exception as setup_exc:  # noqa: BLE001
+                print(f"DuckLake initialization attempt failed ({setup_exc})")
+            time.sleep(1)
+            continue
+
+        print("DuckLake is up!")
+        return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -28,6 +28,7 @@ export enum FeatureFlagsTab {
     PERMISSIONS = 'permissions',
     PROJECTS = 'projects',
     SCHEDULE = 'schedule',
+    FEEDBACK = 'feedback',
 }
 
 export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {

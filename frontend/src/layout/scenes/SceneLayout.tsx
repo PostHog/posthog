@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom'
 import { IconListCheck, IconX } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
+import { AppShortcutMenu } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
@@ -66,7 +67,6 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
         </div>
     )
 }
-8
 
 export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
@@ -75,6 +75,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
     const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
+
     // Set layout config
     useEffect(() => {
         if (sceneConfig) {
@@ -97,7 +98,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
 
             <div
                 className={cn(
-                    'relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))]',
+                    'flex flex-col relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))]',
                     {
                         'lg:rounded-tl-lg': !firstTabIsActive,
                         'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]':
@@ -180,6 +181,8 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                     )}
                 </>
             )}
+
+            <AppShortcutMenu />
         </>
     )
 }

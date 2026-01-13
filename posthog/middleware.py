@@ -1,3 +1,5 @@
+import re
+import json
 import time
 import uuid
 from collections.abc import Callable
@@ -7,12 +9,13 @@ from ipaddress import ip_address, ip_network
 from typing import Optional, cast
 
 from django.conf import settings
+from django.contrib.auth import logout
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
@@ -22,7 +25,7 @@ import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
-from social_core.exceptions import AuthFailed
+from social_core.exceptions import AuthCanceled, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
@@ -40,6 +43,7 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+from posthog.utils import _is_valid_ip_address
 
 from products.notebooks.backend.models import Notebook
 
@@ -81,13 +85,28 @@ class AllowIPMiddleware:
         self.get_response = get_response
 
     def get_forwarded_for(self, request: HttpRequest):
-        forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        forwarded_for = request.headers.get("x-forwarded-for")
         if forwarded_for is not None:
             return [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
         else:
             return []
 
-    def extract_client_ip(self, request: HttpRequest):
+    def _normalize_ip(self, ip: str) -> str | None:
+        """Strip port from IP and validate format."""
+        # IPv6 with port: [2001:db8::1]:8080 -> 2001:db8::1
+        if ip.startswith("["):
+            bracket_end = ip.find("]")
+            if bracket_end != -1:
+                ip = ip[1:bracket_end]
+        # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
+        elif ip.count(":") == 1:
+            ip = ip.split(":")[0]
+
+        if not _is_valid_ip_address(ip):
+            return None
+        return ip
+
+    def extract_client_ip(self, request: HttpRequest) -> str | None:
         client_ip = request.META["REMOTE_ADDR"]
         if getattr(settings, "USE_X_FORWARDED_HOST", False):
             forwarded_for = self.get_forwarded_for(request)
@@ -95,12 +114,13 @@ class AllowIPMiddleware:
                 closest_proxy = client_ip
                 client_ip = forwarded_for.pop(0)
                 if settings.TRUST_ALL_PROXIES:
-                    return client_ip
+                    return self._normalize_ip(client_ip)
                 proxies = [closest_proxy, *forwarded_for]
                 for proxy in proxies:
-                    if proxy not in self.trusted_proxies:
+                    normalized = self._normalize_ip(proxy)
+                    if normalized is None or normalized not in self.trusted_proxies:
                         return None
-        return client_ip
+        return self._normalize_ip(client_ip)
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
@@ -316,10 +336,11 @@ class CHQueries:
             kind="request",
             id=request.path,
             route_id=route.route,
+            is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
-            http_referer=request.META.get("HTTP_REFERER"),
-            http_user_agent=request.META.get("HTTP_USER_AGENT"),
+            http_referer=request.headers.get("referer"),
+            http_user_agent=request.headers.get("user-agent"),
         )
 
         try:
@@ -405,8 +426,8 @@ class ShortCircuitMiddleware:
                     kind="request",
                     id=request.path,
                     route_id=resolve(request.path).route,
-                    http_referer=request.META.get("HTTP_REFERER"),
-                    http_user_agent=request.META.get("HTTP_USER_AGENT"),
+                    http_referer=request.headers.get("referer"),
+                    http_user_agent=request.headers.get("user-agent"),
                 )
                 if self.decide_throttler.allow_request(request, None):
                     return get_decide(request)
@@ -448,9 +469,9 @@ def per_request_logging_context_middleware(
         # header from NGINX, but we really want to have a way to get to the
         # team_id given a host header, and we can't do that with NGINX.
         structlog.contextvars.bind_contextvars(
-            host=request.META.get("HTTP_HOST", ""),
+            host=request.headers.get("host", ""),
             container_hostname=settings.CONTAINER_HOSTNAME,
-            x_forwarded_for=request.META.get("HTTP_X_FORWARDED_FOR", ""),
+            x_forwarded_for=request.headers.get("x-forwarded-for", ""),
         )
 
         return get_response(request)
@@ -517,6 +538,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
         if request.user and request.user.is_authenticated:
             if request.user.team:
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_current_project_token",
                     value=request.user.team.api_token,
@@ -528,6 +550,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
                     samesite=default_cookie_options["samesite"],
                 )
 
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
                     value=request.user.team.name.encode("utf-8").decode("latin-1"),
@@ -539,6 +562,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
                     samesite=default_cookie_options["samesite"],
                 )
 
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_current_instance",
                     value=SITE_URL,
@@ -553,6 +577,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             auth_backend = request.session.get("_auth_user_backend")
             login_method = AUTH_BACKEND_KEYS.get(auth_backend)
             if login_method:
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_last_login_method",
                     value=login_method,
@@ -594,9 +619,6 @@ class SessionAgeMiddleware:
 
                 current_time = time.time()
                 if current_time - session_created_at > session_age:
-                    # Log out the user
-                    from django.contrib.auth import logout
-
                     logout(request)
                     return redirect("/login?message=Your session has expired. Please log in again.")
 
@@ -640,8 +662,8 @@ class AutoLogoutImpersonateMiddleware:
         if session_is_expired:
             # TRICKY: We need to handle different cases here:
             # 1. For /api requests we want to respond with a code that will force the UI to redirect to the logout page (401)
-            # 2. For any other endpoint we want to redirect to the logout page
-            # 3. BUT we wan't to intercept the /logout endpoint so that we can restore the original login
+            # 2. For /admin requests we want to restore the original login and continue to the intended page
+            # 3. For any other endpoint we want to restore the original login and redirect to /admin/
 
             if request.path.startswith("/static/"):
                 # Skip static files
@@ -651,11 +673,13 @@ class AutoLogoutImpersonateMiddleware:
                     "Impersonation session has expired. Please log in again.",
                     status=401,
                 )
-            elif not request.path.startswith("/logout"):
-                return redirect("/logout/")
             else:
                 restore_original_login(request)
-                return redirect("/admin/")
+                if request.path.startswith("/admin/"):
+                    # Redirect to the intended admin page
+                    return redirect(request.get_full_path())
+                else:
+                    return redirect("/admin/")
 
         return self.get_response(request)
 
@@ -716,8 +740,7 @@ class CSPMiddleware:
 
         is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:
-            # TODO replace with django-loginas `LOGINAS_CSP_FRIENDLY` setting once 0.3.12 is released (https://github.com/skorokithakis/django-loginas/issues/111)
-            django_loginas_inline_script_hash = "sha256-YS9p0l7SQLkAEtvGFGffDcYHRcUBpPzMcbSQe1lRuLc="
+            django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
             csp_parts = [
                 "default-src 'self'",
                 "style-src 'self' 'unsafe-inline'",
@@ -791,6 +814,11 @@ class SocialAuthExceptionMiddleware:
         if not request.path.startswith("/complete/"):
             return None
 
+        # Handle AuthCanceled (user cancelled OAuth flow)
+        if isinstance(exception, AuthCanceled):
+            return redirect("/login?error_code=oauth_cancelled")
+
+        # Handle AuthFailed with specific error codes
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
             error = exception.args[0]
             if error in (
@@ -804,3 +832,200 @@ class SocialAuthExceptionMiddleware:
 
         # Handle other exceptions with existing middleware
         return None
+
+
+class ActiveOrganizationMiddleware:
+    """
+    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    """
+
+    _IGNORED_PATHS = ("/logout", "/api", "/admin")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        # Skip middleware for static assets, logout, and org switching endpoints
+        if any(request.path.startswith(path) for path in self._IGNORED_PATHS):
+            return self.get_response(request)
+
+        if not request.user.is_authenticated or request.user.is_anonymous:
+            return self.get_response(request)
+
+        user = cast(User, request.user)
+
+        if user.current_organization is None:
+            return self.get_response(request)
+
+        if user.current_organization.is_active is not False:
+            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
+
+        return (
+            self.get_response(request)
+            if request.path == "/organization-deactivated"
+            else redirect("/organization-deactivated")
+        )
+
+
+# Session key used to mark an impersonation session as read-only
+IMPERSONATION_READ_ONLY_SESSION_KEY = "impersonation_read_only"
+
+
+def is_read_only_impersonation(request: HttpRequest) -> bool:
+    """Check if the current session is a read-only impersonation session."""
+    return is_impersonated_session(request) and request.session.get(IMPERSONATION_READ_ONLY_SESSION_KEY, False)
+
+
+# HTTP methods that are considered idempotent/safe and allowed during impersonation
+IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+
+# Paths that are allowed for non-idempotent requests during read-only impersonation.
+# These should be paths that are safe or necessary for the impersonated session to function.
+# Supports both prefix strings and compiled regex patterns.
+READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
+    # These endpoints use POST but are read-only
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
+]
+
+
+class ImpersonationReadOnlyMiddleware:
+    """
+    Restricts impersonated sessions to read-only (idempotent) HTTP methods.
+
+    When a staff user is impersonating another user via django-loginas,
+    this middleware blocks non-idempotent requests (POST, PUT, PATCH, DELETE)
+    to prevent unintended modifications to the impersonated user's data.
+
+    Safe methods (GET, HEAD, OPTIONS, TRACE) are always allowed.
+    Specific paths can be allowlisted via READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if not is_read_only_impersonation(request):
+            return self.get_response(request)
+
+        if request.method in IMPERSONATION_SAFE_METHODS:
+            return self.get_response(request)
+
+        if self._is_path_allowlisted(request.path):
+            return self.get_response(request)
+
+        if self._is_allowed_users_request(request):
+            return self.get_response(request)
+
+        return JsonResponse(
+            {
+                "type": "authentication_error",
+                "code": "impersonation_read_only",
+                "detail": "This action is not allowed during read-only user impersonation.",
+            },
+            status=403,
+        )
+
+    def _is_path_allowlisted(self, path: str) -> bool:
+        for allowed_path in READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS:
+            if isinstance(allowed_path, re.Pattern):
+                if allowed_path.match(path):
+                    return True
+            elif path.startswith(allowed_path):
+                return True
+        return False
+
+    def _is_allowed_users_request(self, request: HttpRequest) -> bool:
+        """
+        Allow switching organizations.
+
+        Switching occurs via a PATCH to /api/users/@me/ that only contains `set_current_organization`.
+        """
+        if request.method != "PATCH":
+            return False
+
+        if request.path not in ("/api/users/@me/", "/api/users/@me"):
+            return False
+
+        try:
+            body = json.loads(request.body)
+            return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
+
+
+IMPERSONATION_BLOCKED_PATHS: list[str] = [
+    "/api/users/",
+    "/api/personal_api_keys/",
+]
+
+
+class ImpersonationBlockedPathsMiddleware:
+    """
+    Blocks non-idempotent requests to specific paths during any impersonation session.
+
+    Paths in IMPERSONATION_BLOCKED_PATHS are restricted to read-only access
+    when a staff user is impersonating another user.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if not is_impersonated_session(request):
+            return self.get_response(request)
+
+        if request.method in IMPERSONATION_SAFE_METHODS:
+            return self.get_response(request)
+
+        if not self._is_path_blocked(request.path):
+            return self.get_response(request)
+
+        if self._is_allowed_users_request(request):
+            return self.get_response(request)
+
+        return JsonResponse(
+            {
+                "type": "authentication_error",
+                "code": "impersonation_path_blocked",
+                "detail": "This action is not allowed during impersonation.",
+            },
+            status=403,
+        )
+
+    def _is_path_blocked(self, path: str) -> bool:
+        return any(path.startswith(blocked_path) for blocked_path in IMPERSONATION_BLOCKED_PATHS)
+
+    def _is_allowed_users_request(self, request: HttpRequest) -> bool:
+        """
+        Allow switching organizations.
+
+        Switching occurs via a PATCH to /api/users/@me/ that only contains `set_current_organization`.
+        """
+        if request.method != "PATCH":
+            return False
+
+        if request.path not in ("/api/users/@me/", "/api/users/@me"):
+            return False
+
+        try:
+            body = json.loads(request.body)
+            return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
+
+
+def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
+    """
+    Log out of an impersonated session and redirect back to the
+    impersonated user's admin change page.
+    """
+    if not is_impersonated_session(request):
+        return redirect("/admin/")
+
+    impersonated_user_pk = request.user.pk
+    restore_original_login(request)
+    return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")

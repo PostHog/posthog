@@ -8,6 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import MaxTool from 'scenes/max/MaxTool'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
@@ -74,9 +75,13 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                     </div>
                     <div className="absolute bottom-6 right-4">
                         <MaxTool
-                            identifier="generate_hogql_query"
+                            identifier="execute_sql"
                             context={{
                                 current_query: props.queryInput,
+                            }}
+                            contextDescription={{
+                                text: 'Current query',
+                                icon: iconForType('sql_editor'),
                             }}
                             callback={(toolOutput: string) => {
                                 setSuggestedQueryInput(toolOutput, 'max_ai')

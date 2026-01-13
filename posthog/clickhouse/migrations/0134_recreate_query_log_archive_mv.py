@@ -5,11 +5,14 @@ from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_MV,
     QUERY_LOG_ARCHIVE_NEW_MV_SQL,
     QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW,
 )
 
 operations = [
     run_sql_with_exceptions(
-        QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_DATA_TABLE),
+        QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+            table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW()
+        ),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
     run_sql_with_exceptions(

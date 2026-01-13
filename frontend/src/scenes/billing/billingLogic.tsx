@@ -19,6 +19,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     BillingPeriod,
     BillingPlan,
@@ -26,7 +27,6 @@ import {
     BillingProductV2AddonType,
     BillingProductV2Type,
     BillingType,
-    ProductKey,
     StartupProgramLabel,
 } from '~/types'
 
@@ -336,7 +336,7 @@ export const billingLogic = kea<billingLogicType>([
 
                     actions.resetUnsubscribeError()
                     try {
-                        const response = await api.getResponse('api/billing/deactivate?products=' + key)
+                        const response = await api.createResponse('api/billing/deactivate', { products: key })
                         const jsonRes = await getJSONOrNull(response)
 
                         lemonToast.success(

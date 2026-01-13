@@ -1,2 +1,5 @@
 frontend/dist/
 common/tailwind/
+node_modules/**
+frontend/node_modules/**
+products/**/node_modules/**

@@ -1,41 +1,56 @@
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import {
     IconApps,
     IconChevronRight,
     IconClock,
     IconDatabase,
-    IconDatabaseBolt,
     IconFolderOpen,
     IconGear,
     IconHome,
     IconPeople,
+    IconSearch,
     IconShortcut,
     IconSidebarClose,
     IconSidebarOpen,
+    IconSparkles,
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuGroup,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from 'lib/ui/ContextMenu/ContextMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
+import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 import { SidePanelTab } from '~/types'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
@@ -44,7 +59,7 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
-import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
+import { RecentItemsMenu } from './ProjectTree/menus/RecentItemsMenu'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
@@ -62,12 +77,14 @@ const navBarStyles = cva({
 
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
+    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const {
         showLayoutPanel,
         setActivePanelIdentifier,
         clearActivePanelIdentifier,
         toggleLayoutNavCollapsed,
         showLayoutNavBar,
+        resetPanelLayout,
     } = useActions(panelLayoutLogic)
     const {
         pathname,
@@ -83,8 +100,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { user } = useValues(userLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
-    const { firstTabIsActive } = useValues(sceneLogic)
+    const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isAiUx = useFeatureFlag('AI_UX')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -128,8 +146,21 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
             return true
         }
+        if (itemIdentifier === 'ai' && currentPath.startsWith('/ai')) {
+            return true
+        }
 
         return false
+    }
+
+    function handleSearchClick(): void {
+        const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
+
+        if (mountedLogic) {
+            setTimeout(() => {
+                mountedLogic.actions.triggerSearchPulse()
+            }, 100)
+        }
     }
 
     const navItems: {
@@ -142,6 +173,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         collapsedTooltip?: React.ReactNode | [React.ReactNode, React.ReactNode] // Open and closed tooltips
         documentationUrl?: string
     }[] = [
+        ...(isAiUx
+            ? [
+                  {
+                      identifier: 'ai',
+                      label: 'PostHog AI',
+                      icon: <IconSparkles />,
+                      to: urls.ai(),
+                      onClick: () => handleStaticNavbarItemClick(urls.ai(), true),
+                      collapsedTooltip: 'PostHog AI',
+                  },
+              ]
+            : []),
         {
             identifier: 'ProjectHomepage',
             label: 'Home',
@@ -151,79 +194,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: 'Home',
         },
         {
-            identifier: 'Products',
-            label: 'All apps',
-            icon: <IconApps />,
-            onClick: (e) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Products')
-                }
+            identifier: 'Search',
+            label: 'Search',
+            icon: <IconSearch />,
+            to: urls.newTab(),
+            onClick: () => {
+                handleSearchClick()
+                handleStaticNavbarItemClick(urls.newTab(), true)
             },
-            showChevron: true,
-            collapsedTooltip: ['Open products', 'Close products'],
-        },
-        {
-            identifier: 'Project',
-            label: 'Project',
-            icon: <IconFolderOpen className="stroke-[1.2]" />,
-            onClick: (e) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Project')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open project tree', 'Close project tree'],
-        },
-        {
-            identifier: 'Database',
-            label: 'Data warehouse',
-            icon: <IconDatabaseBolt />,
-            onClick: (e) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Database')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open data warehouse', 'Close data warehouse'],
-            documentationUrl: 'https://posthog.com/docs/data-warehouse/sql',
-        },
-        {
-            identifier: 'DataManagement',
-            label: 'Data management',
-            icon: <IconDatabase />,
-            onClick: (e) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('DataManagement')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open data management', 'Close data management'],
-            documentationUrl: 'https://posthog.com/docs/data',
-        },
-        {
-            identifier: 'People',
-            label: 'People',
-            icon: <IconPeople />,
-            onClick: (e) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('People')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open people', 'Close people'],
-            documentationUrl: 'https://posthog.com/docs/data/persons',
-        },
-        {
-            identifier: 'Shortcuts',
-            label: 'Shortcuts',
-            icon: <IconShortcut />,
-            onClick: (e) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Shortcuts')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open shortcuts', 'Close shortcuts'],
+            collapsedTooltip: 'Search',
         },
         {
             identifier: 'Activity',
@@ -234,7 +213,89 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: 'Activity',
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
-    ]
+        ...(featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
+            ? []
+            : [
+                  {
+                      identifier: 'Products',
+                      label: 'All apps',
+                      icon: <IconApps />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Products')
+                          }
+                      },
+                      showChevron: true,
+                      collapsedTooltip: ['Open products', 'Close products'],
+                  },
+              ]),
+        {
+            identifier: 'DataManagement',
+            label: 'Data management',
+            icon: <IconDatabase />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('DataManagement')
+                }
+            },
+            showChevron: true,
+            collapsedTooltip: ['Open data management', 'Close data management'],
+            documentationUrl: 'https://posthog.com/docs/data',
+        },
+        {
+            identifier: 'People',
+            label: 'People & groups',
+            icon: <IconPeople />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('People')
+                }
+            },
+            showChevron: true,
+            collapsedTooltip: ['Open people & groups', 'Close people & groups'],
+            documentationUrl: 'https://posthog.com/docs/data/persons',
+        },
+        {
+            identifier: 'Shortcuts',
+            label: 'Shortcuts',
+            icon: <IconShortcut />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Shortcuts')
+                }
+            },
+            showChevron: true,
+            collapsedTooltip: ['Open shortcuts', 'Close shortcuts'],
+        },
+        {
+            identifier: 'Project',
+            label: 'Project',
+            icon: <IconFolderOpen className="stroke-[1.2]" />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Project')
+                }
+            },
+            showChevron: true,
+            collapsedTooltip: ['Open project tree', 'Close project tree'],
+        },
+        ...(featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
+            ? [
+                  {
+                      identifier: 'Products',
+                      label: 'All apps',
+                      icon: <IconApps />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Products')
+                          }
+                      },
+                      showChevron: true,
+                      collapsedTooltip: ['Open products', 'Close products'],
+                  },
+              ]
+            : []),
+    ].filter(Boolean)
 
     return (
         <>
@@ -263,7 +324,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 showName={false}
                                 buttonProps={{
                                     variant: 'panel',
-                                    className: 'px-px',
+                                    className: cn('px-px', {
+                                        hidden: isLayoutNavCollapsed,
+                                    }),
                                     iconOnly: isLayoutNavCollapsed,
                                     tooltipCloseDelayMs: 0,
                                     tooltipPlacement: 'bottom',
@@ -282,6 +345,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 }}
                                 iconOnly={isLayoutNavCollapsed}
                             />
+
+                            <RecentItemsMenu />
                         </div>
                     </div>
 
@@ -309,7 +374,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                         const iconClassName = 'flex text-tertiary group-hover:text-primary'
 
-                                        return (
+                                        const listItem = (
                                             <ListBox.Item
                                                 key={item.identifier}
                                                 asChild
@@ -373,6 +438,43 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 )}
                                             </ListBox.Item>
                                         )
+
+                                        if (item.identifier === 'ProjectHomepage') {
+                                            return (
+                                                <ContextMenu key={item.identifier}>
+                                                    <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
+                                                    <ContextMenuContent className="max-w-[300px]">
+                                                        <ContextMenuGroup>
+                                                            <ContextMenuItem asChild>
+                                                                <ButtonPrimitive
+                                                                    menuItem
+                                                                    onClick={() => setIsConfigurePinnedTabsOpen(true)}
+                                                                >
+                                                                    <IconGear /> Configure tabs & home
+                                                                </ButtonPrimitive>
+                                                            </ContextMenuItem>
+                                                        </ContextMenuGroup>
+                                                    </ContextMenuContent>
+                                                </ContextMenu>
+                                            )
+                                        } else if (item.identifier === 'Activity' && item.to) {
+                                            return (
+                                                <ContextMenu key={item.identifier}>
+                                                    <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
+                                                    <ContextMenuContent className="max-w-[300px]">
+                                                        <ContextMenuGroup>
+                                                            <BrowserLikeMenuItems
+                                                                MenuItem={ContextMenuItem}
+                                                                href={item.to}
+                                                                resetPanelLayout={resetPanelLayout}
+                                                            />
+                                                        </ContextMenuGroup>
+                                                    </ContextMenuContent>
+                                                </ContextMenu>
+                                            )
+                                        }
+
+                                        return listItem
                                     })}
                                 </div>
 
@@ -433,6 +535,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     {!isLayoutNavCollapsed && 'Quick start'}
                                 </ButtonPrimitive>
                             )}
+
                             <Link
                                 buttonProps={{
                                     menuItem: !isLayoutNavCollapsed,
@@ -455,26 +558,33 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 {!isLayoutNavCollapsed && 'Toolbar'}
                             </Link>
 
-                            <Link
-                                buttonProps={{
-                                    menuItem: !isLayoutNavCollapsed,
-                                    className: 'group',
-                                    iconOnly: isLayoutNavCollapsed,
-                                    active: isStaticNavItemActive('Settings'),
-                                }}
-                                to={urls.settings('project')}
-                                onClick={() => {
-                                    handleStaticNavbarItemClick(urls.settings('project'), true)
-                                }}
-                                tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
-                                tooltipPlacement="right"
-                                data-attr="menu-item-settings"
+                            <AppShortcut
+                                name="Settings"
+                                keybind={[['command', 'option', 's']]}
+                                intent="Open settings"
+                                interaction="click"
                             >
-                                <span className="flex text-tertiary group-hover:text-primary">
-                                    <IconGear />
-                                </span>
-                                {!isLayoutNavCollapsed && 'Settings'}
-                            </Link>
+                                <Link
+                                    buttonProps={{
+                                        menuItem: !isLayoutNavCollapsed,
+                                        className: 'group',
+                                        iconOnly: isLayoutNavCollapsed,
+                                        active: isStaticNavItemActive('Settings'),
+                                    }}
+                                    to={urls.settings('project')}
+                                    onClick={() => {
+                                        handleStaticNavbarItemClick(urls.settings('project'), true)
+                                    }}
+                                    tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
+                                    tooltipPlacement="right"
+                                    data-attr="menu-item-settings"
+                                >
+                                    <span className="flex text-tertiary group-hover:text-primary">
+                                        <IconGear />
+                                    </span>
+                                    {!isLayoutNavCollapsed && 'Settings'}
+                                </Link>
+                            </AppShortcut>
 
                             <AccountMenu
                                 align="end"
@@ -516,7 +626,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             className={cn('top-[var(--scene-layout-header-height)] right-[-1px]', {
                                 // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
                                 'top-[calc(var(--scene-layout-header-height)+10px)]': !firstTabIsActive,
-                                'top-0': isLayoutPanelVisible || sceneLayoutConfig?.layout === 'app-raw-no-header',
+                                'top-0': isLayoutPanelVisible,
                             })}
                             offset={0}
                         />
@@ -545,6 +655,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     />
                 )}
             </div>
+            <ConfigurePinnedTabsModal
+                isOpen={isConfigurePinnedTabsOpen}
+                onClose={() => setIsConfigurePinnedTabsOpen(false)}
+            />
         </>
     )
 }

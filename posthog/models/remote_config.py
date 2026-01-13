@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import requests
 import structlog
+from opentelemetry import trace
 from prometheus_client import Counter
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
@@ -28,6 +29,9 @@ from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+from products.product_tours.backend.models import ProductTour
+
+tracer = trace.get_tracer(__name__)
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
@@ -58,6 +62,7 @@ logger = structlog.get_logger(__name__)
 _array_js_content: Optional[str] = None
 
 
+@tracer.start_as_current_span("RemoteConfig.get_array_js_content")
 def get_array_js_content():
     global _array_js_content
 
@@ -68,6 +73,7 @@ def get_array_js_content():
     return _array_js_content
 
 
+@tracer.start_as_current_span("RemoteConfig.indent_js")
 def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
@@ -78,6 +84,7 @@ def cache_key_for_team_token(team_token: str) -> str:
     return f"remote_config/{team_token}/config"
 
 
+@tracer.start_as_current_span("RemoteConfig.sanitize_config_for_public_cdn")
 def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
     from posthog.api.utils import on_permitted_recording_domain
 
@@ -124,6 +131,7 @@ class RemoteConfig(UUIDTModel):
             load_fn=load_config,
         )
 
+    @tracer.start_as_current_span("RemoteConfig.build_config")
     def build_config(self):
         from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
@@ -196,12 +204,12 @@ class RemoteConfig(UUIDTModel):
 
             rrweb_script_config = None
 
-            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
-                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-            ):
+            recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
+            if not recorder_script and settings.DEBUG:
+                recorder_script = "posthog-recorder"
+            if recorder_script:
                 rrweb_script_config = {
-                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                    "script": recorder_script,
                 }
 
             session_recording_config_response = {
@@ -249,6 +257,21 @@ class RemoteConfig(UUIDTModel):
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
 
+        # MARK: Conversations
+        if team.conversations_enabled:
+            conv_settings = team.conversations_settings or {}
+            config["conversations"] = {
+                "enabled": True,
+                "widgetEnabled": conv_settings.get("widget_enabled", False),
+                "greetingText": conv_settings.get("widget_greeting_text") or "Hey, how can I help you today?",
+                "color": conv_settings.get("widget_color") or "#1d4aff",
+                "token": conv_settings.get("widget_public_token"),
+                # NOTE: domains is cached but stripped out at the api level depending on the caller
+                "domains": conv_settings.get("widget_domains") or [],
+            }
+        else:
+            config["conversations"] = False
+
         surveys_opt_in = get_surveys_opt_in(team)
 
         if surveys_opt_in:
@@ -263,6 +286,18 @@ class RemoteConfig(UUIDTModel):
                 config["surveys"] = False
         else:
             config["surveys"] = False
+
+        # MARK: Product tours
+        # Only query if the team has opted in (auto-set when a tour is created)
+        if team.product_tours_opt_in:
+            has_active_tours = ProductTour.objects.filter(
+                team=team,
+                archived=False,
+                start_date__isnull=False,
+            ).exists()
+            config["productTours"] = has_active_tours
+        else:
+            config["productTours"] = False
 
         config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
@@ -282,6 +317,7 @@ class RemoteConfig(UUIDTModel):
 
         return config
 
+    @tracer.start_as_current_span("RemoteConfig._build_site_apps_js")
     def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
@@ -357,6 +393,7 @@ class RemoteConfig(UUIDTModel):
         return data
 
     @classmethod
+    @tracer.start_as_current_span("RemoteConfig.get_config_via_token")
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
         config = cls._get_config_via_cache(token)
         config = sanitize_config_for_public_cdn(config, request=request)
@@ -364,6 +401,7 @@ class RemoteConfig(UUIDTModel):
         return config
 
     @classmethod
+    @tracer.start_as_current_span("RemoteConfig.get_config_js_via_token")
     def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         config = cls._get_config_via_cache(token)
         # Get the site apps JS so we can render it in the JS
@@ -384,6 +422,7 @@ class RemoteConfig(UUIDTModel):
         return js_content
 
     @classmethod
+    @tracer.start_as_current_span("RemoteConfig.get_array_js_via_token")
     def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
         js_content = cls.get_config_js_via_token(token, request=request)
@@ -522,6 +561,44 @@ def survey_saved(sender, instance: "Survey", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
+def sync_team_product_tours_opt_in(team: Team) -> None:
+    """Sync the product_tours_opt_in flag based on whether the team has any active tours."""
+    has_active_tours = ProductTour.objects.filter(
+        team=team,
+        archived=False,
+        start_date__isnull=False,
+    ).exists()
+    if has_active_tours != team.product_tours_opt_in:
+        team.product_tours_opt_in = has_active_tours
+        team.save(update_fields=["product_tours_opt_in"])
+
+
+@receiver(post_save, sender="product_tours.ProductTour")
+def product_tour_saved(sender, instance, created, **kwargs):
+    def _on_commit():
+        try:
+            team = Team.objects.get(id=instance.team_id)
+            sync_team_product_tours_opt_in(team)
+        except Team.DoesNotExist:
+            pass
+        _update_team_remote_config(instance.team_id)
+
+    transaction.on_commit(_on_commit)
+
+
+@receiver(post_delete, sender="product_tours.ProductTour")
+def product_tour_deleted(sender, instance, **kwargs):
+    def _on_commit():
+        try:
+            team = Team.objects.get(id=instance.team_id)
+            sync_team_product_tours_opt_in(team)
+        except Team.DoesNotExist:
+            pass
+        _update_team_remote_config(instance.team_id)
+
+    transaction.on_commit(_on_commit)
+
+
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
@@ -535,14 +612,17 @@ def personal_api_key_saved(sender, instance: "PersonalAPIKey", created, **kwargs
     Skip cache updates for last_used_at field updates to avoid unnecessary cache warming
     during authentication requests.
     """
-    from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_authentication_cache
-
     # Skip cache updates if only last_used_at is being updated
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and set(update_fields) == {"last_used_at"}:
         return
 
-    transaction.on_commit(lambda: update_personal_api_key_authentication_cache(instance))
+    # Capture user_id now (not the instance) for clean serialization to Celery
+    user_id = instance.user_id
+
+    from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_teams_cache_task
+
+    transaction.on_commit(lambda: warm_personal_api_key_teams_cache_task.delay(user_id))
 
 
 @receiver(post_delete, sender=PersonalAPIKey)
@@ -550,9 +630,13 @@ def personal_api_key_deleted(sender, instance: "PersonalAPIKey", **kwargs):
     """
     Handle PersonalAPIKey delete for team access cache invalidation.
     """
-    from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_deleted_cache
+    # Capture data now (not the instance) for clean serialization to Celery
+    user_id = instance.user_id
+    scoped_team_ids = list(instance.scoped_teams) if instance.scoped_teams else None
 
-    transaction.on_commit(lambda: update_personal_api_key_deleted_cache(instance))
+    from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_deleted_cache_task
+
+    transaction.on_commit(lambda: warm_personal_api_key_deleted_cache_task.delay(user_id, scoped_team_ids))
 
 
 @receiver(post_save, sender=User)
@@ -562,17 +646,40 @@ def user_saved(sender, instance: "User", created, **kwargs):
 
     When a user's is_active status changes, their Personal API Keys need to be
     added or removed from team authentication caches.
+
+    We track the original is_active value via User.from_db() to detect actual changes,
+    avoiding unnecessary cache warming on unrelated user saves.
+
+    Security consideration:
+    - Deactivation (is_active: True → False): Cache invalidation runs SYNCHRONOUSLY
+      to immediately revoke access. This prevents a race condition where a deactivated
+      user could continue using their API keys during Celery queue delays.
+    - Activation (is_active: False → True): Cache warming runs ASYNCHRONOUSLY via Celery
+      since there's no security concern with a slight delay in granting access.
     """
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "is_active" not in update_fields:
-        logger.debug(f"User {instance.id} updated but is_active unchanged, skipping cache update")
+    original_is_active = getattr(instance, "_original_is_active", instance.is_active)
+    is_active_changed = created or instance.is_active != original_is_active
+
+    if not is_active_changed:
+        logger.debug(f"User {instance.id} saved but is_active unchanged, skipping cache update")
         return
 
-    # If update_fields is None, we need to update cache since all fields (including is_active) might have changed
+    # Update the snapshot to prevent double-fires if the same instance is saved again
+    instance._original_is_active = instance.is_active
 
-    from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
+    # Capture user_id now (not the instance) for clean serialization to Celery
+    user_id = instance.id
 
-    transaction.on_commit(lambda: update_user_authentication_cache(instance, **kwargs))
+    if instance.is_active:
+        # User activated - async is fine, no security concern with delay
+        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_task
+
+        transaction.on_commit(lambda: warm_user_teams_cache_task.delay(user_id))
+    else:
+        # User deactivated - sync to immediately revoke access (security-critical)
+        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_sync
+
+        transaction.on_commit(lambda: warm_user_teams_cache_sync(user_id))
 
 
 @receiver(post_save, sender=OrganizationMembership)
@@ -590,9 +697,15 @@ def organization_membership_saved(sender, instance: "OrganizationMembership", cr
     existence, not role level.
     """
     if created:
-        from posthog.storage.team_access_cache_signal_handlers import update_organization_membership_created_cache
+        # Capture data now (not the instance) for clean serialization to Celery
+        organization_id = str(instance.organization_id)
+        user_id = instance.user_id
 
-        transaction.on_commit(lambda: update_organization_membership_created_cache(instance))
+        from posthog.tasks.team_access_cache_tasks import warm_organization_teams_cache_task
+
+        transaction.on_commit(
+            lambda: warm_organization_teams_cache_task.delay(organization_id, user_id, "added to organization")
+        )
 
 
 @receiver(post_delete, sender=OrganizationMembership)
@@ -604,6 +717,12 @@ def organization_membership_deleted(sender, instance: "OrganizationMembership", 
     should no longer have access to teams within that organization. This ensures
     that the authentication cache is updated to reflect the change in access rights.
     """
-    from posthog.storage.team_access_cache_signal_handlers import update_organization_membership_deleted_cache
+    # Capture data now (not the instance) for clean serialization to Celery
+    organization_id = str(instance.organization_id)
+    user_id = instance.user_id
 
-    transaction.on_commit(lambda: update_organization_membership_deleted_cache(instance))
+    from posthog.tasks.team_access_cache_tasks import warm_organization_teams_cache_task
+
+    transaction.on_commit(
+        lambda: warm_organization_teams_cache_task.delay(organization_id, user_id, "removed from organization")
+    )

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -100,6 +100,17 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "Can't connect to MySQL server on": None,
+            "No primary key defined for table": None,
+            "Access denied for user": None,
+            "sqlstate 42S02": None,  # Table not found error
+            "ProgrammingError: (1146": None,  # Table not found error
+            "OperationalError: (1356": None,  # View not found error
+            "Bad handshake": None,
+        }
+
     def get_schemas(self, config: MySQLSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
@@ -139,7 +150,9 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
 
         return schemas
 
-    def validate_credentials(self, config: MySQLSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors

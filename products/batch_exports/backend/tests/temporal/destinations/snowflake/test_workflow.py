@@ -164,7 +164,8 @@ async def test_snowflake_export_workflow_exports_events(
             execute_async_calls.append(call["query"].strip())
 
     warehouse = snowflake_batch_export.destination.config["warehouse"]
-    assert execute_async_calls[0:4] == [
+    assert execute_async_calls[0:5] == [
+        "ALTER SESSION SET QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE",
         f'USE DATABASE "{database}"',
         f'USE SCHEMA "{schema}"',
         f'USE WAREHOUSE "{warehouse}"',
@@ -173,9 +174,12 @@ async def test_snowflake_export_workflow_exports_events(
 
     assert all(query.startswith("PUT") for query in execute_calls[0:9])
 
-    assert execute_async_calls[4].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
-    assert execute_async_calls[5].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
-    assert execute_async_calls[6].startswith(f'COPY INTO "{table_name}"')
+    assert execute_async_calls[5].startswith(f'SELECT * FROM "{table_name}" LIMIT 0')
+    assert execute_async_calls[6].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
+    assert execute_async_calls[7].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
+    assert execute_async_calls[8].startswith(f'SELECT * FROM "{table_name}" LIMIT 0')
+    assert execute_async_calls[9].startswith(f'COPY INTO "{table_name}"')
+    assert execute_async_calls[10].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)

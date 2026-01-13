@@ -5,6 +5,7 @@ import {
     IconApps,
     IconBook,
     IconBug,
+    IconChat,
     IconCircleDashed,
     IconCode2,
     IconCursor,
@@ -14,6 +15,8 @@ import {
     IconExternal,
     IconFeatures,
     IconFlask,
+    IconFolder,
+    IconFolderOpen,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -34,6 +37,7 @@ import {
     IconRocket,
     IconSearch,
     IconServer,
+    IconSpotlight,
     IconStickiness,
     IconToggle,
     IconToggleOff,
@@ -43,7 +47,6 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import {
@@ -82,6 +85,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     marketing_settings: {
         icon: <IconMegaphone />,
     },
+    marketing_analytics: {
+        icon: <IconMegaphone />,
+        iconColor: ['var(--color-product-marketing-analytics-light)'],
+    },
     managed_viewsets: {
         icon: <IconDatabase />,
     },
@@ -111,6 +118,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     survey: {
         icon: <IconMessage />,
+        iconColor: ['var(--color-product-surveys-light)'],
+    },
+    product_tour: {
+        icon: <IconSpotlight />,
         iconColor: ['var(--color-product-surveys-light)'],
     },
     user_interview: {
@@ -248,6 +259,15 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     search: {
         icon: <IconSearch />,
     },
+    folder: {
+        icon: <IconFolder />,
+    },
+    folder_open: {
+        icon: <IconFolderOpen />,
+    },
+    conversations: {
+        icon: <IconChat />,
+    },
 }
 
 const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
@@ -337,193 +357,11 @@ export function iconForType(type?: FileSystemIconType, colorOverride?: FileSyste
 }
 
 export const getDefaultTreeNew = (): FileSystemImport[] =>
-    [
-        ...getTreeItemsNew(),
-        {
-            path: `Data/Source`,
-            type: 'hog_function/source',
-            href: urls.dataPipelinesNew('source'),
-            icon: <IconPlug />,
-            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
-            sceneKeys: ['HogFunction'],
-        },
-        {
-            path: `Data/Destination`,
-            type: 'hog_function/destination',
-            href: urls.dataPipelinesNew('destination'),
-            icon: <IconPlug />,
-            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
-            sceneKeys: ['HogFunction'],
-        },
-        {
-            path: `Data/Transformation`,
-            type: 'hog_function/transformation',
-            href: urls.dataPipelinesNew('transformation'),
-            icon: <IconPlug />,
-            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
-            sceneKeys: ['HogFunction'],
-        },
-        {
-            path: `Data/Site app`,
-            type: 'hog_function/site_app',
-            href: urls.dataPipelinesNew('site_app'),
-            icon: <IconPlug />,
-            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
-            sceneKeys: ['HogFunction'],
-        },
-    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
-
-export const getDefaultTreeData = (): FileSystemImport[] => [
-    ...getTreeItemsMetadata(),
-    {
-        path: 'Event definitions',
-        category: 'Schema',
-        iconType: 'event_definition',
-        href: urls.eventDefinitions(),
-        sceneKey: 'EventDefinitions',
-        sceneKeys: ['EventDefinition', 'EventDefinitions'],
-    },
-    {
-        path: 'Property definitions',
-        category: 'Schema',
-        iconType: 'property_definition',
-        href: urls.propertyDefinitions(),
-        sceneKey: 'PropertyDefinitions',
-        sceneKeys: ['PropertyDefinition', 'PropertyDefinitions'],
-    },
-    {
-        path: 'Property groups',
-        category: 'Schema',
-        iconType: 'event_definition',
-        href: urls.schemaManagement(),
-        flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
-    },
-    {
-        path: 'Annotations',
-        category: 'Metadata',
-        iconType: 'annotation',
-        href: urls.annotations(),
-        sceneKey: 'Annotations',
-        sceneKeys: ['Annotations'],
-    },
-    {
-        path: 'Comments',
-        category: 'Metadata',
-        iconType: 'comment',
-        href: urls.comments(),
-        sceneKey: 'Comments',
-        sceneKeys: ['Comments'],
-    },
-    {
-        path: 'Ingestion warnings',
-        category: 'Pipeline',
-        iconType: 'ingestion_warning',
-        href: urls.ingestionWarnings(),
-        flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
-        sceneKey: 'IngestionWarnings',
-        sceneKeys: ['IngestionWarnings'],
-    },
-    {
-        path: `Sources`,
-        category: 'Pipeline',
-        type: 'hog_function/source',
-        iconType: 'data_pipeline_metadata',
-        href: urls.dataPipelines('sources'),
-        sceneKey: 'DataPipelines',
-        sceneKeys: ['DataPipelines'],
-    } as FileSystemImport,
-    {
-        path: `Transformations`,
-        category: 'Pipeline',
-        type: 'hog_function/transformation',
-        iconType: 'data_pipeline_metadata',
-        href: urls.dataPipelines('transformations'),
-        sceneKey: 'DataPipelines',
-        sceneKeys: ['DataPipelines'],
-    } as FileSystemImport,
-    {
-        path: `Destinations`,
-        category: 'Pipeline',
-        type: 'hog_function/destination',
-        iconType: 'data_pipeline_metadata',
-        href: urls.dataPipelines('destinations'),
-        sceneKey: 'DataPipelines',
-        sceneKeys: ['DataPipelines'],
-    } as FileSystemImport,
-    {
-        path: 'Managed viewsets',
-        category: 'Unreleased',
-        iconType: 'managed_viewsets',
-        href: urls.dataWarehouseManagedViewsets(),
-        flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-    },
-]
-
+    [...getTreeItemsNew()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+export const getDefaultTreeData = (): FileSystemImport[] =>
+    [...getTreeItemsMetadata()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
-    [
-        ...getTreeItemsProducts(),
-        {
-            path: 'Dashboards',
-            category: 'Analytics',
-            type: 'dashboard',
-            iconType: 'dashboard' as FileSystemIconType,
-            iconColor: ['var(--color-product-dashboards-light)'] as FileSystemIconColor,
-            href: urls.dashboards(),
-            sceneKey: 'Dashboards',
-            sceneKeys: ['Dashboard', 'Dashboards'],
-        },
-        {
-            path: 'Notebooks',
-            category: 'Tools',
-            type: 'notebook',
-            iconType: 'notebook' as FileSystemIconType,
-            href: urls.notebooks(),
-            sceneKey: 'Notebooks',
-            sceneKeys: ['Notebook', 'Notebooks'],
-        },
-        {
-            path: `Data pipelines`,
-            category: 'Tools',
-            type: 'hog_function',
-            iconType: 'data_pipeline' as FileSystemIconType,
-            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
-            href: urls.dataPipelines(),
-            sceneKey: 'DataPipelines',
-            sceneKeys: ['DataPipelines'],
-        } as FileSystemImport,
-        {
-            path: `SQL editor`,
-            category: 'Analytics',
-            type: 'sql',
-            iconType: 'sql_editor' as FileSystemIconType,
-            iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
-            href: urls.sqlEditor(),
-            sceneKey: 'SQLEditor',
-            sceneKeys: ['SQLEditor'],
-        } as FileSystemImport,
-        {
-            path: 'Heatmaps',
-            category: 'Behavior',
-            iconType: 'heatmap' as FileSystemIconType,
-            iconColor: [
-                'var(--color-product-heatmaps-light)',
-                'var(--color-product-heatmaps-dark)',
-            ] as FileSystemIconColor,
-            href: urls.heatmaps(),
-            tags: ['beta'],
-            sceneKey: 'Heatmaps',
-            sceneKeys: ['Heatmaps'],
-        } as FileSystemImport,
-    ].sort((a, b) => {
-        if (a.visualOrder === -1) {
-            return -1
-        }
-        if (b.visualOrder === -1) {
-            return 1
-        }
-        return (a.visualOrder ?? 0) - (b.visualOrder ?? 0)
-    })
-
+    [...getTreeItemsProducts()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 

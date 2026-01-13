@@ -162,7 +162,7 @@ const deprecatedColors = {
     // Z-indexes
     'z-top': 'var(--z-top)',
     'z-bottom-notice': 'var(--z-bottom-notice)',
-    'z-command-palette': 'var(--z-command-palette)',
+    'z-shortcut-menu': 'var(--z-shortcut-menu)',
     'z-force-modal-above-popovers': 'var(--z-force-modal-above-popovers)',
     'z-tooltip': 'var(--z-tooltip)',
 
@@ -316,7 +316,6 @@ const config = {
     content: [
         // Starting all paths with '../.." to share this between frontend/, playwright/ and common/storybook/
         '../../frontend/src/**/*.{ts,tsx}',
-        '../../ee/frontend/**/*.{ts,tsx}',
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
@@ -615,6 +614,28 @@ const config = {
             white: 'var(--color-white)',
         },
         extend: {
+            animation: {
+                // Default pulse animation but run for only 5 iterations
+                'pulse-5': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 5',
+                // Pulsing glow effect for highlighting UI elements
+                'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
+                // Fade out after a delay
+                'fade-out-delayed': 'fade-out-delayed 5s ease-out forwards',
+            },
+            keyframes: {
+                'pulse-glow': {
+                    '0%, 100%': {
+                        boxShadow: '0 0 2px 1px var(--color-accent)',
+                    },
+                    '50%': {
+                        boxShadow: '0 0 6px 2px var(--color-accent)',
+                    },
+                },
+                'fade-out-delayed': {
+                    '0%, 30%': { opacity: '1' },
+                    '100%': { opacity: '0' },
+                },
+            },
             colors: {
                 ...deprecatedColors,
                 // TODO: Move all colors over to Tailwind

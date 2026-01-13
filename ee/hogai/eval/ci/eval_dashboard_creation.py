@@ -5,10 +5,11 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
+from ee.hogai.chat_agent import AssistantGraph
+from ee.hogai.chat_agent.dashboards.nodes import DashboardCreationNode
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
-from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import NodePath
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
@@ -139,7 +140,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
                 input="I want to search for two insights one to show users in California for the past 7 days that performed 'chat with ai' events and another one that shows the trend of signups over the last 30 days.",
                 expected=AssistantToolCall(
                     id="4",
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={
                         "query_description": "List users located in California who performed the 'chat with ai' event in the past 7 days."
                     },
@@ -149,7 +150,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
                 input="Find an insight that shows the trend of signups over the last 30 days.",
                 expected=AssistantToolCall(
                     id="4",
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={
                         "query_description": "Show the daily trend of user signups over the last 30 days. Use the event that tracks new user registrations. Display the count of signups per day."
                     },
@@ -162,7 +163,11 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
 
 async def eval_tool_call_dashboard_creation(pytestconfig, demo_org_team_user):
     conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
-    dashboard_creation_node = DashboardCreationNode(demo_org_team_user[1], demo_org_team_user[2])
+    dashboard_creation_node = DashboardCreationNode(
+        demo_org_team_user[1],
+        demo_org_team_user[2],
+        node_path=(NodePath(name="create_dashboard", message_id="msg_id", tool_call_id="tool_call_id"),),
+    )
 
     async def task_with_context(messages):
         state = AssistantState(

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -31,6 +31,12 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINKEDINADS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "REVOKED_ACCESS_TOKEN": None,
+            "The token used in the request has expired": "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
@@ -60,7 +66,9 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
             ),
         )
 
-    def validate_credentials(self, config: LinkedinAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: LinkedinAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if not config.account_id or not config.linkedin_ads_integration_id:
             return False, "Account ID and LinkedIn Ads integration are required"
 

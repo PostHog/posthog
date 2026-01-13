@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -12,12 +14,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { openInAdminPanel } from 'lib/utils/person-actions'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -34,11 +38,14 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import { ActivityScope, PersonType, PersonsTabType, ProductKey, PropertyDefinitionType } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
+
+import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
-import PersonFeedCanvas from './PersonFeedCanvas'
+import PersonProfileCanvas from './PersonProfileCanvas'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { asDisplay } from './person-utils'
 import { PersonsLogicProps, personsLogic } from './personsLogic'
@@ -104,6 +111,53 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     )
 }
 
+interface LaunchToolbarButtonProps {
+    distinctId: string
+}
+
+function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    const handleLaunchToolbar = async (targetUrl: string): Promise<void> => {
+        if (!currentTeam?.app_urls?.length) {
+            lemonToast.error('No authorized URLs configured. Please add a URL in Toolbar settings.')
+            return
+        }
+
+        try {
+            // Prepare toolbar flags on backend and get cache key
+            const response = await api.create('api/user/prepare_toolbar_preloaded_flags', {
+                distinct_id: distinctId,
+            })
+
+            const toolbarUrl = appEditorUrl(targetUrl, {
+                toolbarFlagsKey: response.key,
+            })
+
+            window.open(toolbarUrl, '_blank')
+            lemonToast.success(`Launching toolbar with ${pluralize(response.flag_count, 'feature flag override')}`)
+        } catch (error) {
+            lemonToast.error('Failed to launch toolbar. Please try again.')
+            console.error('Error launching toolbar:', error)
+        }
+    }
+
+    return (
+        <LemonSelect
+            size="medium"
+            icon={<IconOpenInApp />}
+            data-attr="launch-toolbar-with-loaded-flags-button"
+            tooltip="Launch authorized URL with this user's feature flag values as overrides"
+            options={(currentTeam?.app_urls || []).map((url) => ({
+                label: `Launch ${url}`,
+                value: url,
+            }))}
+            placeholder="Launch toolbar with this user's feature flags"
+            onChange={(value) => value && handleLaunchToolbar(value)}
+        />
+    )
+}
+
 export function PersonScene(): JSX.Element | null {
     const {
         feedEnabled,
@@ -117,6 +171,7 @@ export function PersonScene(): JSX.Element | null {
         primaryDistinctId,
         eventsQuery,
         exceptionsQuery,
+        surveyResponsesQuery,
     } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
@@ -140,7 +195,7 @@ export function PersonScene(): JSX.Element | null {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={asDisplay(person)}
+                name={asDisplay(person, undefined, true)}
                 resourceType={{
                     type: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                 }}
@@ -151,15 +206,15 @@ export function PersonScene(): JSX.Element | null {
                 }}
                 actions={
                     <>
+                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <NotebookSelectButton
                             resource={{
                                 type: NotebookNodeType.Person,
-                                attrs: { distinctId: person?.distinct_ids[0] },
+                                attrs: { id: person?.uuid },
                             }}
                             type="secondary"
                             size="small"
                         />
-                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
@@ -168,8 +223,9 @@ export function PersonScene(): JSX.Element | null {
                             status="danger"
                             data-attr="delete-person"
                             size="small"
+                            icon={isMobile() ? <IconTrash /> : null}
                         >
-                            Delete person
+                            {isMobile() ? null : 'Delete person'}
                         </LemonButton>
 
                         {person.distinct_ids.length > 1 && (
@@ -190,7 +246,7 @@ export function PersonScene(): JSX.Element | null {
 
             <SceneDivider />
             <PersonDeleteModal />
-
+            <FeedbackBanner feedbackButtonId="person-profile" />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => {
@@ -200,9 +256,9 @@ export function PersonScene(): JSX.Element | null {
                 tabs={[
                     feedEnabled
                         ? {
-                              key: PersonsTabType.FEED,
-                              label: <span data-attr="persons-feed-tab">Feed</span>,
-                              content: <PersonFeedCanvas person={person} />,
+                              key: PersonsTabType.PROFILE,
+                              label: <span data-attr="persons-profile-tab">Profile</span>,
+                              content: <PersonProfileCanvas person={person} />,
                           }
                         : false,
                     {
@@ -224,7 +280,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: <Query query={eventsQuery} />,
+                        content: <Query uniqueKey="person-profile-events" query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -269,6 +325,11 @@ export function PersonScene(): JSX.Element | null {
                         content: <Query query={exceptionsQuery} />,
                     },
                     {
+                        key: PersonsTabType.SURVEY_RESPONSES,
+                        label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
+                        content: <Query query={surveyResponsesQuery} />,
+                    },
+                    {
                         key: PersonsTabType.COHORTS,
                         label: <span data-attr="persons-cohorts-tab">Cohorts</span>,
                         content: <PersonCohorts />,
@@ -292,49 +353,56 @@ export function PersonScene(): JSX.Element | null {
                               key: PersonsTabType.FEATURE_FLAGS,
                               tooltip: `Only shows feature flags with targeting conditions based on person properties.`,
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
-                              content: (
-                                  <>
-                                      <div className="flex deprecated-space-x-2 items-center mb-2">
-                                          <div className="flex items-center">
-                                              Choose ID:
-                                              <Tooltip
-                                                  title={
-                                                      <div className="deprecated-space-y-2">
-                                                          <div>
-                                                              Feature flags values can depend on a person's distinct ID.
+                              content: (() => {
+                                  const selectedDistinctId = distinctId || primaryDistinctId
+                                  return (
+                                      <>
+                                          <div className="flex deprecated-space-x-2 items-center mb-2">
+                                              <div className="flex items-center">
+                                                  Choose ID:
+                                                  <Tooltip
+                                                      title={
+                                                          <div className="deprecated-space-y-2">
+                                                              <div>
+                                                                  Feature flags values can depend on a person's distinct
+                                                                  ID.
+                                                              </div>
+                                                              <div>
+                                                                  If you want your flag values to stay consistent for
+                                                                  each user, you can enable flag persistence in the
+                                                                  feature flag settings.
+                                                              </div>
+                                                              <div>
+                                                                  This option may depend on your specific setup and
+                                                                  isn't always suitable. Read more in the{' '}
+                                                                  <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
+                                                                      documentation.
+                                                                  </Link>
+                                                              </div>
                                                           </div>
-                                                          <div>
-                                                              If you want your flag values to stay consistent for each
-                                                              user, you can enable flag persistence in the feature flag
-                                                              settings.
-                                                          </div>
-                                                          <div>
-                                                              This option may depend on your specific setup and isn't
-                                                              always suitable. Read more in the{' '}
-                                                              <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
-                                                                  documentation.
-                                                              </Link>
-                                                          </div>
-                                                      </div>
-                                                  }
-                                              >
-                                                  <IconInfo className="ml-1 text-base" />
-                                              </Tooltip>
+                                                      }
+                                                  >
+                                                      <IconInfo className="ml-1 text-base" />
+                                                  </Tooltip>
+                                              </div>
+                                              <LemonSelect
+                                                  value={selectedDistinctId}
+                                                  onChange={(value) => value && setDistinctId(value)}
+                                                  options={person.distinct_ids.map((distinct_id) => ({
+                                                      label: distinct_id,
+                                                      value: distinct_id,
+                                                  }))}
+                                                  data-attr="person-feature-flags-select"
+                                              />
+                                              {selectedDistinctId && (
+                                                  <LaunchToolbarButton distinctId={selectedDistinctId} />
+                                              )}
                                           </div>
-                                          <LemonSelect
-                                              value={distinctId || primaryDistinctId}
-                                              onChange={(value) => value && setDistinctId(value)}
-                                              options={person.distinct_ids.map((distinct_id) => ({
-                                                  label: distinct_id,
-                                                  value: distinct_id,
-                                              }))}
-                                              data-attr="person-feature-flags-select"
-                                          />
-                                      </div>
-                                      <LemonDivider className="mb-4" />
-                                      <RelatedFeatureFlags distinctId={distinctId || primaryDistinctId} />
-                                  </>
-                              ),
+                                          <LemonDivider className="mb-4" />
+                                          <RelatedFeatureFlags distinctId={selectedDistinctId} />
+                                      </>
+                                  )
+                              })(),
                           }
                         : false,
                     {
@@ -361,7 +429,7 @@ export function PersonScene(): JSX.Element | null {
     )
 }
 
-function OpenInAdminPanelButton(): JSX.Element {
+function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
     const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
 
@@ -370,8 +438,9 @@ function OpenInAdminPanelButton(): JSX.Element {
             type="secondary"
             onClick={() => openInAdminPanel(person?.properties.email)}
             disabledReason={disabledReason}
+            size={size}
         >
-            Open in Admin Panel
+            Open in admin panel
         </LemonButton>
     )
 }

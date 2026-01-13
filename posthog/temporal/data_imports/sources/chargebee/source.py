@@ -1,5 +1,5 @@
 import re
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -29,6 +29,12 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHARGEBEE
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "403 Client Error: Forbidden for url": "Chargebee authentication failed. Please check your API key and site name.",
+            "Unauthorized for url": "Chargebee authentication failed. Please check your API key and site name.",
+        }
+
     def get_schemas(self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
@@ -40,7 +46,9 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
             for endpoint in list(ENDPOINTS)
         ]
 
-    def validate_credentials(self, config: ChargebeeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: ChargebeeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z-]+$")
         if not subdomain_regex.match(config.site_name):
             return False, "Chargebee site name is incorrect"

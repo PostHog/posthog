@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -26,6 +26,9 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.REDDITADS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {"401 Client Error": None, "404 Client Error": None}
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -56,7 +59,9 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
             ),
         )
 
-    def validate_credentials(self, config: RedditAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: RedditAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if not config.account_id or not config.reddit_integration_id:
             return False, "Account ID and Reddit Ads integration are required"
 

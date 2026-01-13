@@ -132,6 +132,7 @@ describe('insightVizDataLogic', () => {
                 builtInsightVizDataLogic.actions.updateDateRange({
                     date_from: '-7d',
                     date_to: null,
+                    explicitDate: false,
                 })
             })
                 .toFinishAllListeners()
@@ -144,6 +145,7 @@ describe('insightVizDataLogic', () => {
                             dateRange: {
                                 date_from: '-7d',
                                 date_to: null,
+                                explicitDate: false,
                             },
                             version: 2,
                         },
@@ -153,6 +155,7 @@ describe('insightVizDataLogic', () => {
             expect(builtInsightVizDataLogic.values.dateRange).toEqual({
                 date_from: '-7d',
                 date_to: null,
+                explicitDate: false,
             })
 
             // merges with existing dateRange
@@ -171,6 +174,7 @@ describe('insightVizDataLogic', () => {
                             dateRange: {
                                 date_from: '-7d',
                                 date_to: '-3d',
+                                explicitDate: false,
                             },
                             version: 2,
                         },
@@ -180,6 +184,7 @@ describe('insightVizDataLogic', () => {
             expect(builtInsightVizDataLogic.values.dateRange).toEqual({
                 date_from: '-7d',
                 date_to: '-3d',
+                explicitDate: false,
             })
         })
     })

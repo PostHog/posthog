@@ -1,69 +1,54 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
-import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCheckbox,
-    LemonSegmentedButton,
-    LemonSelect,
-    LemonTable,
-    LemonTag,
-    LemonTagType,
-    SpinnerOverlay,
-} from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { Sparkline } from 'lib/components/Sparkline'
-import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
-import { ListHog } from 'lib/components/hedgehogs'
-import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LogMessage } from '~/queries/schema/schema-general'
-import { ProductKey, PropertyOperator } from '~/types'
 
-import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
-import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
+import { LogsFilters } from 'products/logs/frontend/components/LogsFilters'
+import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
+import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
+import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 
-import { AttributeBreakdowns } from './AttributeBreakdowns'
-import { DateRangeFilter } from './filters/DateRangeFilter'
-import { ServiceFilter } from './filters/ServiceFilter'
-import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
 
 export const scene: SceneExport = {
     component: LogsScene,
+    logic: logsLogic,
+    settingSectionId: 'product-logs',
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, prettifyJson, parsedLogs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
-        useValues(logsLogic)
-    const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
-
-    useEffect(() => {
-        runQuery()
-    }, [runQuery])
-
-    const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
-        setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
-    }
-
-    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> =
-        timestampFormat === 'absolute'
-            ? {
-                  formatDate: 'YYYY-MM-DD',
-                  formatTime: 'HH:mm:ss',
-              }
-            : {}
-
     return (
         <SceneContent>
+            <LogsSetupPrompt>
+                <LogsSceneContent />
+            </LogsSetupPrompt>
+        </SceneContent>
+    )
+}
+
+const LogsSceneContent = (): JSX.Element => {
+    const {
+        tabId,
+        parsedLogs,
+        logsLoading,
+        totalLogsMatchingFilters,
+        sparklineLoading,
+        hasMoreLogsToLoad,
+        orderBy,
+        sparklineData,
+        sparklineBreakdownBy,
+    } = useValues(logsLogic)
+    const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
+        useActions(logsLogic)
+
+    return (
+        <>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
                 description={sceneConfigurations[Scene.Logs].description}
@@ -71,6 +56,19 @@ export function LogsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
             />
+            {teamHasLogsCheckFailed && (
+                <LemonBanner
+                    type="info"
+                    dismissKey="logs-setup-hint-banner"
+                    action={{
+                        to: 'https://posthog.com/docs/logs/',
+                        targetBlank: true,
+                        children: 'Setup guide',
+                    }}
+                >
+                    Unable to verify logs setup. If you haven't configured logging yet, check out our setup guide.
+                </LemonBanner>
+            )}
             <LemonBanner
                 type="warning"
                 dismissKey="logs-beta-banner"
@@ -82,249 +80,26 @@ export function LogsScene(): JSX.Element {
                     limits, we want to hear from you.
                 </p>
             </LemonBanner>
-            <ProductIntroduction
-                productName="logs"
-                productKey={ProductKey.LOGS}
-                thingName="log"
-                description={sceneConfigurations[Scene.Logs].description ?? ''}
-                docsURL="https://posthog.com/docs/logs"
-                customHog={ListHog}
-                isEmpty={false}
-            />
-            <SceneDivider />
-            <Filters />
-            <div className="relative h-40 flex flex-col">
-                {sparklineData.data.length > 0 ? (
-                    <Sparkline
-                        labels={sparklineData.labels}
-                        data={sparklineData.data}
-                        className="w-full flex-1"
-                        onSelectionChange={onSelectionChange}
-                    />
-                ) : !sparklineLoading ? (
-                    <div className="flex-1 text-muted flex items-center justify-center">
-                        No results matching filters
-                    </div>
-                ) : null}
-                {sparklineLoading && <SpinnerOverlay />}
-            </div>
-            <SceneDivider />
-            <DisplayOptions />
-            <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
-                <LemonTable
-                    hideScrollbar
-                    dataSource={parsedLogs}
+            <LogsFilters />
+            <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
+                <LogsViewer
+                    tabId={tabId}
+                    logs={parsedLogs}
                     loading={logsLoading}
-                    size="small"
-                    embedded
-                    columns={[
-                        {
-                            title: '',
-                            key: 'actions',
-                            width: 0,
-                            render: (_, record) => <LogsTableRowActions log={record} />,
-                        },
-                        {
-                            title: 'Timestamp',
-                            key: 'timestamp',
-                            dataIndex: 'timestamp',
-                            width: 0,
-                            render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
-                        },
-                        {
-                            title: 'Level',
-                            key: 'severity_text',
-                            dataIndex: 'severity_text',
-                            width: 0,
-                            render: (_, record) => <LogTag level={record.severity_text} />,
-                        },
-                        {
-                            title: 'Message',
-                            key: 'body',
-                            dataIndex: 'body',
-                            render: (_, { cleanBody, parsedBody }) => {
-                                if (parsedBody && prettifyJson) {
-                                    return (
-                                        <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
-                                            {JSON.stringify(parsedBody, null, 2)}
-                                        </pre>
-                                    )
-                                }
-
-                                return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
-                            },
-                        },
-                    ]}
-                    expandable={{
-                        noIndent: true,
-                        expandedRowRender: (log) => <ExpandedLog log={log} />,
-                    }}
+                    totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
+                    hasMoreLogsToLoad={hasMoreLogsToLoad}
+                    orderBy={orderBy}
+                    onChangeOrderBy={setOrderBy}
+                    onRefresh={runQuery}
+                    onLoadMore={fetchNextLogsPage}
+                    onAddFilter={addFilter}
+                    sparklineData={sparklineData}
+                    sparklineLoading={sparklineLoading}
+                    onDateRangeChange={setDateRange}
+                    sparklineBreakdownBy={sparklineBreakdownBy}
+                    onSparklineBreakdownByChange={setSparklineBreakdownBy}
                 />
             </div>
-        </SceneContent>
-    )
-}
-
-const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const { expandedAttributeBreaksdowns } = useValues(logsLogic)
-    const { addFilter, toggleAttributeBreakdown } = useActions(logsLogic)
-
-    const attributes = log.attributes
-    const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
-
-    return (
-        <LemonTable
-            embedded
-            showHeader={false}
-            columns={[
-                {
-                    key: 'actions',
-                    width: 0,
-                    render: (_, record) => (
-                        <div className="flex gap-x-0">
-                            <LemonButton
-                                tooltip="Add as filter"
-                                size="xsmall"
-                                onClick={() => addFilter(record.key, record.value)}
-                            >
-                                <IconPlusSquare />
-                            </LemonButton>
-                            <LemonButton
-                                tooltip="Exclude as filter"
-                                size="xsmall"
-                                onClick={() => addFilter(record.key, record.value, PropertyOperator.IsNot)}
-                            >
-                                <IconMinusSquare />
-                            </LemonButton>
-                            <LemonButton
-                                tooltip="Show breakdown"
-                                size="xsmall"
-                                onClick={() => toggleAttributeBreakdown(record.key)}
-                            >
-                                <IconFilter />
-                            </LemonButton>
-                        </div>
-                    ),
-                },
-                {
-                    title: 'Key',
-                    key: 'key',
-                    dataIndex: 'key',
-                    width: 0,
-                },
-                {
-                    title: 'Value',
-                    key: 'value',
-                    dataIndex: 'value',
-                },
-            ]}
-            dataSource={rows}
-            expandable={{
-                noIndent: true,
-                showRowExpansionToggle: false,
-                isRowExpanded: (record) => expandedAttributeBreaksdowns.includes(record.key),
-                expandedRowRender: (record) => <AttributeBreakdowns attribute={record.key} addFilter={addFilter} />,
-            }}
-        />
-    )
-}
-
-const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element => {
-    const type =
-        (
-            {
-                debug: 'muted',
-                info: 'default',
-                warn: 'warning',
-                error: 'danger',
-                fatal: 'danger',
-            } as Record<LogMessage['severity_text'], LemonTagType>
-        )[level] ?? 'muted'
-
-    return <LemonTag type={type}>{level}</LemonTag>
-}
-
-const Filters = (): JSX.Element => {
-    const { logsLoading } = useValues(logsLogic)
-    const { runQuery, zoomDateRange } = useActions(logsLogic)
-
-    return (
-        <div className="flex flex-col gap-y-1.5">
-            <div className="flex justify-between gap-y-2 flex-wrap-reverse">
-                <div className="flex gap-x-1 gap-y-2 flex-wrap">
-                    <SeverityLevelsFilter />
-                    <ServiceFilter />
-                </div>
-                <div className="flex gap-x-1">
-                    <LemonButton
-                        size="small"
-                        icon={<IconMinusSquare />}
-                        type="secondary"
-                        onClick={() => zoomDateRange(2)}
-                    />
-                    <LemonButton
-                        size="small"
-                        icon={<IconPlusSquare />}
-                        type="secondary"
-                        onClick={() => zoomDateRange(0.5)}
-                    />
-                    <DateRangeFilter />
-                    <LemonButton
-                        size="small"
-                        icon={<IconRefresh />}
-                        type="secondary"
-                        onClick={() => runQuery()}
-                        loading={logsLoading}
-                    >
-                        {logsLoading ? 'Loading...' : 'Search'}
-                    </LemonButton>
-                </div>
-            </div>
-            <LogsFilterGroup />
-        </div>
-    )
-}
-
-const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody, prettifyJson, timestampFormat } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat } = useActions(logsLogic)
-
-    return (
-        <div className="flex gap-2">
-            <LemonSegmentedButton
-                value={orderBy}
-                onChange={setOrderBy}
-                options={[
-                    {
-                        value: 'earliest',
-                        label: 'Earliest',
-                    },
-                    {
-                        value: 'latest',
-                        label: 'Latest',
-                    },
-                ]}
-                size="small"
-            />
-            <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
-            <LemonCheckbox
-                checked={prettifyJson}
-                bordered
-                onChange={setPrettifyJson}
-                label="Prettify JSON"
-                size="small"
-            />
-            <LemonSelect
-                value={timestampFormat}
-                icon={<IconClock />}
-                onChange={(value) => setTimestampFormat(value)}
-                size="small"
-                type="secondary"
-                options={[
-                    { value: 'absolute', label: 'Absolute' },
-                    { value: 'relative', label: 'Relative' },
-                ]}
-            />
-        </div>
+        </>
     )
 }

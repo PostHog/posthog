@@ -4,6 +4,7 @@ import datetime as dt
 
 import pytest
 
+import pytest_asyncio
 from psycopg import sql
 
 from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
@@ -45,7 +46,7 @@ pytestmark = [
 ]
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def clean_up_s3_bucket(s3_client, bucket_name, key_prefix):
     """Clean-up S3 bucket used in Redshift copy activity."""
     yield
@@ -128,7 +129,7 @@ async def _run_activity(
     )
 
     assert copy_inputs.batch_export.batch_export_id is not None
-    await activity_environment.run(
+    stage_folder = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=copy_inputs.batch_export.team_id,
@@ -144,6 +145,7 @@ async def _run_activity(
             destination_default_fields=redshift_default_fields(),
         ),
     )
+    copy_inputs.batch_export.stage_folder = stage_folder
     result = await activity_environment.run(copy_into_redshift_activity_from_stage, copy_inputs)
 
     if not assert_records:
@@ -464,12 +466,12 @@ async def test_copy_into_redshift_activity_merges_sessions_data_in_follow_up_run
     new_event = new_events[0]
     new_event_properties = new_event["properties"] or {}
     assert len(rows) == 1, "Previous session row still present in Redshift"
-    assert (
-        rows[0]["session_id"] == new_event_properties["$session_id"]
-    ), "Redshift row does not match expected `session_id`"
-    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(
-        tzinfo=dt.UTC
-    ), "Redshift data was not updated with new timestamp"
+    assert rows[0]["session_id"] == new_event_properties["$session_id"], (
+        "Redshift row does not match expected `session_id`"
+    )
+    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(tzinfo=dt.UTC), (
+        "Redshift data was not updated with new timestamp"
+    )
 
 
 async def test_copy_into_redshift_activity_handles_person_schema_changes(

@@ -45,12 +45,13 @@ function createInitialEventsPayload(personId: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
         full: true,
+        showEventsFilter: true,
+        showSavedFilters: true,
         hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
         source: {
             kind: NodeKind.EventsQuery,
             select: defaultDataTableColumns(NodeKind.EventsQuery),
             personId: personId,
-            where: ["notEquals(event, '$exception')"],
             after: '-24h',
         },
     }
@@ -68,6 +69,22 @@ function createInitialExceptionsPayload(personId: string): DataTableNode {
             personId: personId,
             event: '$exception',
             after: '-24h',
+        },
+    }
+}
+
+function createInitialSurveyResponsesPayload(personId: string): DataTableNode {
+    return {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        showEventFilter: false,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'properties.$survey_name', 'properties.$lib', 'timestamp'],
+            personId: personId,
+            event: 'survey sent',
+            after: '-90d',
         },
     }
 }
@@ -111,6 +128,7 @@ export const personsLogic = kea<personsLogicType>([
         setDistinctId: (distinctId: string) => ({ distinctId }),
         setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
         setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
+        setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
     }),
     loaders(({ values, actions, props }) => ({
         persons: [
@@ -158,6 +176,8 @@ export const personsLogic = kea<personsLogicType>([
                             actions.setEventsQuery(eventsQuery)
                             const exceptionsQuery = createInitialExceptionsPayload(person.id)
                             actions.setExceptionsQuery(exceptionsQuery)
+                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
+                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
                         }
                     }
 
@@ -181,6 +201,8 @@ export const personsLogic = kea<personsLogicType>([
                             actions.setEventsQuery(eventsQuery)
                             const exceptionsQuery = createInitialExceptionsPayload(person.id)
                             actions.setExceptionsQuery(exceptionsQuery)
+                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
+                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
                         }
                         return person
                     }
@@ -289,6 +311,12 @@ export const personsLogic = kea<personsLogicType>([
                 setExceptionsQuery: (_, { exceptionsQuery }) => exceptionsQuery,
             },
         ],
+        surveyResponsesQuery: [
+            null as DataTableNode | null,
+            {
+                setSurveyResponsesQuery: (_, { surveyResponsesQuery }) => surveyResponsesQuery,
+            },
+        ],
     })),
     selectors(() => ({
         apiDocsURL: [
@@ -302,7 +330,7 @@ export const personsLogic = kea<personsLogicType>([
         currentTab: [(s) => [s.activeTab, s.defaultTab], (activeTab, defaultTab) => activeTab || defaultTab],
         defaultTab: [
             (s) => [s.feedEnabled],
-            (feedEnabled) => (feedEnabled ? PersonsTabType.FEED : PersonsTabType.PROPERTIES),
+            (feedEnabled) => (feedEnabled ? PersonsTabType.PROFILE : PersonsTabType.PROPERTIES),
         ],
         breadcrumbs: [
             (s) => [s.person, router.selectors.location],
@@ -445,12 +473,14 @@ export const personsLogic = kea<personsLogicType>([
             }
         },
         navigateToTab: () => {
-            if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
-                const searchParams = {}
-
+            if (
+                props.syncWithUrl &&
+                router.values.location.pathname.indexOf('/person') > -1 &&
+                router.values.hashParams.activeTab !== values.activeTab
+            ) {
                 return [
                     router.values.location.pathname,
-                    searchParams,
+                    router.values.location.search,
                     {
                         ...router.values.hashParams,
                         activeTab: values.activeTab,
@@ -468,7 +498,7 @@ export const personsLogic = kea<personsLogicType>([
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 
-                if (!activeTab) {
+                if (!activeTab && values.activeTab !== values.defaultTab) {
                     actions.setActiveTab(values.defaultTab)
                 }
 

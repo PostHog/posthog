@@ -30,7 +30,7 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
 
                     {/* Secret key for manual entry */}
                     {startSetup?.secret && (
-                        <div className="mt-4 p-3 bg-gray-50 rounded text-center">
+                        <div className="ph-no-capture mt-4 p-3 bg-gray-50 rounded text-center">
                             <p>
                                 If you can't scan the QR code, you can use the secret key below to manually set up your
                                 authenticator app.

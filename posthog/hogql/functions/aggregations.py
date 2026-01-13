@@ -1,11 +1,83 @@
+from collections.abc import Callable
+
 from posthog.hogql.ast import ArrayType, BooleanType, StringType
 from posthog.hogql.base import UnknownType
 
 from .core import HogQLFunctionMeta
 
+COMBINATORS = {
+    "If": {"allowedSuffixes": [], "argMap": lambda min, max: [min + 1, max + 1]},
+    "Array": {"allowedSuffixes": ["If", "OrDefault", "OrNull"], "argMap": lambda min, max: [min, max]},
+    "Map": {"allowedSuffixes": ["If", "OrDefault", "OrNull"], "argMap": lambda min, max: [min, max]},
+    "State": {"allowedSuffixes": ["If", "OrDefault", "OrNull"], "argMap": lambda min, max: [min, max]},
+    "Merge": {"allowedSuffixes": ["If", "OrDefault", "OrNull"], "argMap": lambda min, max: [min, max]},
+    "ForEach": {"allowedSuffixes": ["If", "OrDefault", "OrNull"], "argMap": lambda min, max: [min, max]},
+    "OrDefault": {"allowedSuffixes": ["If"], "argMap": lambda min, max: [min, max]},
+    "OrNull": {"allowedSuffixes": ["If"], "argMap": lambda min, max: [min, max]},
+    "ArgMin": {"allowedSuffixes": ["If", "OrDefault", "OrNull"], "argMap": lambda min, max: [min + 1, max + 1]},
+    "ArgMax": {"allowedSuffixes": ["If", "OrDefault", "OrNull"], "argMap": lambda min, max: [min + 1, max + 1]},
+}
+
+COMBINATOR_AGGREGATIONS = {
+    "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True),
+    "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True),
+    "min": HogQLFunctionMeta("min", 1, 1, aggregate=True),
+    "max": HogQLFunctionMeta("max", 1, 1, aggregate=True),
+    "count": HogQLFunctionMeta("count", 0, 1, aggregate=True),
+    "countDistinct": HogQLFunctionMeta("countDistinct", 1, 1, aggregate=True),
+    "median": HogQLFunctionMeta("median", 1, 1, aggregate=True),
+}
+
+
+def _generate_suffix_combinations(
+    base_name: str, base_meta: HogQLFunctionMeta, current_suffixes: list[str] | None = None
+):
+    result = {}
+
+    if current_suffixes is None:
+        current_suffixes = []
+
+    if current_suffixes:
+        func_name = base_name + "".join(current_suffixes)
+        # Calculate new parameter ranges based on suffix rules
+        min_params, max_params = base_meta.min_args, base_meta.max_args
+        for suffix in current_suffixes:
+            if suffix in COMBINATORS:
+                arg_map: Callable[[int, int | None], list[int]] = COMBINATORS[suffix]["argMap"]  # type: ignore
+                min_params, max_params = arg_map(min_params, max_params)
+
+        result[func_name] = HogQLFunctionMeta(func_name, min_params, max_params, aggregate=True)
+
+    if not current_suffixes:
+        available_suffixes = list(COMBINATORS.keys())
+    else:
+        last_suffix = current_suffixes[-1]
+        allowed_suffixes: list[str] = COMBINATORS.get(last_suffix, {}).get("allowedSuffixes", [])  # type: ignore
+        available_suffixes = allowed_suffixes
+
+    for suffix in available_suffixes:
+        if suffix not in current_suffixes:
+            nested_result = _generate_suffix_combinations(base_name, base_meta, [*current_suffixes, suffix])
+            result.update(nested_result)
+
+    return result
+
+
+def generate_combinator_suffix_combinations():
+    result = {}
+
+    for base_name, base_meta in COMBINATOR_AGGREGATIONS.items():
+        combinations = _generate_suffix_combinations(base_name, base_meta)
+        result.update(combinations)
+
+    return result
+
+
 # Permitted HogQL aggregations
 # Keep in sync with the posthog.com repository: contents/docs/sql/aggregations.mdx
 HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
+    # Generated combinator functions
+    **generate_combinator_suffix_combinations(),
     # Standard aggregate functions
     "count": HogQLFunctionMeta("count", 0, 1, aggregate=True, case_sensitive=False),
     "countIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
@@ -138,10 +210,13 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "groupBitXorIf": HogQLFunctionMeta("groupBitXorIf", 2, 2, aggregate=True),
     "groupBitmap": HogQLFunctionMeta("groupBitmap", 1, 1, aggregate=True),
     "groupBitmapIf": HogQLFunctionMeta("groupBitmapIf", 2, 2, aggregate=True),
+    "groupBitmapState": HogQLFunctionMeta("groupBitmapState", 1, 1, aggregate=True),
     "groupBitmapAnd": HogQLFunctionMeta("groupBitmapAnd", 1, 1, aggregate=True),
     "groupBitmapAndIf": HogQLFunctionMeta("groupBitmapAndIf", 2, 2, aggregate=True),
+    "groupBitmapAndState": HogQLFunctionMeta("groupBitmapAndState", 1, 1, aggregate=True),
     "groupBitmapOr": HogQLFunctionMeta("groupBitmapOr", 1, 1, aggregate=True),
     "groupBitmapOrIf": HogQLFunctionMeta("groupBitmapOrIf", 2, 2, aggregate=True),
+    "groupBitmapOrState": HogQLFunctionMeta("groupBitmapOrState", 1, 1, aggregate=True),
     "groupBitmapXor": HogQLFunctionMeta("groupBitmapXor", 1, 1, aggregate=True),
     "groupBitmapXorIf": HogQLFunctionMeta("groupBitmapXorIf", 2, 2, aggregate=True),
     "sumWithOverflow": HogQLFunctionMeta("sumWithOverflow", 1, 1, aggregate=True),
@@ -174,6 +249,8 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniq": HogQLFunctionMeta("uniq", 1, None, aggregate=True),
     "uniqIf": HogQLFunctionMeta("uniqIf", 2, None, aggregate=True),
     "uniqExact": HogQLFunctionMeta("uniqExact", 1, None, aggregate=True),
+    "uniqExactState": HogQLFunctionMeta("uniqExactState", 1, None, aggregate=True),
+    "uniqExactMerge": HogQLFunctionMeta("uniqExactMerge", 1, None, aggregate=True),
     "uniqExactIf": HogQLFunctionMeta("uniqExactIf", 2, None, aggregate=True),
     # "uniqCombined": HogQLFunctionMeta("uniqCombined", 1, 1, aggregate=True),
     # "uniqCombinedIf": HogQLFunctionMeta("uniqCombinedIf", 2, 2, aggregate=True),
@@ -191,7 +268,6 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqState": HogQLFunctionMeta("uniqState", 1, 1, aggregate=True),
     "uniqStateIf": HogQLFunctionMeta("uniqStateIf", 2, 2, aggregate=True),
     "uniqUpToMerge": HogQLFunctionMeta("uniqUpToMerge", 1, 1, 1, 1, aggregate=True),
-    "uniqExactMerge": HogQLFunctionMeta("uniqExactMerge", 1, 1, aggregate=True),
     "median": HogQLFunctionMeta("median", 1, 1, aggregate=True),
     "medianIf": HogQLFunctionMeta("medianIf", 2, 2, aggregate=True),
     "medianExact": HogQLFunctionMeta("medianExact", 1, 1, aggregate=True),

@@ -1,33 +1,39 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { IconChat } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { EventType } from '~/types'
 
+import { AIDataLoading } from '../components/AIDataLoading'
+import { useAIData } from '../hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from '../llmAnalyticsPlaygroundLogic'
 import { normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
-export function ConversationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
+export interface ConversationDisplayProps {
+    eventProperties: EventType['properties']
+    eventId: string
+}
+
+export function ConversationDisplay({ eventProperties, eventId }: ConversationDisplayProps): JSX.Element {
     const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { input, output, isLoading } = useAIData({
+        uuid: eventId,
+        input: eventProperties.$ai_input,
+        output: eventProperties.$ai_output_choices,
+    })
 
     const handleTryInPlayground = (): void => {
         setupPlaygroundFromEvent({
             model: eventProperties.$ai_model,
-            input: eventProperties.$ai_input,
+            input,
         })
     }
 
-    const showPlaygroundButton =
-        eventProperties.$ai_model &&
-        eventProperties.$ai_input &&
-        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
+    const showPlaygroundButton = eventProperties.$ai_model && input
 
     return (
         <>
@@ -56,17 +62,18 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                     </LemonButton>
                 )}
             </header>
-            <ConversationMessagesDisplay
-                inputNormalized={normalizeMessages(eventProperties.$ai_input, 'user', eventProperties.$ai_tools)}
-                outputNormalized={normalizeMessages(
-                    eventProperties.$ai_output_choices ?? eventProperties.$ai_output,
-                    'assistant'
-                )}
-                errorData={eventProperties.$ai_error}
-                httpStatus={eventProperties.$ai_http_status}
-                raisedError={eventProperties.$ai_is_error}
-                bordered
-            />
+            {isLoading ? (
+                <AIDataLoading variant="block" />
+            ) : (
+                <ConversationMessagesDisplay
+                    inputNormalized={normalizeMessages(input, 'user', eventProperties.$ai_tools)}
+                    outputNormalized={normalizeMessages(output, 'assistant')}
+                    errorData={eventProperties.$ai_error}
+                    httpStatus={eventProperties.$ai_http_status}
+                    raisedError={eventProperties.$ai_is_error}
+                    bordered
+                />
+            )}
         </>
     )
 }

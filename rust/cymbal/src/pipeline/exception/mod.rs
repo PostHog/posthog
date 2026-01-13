@@ -6,16 +6,19 @@ use metrics::counter;
 use serde_json::Value;
 use stack_processing::do_stack_processing;
 use tracing::{error, warn};
+use uuid::Uuid;
 
 pub mod issue_processing;
+pub mod spike_detection;
 pub mod stack_processing;
 
 use crate::{
     app_context::AppContext,
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
-    issue_resolution::IssueStatus,
+    issue_resolution::{Issue, IssueStatus},
     metric_consts::{
-        ISSUE_PROCESSING_TIME, STACK_PROCESSING_TIME, SUPPRESSED_ISSUE_DROPPED_EVENTS,
+        ISSUE_PROCESSING_TIME, SPIKE_DETECTION_TIME, STACK_PROCESSING_TIME,
+        SUPPRESSED_ISSUE_DROPPED_EVENTS,
     },
     recursively_sanitize_properties,
     types::RawErrProps,
@@ -58,11 +61,13 @@ pub async fn do_exception_handling(
     stack_timer.fin();
 
     let issue_timer = common_metrics::timing_guard(ISSUE_PROCESSING_TIME, &[]);
-    let issues = do_issue_processing(context, &events, &fingerprinted).await?;
+    let issues = do_issue_processing(context.clone(), &events, &fingerprinted).await?;
     issue_timer.fin();
 
     // Unfreeze, as we're about to replace the event properties.
     let mut events = events;
+    let mut issue_counts: std::collections::HashMap<Uuid, u32> = std::collections::HashMap::new();
+    let mut issues_by_id: std::collections::HashMap<Uuid, Issue> = std::collections::HashMap::new();
     for (index, fingerprinted) in fingerprinted.into_iter() {
         let issue = issues
             .get(&fingerprinted.fingerprint.value)
@@ -81,7 +86,13 @@ pub async fn do_exception_handling(
 
         let output = fingerprinted.to_output(issue.id);
         event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
+        *issue_counts.entry(issue.id).or_insert(0) += 1;
+        issues_by_id.entry(issue.id).or_insert(issue);
     }
+
+    let spike_timer = common_metrics::timing_guard(SPIKE_DETECTION_TIME, &[]);
+    spike_detection::do_spike_detection(context, issues_by_id, issue_counts).await;
+    spike_timer.fin();
 
     Ok(events)
 }

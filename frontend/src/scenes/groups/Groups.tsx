@@ -20,22 +20,35 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
-import { GroupTypeIndex } from '~/types'
+
+import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
 
 import { getCRMColumns } from './crm/utils'
 import { groupViewLogic } from './groupViewLogic'
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
 
-export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
-    const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
-    const { query, queryWasModified } = useValues(groupsListLogic({ groupTypeIndex }))
-    const { setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
+export const scene: SceneExport = {
+    component: GroupsScene,
+    logic: groupsSceneLogic,
+}
+
+export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+    if (!tabId) {
+        throw new Error('GroupsScene rendered with no tabId')
+    }
+    const { groupTypeIndex, groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
+
+    const mountedGroupsListLogic = groupsListLogic({ groupTypeIndex })
+    const { query, queryWasModified } = useValues(mountedGroupsListLogic)
+    const { setQuery } = useActions(mountedGroupsListLogic)
+
     const { saveGroupViewModalOpen, groupViewName } = useValues(groupViewLogic)
     const { setSaveGroupViewModalOpen, setGroupViewName, saveGroupView } = useActions(groupViewLogic)
+
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
     const { aggregationLabel } = useValues(groupsModel)
-    const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
+    const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -68,7 +81,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
         },
     } as QueryContext['columns']
     let hiddenColumns = [] as string[]
-    if (hasCrmIterationOneEnabled) {
+    if (hasCustomerAnalyticsEnabled) {
         columns = getCRMColumns(groupTypeName, groupTypeIndex)
         hiddenColumns.push('key')
     }
@@ -84,7 +97,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     type: 'cohort',
                 }}
                 actions={
-                    hasCrmIterationOneEnabled ? (
+                    hasCustomerAnalyticsEnabled ? (
                         <LemonButton
                             type="primary"
                             size="small"
@@ -96,8 +109,11 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     ) : undefined
                 }
             />
+            <FeedbackBanner feedbackButtonId="groups-list" />
 
             <Query
+                uniqueKey={`groups-query-${tabId}`}
+                attachTo={groupsSceneLogic({ tabId })}
                 query={{ ...query, hiddenColumns }}
                 setQuery={setQuery}
                 context={{
@@ -122,7 +138,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                 dataAttr="groups-table"
             />
 
-            {hasCrmIterationOneEnabled && (
+            {hasCustomerAnalyticsEnabled && (
                 <LemonModal
                     isOpen={saveGroupViewModalOpen}
                     onClose={() => setSaveGroupViewModalOpen(false)}
@@ -158,15 +174,4 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
             )}
         </SceneContent>
     )
-}
-
-export function GroupsScene(): JSX.Element {
-    const { groupTypeIndex } = useValues(groupsSceneLogic)
-    return <Groups groupTypeIndex={groupTypeIndex as GroupTypeIndex} />
-}
-
-export const scene: SceneExport = {
-    component: GroupsScene,
-    logic: groupsSceneLogic,
-    settingSectionId: 'environment-customer-analytics',
 }

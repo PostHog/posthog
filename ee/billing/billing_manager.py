@@ -4,7 +4,6 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db.models import F
-from django.utils import timezone
 
 import jwt
 import requests
@@ -13,12 +12,13 @@ from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
 
-from ee.billing.billing_types import BillingStatus
+from ee.billing.billing_types import BillingProvider, BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -30,7 +30,33 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
-def build_billing_token(license: License, organization: Organization, user: Optional[User] = None):
+def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
+    """
+    Get a user role display string in a given organization, if membership doesn't exist return None.
+    """
+    try:
+        membership = user.organization_memberships.get(organization=organization)
+        return membership.get_level_display()
+    except OrganizationMembership.DoesNotExist:
+        return None
+
+
+def build_billing_token(
+    license: Optional[License],
+    organization: Optional[Organization],
+    user: Optional[User] = None,
+    authorizer_actor: Optional[User] = None,
+    billing_provider: BillingProvider | None = None,
+) -> str:
+    """
+    Build the JWT token to authenticate with the Billing system.
+
+    Allows doing privilege escalation with the `authorizer_actor` parameter, in that case the distinct_id
+    will be that of the user, but the role will be that of the authorizer_actor.
+
+    Raises NotAuthenticated if the authorizer_actor (or user in case there's no authorizer_actor) are not
+    part of the organization.
+    """
     if not organization or not license:
         raise NotAuthenticated()
 
@@ -46,11 +72,32 @@ def build_billing_token(license: License, organization: Organization, user: Opti
     }
 
     if user:
-        payload["distinct_id"] = str(user.distinct_id)
-        org_membership = user.organization_memberships.get(organization=organization)
+        authorizer_actor = authorizer_actor or user
 
-        if org_membership:
-            payload["organization_role"] = org_membership.get_level_display()
+        payload["distinct_id"] = str(user.distinct_id)
+        authorizer_role = _get_user_organization_role(authorizer_actor, organization)
+
+        if authorizer_role:
+            payload["organization_role"] = authorizer_role
+        else:
+            raise NotAuthenticated(f"Authorizer is not part of organization")
+
+        if authorizer_actor != user:
+            # We've done a privilege escalation
+            report_user_action(
+                user,
+                "$billing_privilege_escalation",
+                properties={
+                    "authorizer_actor_id": authorizer_actor.id,
+                    # NOTE(Marce): Hardcoded for now since it's the only place where it can happen
+                    # I have another PR with a better implementation of this.
+                    "action": "update_billing",
+                },
+            )
+            payload["original_role"] = _get_user_organization_role(user, organization)
+
+    if billing_provider:
+        payload["billing_provider"] = billing_provider.value
 
     encoded_jwt = jwt.encode(
         payload,
@@ -72,17 +119,17 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
 
 
 class BillingManager:
-    license: Optional[License]
-    user: Optional[User]
+    license: License | None
+    user: User | None
 
-    def __init__(self, license, user: Optional[User] = None):
+    def __init__(self, license, user: User | None = None):
         self.license = license or get_cached_instance_license()
         self.user = user
 
     def get_billing(
         self,
-        organization: Optional[Organization],
-        query_params: Optional[dict[str, Any]] = None,
+        organization: Organization | None,
+        query_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not organization or not self.license or not self.license.is_v2_license:
             return self._get_default_billing_response(organization)
@@ -135,10 +182,12 @@ class BillingManager:
 
         return response
 
-    def update_billing(self, organization: Organization, data: dict[str, Any]) -> None:
+    def update_billing(
+        self, organization: Organization, data: dict[str, Any], authorizer_actor: Optional[User] = None
+    ) -> None:
         res = requests.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
-            headers=self.get_auth_headers(organization),
+            headers=self.get_auth_headers(organization, authorizer_actor=authorizer_actor),
             json=data,
         )
 
@@ -160,6 +209,11 @@ class BillingManager:
         return available_product_features
 
     def update_billing_organization_users(self, organization: Organization) -> None:
+        """
+        Updates the register of users in the Billing service.
+        Since this can be called with users that are not ADMINs and update_billing requires
+        an ADMIN role, we do a privilege escalation using the owner.
+        """
         try:
             distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
 
@@ -202,19 +256,21 @@ class BillingManager:
                     "org_admin_emails": admin_emails,
                     "org_users": org_users,
                 },
+                authorizer_actor=first_owner,
             )
         except Exception as e:
             capture_exception(e, {"organization_id": organization.id})
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing/deactivate?products={products}",
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/billing/deactivate",
             headers=self.get_auth_headers(organization),
+            json={"products": products},
         )
 
         handle_billing_service_error(res)
 
-    def _get_default_billing_response(self, organization: Optional[Organization]) -> dict[str, Any]:
+    def _get_default_billing_response(self, organization: Organization | None) -> dict[str, Any]:
         products = self.get_default_products(organization)
         response = {
             "available_product_features": [],
@@ -223,7 +279,7 @@ class BillingManager:
 
         return response
 
-    def get_default_products(self, organization: Optional[Organization]) -> dict:
+    def get_default_products(self, organization: Organization | None) -> dict:
         response = {}
         # If we don't have products from the billing service then get the default ones with our local usage calculation
         products = self._get_products(organization)
@@ -242,9 +298,9 @@ class BillingManager:
 
         data = billing_status["license"]
 
-        if not self.license.valid_until or self.license.valid_until < timezone.now() + timedelta(days=29):
+        if not self.license.valid_until or self.license.valid_until < datetime.now(UTC) + timedelta(days=29):
             # NOTE: License validity is a legacy concept. For now we always extend the license validity by 30 days.
-            self.license.valid_until = timezone.now() + timedelta(days=30)
+            self.license.valid_until = datetime.now(UTC) + timedelta(days=30)
             license_modified = True
 
         if self.license.plan != data["type"]:
@@ -256,7 +312,7 @@ class BillingManager:
 
         return self.license
 
-    def _get_billing(self, organization: Organization, query_params: Optional[dict[str, Any]] = None) -> BillingStatus:
+    def _get_billing(self, organization: Organization, query_params: dict[str, Any] | None = None) -> BillingStatus:
         """
         Retrieves billing info and updates local models if necessary
         """
@@ -292,7 +348,7 @@ class BillingManager:
 
         return data["url"]
 
-    def _get_products(self, organization: Optional[Organization]):
+    def _get_products(self, organization: Organization | None):
         headers = {}
         params = {"plan": "standard"}
 
@@ -334,6 +390,9 @@ class BillingManager:
                 feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
                 api_queries_read_bytes=usage_summary.get("api_queries_read_bytes", {}),
                 llm_events=usage_summary.get("llm_events", {}),
+                ai_credits=usage_summary.get("ai_credits", {}),
+                workflow_emails=usage_summary.get("workflow_emails", {}),
+                workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
@@ -376,13 +435,20 @@ class BillingManager:
 
         return organization
 
-    def get_auth_headers(self, organization: Organization):
+    def get_auth_headers(
+        self,
+        organization: Organization,
+        billing_provider: BillingProvider | None = None,
+        authorizer_actor: User | None = None,
+    ):
         if not self.license:  # mypy
             raise Exception("No license found")
-        billing_service_token = build_billing_token(self.license, organization, self.user)
+        billing_service_token = build_billing_token(
+            self.license, organization, self.user, authorizer_actor=authorizer_actor, billing_provider=billing_provider
+        )
         return {"Authorization": f"Bearer {billing_service_token}"}
 
-    def get_invoices(self, organization: Organization, status: Optional[str]):
+    def get_invoices(self, organization: Organization, status: str | None):
         res = requests.get(
             # TODO(@zach): update this to /api/invoices
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
@@ -441,10 +507,36 @@ class BillingManager:
 
         self.update_available_product_features(organization)
 
-    def authorize(self, organization: Organization):
+    def authorize(self, organization: Organization, billing_provider: BillingProvider | None = None):
+        """
+        Authorize billing for an organization, optionally through a marketplace provider.
+
+        Args:
+            organization: The organization to authorize billing for
+            billing_provider: Optional marketplace provider (e.g., "vercel"). If provided, the organization
+                            must have a corresponding integration configured.
+
+        Raises:
+            ValueError: If billing_provider is specified but the organization doesn't have the integration
+        """
+        # Validate that organization has the integration if billing_provider is specified
+        if billing_provider:
+            from posthog.models import OrganizationIntegration
+
+            has_integration = OrganizationIntegration.objects.filter(
+                organization=organization,
+                kind=billing_provider,  # kind matches billing_provider value
+            ).exists()
+
+            if not has_integration:
+                raise ValueError(f"Organization does not have a {billing_provider} integration configured")
+
+        data = {"billing_provider": billing_provider}
+
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",
-            headers=self.get_auth_headers(organization),
+            headers=self.get_auth_headers(organization, billing_provider),
+            json=data,
         )
 
         handle_billing_service_error(res)
@@ -484,6 +576,25 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
+    def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/coupons/claim",
+            json=data,
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+        return res.json()
+
+    def coupons_overview(self, organization: Organization) -> dict[str, Any]:
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/coupons/overview",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+        return res.json()
+
     def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
         """
         Get usage data from the billing service.
@@ -511,3 +622,37 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def handle_billing_provider_webhook(
+        self,
+        event_type: str,
+        event_data: dict[str, Any],
+        organization: Organization,
+        billing_provider: str,
+    ) -> None:
+        """
+        Forward billing provider webhook to billing service for processing.
+
+        Pure passthrough - no transformation of event data.
+        Raises exception on failure (causes webhook endpoint to return 500, triggering provider retry).
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
+            headers=self.get_auth_headers(organization),
+            json={
+                "event_type": event_type,
+                "event_data": event_data,
+                "billing_provider": billing_provider,
+            },
+            timeout=30,
+        )
+
+        if not res.ok:
+            logger.error(
+                "billing_provider_webhook_error",
+                event_type=event_type,
+                billing_provider=billing_provider,
+                status_code=res.status_code,
+                response_text=res.text[:500] if res.text else "",
+            )
+            raise Exception(f"Billing service returned {res.status_code}: {res.text}")

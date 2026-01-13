@@ -52,7 +52,7 @@ from ee.hogai.eval.base import MaxPrivateEval
 from ee.hogai.eval.offline.conftest import EvaluationContext, capture_score, get_eval_context
 from ee.hogai.eval.schema import DatasetInput
 from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
-from ee.hogai.graph.graph import AssistantGraph
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.utils.types import AssistantState
 from ee.models import Conversation
 
@@ -114,7 +114,7 @@ async def eval_offline_sql(eval_ctx: EvaluationContext, pytestconfig):
 
 ### Running an evaluation
 
-Log in to [Dagster Cloud](https://posthog.dagster.cloud/locations/dags.locations.max_ai/jobs/run_evaluation/playground) and run a new `run_evaluation` job with a following config:
+Log in to [Dagster Cloud](https://posthog.dagster.cloud/locations/posthog.dags.locations.posthog_ai/jobs/run_evaluation/playground) and run a new `run_evaluation` job with a following config:
 
 ```yaml
 ops:

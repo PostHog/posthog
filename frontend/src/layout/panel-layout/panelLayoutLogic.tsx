@@ -7,14 +7,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavIdentifier =
-    | 'Project'
-    | 'Products'
-    | 'People'
-    | 'Games'
-    | 'Shortcuts'
-    | 'DataManagement'
-    | 'Database'
+export type PanelLayoutNavIdentifier = 'Project' | 'Products' | 'People' | 'Games' | 'Shortcuts' | 'DataManagement'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
@@ -76,21 +69,21 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         isLayoutPanelVisible: [
             false,
-            { persist: true },
+            { persist: true, prefix: '2', separator: '.' },
             {
                 showLayoutPanel: (_, { visible }) => visible,
             },
         ],
         isLayoutPanelPinned: [
             false,
-            { persist: true },
+            { persist: true, prefix: '2', separator: '.' },
             {
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned,
             },
         ],
         activePanelIdentifier: [
             '',
-            { persist: true },
+            { persist: true, prefix: '2', separator: '.' },
             {
                 setActivePanelIdentifier: (_, { identifier }) => identifier,
                 clearActivePanelIdentifier: () => '',

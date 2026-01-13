@@ -1,0 +1,311 @@
+.StepContentEditor {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-light);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 8px;
+
+    &__content {
+        min-height: 200px;
+        padding: 1rem;
+
+        .tiptap {
+            min-height: 180px;
+            outline: none;
+
+            > * + * {
+                margin-top: 0.75em;
+            }
+
+            // Placeholder
+            p.is-editor-empty:first-child::before {
+                float: left;
+                height: 0;
+                color: var(--muted);
+                pointer-events: none;
+                content: attr(data-placeholder);
+            }
+
+            // Headings
+            h1 {
+                margin-top: 1.5rem;
+                margin-bottom: 0.5rem;
+                font-size: 1.75rem;
+                font-weight: 700;
+                line-height: 1.2;
+
+                &:first-child {
+                    margin-top: 0;
+                }
+            }
+
+            h2 {
+                margin-top: 1.25rem;
+                margin-bottom: 0.5rem;
+                font-size: 1.375rem;
+                font-weight: 600;
+                line-height: 1.3;
+
+                &:first-child {
+                    margin-top: 0;
+                }
+            }
+
+            h3 {
+                margin-top: 1rem;
+                margin-bottom: 0.5rem;
+                font-size: 1.125rem;
+                font-weight: 600;
+                line-height: 1.4;
+
+                &:first-child {
+                    margin-top: 0;
+                }
+            }
+
+            // Paragraphs
+            p {
+                line-height: 1.6;
+            }
+
+            // Links
+            a,
+            .step-content-link {
+                color: var(--primary-3000);
+                text-decoration: underline;
+                cursor: pointer;
+
+                &:hover {
+                    color: var(--primary-3000-hover);
+                }
+            }
+
+            // Lists
+            ul,
+            ol {
+                padding-left: 1.5rem;
+
+                li {
+                    margin-top: 0.25em;
+
+                    p {
+                        margin: 0;
+                    }
+                }
+            }
+
+            ul {
+                list-style-type: disc;
+            }
+
+            ol {
+                list-style-type: decimal;
+            }
+
+            // Blockquote
+            blockquote {
+                padding-left: 1rem;
+                margin-left: 0;
+                font-style: italic;
+                color: var(--muted);
+                border-left: 3px solid var(--primary-3000);
+            }
+
+            // Code
+            code {
+                padding: 0.15em 0.4em;
+                font-family: 'SF Mono', 'Fira Code', Monaco, monospace;
+                font-size: 0.875em;
+                color: var(--danger);
+                background: var(--bg-fill-primary);
+                border-radius: 4px;
+            }
+
+            // Code block with language selector
+            .code-block-wrapper {
+                position: relative;
+                background: var(--color-bg-fill-tertiary);
+                border: 1px solid var(--color-border-primary);
+                border-radius: 8px;
+
+                .code-block-lang-select {
+                    position: absolute;
+                    top: 0.5rem;
+                    right: 0.5rem;
+                    z-index: 1;
+                }
+
+                pre {
+                    padding: 1rem;
+                    padding-right: 6rem; // Make room for the dropdown
+                    margin: 0;
+                    overflow-x: auto;
+                    background: transparent;
+
+                    code {
+                        padding: 0;
+                        font-size: 0.875rem;
+                        line-height: 1.5;
+                        color: inherit;
+                        background: none;
+                    }
+                }
+
+                // GitHub light syntax highlighting theme
+                // Used consistently in editor and SDK
+                .hljs-comment,
+                .hljs-quote {
+                    font-style: italic;
+                    color: #6a737d;
+                }
+
+                .hljs-keyword,
+                .hljs-selector-tag {
+                    color: #d73a49;
+                }
+
+                .hljs-string,
+                .hljs-doctag,
+                .hljs-regexp {
+                    color: #032f62;
+                }
+
+                .hljs-number,
+                .hljs-literal,
+                .hljs-variable,
+                .hljs-template-variable {
+                    color: #005cc5;
+                }
+
+                .hljs-title,
+                .hljs-section,
+                .hljs-selector-id,
+                .hljs-selector-class,
+                .hljs-title.function_ {
+                    color: #6f42c1;
+                }
+
+                .hljs-name,
+                .hljs-attribute,
+                .hljs-attr {
+                    color: #22863a;
+                }
+
+                .hljs-symbol,
+                .hljs-bullet,
+                .hljs-built_in,
+                .hljs-addition {
+                    color: #22863a;
+                }
+
+                .hljs-subst,
+                .hljs-deletion {
+                    color: #b31d28;
+                }
+
+                .hljs-meta {
+                    color: #032f62;
+                }
+
+                .hljs-emphasis {
+                    font-style: italic;
+                }
+
+                .hljs-strong {
+                    font-weight: bold;
+                }
+            }
+
+            // Fallback for plain pre elements (shouldn't happen with our extension)
+            pre:not(.code-block-wrapper pre) {
+                padding: 1rem;
+                overflow-x: auto;
+                background: var(--color-bg-fill-tertiary);
+                border: 1px solid var(--color-border-primary);
+                border-radius: 8px;
+
+                code {
+                    padding: 0;
+                    font-size: 0.875rem;
+                    line-height: 1.5;
+                    color: inherit;
+                    background: none;
+                }
+            }
+
+            // Horizontal rule
+            hr {
+                margin: 1.5rem 0;
+                border: none;
+                border-top: 2px solid var(--color-border-primary);
+            }
+
+            // Images
+            .step-content-image {
+                display: block;
+                max-width: 100%;
+                height: auto;
+                margin: 1rem 0;
+                border-radius: 8px;
+
+                &.ProseMirror-selectednode {
+                    outline: 2px solid var(--primary-3000);
+                    outline-offset: 2px;
+                }
+            }
+
+            // Embeds
+            .embed-wrapper {
+                margin: 1rem 0;
+
+                &[data-provider='youtube'] .embed-container,
+                &[data-provider='vimeo'] .embed-container,
+                &[data-provider='loom'] .embed-container {
+                    overflow: hidden;
+                    border-radius: 8px;
+                }
+
+                &.ProseMirror-selectednode .embed-container {
+                    outline: 2px solid var(--primary-3000);
+                    outline-offset: 2px;
+                }
+            }
+
+            // Bold & Italic
+            strong {
+                font-weight: 600;
+            }
+
+            em {
+                font-style: italic;
+            }
+
+            u {
+                text-decoration: underline;
+            }
+
+            // Selection - use a visible highlight color
+            ::selection {
+                background: var(--mark);
+            }
+        }
+    }
+
+    &__format-toolbar {
+        display: flex;
+        gap: 2px;
+        align-items: center;
+        padding: 0.5rem;
+        background: var(--bg-fill-primary);
+        border-bottom: 1px solid var(--border);
+    }
+
+    &.loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 200px;
+        color: var(--muted);
+    }
+}

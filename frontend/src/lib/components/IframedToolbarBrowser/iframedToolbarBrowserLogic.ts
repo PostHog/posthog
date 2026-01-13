@@ -40,6 +40,8 @@ export const UserIntentVerb: {
     'edit-action': 'edit the action',
     'add-experiment': 'add web experiment',
     'edit-experiment': 'edit the experiment',
+    'add-product-tour': 'add product tour',
+    'edit-product-tour': 'edit the product tour',
 }
 
 export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
@@ -95,7 +97,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         heatmapColorPalette: [
             'default' as string | null,
             {
-                setHeatmapColorPalette: (_, { Palette }) => Palette,
+                setHeatmapColorPalette: (_, { palette }) => palette,
             },
         ],
         heatmapFilters: [
@@ -201,6 +203,8 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
 
     listeners(({ actions, props, values, cache }) => ({
         sendToolbarMessage: ({ type, payload }) => {
+            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             props.iframeRef?.current?.contentWindow?.postMessage(
                 {
                     type,

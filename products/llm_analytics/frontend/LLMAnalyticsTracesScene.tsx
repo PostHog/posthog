@@ -14,11 +14,13 @@ import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
+        useActions(llmAnalyticsLogic)
     const { tracesQuery, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsLogic)
 
     return (
@@ -33,6 +35,7 @@ export function LLMAnalyticsTraces(): JSX.Element {
                 }
                 setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
+                setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
                 const newPropertyFilters = query.source.properties || []
                 if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
@@ -70,9 +73,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 title: 'Trace Name',
                 render: TraceNameColumn,
             },
-            person: {
-                title: 'Person',
-            },
+            person: llmAnalyticsColumnRenderers.person,
             errors: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
@@ -116,14 +117,17 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
 const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     return (
-        <strong>
-            <Link
-                to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
-                data-attr="trace-name-link"
-            >
-                {row.traceName || '–'}
-            </Link>
-        </strong>
+        <div className="flex items-center gap-2">
+            <strong>
+                <Link
+                    to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                    data-attr="trace-name-link"
+                >
+                    {row.traceName || '–'}
+                </Link>
+            </strong>
+            {row.isSupportTrace && <LemonTag type="muted">Support</LemonTag>}
+        </div>
     )
 }
 

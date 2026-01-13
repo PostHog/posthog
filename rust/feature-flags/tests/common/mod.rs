@@ -3,8 +3,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_database::get_pool;
+use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
-use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
+use feature_flags::team::team_models::Team;
+use feature_flags::utils::test_utils::team_token_hypercache_key;
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
@@ -48,16 +50,14 @@ impl ServerHandle {
             limited_tokens.clone(),
         );
 
-        // Add handling for token verification
+        // Add handling for token verification using HyperCache format
         for (token, team_id) in valid_tokens {
-            println!(
-                "Setting up mock for token: {token} with key: {TEAM_TOKEN_CACHE_PREFIX}{token}"
-            );
+            let cache_key = team_token_hypercache_key(&token);
+            println!("Setting up mock for token: {token} with key: {cache_key}");
 
             // Create a minimal valid Team object
             let team = Team {
                 id: team_id,
-                project_id: Some(team_id as i64),
                 name: "Test Team".to_string(),
                 api_token: token.clone(),
                 cookieless_server_hash_mode: Some(0),
@@ -65,16 +65,17 @@ impl ServerHandle {
                 ..Default::default()
             };
 
-            // Serialize to JSON
+            // Serialize to JSON, then Pickle-encode it (matching HyperCache format)
             let team_json = serde_json::to_string(&team).unwrap();
             println!("Team JSON for mock: {team_json}");
+            let pickled_bytes = serde_pickle::ser::to_vec(&team_json, Default::default()).unwrap();
 
-            mock_client =
-                mock_client.get_ret(&format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), Ok(team_json));
+            mock_client = mock_client.get_raw_bytes_ret(&cache_key, Ok(pickled_bytes));
         }
 
         tokio::spawn(async move {
-            let redis_reader_client = Arc::new(mock_client);
+            let redis_reader_client: Arc<dyn common_redis::Client + Send + Sync> =
+                Arc::new(mock_client);
             let redis_writer_client = redis_reader_client.clone();
 
             let (persons_reader, persons_writer, non_persons_reader, non_persons_writer) = if config
@@ -169,7 +170,7 @@ impl ServerHandle {
             let cohort_cache = Arc::new(
                 feature_flags::cohorts::cohort_cache_manager::CohortCacheManager::new(
                     non_persons_reader.clone(),
-                    Some(config.cache_max_cohort_entries),
+                    Some(config.cohort_cache_capacity_bytes),
                     Some(config.cache_ttl_seconds),
                 ),
             );
@@ -212,11 +213,69 @@ impl ServerHandle {
                 test_before_acquire: *config.test_before_acquire,
             });
 
-            let app = feature_flags::router::router(
+            // Create HyperCacheReader for flags
+            let flags_hypercache_config = HyperCacheConfig::new(
+                "feature_flags".to_string(),
+                "flags.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            let flags_hypercache_reader =
+                match HyperCacheReader::new(redis_reader_client.clone(), flags_hypercache_config)
+                    .await
+                {
+                    Ok(reader) => Arc::new(reader),
+                    Err(e) => {
+                        tracing::error!("Failed to create flags HyperCacheReader: {:?}", e);
+                        return;
+                    }
+                };
+
+            // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
+            let flags_with_cohorts_hypercache_config = HyperCacheConfig::new(
+                "feature_flags".to_string(),
+                "flags_with_cohorts.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            let flags_with_cohorts_hypercache_reader = match HyperCacheReader::new(
                 redis_reader_client.clone(),
-                redis_writer_client.clone(),
-                None::<Arc<MockRedisClient>>, // No dedicated flags Redis in tests
-                None::<Arc<MockRedisClient>>,
+                flags_with_cohorts_hypercache_config,
+            )
+            .await
+            {
+                Ok(reader) => Arc::new(reader),
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create flags_with_cohorts HyperCacheReader: {:?}",
+                        e
+                    );
+                    return;
+                }
+            };
+
+            // Create team metadata hypercache reader
+            let mut team_hypercache_config = HyperCacheConfig::new(
+                "team_metadata".to_string(),
+                "full_metadata.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            team_hypercache_config.token_based = true;
+            let team_hypercache_reader =
+                match HyperCacheReader::new(redis_reader_client.clone(), team_hypercache_config)
+                    .await
+                {
+                    Ok(reader) => Arc::new(reader),
+                    Err(e) => {
+                        tracing::error!("Failed to create team HyperCacheReader: {:?}", e);
+                        return;
+                    }
+                };
+
+            let app = feature_flags::router::router(
+                redis_writer_client.clone(), // Use writer client for both reads and writes in tests
+                None,                        // No dedicated flags Redis in tests
                 database_pools,
                 cohort_cache,
                 geoip_service,
@@ -224,6 +283,9 @@ impl ServerHandle {
                 feature_flags_billing_limiter,
                 session_replay_billing_limiter,
                 cookieless_manager,
+                flags_hypercache_reader,
+                flags_with_cohorts_hypercache_reader,
+                team_hypercache_reader,
                 config,
             );
 

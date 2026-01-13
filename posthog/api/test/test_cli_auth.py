@@ -397,8 +397,7 @@ class TestCLIAuthEndToEnd(APIBaseTest):
         # Step 4: Verify the API key works
         self.client.logout()
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/event_definitions/",
-            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+            f"/api/projects/{self.team.pk}/event_definitions/", headers={"authorization": f"Bearer {api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

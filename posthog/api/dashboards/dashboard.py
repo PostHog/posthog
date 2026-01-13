@@ -13,6 +13,7 @@ import structlog
 import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -47,7 +48,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
+from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 
@@ -307,13 +308,34 @@ class DashboardSerializer(DashboardMetadataSerializer):
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
 
+        existing_dashboard: Dashboard | None = None
+        if use_dashboard:
+            try:
+                existing_dashboard = Dashboard.objects.get(
+                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
+                )
+            except Dashboard.DoesNotExist:
+                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+
         request_filters = request.data.get("filters")
         if request_filters:
             if not isinstance(request_filters, dict):
                 raise serializers.ValidationError("Filters must be a dictionary")
             filters = request_filters
+        elif existing_dashboard:
+            filters = existing_dashboard.filters
         else:
             filters = {}
+
+        if existing_dashboard and existing_dashboard.variables:
+            validated_data["variables"] = existing_dashboard.variables
+
+        if existing_dashboard and existing_dashboard.breakdown_colors:
+            validated_data["breakdown_colors"] = existing_dashboard.breakdown_colors
+
+        if existing_dashboard and existing_dashboard.data_color_theme_id:
+            validated_data["data_color_theme_id"] = existing_dashboard.data_color_theme_id
+
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
         if use_template:
@@ -329,24 +351,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
                 raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
 
-        elif use_dashboard:
-            try:
-                existing_dashboard = Dashboard.objects.get(
-                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
-                )
-                existing_tiles = (
-                    DashboardTile.objects.filter(dashboard=existing_dashboard)
-                    .exclude(deleted=True)
-                    .select_related("insight")
-                )
-                for existing_tile in existing_tiles:
-                    if self.initial_data.get("duplicate_tiles", False):
-                        self._deep_duplicate_tiles(dashboard, existing_tile)
-                    else:
-                        existing_tile.copy_to_dashboard(dashboard)
-
-            except Dashboard.DoesNotExist:
-                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+        elif existing_dashboard:
+            existing_tiles = (
+                DashboardTile.objects.filter(dashboard=existing_dashboard)
+                .exclude(deleted=True)
+                .select_related("insight")
+            )
+            for existing_tile in existing_tiles:
+                if self.initial_data.get("duplicate_tiles", False):
+                    self._deep_duplicate_tiles(dashboard, existing_tile)
+                else:
+                    existing_tile.copy_to_dashboard(dashboard)
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)
@@ -429,10 +444,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
             group_type_mapping = GroupTypeMapping.objects.filter(
-                team=instance.team, project_id=instance.team.project_id, detail_dashboard=instance
+                team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
             if group_type_mapping:
-                group_type_mapping.detail_dashboard = None
+                group_type_mapping.detail_dashboard_id = None
                 group_type_mapping.save()
 
         request_filters = initial_data.get("filters")
@@ -597,6 +612,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+@extend_schema(tags=["core"])
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -650,15 +666,14 @@ class DashboardsViewSet(
         else:
             queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
 
-        include_deleted = (
-            self.action == "partial_update"
-            and "deleted" in self.request.data
-            and not self.request.data.get("deleted")
-            and len(self.request.data) == 1
-        )
+        include_deleted = False
+        if self.action in ("partial_update", "update") and hasattr(self, "request"):
+            deleted_value = self.request.data.get("deleted")
+            if deleted_value is not None:
+                include_deleted = not str_to_bool(deleted_value)
 
         if not include_deleted:
-            # a dashboard can be un-deleted by patching {"deleted": False}
+            # a dashboard can be restored by patching {"deleted": False}
             queryset = queryset.exclude(deleted=True)
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")
@@ -698,10 +713,13 @@ class DashboardsViewSet(
         if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
 
-        # Filter unlisted dashboards from general list, but allow access via:
-        # - Direct ID lookup (detail action)
-        # - Tag-based queries (e.g. ?tags=llm-analytics for product dashboards)
-        if self.action == "list" and not self.request.query_params.get("tags"):
+        # Allow filtering by creation_mode query param
+        creation_mode = self.request.query_params.get("creation_mode")
+        if creation_mode:
+            queryset = queryset.filter(creation_mode=creation_mode)
+        # Filter unlisted dashboards from general list unless explicitly requested
+        # Direct ID lookups (detail action) are allowed through retrieve()
+        elif self.action == "list":
             queryset = queryset.exclude(creation_mode="unlisted")
 
         return queryset
@@ -959,6 +977,12 @@ class LegacyInsightViewSet(InsightViewSet):
 def handle_dashboard_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
+    if before_update and after_update:
+        before_deleted = getattr(before_update, "deleted", None)
+        after_deleted = getattr(after_update, "deleted", None)
+        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
+            activity = "restored" if after_deleted is False else "deleted"
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,

@@ -13,6 +13,8 @@ from ee.hogai.tool import MaxTool
 
 from .prompts import EXPERIMENT_SUMMARY_BAYESIAN_PROMPT, EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
 
+MAX_METRICS_TO_SUMMARIZE = 20
+
 
 class CreateExperimentArgs(BaseModel):
     name: str = Field(description="Experiment name - should clearly describe what is being tested")
@@ -50,6 +52,9 @@ Examples:
     """.strip()
     context_prompt_template: str = "Creates a new A/B test experiment in the project"
     args_schema: type[BaseModel] = CreateExperimentArgs
+
+    def get_required_resource_access(self):
+        return [("experiment", "editor")]
 
     async def _arun_impl(
         self,
@@ -89,6 +94,13 @@ Examples:
             if len(variants) < 2:
                 raise ValueError(
                     f"Feature flag '{feature_flag_key}' must have at least 2 variants for an experiment (e.g., control and test)"
+                )
+
+            # Validate that the first variant is "control" - required for experiment statistics
+            if variants[0].get("key") != "control":
+                raise ValueError(
+                    f"Feature flag '{feature_flag_key}' must have 'control' as the first variant. "
+                    f"Found '{variants[0].get('key')}' instead. Please update the feature flag variants."
                 )
 
             # If flag already exists and is already used by another experiment, raise error
@@ -149,9 +161,6 @@ Examples:
             return f"Failed to create experiment: {str(e)}", {"error": "creation_failed"}
 
 
-MAX_METRICS_TO_SUMMARIZE = 3
-
-
 class ExperimentSummaryArgs(BaseModel):
     """
     Analyze experiment results to generate an executive summary with key insights and recommendations.
@@ -162,7 +171,7 @@ class ExperimentSummaryArgs(BaseModel):
 class ExperimentSummaryOutput(BaseModel):
     """Structured output for experiment summary"""
 
-    key_metrics: list[str] = Field(description="Summary of key metric performance", max_length=3)
+    key_metrics: list[str] = Field(description="Summary of key metric performance", max_length=20)
 
 
 EXPERIMENT_SUMMARY_TOOL_DESCRIPTION = """
@@ -207,6 +216,9 @@ class ExperimentSummaryTool(MaxTool):
 
     args_schema: type[BaseModel] = ExperimentSummaryArgs
 
+    def get_required_resource_access(self):
+        return [("experiment", "viewer")]
+
     async def _analyze_experiment(self, context: MaxExperimentSummaryContext) -> ExperimentSummaryOutput:
         """Analyze experiment and generate summary."""
         try:
@@ -230,6 +242,7 @@ class ExperimentSummaryTool(MaxTool):
             ).with_structured_output(ExperimentSummaryOutput)
 
             formatted_prompt = prompt_template.replace("{{{experiment_data}}}", formatted_data)
+
             analysis_result = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
 
             if isinstance(analysis_result, dict):
@@ -256,38 +269,64 @@ class ExperimentSummaryTool(MaxTool):
         if context.variants:
             lines.append(f"\nVariants: {', '.join(context.variants)}")
 
-        if not context.metrics_results:
+        if context.exposures:
+            exposures = context.exposures
+            lines.append("\nExposures:")
+            total = sum(exposures.values())
+            lines.append(f"  Total: {int(total)}")
+
+            for variant_key, count in exposures.items():
+                if variant_key == "$multiple":
+                    continue
+                percentage = (count / total * 100) if total > 0 else 0
+                lines.append(f"  {variant_key}: {int(count)} ({percentage:.1f}%)")
+
+            if "$multiple" in exposures:
+                multiple_count = exposures.get("$multiple", 0)
+                lines.append(f"  $multiple: {int(multiple_count)} ({multiple_count / total * 100:.1f}%)")
+                lines.append("  [Quality Warning: Users exposed to multiple variants detected]")
+
+        if not context.primary_metrics_results and not context.secondary_metrics_results:
             return "\n".join(lines)
 
         lines.append("\nResults:")
 
-        for metric in context.metrics_results[:MAX_METRICS_TO_SUMMARIZE]:
-            lines.append(f"\nMetric: {metric.name}")
+        def format_metrics_section(metrics: list, section_name: str) -> None:
+            """Helper to format a section of metrics (primary or secondary)."""
+            if not metrics:
+                return
 
-            if not metric.variant_results:
-                continue
+            lines.append(f"\n{section_name}:")
+            for metric in metrics:
+                lines.append(f"\nMetric: {metric.name}")
 
-            for variant in metric.variant_results:
-                lines.append(f"  {variant.key}:")
+                if not metric.variant_results:
+                    continue
 
-                if context.stats_method == "bayesian":
-                    if hasattr(variant, "chance_to_win") and variant.chance_to_win is not None:
-                        lines.append(f"    Chance to win: {variant.chance_to_win:.1%}")
+                for variant in metric.variant_results:
+                    lines.append(f"  {variant.key}:")
 
-                    if hasattr(variant, "credible_interval") and variant.credible_interval:
-                        ci_low, ci_high = variant.credible_interval[:2]
-                        lines.append(f"    95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
+                    if context.stats_method == "bayesian":
+                        if hasattr(variant, "chance_to_win") and variant.chance_to_win is not None:
+                            lines.append(f"    Chance to win: {variant.chance_to_win:.1%}")
 
-                    lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
-                else:
-                    if hasattr(variant, "p_value") and variant.p_value is not None:
-                        lines.append(f"    P-value: {variant.p_value:.4f}")
+                        if hasattr(variant, "credible_interval") and variant.credible_interval:
+                            ci_low, ci_high = variant.credible_interval[:2]
+                            lines.append(f"    95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
 
-                    if hasattr(variant, "confidence_interval") and variant.confidence_interval:
-                        ci_low, ci_high = variant.confidence_interval[:2]
-                        lines.append(f"    95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
+                        lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
+                    else:
+                        if hasattr(variant, "p_value") and variant.p_value is not None:
+                            lines.append(f"    P-value: {variant.p_value:.4f}")
 
-                    lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
+                        if hasattr(variant, "confidence_interval") and variant.confidence_interval:
+                            ci_low, ci_high = variant.confidence_interval[:2]
+                            lines.append(f"    95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
+
+                        lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
+
+        format_metrics_section(context.primary_metrics_results[:10], "Primary Metrics")
+        format_metrics_section(context.secondary_metrics_results[:10], "Secondary Metrics")
 
         return "\n".join(lines)
 
@@ -329,7 +368,7 @@ class ExperimentSummaryTool(MaxTool):
 
                 return f"❌ Invalid experiment context: {error_details}", error_context
 
-            if not validated_context.metrics_results:
+            if not validated_context.primary_metrics_results and not validated_context.secondary_metrics_results:
                 return "❌ No experiment results to analyze", {
                     "error": "no_results",
                     "details": "No metrics results provided in context",

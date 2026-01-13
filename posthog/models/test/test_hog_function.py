@@ -1,10 +1,9 @@
 import json
 
 from posthog.test.base import QueryMatchingTest
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
-
-from inline_snapshot import snapshot
 
 from posthog.models.action.action import Action
 from posthog.models.file_system.file_system import FileSystem
@@ -108,8 +107,9 @@ class TestHogFunction(TestCase):
         # Some json serialization is needed to compare the bytecode more easily in tests
         json_filters = to_dict(item.filters)
 
-        assert json.dumps(json_filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 5, 47, 3, 35, 33, 1]'
+        assert (
+            json.dumps(json_filters["bytecode"])
+            == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 5, 47, 3, 35, 33, 1]'
         )
 
 
@@ -181,12 +181,14 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         )
 
         # Check that the bytecode is correct
-        assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "old-value-1", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2, 32, "old-value-2", 32, "prop-2", 32, "properties", 1, 2, 11, 4, 2]'
+        assert (
+            json.dumps(hog_function_1.filters["bytecode"])
+            == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "old-value-1", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2, 32, "old-value-2", 32, "prop-2", 32, "properties", 1, 2, 11, 4, 2]'
         )
 
-        assert json.dumps(hog_function_2.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "old-value-1", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2]'
+        assert (
+            json.dumps(hog_function_2.filters["bytecode"])
+            == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "old-value-1", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2]'
         )
 
         # Modify the action and check that the bytecode is updated
@@ -209,11 +211,14 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()
 
-        assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "change-value", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2, 32, "old-value-2", 32, "prop-2", 32, "properties", 1, 2, 11, 4, 2]'
+        assert (
+            json.dumps(hog_function_1.filters["bytecode"])
+            == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "change-value", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2, 32, "old-value-2", 32, "prop-2", 32, "properties", 1, 2, 11, 4, 2]'
         )
-        assert json.dumps(hog_function_2.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "change-value", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2]'
+
+        assert (
+            json.dumps(hog_function_2.filters["bytecode"])
+            == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "change-value", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2]'
         )
 
     def test_hog_functions_reload_on_team_saved(self):
@@ -247,11 +252,13 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         )
 
         # Check that the bytecode is correct
-        assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot(f'["_H", {HOGQL_BYTECODE_VERSION}, 29]')
-        assert json.dumps(hog_function_2.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$pageview", 32, "event", 1, 1, 11]'
+        assert json.dumps(hog_function_1.filters["bytecode"]) == f'["_H", {HOGQL_BYTECODE_VERSION}, 29]'
+        assert (
+            json.dumps(hog_function_2.filters["bytecode"])
+            == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$pageview", 32, "event", 1, 1, 11]'
         )
-        assert json.dumps(hog_function_3.filters["bytecode"]) == snapshot(f'["_H", {HOGQL_BYTECODE_VERSION}, 29]')
+
+        assert json.dumps(hog_function_3.filters["bytecode"]) == f'["_H", {HOGQL_BYTECODE_VERSION}, 29]'
 
         # Modify the action and check that the bytecode is updated
         self.team.test_account_filters = [
@@ -266,18 +273,71 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         hog_function_2.refresh_from_db()
         hog_function_3.refresh_from_db()
 
-        assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 3, 2]'
+        assert (
+            json.dumps(hog_function_1.filters["bytecode"])
+            == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 3, 2]'
         )
-        assert json.dumps(hog_function_2.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "event", 1, 1, 11, 3, 3]'
-        )
-        assert json.dumps(hog_function_3.filters["bytecode"]) == snapshot(f'["_H", {HOGQL_BYTECODE_VERSION}, 29]')
 
-    def test_geoip_transformation_created_when_enabled(self):
+        assert (
+            json.dumps(hog_function_2.filters["bytecode"])
+            == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "event", 1, 1, 11, 3, 3]'
+        )
+
+        assert json.dumps(hog_function_3.filters["bytecode"]) == f'["_H", {HOGQL_BYTECODE_VERSION}, 29]'
+
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_geoip_transformation_created_when_enabled(self, mock_get_templates):
+        # Mock the response from plugin server
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [
+            {
+                "id": "template-geoip",
+                "name": "GeoIP",
+                "description": "Adds geoip data to the event",
+                "type": "transformation",
+                "code": "return event",
+                "inputs_schema": [],
+                "status": "stable",
+                "free": True,
+                "category": ["Custom"],
+                "code_language": "hog",
+                "icon_url": "/static/transformations/geoip.png",
+            }
+        ]
+        mock_get_templates.return_value = mock_response
+
         with self.settings(DISABLE_MMDB=False):
             team = Team.objects.create_with_data(organization=self.org, name="Test Team", initiating_user=self.user)
 
+        transformations = HogFunction.objects.filter(team=team, type="transformation")
+        assert transformations.count() == 1
+        geoip = transformations.first()
+        assert geoip
+        assert geoip.name == "GeoIP"
+        assert geoip.description == "Adds geoip data to the event"
+        assert geoip.icon_url == "/static/transformations/geoip.png"
+        assert geoip.enabled
+        assert geoip.execution_order == 1
+        assert geoip.template_id == "template-geoip"
+
+    def test_geoip_transformation_not_created_when_disabled(self):
+        with self.settings(DISABLE_MMDB=True):
+            team = Team.objects.create_with_data(organization=self.org, name="Test Team", initiating_user=self.user)
+        transformations = HogFunction.objects.filter(team=team, type="transformation")
+        assert transformations.count() == 0
+
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_geoip_transformation_fallback_when_sync_fails(self, mock_get_templates):
+        # Mock sync failure
+        mock_get_templates.side_effect = Exception("Network error")
+
+        with self.settings(DISABLE_MMDB=False):
+            team = Team.objects.create_with_data(
+                organization=self.org, name="Test Team Fallback", initiating_user=self.user
+            )
+
+        # Should have created using fallback method
         transformations = HogFunction.objects.filter(team=team, type="transformation")
         assert transformations.count() == 1
         geoip = transformations.first()
@@ -287,13 +347,66 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         assert geoip.icon_url == "/static/transformations/geoip.png"
         assert geoip.enabled
         assert geoip.execution_order == 1
+        assert geoip.template_id == "plugin-posthog-plugin-geoip"  # Old plugin template ID
+        assert geoip.hog == "return event"  # Simple hog code for fallback
+
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_geoip_transformation_fallback_when_template_not_found(self, mock_get_templates):
+        # Mock empty response (no templates)
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_get_templates.return_value = mock_response
+
+        with self.settings(DISABLE_MMDB=False):
+            team = Team.objects.create_with_data(
+                organization=self.org, name="Test Team No Template", initiating_user=self.user
+            )
+
+        # Should have created using fallback method
+        transformations = HogFunction.objects.filter(team=team, type="transformation")
+        assert transformations.count() == 1
+        geoip = transformations.first()
+        assert geoip
+        assert geoip.name == "GeoIP"
+        assert geoip.description == "Enrich events with GeoIP data"
         assert geoip.template_id == "plugin-posthog-plugin-geoip"
 
-    def test_geoip_transformation_not_created_when_disabled(self):
-        with self.settings(DISABLE_MMDB=True):
-            team = Team.objects.create_with_data(organization=self.org, name="Test Team", initiating_user=self.user)
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_geoip_transformation_fallback_when_hog_code_invalid(self, mock_get_templates):
+        # Mock template with invalid Hog code that will fail validation
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [
+            {
+                "id": "template-geoip",
+                "name": "GeoIP",
+                "description": "Adds geoip data to the event",
+                "type": "transformation",
+                "code": "invalid {{ hog code that will fail",  # Invalid code
+                "inputs_schema": [],
+                "status": "stable",
+                "free": True,
+                "category": ["Custom"],
+                "code_language": "hog",
+                "icon_url": "/static/transformations/geoip.png",
+            }
+        ]
+        mock_get_templates.return_value = mock_response
+
+        with self.settings(DISABLE_MMDB=False):
+            team = Team.objects.create_with_data(
+                organization=self.org, name="Test Team Invalid Code", initiating_user=self.user
+            )
+
+        # Should have created using fallback method due to validation failure
         transformations = HogFunction.objects.filter(team=team, type="transformation")
-        assert transformations.count() == 0
+        assert transformations.count() == 1
+        geoip = transformations.first()
+        assert geoip
+        assert geoip.name == "GeoIP"
+        assert geoip.template_id == "plugin-posthog-plugin-geoip"  # Fallback template
+        assert geoip.hog == "return event"  # Simple valid code
 
     def test_hog_function_file_system(self):
         hog_function_3 = HogFunction.objects.create(

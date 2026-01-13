@@ -413,7 +413,7 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
         job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
-        internal_error=Any_Source_Errors[0],
+        internal_error=next(iter(Any_Source_Errors.keys())),
         schema_id=str(schema.pk),
         source_id=str(new_source.pk),
         team_id=team.id,
@@ -543,9 +543,9 @@ def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_cl
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
@@ -566,9 +566,9 @@ def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_cl
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
@@ -627,9 +627,9 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
@@ -693,10 +693,10 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
             override_settings(
                 BUCKET_URL=f"s3://{BUCKET_NAME}",
                 BUCKET_PATH=BUCKET_NAME,
-                AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                AIRBYTE_BUCKET_REGION="us-east-1",
-                AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
             ),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -789,10 +789,10 @@ async def test_run_postgres_job(
     with override_settings(
         BUCKET_URL=f"s3://{BUCKET_NAME}",
         BUCKET_PATH=BUCKET_NAME,
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         await sync_to_async(activity_environment.run)(import_data_activity_sync, job_1_inputs)
 

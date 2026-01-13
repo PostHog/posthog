@@ -6,22 +6,23 @@ import { IconArrowRight, IconChevronRight } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
-import { breadcrumbExcludeSteps, onboardingLogic, stepKeyToTitle } from './onboardingLogic'
+import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
     title,
     subtitle,
     children,
+    showContinue = true,
     showSkip = false,
     showHelpButton = false,
     onSkip,
     onContinue,
     continueText,
-    continueOverride,
     continueDisabledReason,
     hideHeader,
     breadcrumbHighlightName,
@@ -32,26 +33,39 @@ export const OnboardingStep = ({
     title: string
     subtitle?: string
     children: React.ReactNode
+    showContinue?: boolean
     showSkip?: boolean
     showHelpButton?: boolean
     onSkip?: () => void
     onContinue?: () => void
     continueText?: string
-    continueOverride?: JSX.Element
     continueDisabledReason?: string
     hideHeader?: boolean
     breadcrumbHighlightName?: OnboardingStepKey
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
+    const { hasNextStep, onboardingStepKeys } = useValues(onboardingLogic)
+
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
+    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { openSupportForm } = useActions(supportLogic)
 
-    if (!stepKey) {
-        throw new Error('stepKey is required in any OnboardingStep')
+    const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
+
+    const skip = (): void => {
+        reportOnboardingStepSkipped(stepKey)
+        onSkip?.()
+        advance()
     }
-    const breadcrumbStepKeys = onboardingStepKeys.filter((stepKey) => !breadcrumbExcludeSteps.includes(stepKey))
+
+    const next = (): void => {
+        reportOnboardingStepCompleted(stepKey)
+        onContinue?.()
+        advance()
+    }
+
+    const onboardingLength = onboardingStepKeys.length
 
     return (
         <>
@@ -61,11 +75,8 @@ export const OnboardingStep = ({
                         className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
                     >
-                        {breadcrumbStepKeys.map((stepName, idx) => {
-                            const highlightStep = [
-                                currentOnboardingStep?.props.stepKey,
-                                breadcrumbHighlightName,
-                            ].includes(stepName)
+                        {onboardingStepKeys.map((stepName, idx) => {
+                            const highlightStep = [stepKey, breadcrumbHighlightName].includes(stepName)
                             return (
                                 <React.Fragment key={`stepKey-${idx}`}>
                                     <Link
@@ -78,7 +89,7 @@ export const OnboardingStep = ({
                                             {stepKeyToTitle(stepName)}
                                         </span>
                                     </Link>
-                                    {breadcrumbStepKeys.length > 1 && idx !== breadcrumbStepKeys.length - 1 && (
+                                    {onboardingLength > 1 && idx !== onboardingLength - 1 && (
                                         <IconChevronRight className="text-xl" />
                                     )}
                                 </React.Fragment>
@@ -87,7 +98,7 @@ export const OnboardingStep = ({
                     </div>
                     <div className="flex flex-row justify-between items-center gap-2 mt-3">
                         <h1 className={`font-bold m-0 px-2 ${fullWidth && 'text-center'}`}>
-                            {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
+                            {title || stepKeyToTitle(stepKey)}
                         </h1>
                         {actions && <div className="flex flex-row gap-2">{actions}</div>}
                     </div>
@@ -110,28 +121,16 @@ export const OnboardingStep = ({
                         </LemonButton>
                     )}
                     {showSkip && (
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                onSkip && onSkip()
-                                !hasNextStep ? completeOnboarding() : goToNextStep()
-                            }}
-                            data-attr="onboarding-skip-button"
-                        >
+                        <LemonButton type="secondary" onClick={skip} data-attr="onboarding-skip-button">
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
                     )}
-                    {continueOverride ? (
-                        continueOverride
-                    ) : (
+                    {showContinue && (
                         <LemonButton
                             type="primary"
                             status="alt"
                             data-attr="onboarding-continue"
-                            onClick={() => {
-                                onContinue?.()
-                                !hasNextStep ? completeOnboarding() : goToNextStep()
-                            }}
+                            onClick={next}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                             disabledReason={continueDisabledReason}
                         >

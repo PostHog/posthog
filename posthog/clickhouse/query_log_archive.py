@@ -1,7 +1,10 @@
-from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
+from django.conf import settings
+
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
+QUERY_LOG_ARCHIVE_WRITABLE_DISTRIBUTED_TABLE = "writable_query_log_archive"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW():
@@ -85,6 +88,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     lc_org_id String, -- comment 'log_comment[org_id]',
     lc_team_id Int64, -- comment 'log_comment[team_id]',
     lc_user_id Int64, -- comment 'log_comment[user_id]',
+    lc_is_impersonated Bool, -- comment 'log_comment[is_impersonated]',
     lc_session_id String, -- comment 'log_comment[session_id]',
 
     lc_dashboard_id Int64, -- comment 'log_comment[dashboard_id]',
@@ -117,7 +121,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 """
 
 
-def QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name="query_log_archive_new"):
+def QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name="query_log_archive_new", engine=None, include_table_clauses=True):
     return """
 CREATE TABLE IF NOT EXISTS {table_name} (
     hostname                              LowCardinality(String),
@@ -190,6 +194,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     lc_org_id String,
     team_id Int64, -- renamed from lc_team_id, no longer an alias
     lc_user_id Int64,
+    lc_is_impersonated Bool,
     lc_session_id String,
 
     lc_dashboard_id Int64,
@@ -221,13 +226,18 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     lc_dagster__job_name String,
     lc_dagster__run_id String,
     lc_dagster__owner String
-) ENGINE = {engine}
-PARTITION BY toYYYYMM(event_date)
-ORDER BY (team_id, event_date, event_time, query_id)
-PRIMARY KEY (team_id, event_date, event_time, query_id)
+) ENGINE = {engine}{table_clauses}
     """.format(
         table_name=table_name,
-        engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW(),
+        engine=engine,
+        table_clauses=(
+            """
+PARTITION BY toYYYYMM(event_date)
+ORDER BY (team_id, event_date, event_time, query_id)
+PRIMARY KEY (team_id, event_date, event_time, query_id)"""
+            if include_table_clauses
+            else ""
+        ),
     )
 
 
@@ -302,6 +312,7 @@ SELECT
     JSONExtractString(log_comment, 'org_id') as lc_org_id,
     JSONExtractInt(log_comment, 'team_id') as team_id,
     JSONExtractInt(log_comment, 'user_id') as lc_user_id,
+    JSONExtractBool(log_comment, 'is_impersonated') as lc_is_impersonated,
     JSONExtractString(log_comment, 'session_id') as lc_session_id,
 
     JSONExtractInt(log_comment, 'dashboard_id') as lc_dashboard_id,
@@ -356,6 +367,18 @@ AS {select_sql}
     )
 
 
+def QUERY_LOG_ARCHIVE_CROSS_CLUSTER_DISTRIBUTED_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_WRITABLE_DISTRIBUTED_TABLE):
+    """
+    Distributed table for cross-cluster writes.
+    Used on stateless clusters to write to main cluster's query_log_archive.
+    """
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=table_name,
+        engine=Distributed(data_table="query_log_archive", cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER),
+        include_table_clauses=False,
+    )
+
+
 # V4 - adding lc_request_name
 ADD_LC_REQUEST_NAME_SQL = """
 ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_request_name String AFTER lc_name
@@ -373,3 +396,10 @@ ALTER TABLE query_log_archive_mv MODIFY QUERY
 ADD_EXCEPTION_NAME_SQL = """
 ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS exception_name String ALIAS errorCodeToName(exception_code) AFTER exception_code
 """
+
+
+# V6 - adding lc_is_impersonated for tracking impersonation in queries
+def QUERY_LOG_ARCHIVE_ADD_IS_IMPERSONATED_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return """
+    ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_is_impersonated Bool AFTER lc_user_id
+    """.format(table=table)

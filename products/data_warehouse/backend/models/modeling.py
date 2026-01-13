@@ -1,7 +1,6 @@
 import enum
 import uuid
 import dataclasses
-import collections.abc
 
 from django.contrib.postgres import indexes as pg_indexes
 from django.core.exceptions import ObjectDoesNotExist
@@ -16,7 +15,7 @@ from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, uuid7
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.table import DataWarehouseTable
@@ -181,7 +180,7 @@ insert into posthog_datawarehousemodelpath (
   created_at,
   updated_at
 ) (
-  select
+  select distinct on (id)
     id,
     team_id,
     table_id,
@@ -202,6 +201,7 @@ insert into posthog_datawarehousemodelpath (
   where
     model_path.path ~ ('*.' || %(child)s || '.*')::lquery
     and team_id = %(team_id)s
+  order by id, path
 )
 on conflict (id) do
 update
@@ -222,6 +222,24 @@ where
     where partitioned.row_number > 1
 );
 """
+
+CYCLE_CHECK_QUERY = """\
+select exists (
+  select 1
+  from posthog_datawarehousemodelpath
+  where team_id = %(team_id)s
+  and path ~ ('*.' || %(child)s || '.*.' || %(parent)s)::lquery
+)
+"""
+
+
+class ModelPathCycleError(Exception):
+    """Exception raised when a cycle would be created in the model DAG."""
+
+    def __init__(self, child: str, parent: str):
+        super().__init__(f"Adding {parent} as a parent of {child} would create a cycle in the DAG")
+        self.child = child
+        self.parent = parent
 
 
 class UnknownParentError(Exception):
@@ -283,25 +301,29 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
         A path will be created for each parent, as extracted from the given query.
         """
-        base_params = {
-            "team": team,
-            "created_by": created_by,
-            "saved_query_id": saved_query_id,
-            "table_id": table_id,
-        }
-
         with transaction.atomic():
             if self.filter(team=team, saved_query_id=saved_query_id).exists():
                 raise ModelPathAlreadyExistsError(saved_query_id.hex)
 
             parent_paths = self.get_or_create_query_parent_paths(query, team=team)
 
-            results = self.bulk_create(
-                [
-                    DataWarehouseModelPath(id=uuid7(), path=[*model_path.path, label], **base_params)
-                    for model_path in parent_paths
-                ]
-            )
+            # If we don't have any parent paths then we can treat ourselves as a root node
+            # This can happen when creating a query that returns a static set of rows, like a SELECT 1.e
+            paths = [[*model_path.path, label] for model_path in parent_paths]
+            if not paths:
+                paths = [[label]]
+
+            results: list[DataWarehouseModelPath] = []
+            for path in paths:
+                model, _ = DataWarehouseModelPath.objects.get_or_create(
+                    team=team,
+                    saved_query_id=saved_query_id,
+                    table_id=table_id,
+                    path=path,
+                    defaults={"created_by": created_by},
+                )
+                results.append(model)
+
         return results
 
     def get_or_create_root_path_for_posthog_source(
@@ -416,15 +438,6 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             saved_query_id=saved_query.id,
         )
 
-    def create_or_update_from_saved_query(
-        self, saved_query: DataWarehouseSavedQuery
-    ) -> "list[DataWarehouseModelPath] | None":
-        """Create or update model paths from a `DataWarehouseSavedQuery`."""
-        if self.filter(team=saved_query.team, saved_query=saved_query).exists():
-            self.update_from_saved_query(saved_query)
-            return None
-        return self.create_from_saved_query(saved_query)
-
     def update_paths_from_query(
         self,
         query: str,
@@ -467,34 +480,37 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                             )
                         except ObjectDoesNotExist:
                             try:
-                                parent_table = (
-                                    DataWarehouseTable.objects.exclude(deleted=True)
-                                    .filter(team=team, name=parent)
-                                    .get()
-                                )
-                            except ObjectDoesNotExist:
+                                table = self.get_hogql_database(team).get_table(parent)
+                                if not isinstance(table, HogQLDataWarehouseTable):
+                                    raise ObjectDoesNotExist()
+
+                                if table.table_id:
+                                    parent_table = (
+                                        DataWarehouseTable.objects.exclude(deleted=True)
+                                        .filter(team=team, id=table.table_id)
+                                        .get()
+                                    )
+                                else:
+                                    parent_table = (
+                                        DataWarehouseTable.objects.exclude(deleted=True)
+                                        .filter(team=team, name=table.name)
+                                        .get()
+                                    )
+                            except (ObjectDoesNotExist, QueryError):
                                 raise UnknownParentError(parent, query)
                             else:
                                 parent_id = parent_table.id.hex
                         else:
                             parent_id = parent_query.id.hex
 
+                    cursor.execute(CYCLE_CHECK_QUERY, params={"team_id": team.pk, "child": label, "parent": parent_id})
+                    if cursor.fetchone()[0]:
+                        raise ModelPathCycleError(child=label, parent=parent_id)
+
                     cursor.execute(UPDATE_PATHS_QUERY, params={**{"child": label, "parent": parent_id}, **base_params})
 
                 cursor.execute(DELETE_DUPLICATE_PATHS_QUERY, params={"team_id": team.pk})
                 cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
-
-    def get_longest_common_ancestor_path(
-        self, leaf_models: collections.abc.Iterable[DataWarehouseSavedQuery | DataWarehouseTable]
-    ) -> str | None:
-        """Return the longest common ancestor path among paths from all leaf models, if any."""
-        query = "select lca(array_agg(path)) from posthog_datawarehousemodelpath where path ? %(lqueries)s"
-
-        with connection.cursor() as cursor:
-            cursor.execute(query, params={"lqueries": [f"*.{leaf_model.id.hex}" for leaf_model in leaf_models]})
-            row = cursor.fetchone()
-
-        return row[0] or None
 
     def get_dag(self, team: Team):
         """Return a DAG of all the models for the given team.

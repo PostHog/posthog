@@ -565,6 +565,7 @@ public:
     SelectSetStmtContext *selectSetStmt();
     SelectStmtContext *selectStmt();
     HogqlxTagElementContext *hogqlxTagElement();
+    antlr4::tree::TerminalNode *SEMICOLON();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

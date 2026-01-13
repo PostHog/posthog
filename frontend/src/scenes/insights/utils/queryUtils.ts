@@ -13,6 +13,7 @@ import {
     isInsightQueryWithSeries,
     isInsightVizNode,
     isTrendsQuery,
+    isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
@@ -136,7 +137,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
         })
     }
 
-    if (opts?.ignoreVisualizationOnlyChanges) {
+    if (opts?.ignoreVisualizationOnlyChanges && !isWebAnalyticsInsightQuery(cleanedQuery)) {
         // Keep this in sync with posthog/schema_helpers.py `serialize_query` method
         const insightFilter = filterForQuery(cleanedQuery)
         const insightFilterKey = filterKeyForQuery(cleanedQuery)
@@ -170,16 +171,10 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             detailedResultsAggregationType: undefined,
             showFullUrls: undefined,
             selectedInterval: undefined,
+            funnelStepReference: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined
-
-        if (isInsightQueryWithSeries(cleanedQuery)) {
-            cleanedQuery.series = cleanedQuery.series.map((entity) => {
-                const { custom_name, ...cleanedEntity } = entity
-                return cleanedEntity
-            })
-        }
 
         if (isInsightQueryWithDisplay(cleanedQuery)) {
             cleanedQuery[insightFilterKey].display =

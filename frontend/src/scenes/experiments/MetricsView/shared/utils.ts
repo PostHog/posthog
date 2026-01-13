@@ -1,3 +1,5 @@
+import { humanFriendlyLargeNumber } from 'lib/utils'
+
 import type {
     ActionsNode,
     EventsNode,
@@ -53,6 +55,10 @@ export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
             const numeratorName = getDefaultName(metric.numerator)
             const denominatorName = getDefaultName(metric.denominator)
             return `${numeratorName || 'Numerator'} / ${denominatorName || 'Denominator'}`
+        case ExperimentMetricType.RETENTION:
+            const startEventName = getDefaultName(metric.start_event)
+            const completionEventName = getDefaultName(metric.completion_event)
+            return `${startEventName || 'Start event'} / ${completionEventName || 'Completion event'}`
         default:
             return 'Untitled metric'
     }
@@ -259,7 +265,9 @@ export function formatMetricValue(data: any, metric: ExperimentMetric): string {
     if (isNaN(primaryValue)) {
         return '—'
     }
-    return isExperimentMeanMetric(metric) ? primaryValue.toFixed(2) : `${(primaryValue * 100).toFixed(2)}%`
+    return isExperimentMeanMetric(metric)
+        ? humanFriendlyLargeNumber(primaryValue)
+        : `${(primaryValue * 100).toFixed(2)}%`
 }
 
 export function getMetricSubtitleValues(

@@ -1,0 +1,240 @@
+{
+    "products": [
+        {
+            "path": "Data pipelines",
+            "category": "Tools",
+            "iconType": "data_pipeline",
+            "type": "hog_function",
+            "intents": []
+        },
+        {
+            "path": "Conversations",
+            "category": "Unreleased",
+            "iconType": "conversations",
+            "type": "conversations",
+            "intents": ["conversations"]
+        },
+        {
+            "path": "Customer analytics",
+            "category": "Analytics",
+            "iconType": "cohort",
+            "type": null,
+            "intents": ["customer_analytics"]
+        },
+        {
+            "path": "Dashboards",
+            "category": "Analytics",
+            "iconType": "dashboard",
+            "type": "dashboard",
+            "intents": ["product_analytics"]
+        },
+        {
+            "path": "SQL editor",
+            "category": "Analytics",
+            "iconType": "sql_editor",
+            "type": "sql",
+            "intents": ["data_warehouse_saved_queries", "data_warehouse"]
+        },
+        {
+            "path": "Data warehouse",
+            "category": "Unreleased",
+            "iconType": "data_warehouse",
+            "type": null,
+            "intents": ["data_warehouse", "data_warehouse_saved_queries"]
+        },
+        {
+            "path": "Early access features",
+            "category": "Features",
+            "iconType": null,
+            "type": "early_access_feature",
+            "intents": ["early_access_features"]
+        },
+        {
+            "path": "Endpoints",
+            "category": "Unreleased",
+            "iconType": "endpoints",
+            "type": "endpoints",
+            "intents": ["endpoints"]
+        },
+        {
+            "path": "Error tracking",
+            "category": "Behavior",
+            "iconType": null,
+            "type": "error_tracking",
+            "intents": ["error_tracking"]
+        },
+        {
+            "path": "Experiments",
+            "category": "Features",
+            "iconType": "experiment",
+            "type": "experiment",
+            "intents": ["experiments"]
+        },
+        {
+            "path": "Feature flags",
+            "category": "Features",
+            "iconType": null,
+            "type": "feature_flag",
+            "intents": ["feature_flags", "experiments", "early_access_features"]
+        },
+        { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
+        {
+            "path": "Live Debugger",
+            "category": "Unreleased",
+            "iconType": "live_debugger",
+            "type": "live_debugger",
+            "intents": ["live_debugger"]
+        },
+        {
+            "path": "LLM analytics",
+            "category": "Analytics",
+            "iconType": null,
+            "type": null,
+            "intents": ["llm_analytics"]
+        },
+        { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
+        {
+            "path": "Marketing analytics",
+            "category": "Analytics",
+            "iconType": null,
+            "type": null,
+            "intents": ["marketing_analytics"]
+        },
+        {
+            "path": "Product analytics",
+            "category": "Analytics",
+            "iconType": "product_analytics",
+            "type": "insight",
+            "intents": ["product_analytics"]
+        },
+        { "path": "Notebooks", "category": "Tools", "iconType": "notebook", "type": "notebook", "intents": [] },
+        {
+            "path": "Product tours",
+            "category": "Behavior",
+            "iconType": "product_tour",
+            "type": "product_tour",
+            "intents": []
+        },
+        {
+            "path": "Session replay",
+            "category": "Behavior",
+            "iconType": "session_replay",
+            "type": "session_recording_playlist",
+            "intents": ["session_replay", "mobile_replay"]
+        },
+        { "path": "Heatmaps", "category": "Behavior", "iconType": "heatmap", "type": null, "intents": ["heatmaps"] },
+        {
+            "path": "Revenue analytics",
+            "category": "Analytics",
+            "iconType": null,
+            "type": "revenue",
+            "intents": ["revenue_analytics"]
+        },
+        { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
+        { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": [] },
+        {
+            "path": "User interviews",
+            "category": "Unreleased",
+            "iconType": "user_interview",
+            "type": "user_interview",
+            "intents": ["user_interviews"]
+        },
+        {
+            "path": "Web analytics",
+            "category": "Analytics",
+            "iconType": "web_analytics",
+            "type": null,
+            "intents": ["web_analytics"]
+        },
+        {
+            "path": "Workflows",
+            "category": "Tools",
+            "iconType": "workflows",
+            "type": "workflows",
+            "intents": ["workflows"]
+        }
+    ],
+    "games": [
+        { "path": "368 Hedgehogs", "category": null, "iconType": null, "type": null, "intents": [] },
+        { "path": "Flappy Hog", "category": null, "iconType": null, "type": null, "intents": [] }
+    ],
+    "metadata": [
+        { "path": "Actions", "category": "Schema", "iconType": null, "type": null, "intents": [] },
+        {
+            "path": "Data pipelines",
+            "category": "Tools",
+            "iconType": "data_pipeline",
+            "type": "hog_function",
+            "intents": []
+        },
+        {
+            "path": "Transformations",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "hog_function/transformation",
+            "intents": []
+        },
+        {
+            "path": "Destinations",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "hog_function/destination",
+            "intents": []
+        },
+        {
+            "path": "Ingestion warnings",
+            "category": "Pipeline",
+            "iconType": "ingestion_warning",
+            "type": null,
+            "intents": []
+        },
+        { "path": "Conversations", "category": "Unreleased", "iconType": null, "type": null, "intents": [] },
+        { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
+        {
+            "path": "Sources",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "hog_function/source",
+            "intents": []
+        },
+        {
+            "path": "Managed viewsets",
+            "category": "Unreleased",
+            "iconType": "managed_viewsets",
+            "type": null,
+            "intents": []
+        },
+        { "path": "Endpoints", "category": "Unreleased", "iconType": null, "type": null, "intents": [] },
+        {
+            "path": "Event definitions",
+            "category": "Schema",
+            "iconType": "event_definition",
+            "type": null,
+            "intents": []
+        },
+        {
+            "path": "Property definitions",
+            "category": "Schema",
+            "iconType": "property_definition",
+            "type": null,
+            "intents": []
+        },
+        {
+            "path": "Property groups",
+            "category": "Schema",
+            "iconType": "event_definition",
+            "type": null,
+            "intents": []
+        },
+        { "path": "Annotations", "category": "Metadata", "iconType": "annotation", "type": null, "intents": [] },
+        { "path": "Comments", "category": "Metadata", "iconType": "comment", "type": null, "intents": [] },
+        { "path": "Revenue definitions", "category": "Schema", "iconType": null, "type": null, "intents": [] },
+        {
+            "path": "Marketing settings",
+            "category": "Unreleased",
+            "iconType": "marketing_settings",
+            "type": null,
+            "intents": []
+        }
+    ]
+}

@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
@@ -64,14 +66,22 @@ export function Dashboards(): JSX.Element {
                             resourceType={AccessControlResourceType.Dashboard}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton
-                                size="small"
-                                data-attr="new-dashboard"
-                                onClick={showNewDashboardModal}
-                                type="primary"
+                            <AppShortcut
+                                name="NewDashboard"
+                                keybind={[keyBinds.new]}
+                                intent="New dashboard"
+                                interaction="click"
+                                scope={Scene.Dashboards}
                             >
-                                New dashboard
-                            </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    data-attr="new-dashboard"
+                                    onClick={showNewDashboardModal}
+                                    type="primary"
+                                >
+                                    New dashboard
+                                </LemonButton>
+                            </AppShortcut>
                         </AccessControlAction>
                     </>
                 }

@@ -85,7 +85,7 @@ pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
 
 fn fetch_task(client: &PHClient, task_id: &Uuid) -> Result<Task> {
     let response = client
-        .get(&format!("tasks/{task_id}/"))?
+        .get(client.project_url(&format!("tasks/{task_id}/"))?)
         .send()
         .context("Failed to send request")?;
 
@@ -98,7 +98,7 @@ fn fetch_task(client: &PHClient, task_id: &Uuid) -> Result<Task> {
 
 fn fetch_workflow(client: &PHClient, workflow_id: &Uuid) -> Result<TaskWorkflow> {
     let response = client
-        .get(&format!("task_workflows/{workflow_id}/"))?
+        .get(client.project_url(&format!("task_workflows/{workflow_id}/"))?)
         .send()
         .context("Failed to send request")?;
     let response = raise_for_err(response)?;
@@ -116,7 +116,7 @@ fn update_task_stage(client: &PHClient, task_id: &Uuid, stage_id: &Uuid) -> Resu
     };
 
     let response = client
-        .patch(&format!("tasks/{task_id}/update_stage/"))?
+        .patch(client.project_url(&format!("tasks/{task_id}/update_stage/"))?)
         .json(&request_body)
         .send()
         .context("Failed to update task stage")?;

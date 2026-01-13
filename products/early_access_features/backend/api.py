@@ -5,9 +5,12 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.schema import ProductKey
 
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -34,6 +37,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
     documentationUrl = serializers.URLField(source="documentation_url")
     flagKey = serializers.CharField(source="feature_flag.key", allow_null=True)
+    payload = serializers.SerializerMethodField()
 
     class Meta:
         model = EarlyAccessFeature
@@ -44,12 +48,17 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
             "stage",
             "documentationUrl",
             "flagKey",
+            "payload",
         ]
         read_only_fields = fields
+
+    def get_payload(self, obj):
+        return obj.payload if obj.payload else {}
 
 
 class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
+    payload = serializers.SerializerMethodField()
 
     class Meta:
         model = EarlyAccessFeature
@@ -60,11 +69,19 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
             "description",
             "stage",
             "documentation_url",
+            "payload",
             "created_at",
         ]
         read_only_fields = ["id", "feature_flag", "created_at"]
 
+    def get_payload(self, obj):
+        return obj.payload if obj.payload else {}
+
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
+        # Handle payload separately since SerializerMethodField is read-only
+        if "payload" in self.initial_data:
+            payload_value = self.initial_data.get("payload")
+            validated_data["payload"] = payload_value if payload_value else {}
         stage = validated_data.get("stage", None)
 
         request = self.context["request"]
@@ -144,6 +161,9 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     feature_flag_id = serializers.IntegerField(required=False, write_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
+    # Override payload to allow writing (parent uses SerializerMethodField which is read-only)
+    payload = serializers.JSONField(required=False, allow_null=False, default=dict)  # type: ignore
+
     class Meta:
         model = EarlyAccessFeature
         fields = [
@@ -152,6 +172,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             "description",
             "stage",
             "documentation_url",
+            "payload",
             "created_at",
             "feature_flag_id",
             "feature_flag",
@@ -240,7 +261,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             feature_flag_serializer = FeatureFlagSerializer(
                 data={
                     "key": feature_flag_key,
-                    "name": f"Feature Flag for Feature {validated_data['name']}",
+                    "name": f"Feature Flag for Early Access Feature {validated_data['name']}",
                     "filters": filters,
                     "creation_context": "early_access_features",
                 },
@@ -255,6 +276,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         return feature
 
 
+@extend_schema(tags=[ProductKey.EARLY_ACCESS_FEATURES])
 class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "early_access_feature"
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()

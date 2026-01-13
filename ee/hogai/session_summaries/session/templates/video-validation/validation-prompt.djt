@@ -39,14 +39,14 @@ For each validated event (those with moment_ids in validation results):
 1.1. Compare the visual observation against the original event description
 1.2. Identify clear contradictions:
    - ✓ "Exception occurred" vs. video shows normal page load
-   - ✓ "Blocking error" vs. video shows user continuing successfully  
+   - ✓ "Blocking error" vs. video shows user continuing successfully
    - ✓ "Failed to load" vs. video shows content appearing
    - ✗ User found workaround (still an issue, just non-blocking)
    - ✗ Slow loading (not an exception unless it failed completely)
 
 1.3. Determine the actual event type:
    - If video shows normal interaction → exception: null
-   - If video shows error but user continued → exception: "non-blocking"  
+   - If video shows error but user continued → exception: "non-blocking"
    - If video confirms blocking error → exception: "blocking" (no change)
 
 # Step 2: Update Event Descriptions
@@ -65,7 +65,7 @@ For events requiring updates based on Step 1:
       - Keep descriptions concise (4-8 words)
    - If the current description is accurate:
       - Extend it with the additional info you got
-   
+
    Inaccurate description examples - to replace:
    - "Blocking store path exception rendered Error tracking unusable" → "Clicked into Error tracking feature"
    - "Failed API call prevented dashboard load" → "Viewed analytics dashboard"
@@ -94,7 +94,7 @@ After updating individual events, reconsider each affected segment:
    - Remove references to errors that didn't occur
    - Focus on what user actually accomplished
    - Keep summaries concise (1-2 sentences, up to 15 words)
-   
+
    Examples:
    - "Error tracking page threw blocking exception, user abandoned" → "User explored error tracking and surveys features"
    - "Dashboard failed to load properly" → "User successfully reviewed analytics dashboard"
@@ -136,11 +136,25 @@ Based on all event and segment updates:
 </critical_guidelines>
 
 <output_format>
-Return a YAML object containing only the fields that require updates.
+Return a YAML list of objects containing only the fields that require updates.
+
+Each object must have exactly two keys:
+- `path`: the exact field path from the fields_to_update list above
+- `new_value`: the updated value (can be a string or null)
+
+Example output format:
+```yaml
+- path: key_actions.0.events.0.description
+  new_value: User clicked the dashboard button
+- path: key_actions.0.events.0.exception
+  new_value: null
+- path: session_outcome.success
+  new_value: true
+```
 
 IMPORTANT:
-- Use exact field paths from eligible_update_fields
-- Include field `path` and `new_value`, if it should be changed based on visual observations.
+- Return a YAML list, even if only one field needs updating
+- Use exact field paths from the fields_to_update list
 - Only include fields that are actually changing
 - Ensure all string values are properly escaped
 </output_format>

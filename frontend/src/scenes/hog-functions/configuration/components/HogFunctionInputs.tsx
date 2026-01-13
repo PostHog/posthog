@@ -8,6 +8,7 @@ import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInpu
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import MaxTool from 'scenes/max/MaxTool'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AvailableFeature, CyclotronJobInputSchemaType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
@@ -135,6 +136,10 @@ export function HogFunctionInputs(): JSX.Element {
             context={{
                 current_inputs_schema: configuration.inputs_schema ?? [],
                 hog_code: configuration.hog ?? '',
+            }}
+            contextDescription={{
+                text: 'Current inputs schema',
+                icon: iconForType('data_warehouse'),
             }}
             callback={(toolOutput: CyclotronJobInputSchemaType[]) => {
                 // Store the old inputs before changing

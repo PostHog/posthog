@@ -34,6 +34,8 @@ class PartitionSettings(typing.NamedTuple):
 
 
 class ExternalDataSourceType(models.TextChoices):
+    ASHBY = "Ashby", "Ashby"
+    SUPABASE = "Supabase", "Supabase"
     CUSTOMERIO = "CustomerIO", "CustomerIO"
     GITHUB = "Github", "Github"
     STRIPE = "Stripe", "Stripe"
@@ -63,6 +65,7 @@ class ExternalDataSourceType(models.TextChoices):
     LINKEDINADS = "LinkedinAds", "LinkedinAds"
     REDDITADS = "RedditAds", "RedditAds"
     TIKTOKADS = "TikTokAds", "TikTokAds"
+    BINGADS = "BingAds", "BingAds"
     SHOPIFY = "Shopify", "Shopify"
 
 

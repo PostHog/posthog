@@ -436,6 +436,9 @@ class ParquetStreamTransformer:
                 else:
                     current_file_size += len(chunk)
 
+        if not self._schema:
+            return
+
         footer = await asyncio.to_thread(self.finish_parquet_file)
         yield Chunk(footer, True)
 
@@ -752,11 +755,29 @@ class SchemaTransformer:
         exception is raised when `self.raise_on_incompatible` is `True`, otherwise we
         optimistically assume the destination can handle the inconsistency.
         """
-        field_names = [field.name for field in self.table.fields]
+        field_names = record_batch.schema.names
 
         arrays = []
+        new_field_names = []
         for field_name, array in zip(field_names, record_batch.select(field_names).itercolumns()):
-            field = self.table[field_name]
+            try:
+                field = self.table[field_name]
+            except KeyError:
+                logger.warning(
+                    "Field missing in target",
+                    name=field_name,
+                    table=self.table.fully_qualified_name,
+                )
+                continue
+
+            if field.name != field_name:
+                logger.warning(
+                    "Field aliased",
+                    field=field.name,
+                    alias=field.alias,
+                    table=self.table.fully_qualified_name,
+                )
+            new_field_names.append(field.name)
 
             if array.type == field.data_type:
                 arrays.append(array)
@@ -782,7 +803,7 @@ class SchemaTransformer:
 
         return pa.RecordBatch.from_arrays(
             arrays,
-            names=field_names,
+            names=new_field_names,
         )
 
 

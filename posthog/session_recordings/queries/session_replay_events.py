@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from typing import LiteralString, Optional
 
-from django.conf import settings
 from django.core.cache import cache
 
 import pytz
@@ -9,9 +8,6 @@ import pytz
 from posthog.schema import HogQLQuery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import RecordingBlockListing, RecordingMetadata
 
@@ -59,7 +55,7 @@ class SessionReplayEvents:
                 count(),
                 min(min_first_timestamp) as start_time,
                 max(retention_period_days) as retention_period_days,
-                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
             FROM
                 session_replay_events
             PREWHERE
@@ -74,7 +70,6 @@ class SessionReplayEvents:
             {
                 "team_id": team.pk,
                 "session_id": session_id,
-                "ttl_days": ttl_days(team),
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
@@ -84,64 +79,106 @@ class SessionReplayEvents:
         self, session_ids: list[str], team: Team
     ) -> tuple[set[str], Optional[datetime], Optional[datetime]]:
         """
-        Check if sessions exist and return min/max timestamps for the entire list to optimize follow-up queries to get events for multiple sessions at once.
+        Check if sessions exist in both session_replay_events and events tables.
         Returns a tuple of (sessions_found, min_timestamp, max_timestamp).
         Timestamps are for the entire list of sessions, not per session.
+        Sessions must exist in both tables to be included in the result.
         """
         if not session_ids:
             return set(), None, None
-        # Check sessions within TTL
+        # Check sessions within TTL in session_replay_events
         found_sessions = self._find_with_timestamps(session_ids, team)
         if not found_sessions:
             return set(), None, None
-        # Calculate min/max timestamps for the entire list of sessions and return
-        sessions_found = {session_id for session_id, _, _ in found_sessions}
-        min_timestamp = min(min_timestamp for _, min_timestamp, _ in found_sessions)
-        max_timestamp = max(max_timestamp for _, _, max_timestamp in found_sessions)
-        # Not searching for sessions outside of TTL to simplify logic
-        return sessions_found, min_timestamp, max_timestamp
+        # Calculate min/max timestamps for the entire list of sessions
+        replay_session_ids = [session_id for session_id, _, _ in found_sessions]
+        min_timestamp = min(ts for _, ts, _ in found_sessions)
+        max_timestamp = max(ts for _, _, ts in found_sessions)
+        # Check which sessions also have events in the events table
+        sessions_with_events = self._find_sessions_in_events(replay_session_ids, min_timestamp, max_timestamp, team)
+        if not sessions_with_events:
+            return set(), None, None
+        # Filter to only sessions that exist in both tables
+        session_ids_found = {session_id for session_id, _, _ in found_sessions if session_id in sessions_with_events}
+        if not session_ids_found:
+            return set(), None, None
+        # Recalculate timestamps for filtered sessions only
+        min_timestamp = min(ts for session_id, ts, _ in found_sessions if session_id in session_ids_found)
+        max_timestamp = max(ts for session_id, _, ts in found_sessions if session_id in session_ids_found)
+        return session_ids_found, min_timestamp, max_timestamp
 
     @staticmethod
     def _find_with_timestamps(session_ids: list[str], team: Team) -> list[tuple[str, datetime, datetime]]:
         """
-        Check which session IDs exist within the specified number of days.
+        Check which session IDs exist in session_replay_events within retention period.
         Returns a list of tuples of (session_id, min_timestamp, max_timestamp).
         Timestamps are per session, not for the entire list of sessions.
         """
-        result = sync_execute(
-            """
-            SELECT
-                session_id,
-                min(min_first_timestamp) as min_timestamp,
-                max(max_last_timestamp) as max_timestamp,
-                max(retention_period_days) as retention_period_days,
-                dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
-            FROM
-                session_replay_events
-            PREWHERE
-                team_id = %(team_id)s
-                AND session_id IN %(session_ids)s
-                AND min_first_timestamp <= %(python_now)s
-            GROUP BY
-                session_id
-            HAVING
-                expiry_time >= %(python_now)s
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+        now = datetime.now(pytz.timezone("UTC"))
+        query = HogQLQuery(
+            query="""
+                SELECT
+                    session_id,
+                    min(min_first_timestamp) as min_timestamp,
+                    max(max_last_timestamp) as max_timestamp,
+                    max(retention_period_days) as retention_period_days,
+                    dateTrunc('day', min_timestamp) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
+                FROM
+                    raw_session_replay_events
+                WHERE
+                    session_id IN {session_ids}
+                    AND min_first_timestamp <= {now}
+                GROUP BY
+                    session_id
+                HAVING
+                    expiry_time >= {now}
             """,
-            {
-                "team_id": team.pk,
+            values={
                 "session_ids": session_ids,
-                "ttl_days": ttl_days(team),
-                "python_now": datetime.now(pytz.timezone("UTC")),
+                "now": now,
             },
         )
-        if not result:
+        result = HogQLQueryRunner(team=team, query=query).calculate()
+        if not result.results:
             return []
-        sessions_found: list[tuple[str, datetime, datetime]] = [(row[0], row[1], row[2]) for row in result]
+        sessions_found: list[tuple[str, datetime, datetime]] = [(row[0], row[1], row[2]) for row in result.results]
         return sessions_found
+
+    @staticmethod
+    def _find_sessions_in_events(
+        session_ids: list[str], min_timestamp: datetime, max_timestamp: datetime, team: Team
+    ) -> set[str]:
+        """
+        Check which session IDs have events in the events table within the given time range.
+        Returns a set of session IDs that have at least one event.
+        """
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+        query = HogQLQuery(
+            query="""
+                SELECT DISTINCT properties.$session_id AS session_id
+                FROM events
+                WHERE properties.$session_id IN {session_ids}
+                    AND timestamp >= {min_timestamp}
+                    AND timestamp <= {max_timestamp}
+            """,
+            values={
+                "session_ids": session_ids,
+                "min_timestamp": min_timestamp,
+                "max_timestamp": max_timestamp,
+            },
+        )
+        result = HogQLQueryRunner(team=team, query=query).calculate()
+        if not result.results:
+            return set()
+        return {row[0] for row in result.results}
 
     @staticmethod
     def get_metadata_query(
         recording_start_time: Optional[datetime] = None,
+        format: Optional[str] = None,
     ) -> LiteralString:
         """
         Helper function to build a query for session metadata, to be able to use
@@ -149,14 +186,15 @@ class SessionReplayEvents:
         """
         query = """
             SELECT
-                any(distinct_id),
+                session_id,
+                any(distinct_id) as distinct_id,
                 min(min_first_timestamp) as start_time,
                 max(max_last_timestamp) as end_time,
                 dateDiff('SECOND', start_time, end_time) as duration,
                 argMinMerge(first_url) as first_url,
-                sum(click_count),
-                sum(keypress_count),
-                sum(mouse_activity_count),
+                sum(click_count) as click_count,
+                sum(keypress_count) as keypress_count,
+                sum(mouse_activity_count) as mouse_activity_count,
                 sum(active_milliseconds)/1000 as active_seconds,
                 sum(console_log_count) as console_log_count,
                 sum(console_warn_count) as console_warn_count,
@@ -166,7 +204,7 @@ class SessionReplayEvents:
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days) as retention_period_days,
-                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
             FROM
                 session_replay_events
@@ -179,11 +217,13 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+            {optional_format_clause}
         """
         query = query.format(
             optional_timestamp_clause=(
                 "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
-            )
+            ),
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
         )
         return query
 
@@ -203,7 +243,7 @@ class SessionReplayEvents:
                     groupArrayArray(block_last_timestamps) as block_last_timestamps,
                     groupArrayArray(block_urls) as block_urls,
                     max(retention_period_days) as retention_period_days,
-                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
                 FROM
                     session_replay_events
                 PREWHERE
@@ -233,25 +273,25 @@ class SessionReplayEvents:
             raise ValueError("Multiple sessions found for session_id: {}".format(session_id))
         replay = replay_response[0]
         return RecordingMetadata(
-            distinct_id=replay[0],
-            start_time=replay[1],
-            end_time=replay[2],
-            duration=replay[3],
-            first_url=replay[4],
-            click_count=replay[5],
-            keypress_count=replay[6],
-            mouse_activity_count=replay[7],
-            active_seconds=replay[8],
-            console_log_count=replay[9],
-            console_warn_count=replay[10],
-            console_error_count=replay[11],
-            snapshot_source=replay[12] or "web",
-            block_first_timestamps=replay[13],
-            block_last_timestamps=replay[14],
-            block_urls=replay[15],
-            retention_period_days=replay[16],
-            expiry_time=replay[17],
-            recording_ttl=replay[18],
+            distinct_id=replay[1],
+            start_time=replay[2],
+            end_time=replay[3],
+            duration=replay[4],
+            first_url=replay[5],
+            click_count=replay[6],
+            keypress_count=replay[7],
+            mouse_activity_count=replay[8],
+            active_seconds=replay[9],
+            console_log_count=replay[10],
+            console_warn_count=replay[11],
+            console_error_count=replay[12],
+            snapshot_source=replay[13] or "web",
+            block_first_timestamps=replay[14],
+            block_last_timestamps=replay[15],
+            block_urls=replay[16],
+            retention_period_days=replay[17],
+            expiry_time=replay[18],
+            recording_ttl=replay[19],
         )
 
     def get_metadata(
@@ -268,7 +308,6 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
                 "python_now": datetime.now(pytz.timezone("UTC")),
-                "ttl_days": ttl_days(team),
             },
         )
         recording_metadata = self.build_recording_metadata(session_id, replay_response)
@@ -299,14 +338,14 @@ class SessionReplayEvents:
         query = f"""
             SELECT
                 session_id,
-                any(distinct_id),
+                any(distinct_id) as distinct_id,
                 min(min_first_timestamp) as start_time,
                 max(max_last_timestamp) as end_time,
                 dateDiff('SECOND', start_time, end_time) as duration,
                 argMinMerge(first_url) as first_url,
-                sum(click_count),
-                sum(keypress_count),
-                sum(mouse_activity_count),
+                sum(click_count) as click_count,
+                sum(keypress_count) as keypress_count,
+                sum(mouse_activity_count) as mouse_activity_count,
                 sum(active_milliseconds)/1000 as active_seconds,
                 sum(console_log_count) as console_log_count,
                 sum(console_warn_count) as console_warn_count,
@@ -316,7 +355,7 @@ class SessionReplayEvents:
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days) as retention_period_days,
-                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
             FROM
                 session_replay_events
@@ -338,16 +377,13 @@ class SessionReplayEvents:
                 "recordings_min_timestamp": recordings_min_timestamp,
                 "recordings_max_timestamp": recordings_max_timestamp,
                 "python_now": datetime.now(pytz.timezone("UTC")),
-                "ttl_days": ttl_days(team),
             },
         )
         # Build metadata for each session
-        result: dict[str, Optional[RecordingMetadata]] = {session_id: None for session_id in session_ids}
+        result: dict[str, Optional[RecordingMetadata]] = dict.fromkeys(session_ids)
         for row in replay_response:
-            # Match build_recording_metadata's expected format
             session_id = row[0]
-            session_data = [row[1:]]
-            metadata = self.build_recording_metadata(session_id, session_data)
+            metadata = self.build_recording_metadata(session_id, [row])
             if metadata:
                 result[session_id] = metadata
         return result
@@ -373,7 +409,6 @@ class SessionReplayEvents:
         session_id: str,
         team: Team,
         recording_start_time: Optional[datetime] = None,
-        ttl_days: Optional[int] = None,
     ) -> Optional[RecordingBlockListing]:
         query = self.get_block_listing_query(recording_start_time)
         replay_response: list[tuple] = sync_execute(
@@ -383,7 +418,6 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
                 "python_now": datetime.now(pytz.timezone("UTC")),
-                "ttl_days": ttl_days or 365,
             },
         )
         recording_metadata = self.build_recording_block_listing(session_id, replay_response)
@@ -471,12 +505,41 @@ class SessionReplayEvents:
                     session_id,
                     min(min_first_timestamp) as start_time,
                     max(retention_period_days) as retention_period_days,
-                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
                 FROM
                     session_replay_events
                 PREWHERE
                     team_id = %(team_id)s
                     AND distinct_id IN (%(distinct_ids)s)
+                    AND min_first_timestamp <= %(python_now)s
+                GROUP BY
+                    session_id
+                HAVING
+                    expiry_time >= %(python_now)s
+                {optional_format_clause}
+                """
+        query = query.format(
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
+        )
+        return query
+
+    @staticmethod
+    def get_sessions_from_team_id_query(
+        format: Optional[str] = None,
+    ):
+        """
+        Helper function to build a query for listing all session IDs for a given team ID
+        """
+        query = """
+                SELECT
+                    session_id,
+                    min(min_first_timestamp) as start_time,
+                    max(retention_period_days) as retention_period_days,
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
+                FROM
+                    session_replay_events
+                PREWHERE
+                    team_id = %(team_id)s
                     AND min_first_timestamp <= %(python_now)s
                 GROUP BY
                     session_id
@@ -504,7 +567,7 @@ class SessionReplayEvents:
                         session_id,
                         min(min_first_timestamp) as start_time,
                         max(retention_period_days) as retention_period_days,
-                        dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                        dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
                         dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
                     FROM
                         session_replay_events
@@ -529,12 +592,51 @@ class SessionReplayEvents:
         return query
 
 
-def ttl_days(team: Team) -> int:
-    if is_cloud():
-        # NOTE: We use file export as a proxy to see if they are subbed to Recordings
-        is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_FILE_EXPORT)
-        ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
-    else:
-        ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+def get_person_emails_for_session_ids(
+    session_ids: list[str],
+    min_timestamp: datetime,
+    max_timestamp: datetime,
+    team_id: int,
+) -> dict[str, str | None]:
+    """
+    Get person emails for a list of session IDs.
+    """
+    from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-    return ttl_days
+    if not session_ids:
+        return {}
+    if len(session_ids) > 1000:
+        raise ValueError(f"Cannot query more than 1000 session IDs at once, got {len(session_ids)}")
+    if (max_timestamp - min_timestamp).days > 90:
+        raise ValueError(
+            f"Date range cannot exceed 3 months (90 days), got {(max_timestamp - min_timestamp).days} days"
+        )
+    team = Team.objects.get(pk=team_id)
+    query = HogQLQuery(
+        query="""
+            SELECT
+                properties.$session_id AS session_id,
+                any(person.properties.email) AS email
+            FROM events
+            WHERE properties.$session_id IN {session_ids}
+                AND timestamp >= {min_timestamp}
+                AND timestamp <= {max_timestamp}
+            GROUP BY properties.$session_id
+        """,
+        values={
+            "session_ids": session_ids,
+            "min_timestamp": min_timestamp,
+            "max_timestamp": max_timestamp,
+        },
+    )
+    result = HogQLQueryRunner(team=team, query=query).calculate()
+    email_mapping: dict[str, str | None] = dict.fromkeys(session_ids)
+    if result.results:
+        for row in result.results:
+            session_id = row[0]
+            email = row[1]
+            if email and isinstance(email, str) and email.strip():
+                email_mapping[session_id] = email
+            else:
+                email_mapping[session_id] = None
+    return email_mapping

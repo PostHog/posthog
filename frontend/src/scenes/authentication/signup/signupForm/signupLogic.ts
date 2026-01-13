@@ -116,6 +116,8 @@ export const signupLogic = kea<signupLogicType>([
                         posthog.capture('sign up organization name not provided')
                     }
 
+                    // it's ok to trust the url sent from the server
+                    // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     const error = e as Record<string, any>

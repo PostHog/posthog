@@ -9,7 +9,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import models, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
@@ -72,6 +72,10 @@ ActivityScope = Literal[
     "AlertSubscription",
     "ExternalDataSource",
     "ExternalDataSchema",
+    "LLMTrace",
+    "WebAnalyticsFilterPreset",
+    "CustomerProfileConfig",
+    "Log",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
@@ -224,6 +228,12 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "OrganizationDomain": [
         "scim_bearer_token",
     ],
+    "User": [
+        "email",
+        "password",
+        "temporary_token",
+        "pending_email",
+    ],
 }
 
 field_name_overrides: dict[ActivityScope, dict[str, str]] = {
@@ -264,17 +274,32 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "PersonalAPIKey": [
         "last_used_at",
     ],
+    "User": [
+        "last_login",
+        "date_joined",
+        "current_organization",
+        "current_team",
+        "current_organization_id",
+        "current_team_id",
+    ],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
-# Used to hide sensitive activities (e.g., impersonated logins) from non-staff users
-activity_visibility_restrictions: dict[ActivityScope, dict[str, Any]] = {
-    "User": {
+# Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
+activity_visibility_restrictions: list[dict[str, Any]] = [
+    {
+        "scope": "User",
         "activities": ["logged_in", "logged_out"],
         "exclude_when": {"was_impersonated": True},
         "allow_staff": True,
     },
-}
+    {
+        "scope": "User",
+        "activities": ["created", "updated"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+]
 
 field_exclusions: dict[ActivityScope, list[str]] = {
     "Cohort": [
@@ -435,16 +460,41 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "last_rolled_at",
     ],
     "User": [
-        "password",
+        # ForeignKey fields
+        "current_organization",
+        "current_team",
+        # With _id suffix for direct attribute access
         "current_organization_id",
         "current_team_id",
-        "temporary_token",
+        # System/internal fields
         "distinct_id",
         "partial_notification_settings",
-        "anonymize_data",
-        "is_email_verified",
         "_billing_plan_details",
         "strapi_id",
+        # Reverse relations and many-to-many fields
+        "organization",
+        "logentry_set",
+        "groups",
+        "user_permissions",
+        "social_auth",
+        "organization_memberships",
+        "totp_device_set",
+        "staticdevice_set",
+        "activitylog_set",
+        "personal_api_keys",
+        "organizations",
+        "plugin_set",
+        "insightviewed_set",
+        "text_set",
+        "insight_set",
+        "sharingconfiguration_set",
+        "exportedasset_set",
+        "uploaded_media",
+        "accesscontrol_set",
+        "rolemembership_set",
+        "totp_devices",
+        "static_devices",
+        "recovery_devices",
     ],
     "AlertConfiguration": [
         "last_checked_at",
@@ -694,7 +744,7 @@ def log_activity(
     scope: str,
     activity: str,
     detail: Detail,
-    was_impersonated: Optional[bool],
+    was_impersonated: bool,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
@@ -782,7 +832,7 @@ class LogActivityEntry(TypedDict, total=False):
     scope: Required[str]
     activity: Required[str]
     detail: Required[Detail]
-    was_impersonated: Optional[bool]
+    was_impersonated: Required[bool]
     force_save: bool
 
 
@@ -866,30 +916,10 @@ def apply_activity_visibility_restrictions(queryset: QuerySet, user: Union["User
     """
     Apply visibility restrictions to activity log queryset based on user permissions.
     """
-    exclusion_queries = []
-    for scope, restrictions in activity_visibility_restrictions.items():
-        if restrictions.get("allow_staff"):
-            if user and not isinstance(user, AnonymousUser) and hasattr(user, "is_staff") and user.is_staff:
-                continue
+    from posthog.models.activity_logging.utils import activity_visibility_manager
 
-        activities = restrictions.get("activities", [])
-        exclude_conditions = restrictions.get("exclude_when", {})
-
-        # Build the query: scope AND activity IN [...] AND exclude_conditions
-        query = Q(scope=scope) & Q(activity__in=activities)
-        for field, value in exclude_conditions.items():
-            query &= Q(**{field: value})
-
-        exclusion_queries.append(query)
-
-    # Apply all exclusions with OR logic
-    if exclusion_queries:
-        combined_exclusion = exclusion_queries[0]
-        for q in exclusion_queries[1:]:
-            combined_exclusion |= q
-        queryset = queryset.exclude(combined_exclusion)
-
-    return queryset
+    is_staff = bool(user and not isinstance(user, AnonymousUser) and hasattr(user, "is_staff") and user.is_staff)
+    return activity_visibility_manager.apply_to_queryset(queryset, is_staff)
 
 
 def load_activity(
@@ -924,40 +954,53 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
     from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
+    from posthog.models.activity_logging.utils import activity_visibility_manager
+
+    if not created:
+        return
 
     try:
+        if activity_visibility_manager.is_restricted(instance, restrict_for_staff=True):
+            logger.info(
+                "Skipping restricted activity log event",
+                scope=instance.scope,
+                activity=instance.activity,
+                team_id=instance.team_id,
+                organization_id=instance.organization_id,
+            )
+            return
+
         serialized_data = ActivityLogSerializer(instance).data
         # We need to serialize the detail object using the encoder to avoid unsupported types like timedelta
         serialized_data["detail"] = json.loads(json.dumps(serialized_data["detail"], cls=ActivityDetailEncoder))
         # TODO: Move this into the producer to support dataclasses
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
-        if created:
-            if instance.team_id is not None:
-                produce_internal_event(
-                    team_id=instance.team_id,
-                    event=InternalEventEvent(
-                        event="$activity_log_entry_created",
-                        distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
-                        properties=serialized_data,
-                    ),
-                    person=(
-                        InternalEventPerson(
-                            id=user_data["id"],
-                            properties=user_data,
-                        )
-                        if user_data
-                        else None
-                    ),
-                )
-            elif instance.organization_id is not None:
-                from posthog.tasks.activity_log import broadcast_activity_log_to_organization
+        if instance.team_id is not None:
+            produce_internal_event(
+                team_id=instance.team_id,
+                event=InternalEventEvent(
+                    event="$activity_log_entry_created",
+                    distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
+                    properties=serialized_data,
+                ),
+                person=(
+                    InternalEventPerson(
+                        id=user_data["id"],
+                        properties=user_data,
+                    )
+                    if user_data
+                    else None
+                ),
+            )
+        elif instance.organization_id is not None:
+            from posthog.tasks.activity_log import broadcast_activity_log_to_organization
 
-                broadcast_activity_log_to_organization.delay(
-                    organization_id=instance.organization_id,
-                    serialized_data=serialized_data,
-                    user_data=user_data,
-                )
+            broadcast_activity_log_to_organization.delay(
+                organization_id=instance.organization_id,
+                serialized_data=serialized_data,
+                user_data=user_data,
+            )
     except Exception as e:
         # We don't want to hard fail here.
         logger.exception("Failed to produce internal event", data=serialized_data, error=e)

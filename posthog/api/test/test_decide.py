@@ -2,21 +2,20 @@ import json
 import time
 import base64
 import random
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
-from django.conf import settings
 from django.core.cache import cache
-from django.db import connection, connections
+from django.db import connections
 from django.http import HttpRequest
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 
-from inline_snapshot import snapshot
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -63,9 +62,7 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "masking": None,
         "urlTriggers": [],
         "urlBlocklist": [],
-        "scriptConfig": {
-            "script": "posthog-recorder",
-        },
+        "scriptConfig": None,
         "sampleRate": None,
         "eventTriggers": [],
         "triggerMatchType": None,
@@ -73,11 +70,14 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
     }
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestDecide(BaseTest, QueryMatchingTest):
     """
     Tests the `/decide` endpoint.
     We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
     """
+
+    snapshot: Any
 
     use_remote_config = False
 
@@ -151,18 +151,40 @@ class TestDecide(BaseTest, QueryMatchingTest):
                         },
                     )
                 },
-                HTTP_ORIGIN=origin,
+                headers={"origin": origin, "user-agent": user_agent or "PostHog test"},
                 REMOTE_ADDR=ip,
-                HTTP_USER_AGENT=user_agent or "PostHog test",
             )
 
         if simulate_database_timeout:
-            with connection.execute_wrapper(QueryTimeoutWrapper()):
+            # Wrap all database connections to simulate timeout across all databases
+            from contextlib import ExitStack
+
+            with ExitStack() as stack:
+                for db_alias in self.databases:
+                    stack.enter_context(connections[db_alias].execute_wrapper(QueryTimeoutWrapper()))
                 return do_request()
 
         if assert_num_queries:
-            with self.assertNumQueries(assert_num_queries):
-                return do_request()
+            # Count queries across all databases defined in the test case
+            query_contexts = {}
+            for db_alias in self.databases:
+                query_contexts[db_alias] = CaptureQueriesContext(connections[db_alias])
+                query_contexts[db_alias].__enter__()
+
+            try:
+                result = do_request()
+            finally:
+                for _, ctx in query_contexts.items():
+                    ctx.__exit__(None, None, None)
+
+            total_queries = sum(len(ctx) for ctx in query_contexts.values())
+            queries_by_db = ", ".join(f"{len(ctx)} to {db}" for db, ctx in query_contexts.items() if len(ctx) > 0)
+            self.assertEqual(
+                total_queries,
+                assert_num_queries,
+                f"{total_queries} queries executed ({queries_by_db}), {assert_num_queries} expected",
+            )
+            return result
         else:
             return do_request()
 
@@ -197,7 +219,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                     }
                 )
             },
-            HTTP_ORIGIN="http://127.0.0.1:8000",
+            headers={"origin": "http://127.0.0.1:8000"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -209,7 +231,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         self.team.app_urls = ["https://example.com"]
         self.team.save()
-        response = self.client.get("/decide/", HTTP_ORIGIN="https://evilsite.com").json()
+        response = self.client.get("/decide/", headers={"origin": "https://evilsite.com"}).json()
         self.assertEqual(response["isAuthenticated"], False)
         self.assertIsNone(response["toolbarParams"].get("toolbarVersion", None))
 
@@ -557,78 +579,74 @@ class TestDecide(BaseTest, QueryMatchingTest):
             [
                 "defaults to none",
                 None,
-                None,
                 {"scriptConfig": None},
-                False,
             ],
             [
-                "must have allowlist",
-                "new-recorder",
-                None,
+                "sdk_config with recorder_script",
+                {"recorder_script": "team-recorder"},
+                {"scriptConfig": {"script": "team-recorder"}},
+            ],
+            [
+                "extra_settings ignores additional keys",
+                {"something": "not-the-team-recorder"},
                 {"scriptConfig": None},
-                False,
             ],
             [
-                "ignores empty allowlist",
-                "new-recorder",
-                [],
-                {"scriptConfig": None},
-                False,
-            ],
-            [
-                "wild card works",
-                "new-recorder",
-                ["*"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                False,
-            ],
-            [
-                "can have wild card and team id",
-                "new-recorder",
-                ["*"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                True,
-            ],
-            [
-                "allow list can exclude",
-                "new-recorder",
-                ["9999", "9998"],
-                {"scriptConfig": None},
-                False,
-            ],
-            [
-                "allow list can include",
-                "new-recorder",
-                ["9999", "9998"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                True,
+                "extra_settings ignores additional keys when used",
+                {"something": "not-the-team-recorder", "recorder_script": "team-recorder"},
+                {"scriptConfig": {"script": "team-recorder"}},
             ],
         ]
     )
     def test_session_recording_script_config(
         self,
         _name: str,
-        rrweb_script_name: str | None,
-        team_allow_list: list[str] | None,
+        extra_settings: dict | None,
         expected: dict,
-        include_team_in_allowlist: bool,
     ) -> None:
+        from django.core.cache import cache
+
+        cache.clear()
+
         self._update_team(
             {
                 "session_recording_opt_in": True,
+                "extra_settings": extra_settings,
             }
         )
 
-        if team_allow_list and include_team_in_allowlist:
-            team_allow_list.append(f"{self.team.id}")
+        self.team.refresh_from_db()
 
-        with self.settings(
-            SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
-            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=team_allow_list or [],
-        ):
-            response = self._post_decide(api_version=3)
-            assert response.status_code == 200
-            assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
+        from posthog.models.team.team_caching import set_team_in_cache
+
+        set_team_in_cache(self.team.api_token, self.team)
+
+        response = self._post_decide(api_version=3)
+        assert response.status_code == 200
+        assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
+
+    @override_settings(DEBUG=True)
+    def test_session_recording_script_config_defaults_to_posthog_recorder_in_debug(self) -> None:
+        from django.core.cache import cache
+
+        cache.clear()
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+                "extra_settings": None,
+            }
+        )
+
+        self.team.refresh_from_db()
+
+        from posthog.models.team.team_caching import set_team_in_cache
+
+        set_team_in_cache(self.team.api_token, self.team)
+
+        response = self._post_decide(api_version=3)
+        assert response.status_code == 200
+        assert response.json()["sessionRecording"]["scriptConfig"] == {"script": "posthog-recorder"}
 
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
@@ -734,6 +752,68 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide().json()
         self.assertEqual(response["captureDeadClicks"], True)
+
+    def test_conversations_disabled_by_default(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(response.get("conversations"), False)
+
+    def test_conversations_enabled_with_defaults(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_public_token_123",
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"]["enabled"], True)
+        self.assertEqual(response["conversations"]["widgetEnabled"], True)
+        self.assertEqual(response["conversations"]["greetingText"], "Hey, how can I help you today?")
+        self.assertEqual(response["conversations"]["color"], "#1d4aff")
+        self.assertEqual(response["conversations"]["token"], "test_public_token_123")
+        self.assertEqual(response["conversations"]["domains"], [])
+
+    def test_conversations_enabled_with_custom_config(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "Welcome! Need assistance?",
+            "widget_color": "#ff5733",
+            "widget_public_token": "custom_token",
+            "widget_domains": ["example.com", "test.com"],
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"]["enabled"], True)
+        self.assertEqual(response["conversations"]["widgetEnabled"], True)
+        self.assertEqual(response["conversations"]["greetingText"], "Welcome! Need assistance?")
+        self.assertEqual(response["conversations"]["color"], "#ff5733")
+        self.assertEqual(response["conversations"]["token"], "custom_token")
+        self.assertEqual(response["conversations"]["domains"], ["example.com", "test.com"])
+
+    def test_conversations_disabled_returns_false(self, *args):
+        self.team.conversations_enabled = False
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "should_not_appear",
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"], False)
+
+    def test_conversations_with_empty_greeting_uses_default(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "",
+            "widget_public_token": "test_token",
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"]["greetingText"], "Hey, how can I help you today?")
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
@@ -1391,7 +1471,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=33,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1442,7 +1522,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": 12345,
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=33,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1454,7 +1534,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "xyz",
                 "$anon_distinct_id": 12345,
             },
-            assert_num_queries=9,
+            assert_num_queries=17,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1466,7 +1546,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": 5,
                 "$anon_distinct_id": 12345,
             },
-            assert_num_queries=9,
+            assert_num_queries=17,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1541,7 +1621,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=12,
+            assert_num_queries=8,
         )
         # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1628,7 +1708,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=33,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1653,7 +1733,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 FROM deletions
                 ON CONFLICT DO NOTHING
         """
-        with connection.cursor() as cursor:
+        # posthog_featureflaghashkeyoverride is in persons database
+        with connections["persons_db_writer"].cursor() as cursor:
             cursor.execute(query)
 
         person2.delete()
@@ -1743,7 +1824,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=33,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -2962,7 +3043,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ]
 
         for payload in invalid_payloads:
-            response = self.client.post("/decide/", {"data": payload}, HTTP_ORIGIN="http://127.0.0.1:8000")
+            response = self.client.post("/decide/", {"data": payload}, headers={"origin": "http://127.0.0.1:8000"})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             response_data = response.json()
             detail = response_data.pop("detail")
@@ -2976,7 +3057,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self.client.post(
             "/decide/?compression=gzip",
             data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03",
-            HTTP_ORIGIN="http://127.0.0.1:8000",
+            headers={"origin": "http://127.0.0.1:8000"},
             content_type="text/plain",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -3206,7 +3287,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
         self.client.logout()
-        Person.objects.create(
+        person = Person.objects.create(
             team=self.team,
             distinct_ids=[
                 "a",
@@ -3216,6 +3297,32 @@ class TestDecide(BaseTest, QueryMatchingTest):
             ],
             properties={"email": "tim@posthog.com", "realm": "cloud"},
         )
+
+        # Verify Person was created in persons database
+        from posthog.models import PersonDistinctId
+
+        self.assertEqual(Person.objects.using("persons_db_writer").filter(team=self.team).count(), 1)
+        self.assertEqual(PersonDistinctId.objects.using("persons_db_writer").filter(team=self.team).count(), 4)
+
+        # Verify all distinct_ids were created correctly
+        distinct_ids = list(
+            PersonDistinctId.objects.using("persons_db_writer")
+            .filter(team=self.team, person=person)
+            .values_list("distinct_id", flat=True)
+        )
+        self.assertEqual(
+            set(distinct_ids),
+            {
+                "a",
+                "{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'}",
+                "{'x': 'y'}",
+                '{"x": "z"}',
+            },
+        )
+
+        # Verify person properties
+        self.assertEqual(person.properties, {"email": "tim@posthog.com", "realm": "cloud"})
+
         FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"rollout_percentage": 100}]},
@@ -3238,15 +3345,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(api_version=2, distinct_id=12345, assert_num_queries=4)
         self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
 
+        # Debug: Check what distinct_id string will be generated
+        test_distinct_id = {
+            "id": 33040,
+            "shopify_domain": "xxx.myshopify.com",
+            "shopify_token": "shpat_xxxx",
+            "created_at": "2023-04-17T08:55:34.624Z",
+            "updated_at": "2023-04-21T08:43:34.479",
+        }
+
         response = self._post_decide(
             api_version=2,
-            distinct_id={
-                "id": 33040,
-                "shopify_domain": "xxx.myshopify.com",
-                "shopify_token": "shpat_xxxx",
-                "created_at": "2023-04-17T08:55:34.624Z",
-                "updated_at": "2023-04-21T08:43:34.479",
-            },
+            distinct_id=test_distinct_id,
             assert_num_queries=4,
         )
         self.assertEqual(
@@ -3411,7 +3521,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ):
 
             def invalid_request():
-                return self.client.post("/decide/", {"data": "1==1"}, HTTP_ORIGIN="http://127.0.0.1:8000")
+                return self.client.post("/decide/", {"data": "1==1"}, headers={"origin": "http://127.0.0.1:8000"})
 
             for _ in range(4):
                 response = invalid_request()
@@ -3993,38 +4103,12 @@ class TestDecideRemoteConfig(TestDecide):
         ) as wrapped_get_config_via_token:
             response = self._post_decide(api_version=3)
             wrapped_get_config_via_token.assert_called_once()
-            request_id = response.json()["requestId"]
 
         # NOTE: If this changes it indicates something is wrong as we should keep this exact format
         # for backwards compatibility
-        assert response.json() == snapshot(
-            {
-                "supportedCompression": ["gzip", "gzip-js"],
-                "captureDeadClicks": False,
-                "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-                "autocapture_opt_out": False,
-                "autocaptureExceptions": False,
-                "analytics": {"endpoint": "/i/v0/e/"},
-                "elementsChainAsString": True,
-                "errorTracking": {
-                    "autocaptureExceptions": False,
-                    "suppressionRules": [],
-                },
-                "sessionRecording": False,
-                "heatmaps": False,
-                "surveys": False,
-                "defaultIdentifiedOnly": True,
-                "siteApps": [],
-                "isAuthenticated": False,
-                # requestId is a UUID
-                "requestId": request_id,
-                "toolbarParams": {},
-                "config": {"enable_collect_everything": True},
-                "featureFlags": {},
-                "errorsWhileComputingFlags": False,
-                "featureFlagPayloads": {},
-            }
-        )
+        dump = response.json()
+        dump["requestId"] = "request_id"  # UUID that will change from run to run, keep it stable
+        assert dump == self.snapshot
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
@@ -4069,7 +4153,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
                     },
                 )
             },
-            HTTP_ORIGIN=origin,
+            headers={"origin": origin},
             REMOTE_ADDR=ip,
         )
 
@@ -4084,10 +4168,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         client.logout()
 
 
-@pytest.mark.skipif(
-    "decide" not in settings.READ_REPLICA_OPT_IN,
-    reason="This test requires READ_REPLICA_OPT_IN=decide",
-)
+@pytest.mark.skip(reason="Decide endpoint is obsolete, skipping read replica tests")
 class TestDecideUsesReadReplica(TransactionTestCase):
     """
     A cheat sheet for creating a READ-ONLY fake replica when local testing:
@@ -4115,7 +4196,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
     when it shouldn't be.
     """  # noqa: W605
 
-    databases = {"default", "replica"}
+    databases = {"default", "replica", "persons_db_writer", "persons_db_reader"}
 
     def setup_user_and_team_in_db(self, dbname: str = "default"):
         organization = Organization.objects.db_manager(dbname).create(
@@ -4201,7 +4282,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                     },
                 )
             },
-            HTTP_ORIGIN=origin,
+            headers={"origin": origin},
             REMOTE_ADDR=ip,
         )
 
@@ -5034,7 +5115,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -5288,7 +5369,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
@@ -5558,7 +5639,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()

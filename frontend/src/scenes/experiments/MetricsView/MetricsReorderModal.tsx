@@ -70,7 +70,7 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
     const isOpen = isSecondary ? isSecondaryMetricsReorderModalOpen : isPrimaryMetricsReorderModalOpen
     const closeModal = isSecondary ? closeSecondaryMetricsReorderModal : closePrimaryMetricsReorderModal
 
-    const { experiment, getOrderedMetrics } = useValues(experimentLogic)
+    const { experiment, getOrderedMetricsWithResults } = useValues(experimentLogic)
     const { updateExperiment } = useActions(experimentLogic)
 
     const [orderedUuids, setOrderedUuids] = useState<string[]>([])
@@ -97,7 +97,8 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
             return []
         }
 
-        const allMetrics = getOrderedMetrics(isSecondary)
+        const metricsWithResults = getOrderedMetricsWithResults(isSecondary)
+        const allMetrics = metricsWithResults.map(({ metric }: { metric: any }) => metric)
 
         const metricsMap = new Map()
         allMetrics.forEach((metric: any) => {

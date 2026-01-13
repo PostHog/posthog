@@ -240,7 +240,7 @@ const featureFlagActionsMapping: Record<
     deleted: function onSoftDelete(change, logItem) {
         const isDeleted = detectBoolean(change?.after)
         return {
-            description: [<>{isDeleted ? 'deleted' : 'un-deleted'}</>],
+            description: [<>{isDeleted ? 'deleted' : 'restored'}</>],
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },
@@ -276,6 +276,30 @@ const featureFlagActionsMapping: Record<
                 <>
                     changed the evaluation runtime from <strong>{getRuntimeLabel(runtimeBefore)}</strong> to{' '}
                     <strong>{getRuntimeLabel(runtimeAfter)}</strong>
+                </>,
+            ],
+        }
+    },
+    bucketing_identifier: function onBucketingIdentifier(change) {
+        const identifierAfter = change?.after as string
+        const identifierBefore = change?.before as string
+
+        const getBucketingLabel = (identifier: string): string => {
+            switch (identifier) {
+                case 'distinct_id':
+                    return 'User ID'
+                case 'device_id':
+                    return 'Device ID'
+                default:
+                    return identifier || 'User ID'
+            }
+        }
+
+        return {
+            description: [
+                <>
+                    changed the bucketing identifier from <strong>{getBucketingLabel(identifierBefore)}</strong> to{' '}
+                    <strong>{getBucketingLabel(identifierAfter)}</strong>
                 </>,
             ],
         }
@@ -341,11 +365,7 @@ const featureFlagActionsMapping: Record<
     experiment_set: () => null,
     features: () => null,
     usage_dashboard: () => null,
-    // TODO: handle activity
-    rollback_conditions: () => null,
-    performed_rollback: () => null,
     can_edit: () => null,
-    analytics_dashboards: () => null,
     has_enriched_analytics: () => null,
     surveys: () => null,
     user_access_level: () => null,

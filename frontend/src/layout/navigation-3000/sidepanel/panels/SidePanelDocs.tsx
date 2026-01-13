@@ -35,6 +35,8 @@ export const SidePanelDocs = (): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
     useEffect(() => {
+        // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+        // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
         ref.current?.contentWindow?.postMessage(
             {
                 type: 'theme-toggle',
@@ -61,6 +63,8 @@ export const SidePanelDocs = (): JSX.Element => {
                     sideIcon={<IconHome />}
                     type="secondary"
                     onClick={() => {
+                        // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                        // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                         ref.current?.contentWindow?.postMessage(
                             {
                                 type: 'navigate',
@@ -102,6 +106,7 @@ export const SidePanelDocs = (): JSX.Element => {
                     title="Docs"
                     className={clsx('w-full h-full', !iframeReady && 'hidden')}
                     ref={ref}
+                    sandbox="allow-scripts allow-same-origin"
                 />
 
                 {!iframeReady && <SidePanelDocsSkeleton />}

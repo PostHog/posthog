@@ -23,6 +23,7 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
@@ -40,6 +41,10 @@ class CohortType(StrEnum):
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
 # set in cohorts_cache
 CohortOrEmpty = Union["Cohort", Literal[""], None]
+
+# Maximum person count for a cohort to be eligible for real-time evaluation
+# Cohorts with more than 20M persons cannot be real-time due to system limitations
+REALTIME_COHORT_MAX_PERSON_COUNT = 20_000_000
 
 logger = structlog.get_logger(__name__)
 
@@ -292,9 +297,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
         start_time = time.monotonic()
 
+        cohort_type_cleared = False
         try:
             count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
+
+            # Clear cohort_type if count exceeds the realtime threshold
+            if self.cohort_type == CohortType.REALTIME and count and count > REALTIME_COHORT_MAX_PERSON_COUNT:
+                self.cohort_type = None
+                cohort_type_cleared = True
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
@@ -317,8 +328,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.save()
 
         # Update filter to match pending version if still valid
+        update_fields = {"version": pending_version, "count": count}
+        if cohort_type_cleared:
+            update_fields["cohort_type"] = None
         Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-            version=pending_version, count=count
+            **update_fields
         )
         self.refresh_from_db()
 
@@ -528,11 +542,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             cursor = persons_connection.cursor()
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
+                # Get persons already in this cohort to exclude them
+                # Can't use .exclude(cohort__id=self.id) because Cohort is in default DB
+                # and Person/CohortPeople are in persons DB - cross-DB joins don't work
+                existing_person_ids = set(
+                    CohortPeople.objects.using(db_write).filter(cohort_id=self.id).values_list("person_id", flat=True)
+                )
+
                 persons_query = (
                     Person.objects.db_manager(db_read)
                     .filter(team_id=team_id)
                     .filter(uuid__in=batch)
-                    .exclude(cohort__id=self.id)
+                    .exclude(id__in=existing_person_ids)
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
@@ -541,11 +562,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                         team_id=team_id,
                     )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
+                person_table = Person._meta.db_table
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"',
-                        f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"',
+                        f'FROM "{person_table}"',
+                        f', {self.pk}, {self.version or "NULL"} FROM "{person_table}"',
                         1,
                     ),
                 )
@@ -563,7 +585,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         finally:
             # Always update the count and cohort state, even if processing failed
             try:
-                count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
+                # Use the write database to avoid replication lag from under-representing the count after inserting
+                count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id, using_database=db_write)
                 self.count = count
             except Exception as count_err:
                 # If count calculation fails, log the error but don't override the processing error
@@ -604,9 +627,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             cohort_person.delete()
             remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
 
-            # Update count
+            # Update count - use write database to avoid replication lag after delete
             try:
-                count = get_static_cohort_size(cohort_id=self.id, team_id=team_id)
+                count = get_static_cohort_size(cohort_id=self.id, team_id=team_id, using_database=PERSONS_DB_FOR_WRITE)
                 self.count = count
                 self.save(update_fields=["count"])
             except Exception as count_err:
@@ -627,15 +650,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             raise
 
     def to_dict(self) -> dict:
-        people_data = [
-            {
-                "id": person.id,
-                "email": person.email or "(no email)",
-                "distinct_id": person.distinct_ids[0] if person.distinct_ids else "(no distinct id)",
-            }
-            for person in self.people.all()
-        ]
-
         from posthog.models.activity_logging.activity_log import common_field_exclusions, field_exclusions
 
         excluded_fields = field_exclusions.get("Cohort", []) + common_field_exclusions
@@ -653,7 +667,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "created_by_id": self.created_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
-            "people": people_data,
         }
         return {k: v for k, v in base_dict.items() if k not in excluded_fields}
 
@@ -709,8 +722,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
-    cohort = models.ForeignKey("Cohort", on_delete=models.CASCADE)
-    person = models.ForeignKey("Person", on_delete=models.CASCADE)
+    cohort = models.ForeignKey("Cohort", on_delete=models.DO_NOTHING, db_constraint=False)
+    person = models.ForeignKey("Person", on_delete=models.DO_NOTHING, db_constraint=False)
     version = models.IntegerField(blank=True, null=True)
 
     class Meta:
@@ -728,8 +741,23 @@ def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
         person_uuid = instance.person_id
 
         cohort = Cohort.objects.get(id=cohort_id)
-        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
-        cohort.save(update_fields=["count"])
+        # Use write database to avoid replication lag after delete
+        cohort.count = get_static_cohort_size(
+            cohort_id=cohort.id, team_id=cohort.team_id, using_database=PERSONS_DB_FOR_WRITE
+        )
+
+        # Clear cohort_type if count exceeds the realtime threshold
+        if cohort.cohort_type == CohortType.REALTIME and cohort.count > REALTIME_COHORT_MAX_PERSON_COUNT:
+            cohort.cohort_type = None
+            cohort.save(update_fields=["count", "cohort_type"])
+            logger.info(
+                "Cleared cohort_type for cohort exceeding realtime threshold",
+                cohort_id=cohort_id,
+                count=cohort.count,
+                threshold=REALTIME_COHORT_MAX_PERSON_COUNT,
+            )
+        else:
+            cohort.save(update_fields=["count"])
 
         logger.info(
             "Updated cohort count after CohortPeople change",

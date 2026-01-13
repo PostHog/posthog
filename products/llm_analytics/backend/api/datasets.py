@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db.models import Q, QuerySet
 
 import structlog
@@ -8,10 +10,14 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import serializers
 from rest_framework.viewsets import ModelViewSet
 
+from posthog.schema import ProductKey
+
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
+from posthog.models import User
 
 from products.llm_analytics.backend.models import Dataset
 from products.llm_analytics.backend.models.datasets import DatasetItem
@@ -126,6 +132,7 @@ class DatasetFilter(django_filters.FilterSet):
         return super().list(request, *args, **kwargs)
 
 
+@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
     serializer_class = DatasetSerializer
@@ -137,6 +144,59 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
         if self.action in {"list", "retrieve"}:
             return queryset.exclude(deleted=True)
         return queryset
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+
+        # Track dataset created
+        report_user_action(
+            cast(User, self.request.user),
+            "llma dataset created",
+            {
+                "dataset_id": str(instance.id),
+                "dataset_name": instance.name,
+                "has_description": bool(instance.description),
+                "has_metadata": bool(instance.metadata),
+            },
+            self.team,
+        )
+
+    def perform_update(self, serializer):
+        # Check if this is a deletion (soft delete)
+        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
+
+        # Track changes before update
+        changed_fields: list[str] = []
+        for field in ["name", "description", "metadata", "deleted"]:
+            if field in serializer.validated_data:
+                old_value = getattr(serializer.instance, field)
+                new_value = serializer.validated_data[field]
+                if old_value != new_value:
+                    changed_fields.append(field)
+
+        instance = serializer.save()
+
+        # Track appropriate event
+        if is_deletion:
+            report_user_action(
+                cast(User, self.request.user),
+                "llma dataset deleted",
+                {
+                    "dataset_id": str(instance.id),
+                    "dataset_name": instance.name,
+                },
+                self.team,
+            )
+        elif changed_fields:
+            report_user_action(
+                cast(User, self.request.user),
+                "llma dataset updated",
+                {
+                    "dataset_id": str(instance.id),
+                    "changed_fields": changed_fields,
+                },
+                self.team,
+            )
 
 
 class DatasetItemSerializer(serializers.ModelSerializer):
@@ -174,6 +234,7 @@ class DatasetItemSerializer(serializers.ModelSerializer):
         return super().create(validated_data, *args, **kwargs)
 
 
+@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
     serializer_class = DatasetItemSerializer
@@ -185,6 +246,71 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
         if self.action in {"list", "retrieve"}:
             return queryset.exclude(deleted=True)
         return queryset
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+
+        # Determine source of dataset item
+        source = "manual"
+        if instance.ref_trace_id:
+            source = "trace"
+        elif instance.ref_source_id:
+            source = "generation"
+
+        # Track dataset item created
+        report_user_action(
+            cast(User, self.request.user),
+            "llma dataset item created",
+            {
+                "dataset_item_id": str(instance.id),
+                "dataset_id": str(instance.dataset_id),
+                "has_input": bool(instance.input),
+                "has_output": bool(instance.output),
+                "has_metadata": bool(instance.metadata),
+                "has_ref_trace_id": bool(instance.ref_trace_id),
+                "has_ref_source_id": bool(instance.ref_source_id),
+                "source": source,
+            },
+            self.team,
+        )
+
+    def perform_update(self, serializer):
+        # Check if this is a deletion (soft delete)
+        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
+
+        # Track changes before update
+        changed_fields: list[str] = []
+        for field in ["input", "output", "metadata", "deleted"]:
+            if field in serializer.validated_data:
+                old_value = getattr(serializer.instance, field)
+                new_value = serializer.validated_data[field]
+                if old_value != new_value:
+                    changed_fields.append(field)
+
+        instance = serializer.save()
+
+        # Track appropriate event
+        if is_deletion:
+            report_user_action(
+                cast(User, self.request.user),
+                "llma dataset item deleted",
+                {
+                    "dataset_item_id": str(instance.id),
+                    "dataset_id": str(instance.dataset_id),
+                },
+                self.team,
+            )
+        elif changed_fields:
+            report_user_action(
+                cast(User, self.request.user),
+                "llma dataset item updated",
+                {
+                    "dataset_item_id": str(instance.id),
+                    "dataset_id": str(instance.dataset_id),
+                    "changed_fields": changed_fields,
+                },
+                self.team,
+            )
 
     @extend_schema(
         parameters=[

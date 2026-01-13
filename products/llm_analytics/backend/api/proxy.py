@@ -11,11 +11,10 @@ import json
 import uuid
 import logging
 from collections.abc import Callable, Generator
-from typing import Any, TypedDict, TypeGuard
+from typing import Any, TypedDict, TypeGuard, cast
 
 from django.http import StreamingHttpResponse
 
-import posthoganalytics
 from anthropic.types import MessageParam
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -24,7 +23,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import SessionAuthentication
-from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
+from posthog.event_usage import groups, report_user_action
+from posthog.models import User
+from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -83,16 +84,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
-        return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle()]
-
-    def validate_feature_flag(self, request):
-        if not request.user or not request.user.is_authenticated:
-            return False
-
-        llm_analytics_enabled = posthoganalytics.feature_enabled(
-            "llm-observability-playground", request.user.email, person_properties={"email": request.user.email}
-        )
-        return llm_analytics_enabled
+        return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle(), LLMProxyDailyRateThrottle()]
 
     def validate_messages(self, messages: list[dict[str, Any]]) -> TypeGuard[list[MessageParam]]:
         if not messages:
@@ -135,8 +127,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     ) -> StreamingHttpResponse | Response:
         """Generic handler for LLM proxy requests"""
         try:
-            valid_feature_flag = self.validate_feature_flag(request)
-            if not valid_feature_flag:
+            if not request.user or not request.user.is_authenticated:
                 return Response({"error": "You are not authorized to use this feature"}, status=401)
 
             serializer = serializer_class(data=request.data)
@@ -151,11 +142,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             trace_id = str(uuid.uuid4())
             distinct_id = getattr(request.user, "email", "") if request.user and request.user.is_authenticated else ""
             properties = {"ai_product": "playground"}
-            groups = {}  # placeholder for groups, maybe we should add team_id here or something????
-            if request.user and request.user.is_authenticated:
-                team_id = getattr(request.user, "team_id", None)
-                if team_id:
-                    groups["team"] = str(team_id)
+            group_properties = groups(team=getattr(request.user, "current_team", None))
 
             if mode == "completion" and hasattr(provider, "stream_response"):
                 messages = serializer.validated_data.get("messages")
@@ -187,7 +174,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     "distinct_id": distinct_id,
                     "trace_id": trace_id,
                     "properties": properties,
-                    "groups": groups,
+                    "groups": group_properties,
                 }
 
                 # Only pass reasoning_level to OpenAI provider which supports it
@@ -198,6 +185,17 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     provider.stream_response(**stream_kwargs),
                     request,
                 )
+
+                # Track playground completion started
+                tracking_properties = self._extract_request_properties(serializer.validated_data, provider=provider)
+                tracking_properties["trace_id"] = trace_id
+
+                report_user_action(
+                    cast(User, request.user),
+                    "llma playground completion started",
+                    tracking_properties,
+                    getattr(request.user, "current_team", None),
+                )
             else:
                 raise ValueError(f"Invalid mode: {mode} for provider: {provider}")
 
@@ -205,6 +203,35 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
         except Exception as e:
             logger.exception(f"Error in LLM proxy: {e}")
+
+            # Track playground completion failed
+            if request.user and request.user.is_authenticated:
+                error_properties: dict[str, Any] = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+
+                # Try to extract request parameters to understand failure context
+                try:
+                    serializer = serializer_class(data=request.data)
+                    if serializer.is_valid():
+                        # Use helper method to extract common properties
+                        request_properties = self._extract_request_properties(serializer.validated_data)
+                        error_properties.update(request_properties)
+                    else:
+                        # If serializer is invalid, include validation errors
+                        error_properties["validation_errors"] = serializer.errors
+                except Exception:
+                    # If we can't parse the request, just track the error without params
+                    pass
+
+                report_user_action(
+                    cast(User, request.user),
+                    "llma playground completion failed",
+                    error_properties,
+                    getattr(request.user, "current_team", None),
+                )
+
             return Response({"error": "An internal error occurred"}, status=500)
 
     def _get_completion_provider(self, data: ProviderData) -> Any:
@@ -226,6 +253,33 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 return GeminiProvider(model_id)
             case _:
                 return Response({"error": "Unsupported model"}, status=400)
+
+    def _extract_request_properties(self, validated_data: dict, provider=None) -> dict:
+        """Extract common properties from request for event tracking"""
+        properties = {
+            "model": validated_data.get("model"),
+            "thinking_enabled": validated_data.get("thinking", False),
+            "has_tools": bool(validated_data.get("tools")),
+            "has_temperature": validated_data.get("temperature") is not None,
+            "has_max_tokens": validated_data.get("max_tokens") is not None,
+            "has_reasoning_level": validated_data.get("reasoning_level") is not None,
+            "has_system_prompt": bool(validated_data.get("system")),
+        }
+
+        # Add tool count if tools are present
+        if validated_data.get("tools"):
+            properties["tool_count"] = len(validated_data.get("tools", []))
+
+        # Add message count if messages are present
+        messages = validated_data.get("messages")
+        if messages:
+            properties["message_count"] = len(messages)
+
+        # Add provider name if provider object is available
+        if provider:
+            properties["provider"] = provider.__class__.__name__.replace("Provider", "").lower()
+
+        return properties
 
     def _get_fim_provider(self, data: ProviderData) -> Any:
         """Factory method for FIM providers"""

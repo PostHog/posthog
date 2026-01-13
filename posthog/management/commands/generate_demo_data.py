@@ -7,16 +7,21 @@ import secrets
 import datetime as dt
 from time import monotonic
 from typing import Optional
+from urllib.parse import quote
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
+from posthog.models import User
+from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
+from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
@@ -96,6 +101,12 @@ class Command(BaseCommand):
             help="Skip syncing feature flags from API after data generation",
         )
         parser.add_argument(
+            "--skip-user-product-list",
+            action="store_true",
+            default=False,
+            help="Skip creating UserProductList entries after data generation",
+        )
+        parser.add_argument(
             "--say-on-complete",
             action="store_true",
             default=sys.platform == "darwin",
@@ -144,6 +155,9 @@ class Command(BaseCommand):
             email = options["email"]
             password = options["password"]
             matrix_manager = MatrixManager(matrix, print_steps=True)
+            team: Optional[Team] = None
+            user = None
+
             try:
                 if existing_team_id is not None:
                     if existing_team_id == 0:
@@ -153,7 +167,7 @@ class Command(BaseCommand):
                         user = team.organization.members.first()
                         matrix_manager.run_on_team(team, user)
                 else:
-                    organization, team, user = matrix_manager.ensure_account_and_save(
+                    _organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
                         "Hedgebox Inc.",
@@ -161,6 +175,7 @@ class Command(BaseCommand):
                         password=password,
                         email_collision_handling="disambiguate",
                     )
+
                     # Optionally generate demo issues for issue tracker if extension is available
                     gen_issues = getattr(self, "generate_demo_issues", None)
                     team_for_issues = getattr(matrix_manager, "team", None)
@@ -168,6 +183,7 @@ class Command(BaseCommand):
                         gen_issues(team_for_issues)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
+
             if not options.get("skip_materialization"):
                 print("Materializing common columns...")
                 self.materialize_common_columns(options["days_past"])
@@ -183,6 +199,16 @@ class Command(BaseCommand):
                     print("Continuing anyway...")
             else:
                 print("Skipping feature flag sync.")
+
+            if not options.get("skip_user_product_list"):
+                # Create UserProductList entries for all products
+                # Skip if existing_team_id == 0 (master project reset)
+                if existing_team_id != 0 and team and user:
+                    print("Creating UserProductList entries for all products...")
+                    self.create_default_user_product_list(team, user)
+            else:
+                print("Skipping UserProductList creation.")
+
             print(
                 "\nMaster project reset!\n"
                 if existing_team_id == 0
@@ -191,18 +217,19 @@ class Command(BaseCommand):
                     if existing_team_id is not None
                     else f"\nDemo data ready for {user.email}!\n\n"
                     "Pre-fill the login form with this link:\n"
-                    f"http://localhost:8010/login?email={user.email}\n"
+                    f"http://localhost:8010/login?email={quote(user.email)}\n"
                     f"The password is:\n{password}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                    f"http://localhost:8010/signup?email={user.email}\n"
+                    f"http://localhost:8010/signup?email={quote(user.email)}\n"
                 )
             )
+
             if options["say_on_complete"]:
-                os.system('say "demo data ready" || true')
+                os.system('say "initiating self destruct sequence" || true')
         else:
             print("Dry run - not saving results.")
             if options["say_on_complete"]:
-                os.system('say "demo data completed (dry run)" || true')
+                os.system('say "demo data dry run completed" || true')
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
@@ -278,13 +305,7 @@ class Command(BaseCommand):
 
         person_properties = {
             *PERSON_PROPERTIES_ADAPTED_FROM_EVENT,
-            "email",
-            "Email",
-            "name",
-            "Name",
-            "username",
-            "Username",
-            "UserName",
+            *PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES,
         }
         for prop in person_properties.copy():
             if prop.startswith("$initial_"):
@@ -324,3 +345,21 @@ class Command(BaseCommand):
             ],
             backfill_period_days=backfill_days,
         )
+
+    def create_default_user_product_list(self, team: Team, user: User) -> None:
+        """Create UserProductList entries for all default sidebar products."""
+        product_paths = Products.get_product_paths()
+        created_count = 0
+        for product_path in product_paths:
+            _, created = UserProductList.objects.get_or_create(
+                team=team,
+                user=user,
+                product_path=product_path,
+                defaults={
+                    "enabled": True,
+                    "reason": None,
+                },
+            )
+            if created:
+                created_count += 1
+        print(f"Created {created_count} UserProductList entries for {len(product_paths)} products.")

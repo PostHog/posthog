@@ -12,6 +12,7 @@ import {
     LemonLabel,
     LemonMenu,
     LemonModal,
+    LemonModalProps,
     LemonSegmentedButton,
     LemonSelect,
     LemonTable,
@@ -23,14 +24,18 @@ import {
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
-import { API_KEY_SCOPE_PRESETS, API_SCOPES, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { capitalizeFirstLetter, detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
+import { API_KEY_SCOPE_PRESETS, MAX_API_KEYS_PER_USER } from 'lib/scopes'
+import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 
-function EditKeyModal(): JSX.Element {
+interface EditKeyModalProps {
+    zIndex?: LemonModalProps['zIndex']
+}
+
+export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
     const {
         editingKeyId,
         isEditingKeySubmitting,
@@ -40,8 +45,11 @@ function EditKeyModal(): JSX.Element {
         editingKey,
         allTeams,
         allOrganizations,
+        filteredScopes,
+        searchTerm,
     } = useValues(personalAPIKeysLogic)
-    const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes } = useActions(personalAPIKeysLogic)
+    const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes, setSearchTerm } =
+        useActions(personalAPIKeysLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
 
     const isNew = editingKeyId === 'new'
@@ -54,6 +62,7 @@ function EditKeyModal(): JSX.Element {
                 isOpen={!!editingKeyId}
                 width="40rem"
                 hasUnsavedInput={editingKeyChanged}
+                zIndex={zIndex}
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={() => setEditingKeyId(null)}>
@@ -125,68 +134,94 @@ function EditKeyModal(): JSX.Element {
                                     </LemonBanner>
                                 ) : (
                                     <div>
-                                        {API_SCOPES.map(
-                                            ({ key, disabledActions, warnings, disabledWhenProjectScoped, info }) => {
-                                                const disabledDueToProjectScope =
-                                                    disabledWhenProjectScoped && editingKey.access_type === 'teams'
-                                                return (
-                                                    <Fragment key={key}>
-                                                        <div className="flex items-center justify-between gap-2 min-h-8">
-                                                            <div
-                                                                className={clsx(
-                                                                    'flex items-center gap-1',
-                                                                    disabledDueToProjectScope && 'text-muted'
-                                                                )}
-                                                            >
-                                                                <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>
+                                        <LemonInput
+                                            type="search"
+                                            placeholder="Search scopes..."
+                                            value={searchTerm}
+                                            onChange={setSearchTerm}
+                                            className="mb-2"
+                                            size="small"
+                                        />
+                                        <div className="max-h-[50vh] overflow-y-auto">
+                                            {filteredScopes.length === 0 ? (
+                                                <div className="text-muted text-sm py-2">
+                                                    No scopes match "{searchTerm}"
+                                                </div>
+                                            ) : (
+                                                filteredScopes.map(
+                                                    ({
+                                                        key,
+                                                        objectName,
+                                                        disabledActions,
+                                                        warnings,
+                                                        disabledWhenProjectScoped,
+                                                        info,
+                                                    }) => {
+                                                        const disabledDueToProjectScope =
+                                                            disabledWhenProjectScoped &&
+                                                            editingKey.access_type === 'teams'
+                                                        return (
+                                                            <Fragment key={key}>
+                                                                <div className="flex items-center justify-between gap-2 min-h-8">
+                                                                    <div
+                                                                        className={clsx(
+                                                                            'flex items-center gap-1',
+                                                                            disabledDueToProjectScope && 'text-muted'
+                                                                        )}
+                                                                    >
+                                                                        <b>{objectName}</b>
 
-                                                                {info ? (
-                                                                    <Tooltip title={info}>
-                                                                        <IconInfo className="text-secondary text-base" />
-                                                                    </Tooltip>
-                                                                ) : null}
-                                                            </div>
-                                                            <LemonSegmentedButton
-                                                                onChange={(value) => setScopeRadioValue(key, value)}
-                                                                value={formScopeRadioValues[key] ?? 'none'}
-                                                                options={[
-                                                                    { label: 'No access', value: 'none' },
-                                                                    {
-                                                                        label: 'Read',
-                                                                        value: 'read',
-                                                                        disabledReason: disabledActions?.includes(
-                                                                            'read'
-                                                                        )
-                                                                            ? 'Does not apply to this resource'
-                                                                            : disabledDueToProjectScope
-                                                                              ? 'Not available for project scoped keys'
-                                                                              : undefined,
-                                                                    },
-                                                                    {
-                                                                        label: 'Write',
-                                                                        value: 'write',
-                                                                        disabledReason: disabledActions?.includes(
-                                                                            'write'
-                                                                        )
-                                                                            ? 'Does not apply to this resource'
-                                                                            : disabledDueToProjectScope
-                                                                              ? 'Not available for project scoped keys'
-                                                                              : undefined,
-                                                                    },
-                                                                ]}
-                                                                size="xsmall"
-                                                            />
-                                                        </div>
-                                                        {warnings?.[formScopeRadioValues[key]] && (
-                                                            <div className="flex items-start gap-2 text-xs italic pb-2">
-                                                                <IconWarning className="text-base text-secondary mt-0.5" />
-                                                                <span>{warnings[formScopeRadioValues[key]]}</span>
-                                                            </div>
-                                                        )}
-                                                    </Fragment>
+                                                                        {info ? (
+                                                                            <Tooltip title={info}>
+                                                                                <IconInfo className="text-secondary text-base" />
+                                                                            </Tooltip>
+                                                                        ) : null}
+                                                                    </div>
+                                                                    <LemonSegmentedButton
+                                                                        onChange={(value) =>
+                                                                            setScopeRadioValue(key, value)
+                                                                        }
+                                                                        value={formScopeRadioValues[key] ?? 'none'}
+                                                                        options={[
+                                                                            { label: 'No access', value: 'none' },
+                                                                            {
+                                                                                label: 'Read',
+                                                                                value: 'read',
+                                                                                disabledReason:
+                                                                                    disabledActions?.includes('read')
+                                                                                        ? 'Does not apply to this resource'
+                                                                                        : disabledDueToProjectScope
+                                                                                          ? 'Not available for project scoped keys'
+                                                                                          : undefined,
+                                                                            },
+                                                                            {
+                                                                                label: 'Write',
+                                                                                value: 'write',
+                                                                                disabledReason:
+                                                                                    disabledActions?.includes('write')
+                                                                                        ? 'Does not apply to this resource'
+                                                                                        : disabledDueToProjectScope
+                                                                                          ? 'Not available for project scoped keys'
+                                                                                          : undefined,
+                                                                            },
+                                                                        ]}
+                                                                        size="xsmall"
+                                                                    />
+                                                                </div>
+                                                                {warnings?.[formScopeRadioValues[key]] && (
+                                                                    <div className="flex items-start gap-2 text-xs italic pb-2">
+                                                                        <IconWarning className="text-base text-secondary mt-0.5" />
+                                                                        <span>
+                                                                            {warnings[formScopeRadioValues[key]]}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                            </Fragment>
+                                                        )
+                                                    }
                                                 )
-                                            }
-                                        )}
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </>

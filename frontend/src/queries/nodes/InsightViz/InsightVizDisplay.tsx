@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -15,6 +16,7 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -28,12 +30,13 @@ import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
+import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode, QuerySchema } from '~/queries/schema/schema-general'
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -50,7 +53,6 @@ export function InsightVizDisplay({
     embedded,
     inSharedMode,
     editMode,
-    insightProps,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -62,13 +64,12 @@ export function InsightVizDisplay({
     embedded: boolean
     inSharedMode?: boolean
     editMode?: boolean
-    insightProps: InsightLogicProps<QuerySchema>
 }): JSX.Element | null {
-    const { canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const hasAIAnalysis = useFeatureFlag('PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS')
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
     const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
@@ -84,10 +85,12 @@ export function InsightVizDisplay({
         timedOutQueryId,
         vizSpecificOptions,
         query,
+        querySource,
         display,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -181,6 +184,8 @@ export function InsightVizDisplay({
                 )
             case InsightType.PATHS:
                 return isUsingPathsV2 ? <PathsV2 /> : <Paths />
+            case InsightType.WEB_ANALYTICS:
+                return <WebAnalyticsInsight context={context} editMode={editMode} />
             default:
                 return null
         }
@@ -243,9 +248,34 @@ export function InsightVizDisplay({
         return null
     }
 
+    function renderAIAnalysisSection(): JSX.Element | null {
+        // Check feature flag
+        if (!hasAIAnalysis) {
+            return null
+        }
+
+        // Only show in view mode
+        if (editMode) {
+            return null
+        }
+
+        // Don't show in embedded or shared mode
+        if (embedded || inSharedMode) {
+            return null
+        }
+
+        // Only show for insight query nodes (use querySource which is the actual InsightQueryNode)
+        if (!querySource) {
+            return null
+        }
+
+        return <InsightAIAnalysis query={querySource} />
+    }
+
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
-    if (!theme) {
+    // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
+    if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
         return null
     }
 
@@ -303,6 +333,7 @@ export function InsightVizDisplay({
                 )}
             </div>
             <ResultCustomizationsModal />
+            {renderAIAnalysisSection()}
             {renderTable()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>

@@ -40,7 +40,7 @@ from posthog.schema import (
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.funnels.funnel import Funnel
+from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models import DataWarehouseTable
 from posthog.models.team.team import Team
@@ -51,6 +51,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
+from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -68,6 +69,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -277,6 +279,7 @@ async def _run(
         assert table is not None
         assert table.size_in_s3_mib is not None
         assert table.queryable_folder is not None
+        assert table.credential_id is None
 
         query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+$")
         assert query_folder_pattern.match(table.queryable_folder)
@@ -325,10 +328,10 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             BUCKET_PATH=BUCKET_NAME,
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
             DATA_WAREHOUSE_REDIS_HOST="localhost",
             DATA_WAREHOUSE_REDIS_PORT="6379",
         ),
@@ -822,7 +825,7 @@ async def test_funnels_lazy_joins_ordering(team, stripe_customer, mock_stripe_cl
             breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY, breakdown="stripe_customer.email"
         ),
     )
-    funnel_class = Funnel(context=FunnelQueryContext(query=query, team=team))
+    funnel_class = FunnelUDF(context=FunnelQueryContext(query=query, team=team))
 
     query_ast = funnel_class.get_query()
     await sync_to_async(execute_hogql_query)(
@@ -1010,7 +1013,7 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
     )
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+        "ee.billing.quota_limiting.list_limited_team_attributes",
     ) as mock_list_limited_team_attributes:
         mock_list_limited_team_attributes.return_value = [team.api_token]
 
@@ -1054,7 +1057,7 @@ async def test_create_external_job_failure(team, stripe_customer, mock_stripe_cl
     )
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+        "ee.billing.quota_limiting.list_limited_team_attributes",
     ) as mock_list_limited_team_attributes:
         mock_list_limited_team_attributes.side_effect = Exception("Ruhoh!")
 
@@ -1155,7 +1158,7 @@ async def test_non_retryable_error(team, zendesk_brands):
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+            "ee.billing.quota_limiting.list_limited_team_attributes",
         ) as mock_list_limited_team_attributes,
         mock.patch.object(posthoganalytics, "capture") as capture_mock,
     ):
@@ -1207,7 +1210,7 @@ async def test_non_retryable_error_with_special_characters(team, stripe_customer
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+            "ee.billing.quota_limiting.list_limited_team_attributes",
         ) as mock_list_limited_team_attributes,
         mock.patch.object(posthoganalytics, "capture") as capture_mock,
     ):
@@ -1828,45 +1831,52 @@ async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_conf
 
     s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
 
-    # Using datetime partition mode with created_at
-    assert any(f"{PARTITION_KEY}=2025-01" in obj["Key"] for obj in s3_objects["Contents"])
-    assert any(f"{PARTITION_KEY}=2025-02" in obj["Key"] for obj in s3_objects["Contents"])
+    # Using datetime partition mode with created_at and week format (the default)
+    assert any(f"{PARTITION_KEY}=2025-w01" in obj["Key"] for obj in s3_objects["Contents"])
+    assert any(f"{PARTITION_KEY}=2025-w05" in obj["Key"] for obj in s3_objects["Contents"])
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
     assert schema.partitioning_keys == ["created_at"]
     assert schema.partition_mode == "datetime"
-    assert schema.partition_format == "month"
+    assert schema.partition_format == "week"
     assert schema.partition_count is not None
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_partition_folders_with_uuid_id_and_created_at_with_day_format(
-    team, postgres_config, postgres_connection, minio_client
+@pytest.mark.parametrize(
+    "partition_format,test_dates,expected_partitions",
+    [
+        ("day", ["2025-01-01", "2025-01-02", "2025-01-03"], ["2025-01-01", "2025-01-02", "2025-01-03"]),
+        ("week", ["2024-12-31", "2025-01-01", "2025-01-06"], ["2025-w01", "2025-w01", "2025-w02"]),
+        ("month", ["2025-01-01", "2025-02-01", "2025-03-01"], ["2025-01", "2025-02", "2025-03"]),
+    ],
+)
+async def test_partition_folders_with_uuid_id_and_created_at_with_parametrized_format(
+    team, postgres_config, postgres_connection, minio_client, partition_format, test_dates, expected_partitions
 ):
+    table_name = f"test_partition_{partition_format}"
+
     await postgres_connection.execute(
-        "CREATE TABLE IF NOT EXISTS {schema}.test_partition_folders (id uuid, created_at timestamp)".format(
-            schema=postgres_config["schema"]
+        "CREATE TABLE IF NOT EXISTS {schema}.{table_name} (id uuid, created_at timestamp)".format(
+            schema=postgres_config["schema"], table_name=table_name
         )
     )
 
-    await postgres_connection.execute(
-        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES ('{uuid}', '2025-01-01T12:00:00.000Z')".format(
-            schema=postgres_config["schema"], uuid=str(uuid.uuid4())
+    for date in test_dates:
+        await postgres_connection.execute(
+            "INSERT INTO {schema}.{table_name} (id, created_at) VALUES ('{uuid}', '{date}T12:00:00.000Z')".format(
+                schema=postgres_config["schema"], table_name=table_name, uuid=str(uuid.uuid4()), date=date
+            )
         )
-    )
-    await postgres_connection.execute(
-        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES ('{uuid}', '2025-01-02T12:00:00.000Z')".format(
-            schema=postgres_config["schema"], uuid=str(uuid.uuid4())
-        )
-    )
+
     await postgres_connection.commit()
 
     workflow_id, inputs = await _run(
         team=team,
-        schema_name="test_partition_folders",
-        table_name="postgres_test_partition_folders",
+        schema_name=table_name,
+        table_name=f"postgres_{table_name}",
         source_type="Postgres",
         job_inputs={
             "host": postgres_config["host"],
@@ -1885,7 +1895,7 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_day_format(
 
     # Set the parition format on the schema - this will persist after a reset_pipeline
     schema: ExternalDataSchema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
-    schema.sync_type_config["partition_format"] = "day"
+    schema.sync_type_config["partition_format"] = partition_format
     await sync_to_async(schema.save)()
 
     # Resync with reset_pipeline = True
@@ -1913,17 +1923,19 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_day_format(
     latest_job = jobs[0]
     folder_path = await sync_to_async(latest_job.folder_path)()
 
-    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/{table_name}/")
 
-    # Using datetime partition mode with created_at - formatted to the day
-    assert any(f"{PARTITION_KEY}=2025-01-01" in obj["Key"] for obj in s3_objects["Contents"])
-    assert any(f"{PARTITION_KEY}=2025-01-02" in obj["Key"] for obj in s3_objects["Contents"])
+    # using datetime partition mode with created_at - formatted to day, week, or month
+    for expected_partition in expected_partitions:
+        assert any(f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]), (
+            f"Expected partition {expected_partition} not found in S3 objects"
+        )
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
     assert schema.partitioning_keys == ["created_at"]
     assert schema.partition_mode == "datetime"
-    assert schema.partition_format == "day"
+    assert schema.partition_format == partition_format
     assert schema.partition_count is not None
 
 
@@ -2537,7 +2549,9 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
         mock.patch("ee.api.billing.requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
-        source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+        with freeze_time("2023-01-01"):
+            source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+
         # A previous job that reached the billing limit
         await sync_to_async(ExternalDataJob.objects.create)(
             team=team,
@@ -2890,3 +2904,45 @@ async def test_resumable_source_shutdown(team, stripe_customer, mock_stripe_clie
         )
 
         mock_raise_if_is_worker_shutdown.assert_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client):
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
+        mock_get_rows.side_effect = Exception("Some error that doesn't retry")
+
+        with pytest.raises(Exception):
+            await _run(
+                team=team,
+                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                table_name="stripe_customer",
+                source_type="Stripe",
+                job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+                mock_data_response=stripe_customer["data"],
+                ignore_assertions=True,
+            )
+
+    # Incremental and resumable source syncs retry up to 9 times
+    assert mock_get_rows.call_count == 9
+
+    source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
+    non_retryable_errors = source_cls.get_non_retryable_errors()
+    non_retryable_error = next(iter(non_retryable_errors.keys()))
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
+        mock_get_rows.side_effect = Exception(non_retryable_error)
+
+        with pytest.raises(Exception):
+            await _run(
+                team=team,
+                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                table_name="stripe_customer",
+                source_type="Stripe",
+                job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+                mock_data_response=stripe_customer["data"],
+                ignore_assertions=True,
+            )
+
+    # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
+    assert mock_get_rows.call_count == 4

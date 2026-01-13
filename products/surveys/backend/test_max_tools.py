@@ -16,7 +16,7 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQuestionType, SurveyType
 
-from posthog.models import FeatureFlag, Survey
+from posthog.models import FeatureFlag, Insight, Survey
 
 from products.surveys.backend.max_tools import SurveyAnalysisOutput, ThemeWithExamples
 
@@ -330,6 +330,61 @@ class TestSurveyCreatorTool(BaseTest):
         assert survey.linked_flag_id == flag.id
         assert survey.conditions["linkedFlagVariant"] == "any"
 
+    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_with_linked_insight(self, mock_create_survey):
+        """Test creating a survey with a linked insight (from funnel cross-sell)"""
+        # Create a test insight
+        insight = await sync_to_async(Insight.objects.create)(
+            team=self.team,
+            name="Test Funnel",
+            created_by=self.user,
+        )
+
+        # Create tool with insight_id in context
+        tool = CreateSurveyTool(
+            team=self.team,
+            user=self.user,
+            config={
+                **self._config,
+                "configurable": {
+                    **self._config.get("configurable", {}),
+                    "contextual_tools": {"create_survey": {"insight_id": insight.id}},
+                },
+            },
+        )
+
+        # Mock the LLM response
+        mock_output = SurveyCreationSchema(
+            name="Funnel Survey",
+            description="Survey for funnel conversion",
+            type=SurveyType.POPOVER,
+            questions=[
+                SurveyQuestionSchema(
+                    type=SurveyQuestionType.OPEN,
+                    question="Why didn't you complete the checkout?",
+                    optional=False,
+                )
+            ],
+            should_launch=False,
+            enable_partial_responses=True,
+        )
+
+        mock_create_survey.return_value = mock_output
+
+        # Run the method
+        content, artifact = await tool._arun_impl("Create a survey for this funnel")
+
+        # Verify success response
+        assert "✅ Survey" in content
+        assert "successfully" in content
+
+        # Verify survey was created with linked insight
+        survey = await sync_to_async(Survey.objects.select_related("linked_insight").get)(id=artifact["survey_id"])
+        assert survey.name == "Funnel Survey"
+        assert survey.linked_insight_id == insight.id
+
 
 class TestSurveyLoopNode(BaseTest):
     def setUp(self):
@@ -424,7 +479,7 @@ class TestSurveyLoopNode(BaseTest):
         # Create 6 surveys
         survey_names = []
         for i in range(6):
-            name = f"Survey {i+1}"
+            name = f"Survey {i + 1}"
             survey_names.append(name)
             await sync_to_async(Survey.objects.create)(
                 team=self.team,

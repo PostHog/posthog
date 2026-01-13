@@ -11,7 +11,7 @@ from django.db import models, transaction
 import structlog
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
@@ -62,11 +62,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         RUNNING = "Running"
 
     class Origin(models.TextChoices):
-        """Possible origin of this SavedQuery."""
+        """Possible origin of this SavedQuery"""
 
-        DATA_WAREHOUSE = "data_warehouse"
-        ENDPOINT = "endpoint"
-        MANAGED_VIEWSET = "managed_viewset"
+        DATA_WAREHOUSE = DataWarehouseSavedQueryOrigin.DATA_WAREHOUSE
+        ENDPOINT = DataWarehouseSavedQueryOrigin.ENDPOINT
+        MANAGED_VIEWSET = DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -129,7 +129,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
-    def enable_materialization(self, unpause: bool = False):
+    def schedule_materialization(self, unpause: bool = False):
         """
         It will schedule the saved query workflow to run at the configured frequency.
         If unpause is True, it will unpause the saved query workflow if it already exists.
@@ -241,13 +241,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
+            # KLUDGE: Should accept this as a parameter to avoid rebuilding it everytime this is called
+            database=Database.create_for(self.team.pk),
         )
-        node = parse_select(self.query["query"])
-        context.database = Database.create_for(context.team_id)
 
-        node = resolve_types(node, context, dialect="clickhouse")
+        node = parse_select(self.query["query"])
+        resolved_node = resolve_types(node, context, dialect="clickhouse")
+
         table_collector = S3TableVisitor()
-        table_collector.visit(node)
+        table_collector.visit(resolved_node)
 
         return list(table_collector.tables)
 
@@ -265,9 +267,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             parsed = urlparse(settings.BUCKET_URL)
             bucket_name = parsed.netloc
 
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None

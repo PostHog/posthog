@@ -61,6 +61,8 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
         title = 'Time'
     } else if (key === 'created_at') {
         title = 'First seen'
+    } else if (key === 'last_seen') {
+        title = 'Last seen'
     } else if (key === 'event') {
         title = 'Event'
     } else if (key === 'person') {

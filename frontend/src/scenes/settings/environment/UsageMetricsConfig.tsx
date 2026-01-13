@@ -8,6 +8,7 @@ import {
     LemonInput,
     LemonLabel,
     LemonMenu,
+    LemonModal,
     LemonSelect,
     LemonTable,
     LemonTableColumns,
@@ -16,7 +17,10 @@ import {
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -45,7 +49,8 @@ function sanitizeFilters(filters?: FilterType): FilterType {
 
 function UsageMetricsTable(): JSX.Element {
     const { usageMetrics, usageMetricsLoading } = useValues(usageMetricsConfigLogic)
-    const { removeUsageMetric } = useActions(usageMetricsConfigLogic)
+    const { removeUsageMetric, openModal, setUsageMetricValues } = useActions(usageMetricsConfigLogic)
+    const { reportUsageMetricsUpdateButtonClicked } = useActions(eventUsageLogic)
 
     const columns: LemonTableColumns<UsageMetric> = [
         {
@@ -79,25 +84,9 @@ function UsageMetricsTable(): JSX.Element {
                             {
                                 label: 'Edit',
                                 onClick: () => {
-                                    LemonDialog.open({
-                                        title: 'Edit usage metric',
-                                        description: (
-                                            <div>
-                                                <UsageMetricsForm metric={metric} />
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            htmlType: 'submit',
-                                            children: 'Save',
-                                            'data-attr': 'update-usage-metric',
-                                            form: 'usageMetric',
-                                        },
-                                        secondaryButton: {
-                                            htmlType: 'button',
-                                            children: 'Cancel',
-                                            'data-attr': 'cancel-update-usage-metric',
-                                        },
-                                    })
+                                    openModal()
+                                    setUsageMetricValues(metric)
+                                    reportUsageMetricsUpdateButtonClicked()
                                 },
                             },
                             {
@@ -110,7 +99,9 @@ function UsageMetricsTable(): JSX.Element {
                                         primaryButton: {
                                             children: 'Delete',
                                             status: 'danger',
-                                            onClick: () => removeUsageMetric(metric.id),
+                                            onClick: () => {
+                                                removeUsageMetric(metric.id)
+                                            },
                                         },
                                         secondaryButton: {
                                             children: 'Cancel',
@@ -130,22 +121,7 @@ function UsageMetricsTable(): JSX.Element {
     return <LemonTable columns={columns} dataSource={usageMetrics} loading={usageMetricsLoading} />
 }
 
-interface UsageMetricsFormProps {
-    metric?: UsageMetric
-}
-
-function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
-    const { resetUsageMetric, setIsEditing, setUsageMetricValues } = useActions(usageMetricsConfigLogic)
-
-    if (metric) {
-        setUsageMetricValues(metric)
-    }
-
-    const handleCancelForm = (): void => {
-        resetUsageMetric()
-        setIsEditing(false)
-    }
-
+function UsageMetricsForm(): JSX.Element {
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.EventMetadata,
@@ -179,14 +155,15 @@ function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
                         />
                     </LemonField>
 
-                    <LemonField name="display" label="Display">
+                    {/*Commenting this out as sparkline display is not supported yet*/}
+                    {/*<LemonField name="display" label="Display">
                         <LemonSelect
                             options={[
                                 { value: 'number', label: 'Number' },
                                 { value: 'sparkline', label: 'Sparkline' },
                             ]}
                         />
-                    </LemonField>
+                    </LemonField>*/}
                 </div>
 
                 <div className="grid grid-cols-1 gap-2">
@@ -251,51 +228,60 @@ function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
                         }}
                     </LemonField>
                 </div>
-                <div>
-                    {!metric && (
-                        <div className="flex gap-2 mt-2">
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-usage-metric"
-                                htmlType="submit"
-                                form="usageMetric"
-                            >
-                                Save
-                            </LemonButton>
-                            <LemonButton type="secondary" data-attr="cancel-usage-metric" onClick={handleCancelForm}>
-                                Cancel
-                            </LemonButton>
-                        </div>
-                    )}
-                </div>
             </div>
         </Form>
     )
 }
 
 export function UsageMetricsConfig(): JSX.Element {
-    const { isEditing } = useValues(usageMetricsConfigLogic)
-    const { setIsEditing, resetUsageMetric } = useActions(usageMetricsConfigLogic)
+    const { openModal } = useActions(usageMetricsConfigLogic)
+    const { groupsEnabled } = useValues(groupsAccessLogic)
+    const { reportUsageMetricsSettingsViewed } = useActions(eventUsageLogic)
 
-    const handleAddMetric = (): void => {
-        resetUsageMetric()
-        setIsEditing(true)
-    }
+    useOnMountEffect(() => {
+        reportUsageMetricsSettingsViewed()
+    })
 
     return (
         <>
             <p>
-                Choose which events matter for each metric: API calls, feature adoption, session frequency, error rates
-                to identify expansion opportunities and churn risk based on real customer behavior.
+                Define what usage means for your product based on one or more events.
+                <br />
+                Usage metrics are displayed in the person {groupsEnabled ? 'and group profiles' : 'profile'}.
             </p>
             <div className="flex flex-col gap-2 items-start">
-                {!isEditing && (
-                    <LemonButton type="primary" onClick={handleAddMetric} icon={<IconPlusSmall />}>
-                        Add metric
-                    </LemonButton>
-                )}
-                {isEditing ? <UsageMetricsForm /> : <UsageMetricsTable />}
+                <LemonButton type="primary" size="small" onClick={openModal} icon={<IconPlusSmall />}>
+                    Add metric
+                </LemonButton>
+                <UsageMetricsTable />
+                <UsageMetricsModal />
             </div>
         </>
+    )
+}
+
+export function UsageMetricsModal(): JSX.Element {
+    const { isModalOpen } = useValues(usageMetricsConfigLogic)
+    const { closeModal } = useActions(usageMetricsConfigLogic)
+
+    return (
+        <LemonModal
+            title="Add usage metric"
+            isOpen={isModalOpen}
+            onClose={closeModal}
+            children={<UsageMetricsForm />}
+            footer={
+                <>
+                    <LemonButton
+                        htmlType="submit"
+                        form="usageMetric"
+                        type="primary"
+                        children="Save"
+                        data-attr="create-usage-metric"
+                    />
+                    <LemonButton children="Cancel" onClick={closeModal} data-attr="cancel-create-usage-metric" />
+                </>
+            }
+        />
     )
 }

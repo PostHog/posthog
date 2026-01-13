@@ -13,14 +13,16 @@ import temporalio.workflow
 from structlog import get_logger
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.models.person import Person
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
 
-SELECT_QUERY = """
+# Templates with {{person_table}} placeholder for dynamic table name
+SELECT_QUERY_TEMPLATE = """
     SELECT id
-    FROM posthog_person
+    FROM {{person_table}}
     WHERE team_id=%(team_id)s {person_ids_filter}
     ORDER BY id ASC
     LIMIT %(limit)s
@@ -44,11 +46,15 @@ DELETE_QUERY_COHORT_PEOPLE = """
     WHERE person_id IN (SELECT id FROM to_delete);
 """
 
-DELETE_QUERY_PERSON = """
+DELETE_QUERY_PERSON_TEMPLATE = """
     WITH to_delete AS ({select_query})
-    DELETE FROM posthog_person
+    DELETE FROM {{person_table}}
     WHERE id IN (SELECT id FROM to_delete);
 """
+
+# Format templates with person table name at module level
+SELECT_QUERY = SELECT_QUERY_TEMPLATE.replace("{{person_table}}", Person._meta.db_table)
+DELETE_QUERY_PERSON = DELETE_QUERY_PERSON_TEMPLATE.replace("{{person_table}}", Person._meta.db_table)
 
 
 @dataclasses.dataclass

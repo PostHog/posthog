@@ -82,7 +82,7 @@ export const stepViewLogic = kea<stepViewLogicType>([
         },
         saveDescription: () => {
             const trimmedDescription = values.editDescriptionValue.trim()
-            if (trimmedDescription && trimmedDescription !== (props.action.description || '')) {
+            if (trimmedDescription !== (props.action.description || '')) {
                 actions.setWorkflowAction(props.action.id, {
                     ...props.action,
                     description: trimmedDescription,

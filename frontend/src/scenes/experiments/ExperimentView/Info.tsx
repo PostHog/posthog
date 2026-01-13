@@ -3,9 +3,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
@@ -18,9 +19,11 @@ import { ExperimentStatsMethod, ProgressStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
+import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
+import { RunningTimeNew } from './RunningTimeNew'
 import { StatsMethodModal } from './StatsMethodModal'
 import { StatusTag } from './components'
 
@@ -65,7 +68,7 @@ export const ExperimentLastRefresh = ({
     )
 }
 
-export function Info(): JSX.Element {
+export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
         experiment,
         legacyPrimaryMetricsResults,
@@ -77,12 +80,20 @@ export function Info(): JSX.Element {
         statsMethod,
         usesNewQueryRunner,
         isExperimentDraft,
+        isSingleVariantShipped,
+        featureFlags,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
-    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
-        useActions(modalsLogic)
+    const {
+        openEditConclusionModal,
+        openDescriptionModal,
+        closeDescriptionModal,
+        openStatsEngineModal,
+        openRunningTimeConfigModal,
+    } = useActions(modalsLogic)
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
+    const useNewCalculator = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_CALCULATOR] === 'test'
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
     useEffect(() => {
@@ -107,17 +118,28 @@ export function Info(): JSX.Element {
 
     return (
         <>
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1200px]:grid-cols-[1fr_26rem]">
+            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1400px]:grid-cols-[2fr_3fr]">
                 {/* Column 1 */}
-                <div className="flex flex-col gap-0 overflow-hidden">
+                <div className="flex flex-col gap-0 overflow-hidden min-w-0">
                     {/* Row 1: Status, Feature flag, Stats engine */}
-                    <div className="inline-flex deprecated-space-x-8">
+                    <div className="flex flex-wrap gap-x-8 gap-y-2">
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
-                            <StatusTag status={status} />
+                            <div className="flex gap-1">
+                                <StatusTag status={status} />
+                                {isSingleVariantShipped && (
+                                    <Tooltip
+                                        title={`Variant "${experiment.feature_flag?.filters.multivariate?.variants?.find((v) => v.rollout_percentage === 100)?.key}" has been rolled out to 100% of users`}
+                                    >
+                                        <LemonTag type="completion" className="cursor-default">
+                                            <b className="uppercase">100% rollout</b>
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </div>
                         </div>
                         {experiment.feature_flag && (
-                            <div className="flex flex-col">
+                            <div className="flex flex-col max-w-[500px]">
                                 <Label intent="menu">Feature flag</Label>
                                 <div className="flex gap-1 items-center">
                                     {status === ProgressStatus.Running && !experiment.feature_flag.active && (
@@ -154,10 +176,14 @@ export function Info(): JSX.Element {
                             </div>
                         )}
                         <div className="flex flex-col">
-                            <Label intent="menu">Stats Engine</Label>
+                            <Label intent="menu">Statistics</Label>
                             <div className="inline-flex deprecated-space-x-2">
                                 <span>
                                     {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
+                                    {' / '}
+                                    {statsMethod === ExperimentStatsMethod.Bayesian
+                                        ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
+                                        : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
                                 </span>
                                 {usesNewQueryRunner && (
                                     <>
@@ -168,7 +194,7 @@ export function Info(): JSX.Element {
                                                 openStatsEngineModal()
                                             }}
                                             icon={<IconGear />}
-                                            tooltip="Change stats engine"
+                                            tooltip="Configure statistics"
                                         />
                                         <StatsMethodModal />
                                     </>
@@ -227,19 +253,28 @@ export function Info(): JSX.Element {
                 </div>
 
                 {/* Column 2 */}
-                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1200px]:items-end">
+                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1400px]:items-end min-w-0">
                     {/* Row 1: Duration */}
                     {!isExperimentDraft && <ExperimentDuration />}
 
                     {/* Row 2: Last refreshed, Created by */}
-                    <div className="flex flex-col overflow-hidden items-start min-[1200px]:items-end">
-                        <div className="inline-flex deprecated-space-x-8">
+                    <div className="flex flex-col overflow-hidden items-start min-[1400px]:items-end">
+                        <div className="flex flex-wrap gap-x-8 gap-y-2 justify-end">
                             {experiment.start_date && (
-                                <ExperimentLastRefresh
-                                    isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
-                                    lastRefresh={lastRefresh}
-                                    onClick={() => refreshExperimentResults(true)}
-                                />
+                                <>
+                                    {useNewCalculator && tabId && (
+                                        <RunningTimeNew
+                                            experiment={experiment}
+                                            tabId={tabId}
+                                            onClick={openRunningTimeConfigModal}
+                                        />
+                                    )}
+                                    <ExperimentLastRefresh
+                                        isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+                                        lastRefresh={lastRefresh}
+                                        onClick={() => refreshExperimentResults(true)}
+                                    />
+                                </>
                             )}
                             <div className="flex flex-col">
                                 <Label intent="menu">Created by</Label>

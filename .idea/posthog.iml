@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="PYTHON_MODULE" version="4">
+  <component name="FacetManager">
+    <facet type="django" name="Django">
+      <configuration>
+        <option name="rootFolder" value="$MODULE_DIR$" />
+        <option name="settingsModule" value="posthog/settings" />
+        <option name="manageScript" value="manage.py" />
+        <option name="environment" value="&lt;map/&gt;" />
+        <option name="doNotUseTestRunner" value="true" />
+        <option name="trackFilePattern" value="migrations" />
+      </configuration>
+    </facet>
+  </component>
+  <component name="Go" enabled="true" />
+  <component name="NewModuleRootManager" inherit-compiler-output="true">
+    <exclude-output />
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/.flox/cache/venv/lib/python3.11/site-packages/loginas/tests" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/.flox/cache/venv" />
+      <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/.dagster_home/.logs_queue" />
+      <excludeFolder url="file://$MODULE_DIR$/.dagster_home/.telemetry" />
+      <excludeFolder url="file://$MODULE_DIR$/.dagster_home/history" />
+      <excludeFolder url="file://$MODULE_DIR$/.dagster_home/logs" />
+      <excludeFolder url="file://$MODULE_DIR$/.dagster_home/schedules" />
+      <excludeFolder url="file://$MODULE_DIR$/.dagster_home/storage" />
+      <excludeFolder url="file://$MODULE_DIR$/.flox/cache" />
+      <excludeFolder url="file://$MODULE_DIR$/.flox/log" />
+      <excludeFolder url="file://$MODULE_DIR$/.flox/run" />
+      <excludeFolder url="file://$MODULE_DIR$/.parcel-cache" />
+      <excludeFolder url="file://$MODULE_DIR$/.turbo" />
+      <excludeFolder url="file://$MODULE_DIR$/.typegen" />
+      <excludeFolder url="file://$MODULE_DIR$/common/hogvm/typescript/.turbo" />
+      <excludeFolder url="file://$MODULE_DIR$/data" />
+      <excludeFolder url="file://$MODULE_DIR$/frontend/src/assets" />
+      <excludeFolder url="file://$MODULE_DIR$/node_modules" />
+      <excludeFolder url="file://$MODULE_DIR$/playwright/playwright-report" />
+      <excludeFolder url="file://$MODULE_DIR$/playwright/test-results" />
+      <excludeFolder url="file://$MODULE_DIR$/rust/target" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/admin" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/assets" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/coming-soon-destinations" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/django_admin_inline_paginator" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/django_extensions" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/email" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/hedgehog" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/icons" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/rest_framework" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/services" />
+      <excludeFolder url="file://$MODULE_DIR$/staticfiles/transformations" />
+      <excludePattern pattern="*node_modules*" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+  <component name="PyDocumentationSettings">
+    <option name="format" value="PLAIN" />
+    <option name="myDocStringFormat" value="Plain" />
+  </component>
+  <component name="TemplatesService">
+    <option name="TEMPLATE_CONFIGURATION" value="Django" />
+    <option name="TEMPLATE_FOLDERS">
+      <list>
+        <option value="$MODULE_DIR$/nodejs/src/cdp/templates" />
+      </list>
+    </option>
+  </component>
+  <component name="TestRunnerService">
+    <option name="PROJECT_TEST_RUNNER" value="py.test" />
+  </component>
+</module>

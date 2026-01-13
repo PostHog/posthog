@@ -26,6 +26,8 @@ services:
             service: db
         ports:
             - '5432:5432'
+        volumes:
+            - postgres-15-data:/var/lib/postgresql/data
         # something in the django app when running in dev mode
         # (maybe only in Pycharm) keeps many idle transactions open
         # and eventually kills postgres, these settings aim to stop that happening.
@@ -180,17 +182,6 @@ services:
             - redis
             - db
 
-    livestream:
-        extends:
-            file: docker-compose.base.yml
-            service: livestream
-        environment:
-            - JWT.TOKEN=${SECRET_KEY}
-        ports:
-            - '8666:8080'
-        volumes:
-            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
-
     # Temporal containers
     elasticsearch:
         extends:
@@ -232,4 +223,5 @@ services:
                 condition: service_healthy
 
 volumes:
+    postgres-15-data:
     redpanda-data:

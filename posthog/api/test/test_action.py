@@ -29,7 +29,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
                 "description": "Test description",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json() == {
@@ -43,6 +43,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "event": None,
                     "properties": None,
                     "selector": "div > button",
+                    "selector_regex": ANY,
                     "tag_name": None,
                     "text": "sign up",
                     "text_matching": None,
@@ -102,7 +103,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
                 "description": "Test description",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         action = Action.objects.get(pk=response.json()["id"])
@@ -119,7 +120,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             {"name": "user signed up"},
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -168,7 +169,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 "pinned_at": "2021-12-11T00:00:00Z",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["name"] == "user signed up 2"
@@ -179,6 +180,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "event": "$autocapture",
                 "properties": [{"key": "$browser", "value": "Chrome"}],
                 "selector": "div > button",
+                "selector_regex": ANY,
                 "tag_name": None,
                 "text": "sign up NOW",
                 "text_matching": None,
@@ -191,6 +193,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "event": "$pageview",
                 "properties": None,
                 "selector": None,
+                "selector_regex": None,
                 "tag_name": None,
                 "text": None,
                 "text_matching": None,
@@ -238,7 +241,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
             data={"name": "user signed up 2", "steps": []},
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["steps"]), 0)
@@ -253,7 +256,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "user signed up"},
-            HTTP_ORIGIN="https://evilwebsite.com",
+            headers={"origin": "https://evilwebsite.com"},
         )
         self.assertEqual(response.status_code, 401)
 
@@ -263,27 +266,26 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up"},
-            HTTP_ORIGIN="https://somewebsite.com",
+            headers={"origin": "https://somewebsite.com"},
         )
         self.assertEqual(response.status_code, 201)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up and post to slack", "post_to_slack": True},
-            HTTP_ORIGIN="https://somewebsite.com",
+            headers={"origin": "https://somewebsite.com"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["post_to_slack"], True)
 
         list_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/",
-            HTTP_ORIGIN="https://evilwebsite.com",
+            f"/api/projects/{self.team.id}/actions/", headers={"origin": "https://evilwebsite.com"}
         )
         self.assertEqual(list_response.status_code, 401)
 
         detail_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/{response.json()['id']}/",
-            HTTP_ORIGIN="https://evilwebsite.com",
+            headers={"origin": "https://evilwebsite.com"},
         )
         self.assertEqual(detail_response.status_code, 401)
 
@@ -291,14 +293,14 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         list_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/",
             data={"temporary_token": "token123"},
-            HTTP_ORIGIN="https://somewebsite.com",
+            headers={"origin": "https://somewebsite.com"},
         )
         self.assertEqual(list_response.status_code, 200)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up 22"},
-            HTTP_ORIGIN="https://somewebsite.com",
+            headers={"origin": "https://somewebsite.com"},
         )
         self.assertEqual(response.status_code, 201, response.json())
 
@@ -307,7 +309,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "user signed up again"},
-            HTTP_ORIGIN="https://testserver/",
+            headers={"origin": "https://testserver/"},
         )
         self.assertEqual(response.status_code, 201, response.json())
 
@@ -316,7 +318,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "test event", "steps": [{"event": "test_event "}]},
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         action = Action.objects.get(pk=response.json()["id"])
@@ -435,7 +437,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
                 "description": "Test description",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -454,7 +456,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "user signed up in folder",
                 "_create_in_folder": "Special Folder/Actions",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -466,6 +468,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(action_id), type="action").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Action."
-        assert (
-            "Special Folder/Actions" in fs_entry.path
-        ), f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
+        assert "Special Folder/Actions" in fs_entry.path, (
+            f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
+        )

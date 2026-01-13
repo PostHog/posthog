@@ -1,14 +1,14 @@
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
-from inline_snapshot import snapshot
 from parameterized import parameterized
 
 from posthog.models.action.action import Action
@@ -22,7 +22,9 @@ from posthog.models.surveys.survey import Survey
 CONFIG_REFRESH_QUERY_COUNT = 5
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class _RemoteConfigBase(BaseTest):
+    snapshot: Any
     remote_config: RemoteConfig
 
     def setUp(self):
@@ -64,47 +66,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config
         assert self.remote_config.updated_at
         assert self.remote_config.synced_at
-
-        assert self.remote_config.config == snapshot(
-            {
-                "token": "phc_12345",
-                "surveys": False,
-                "heatmaps": False,
-                "siteApps": [],
-                "analytics": {"endpoint": "/i/v0/e/"},
-                "siteAppsJS": [],
-                "hasFeatureFlags": False,
-                "sessionRecording": {
-                    "domains": ["https://*.example.com"],
-                    "endpoint": "/s/",
-                    "linkedFlag": None,
-                    "sampleRate": None,
-                    "urlTriggers": [],
-                    "scriptConfig": {
-                        "script": "posthog-recorder",
-                    },
-                    "urlBlocklist": [],
-                    "eventTriggers": [],
-                    "triggerMatchType": None,
-                    "recorderVersion": "v2",
-                    "networkPayloadCapture": None,
-                    "masking": None,
-                    "consoleLogRecordingEnabled": True,
-                    "minimumDurationMilliseconds": None,
-                },
-                "errorTracking": {
-                    "autocaptureExceptions": False,
-                    "suppressionRules": [],
-                },
-                "captureDeadClicks": False,
-                "capturePerformance": {"web_vitals": False, "network_timing": True, "web_vitals_allowed_metrics": None},
-                "autocapture_opt_out": False,
-                "supportedCompression": ["gzip", "gzip-js"],
-                "autocaptureExceptions": False,
-                "defaultIdentifiedOnly": True,
-                "elementsChainAsString": True,
-            }
-        )
+        assert self.remote_config.config == self.snapshot
 
     def test_indicates_if_feature_flags_exist(self):
         assert not self.remote_config.config["hasFeatureFlags"]
@@ -164,6 +126,54 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.sync_remote_config()
         assert self.remote_config.config["autocaptureExceptions"]
 
+    def test_conversations_disabled_by_default(self):
+        self.sync_remote_config()
+        assert (
+            self.remote_config.config.get("conversations") is None
+            or self.remote_config.config.get("conversations") is False
+        )
+
+    def test_conversations_enabled_with_defaults(self):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_public_token_123",
+        }
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["conversations"]["enabled"] is True
+        assert self.remote_config.config["conversations"]["greetingText"] == "Hey, how can I help you today?"
+        assert self.remote_config.config["conversations"]["color"] == "#1d4aff"
+        assert self.remote_config.config["conversations"]["token"] == "test_public_token_123"
+        assert self.remote_config.config["conversations"]["domains"] == []
+
+    def test_conversations_enabled_with_custom_config(self):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "Welcome! Need assistance?",
+            "widget_color": "#ff5733",
+            "widget_public_token": "custom_token",
+            "widget_domains": ["example.com", "test.com"],
+        }
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["conversations"]["enabled"] is True
+        assert self.remote_config.config["conversations"]["greetingText"] == "Welcome! Need assistance?"
+        assert self.remote_config.config["conversations"]["color"] == "#ff5733"
+        assert self.remote_config.config["conversations"]["token"] == "custom_token"
+        assert self.remote_config.config["conversations"]["domains"] == ["example.com", "test.com"]
+
+    def test_conversations_disabled_returns_false(self):
+        self.team.conversations_enabled = False
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "should_not_appear",
+        }
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["conversations"] is False
+
     @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.50"], ["0.00", "0.00"], [None, None]])
     def test_session_recording_sample_rate(self, value: str | None, expected: str | None) -> None:
         self.team.session_recording_opt_in = True
@@ -178,6 +188,27 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.save()
         self.sync_remote_config()
         assert self.remote_config.config["sessionRecording"]["domains"] == self.team.recording_domains
+
+    def test_extra_settings_recorder_script(self):
+        self.team.session_recording_opt_in = True
+        self.team.extra_settings = {"recorder_script": "custom-recorder"}
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["sessionRecording"]["scriptConfig"] == {"script": "custom-recorder"}
+
+    @parameterized.expand(
+        [
+            (True, {"script": "posthog-recorder"}),
+            (False, None),
+        ]
+    )
+    def test_script_config_uses_default_recorder_in_debug_mode(self, debug_value, expected_script_config):
+        with override_settings(DEBUG=debug_value):
+            self.team.session_recording_opt_in = True
+            self.team.extra_settings = None
+            self.team.save()
+            self.sync_remote_config()
+            assert self.remote_config.config["sessionRecording"]["scriptConfig"] == expected_script_config
 
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
@@ -206,14 +237,12 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         self.team.save()
 
         self.sync_remote_config()
-        assert self.remote_config.config["survey_config"] == snapshot(
-            {
-                "appearance": {
-                    "thankYouMessageHeader": "Thanks for your feedback!",
-                    "thankYouMessageDescription": "We'll use it to make notebooks better",
-                }
+        assert self.remote_config.config["survey_config"] == {
+            "appearance": {
+                "thankYouMessageHeader": "Thanks for your feedback!",
+                "thankYouMessageDescription": "We'll use it to make notebooks better",
             }
-        )
+        }
 
     def test_includes_range_of_survey_types(self):
         survey_basic = Survey.objects.create(
@@ -337,6 +366,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                                             "text": None,
                                             "event": "$pageview",
                                             "selector": None,
+                                            "selector_regex": None,
                                             "tag_name": None,
                                             "properties": None,
                                             "url_matching": "contains",
@@ -373,72 +403,13 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         assert cache.delete(cache_key_for_team_token(self.team.api_token))
 
     def _assert_matches_config(self, data):
-        assert data == snapshot(
-            {
-                "token": "phc_12345",
-                "supportedCompression": ["gzip", "gzip-js"],
-                "hasFeatureFlags": False,
-                "captureDeadClicks": False,
-                "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-                "autocapture_opt_out": False,
-                "autocaptureExceptions": False,
-                "analytics": {"endpoint": "/i/v0/e/"},
-                "elementsChainAsString": True,
-                "sessionRecording": {
-                    "endpoint": "/s/",
-                    "consoleLogRecordingEnabled": True,
-                    "recorderVersion": "v2",
-                    "sampleRate": None,
-                    "minimumDurationMilliseconds": None,
-                    "linkedFlag": None,
-                    "networkPayloadCapture": None,
-                    "masking": None,
-                    "urlTriggers": [],
-                    "urlBlocklist": [],
-                    "eventTriggers": [],
-                    "triggerMatchType": None,
-                    "scriptConfig": {
-                        "script": "posthog-recorder",
-                    },
-                },
-                "errorTracking": {
-                    "autocaptureExceptions": False,
-                    "suppressionRules": [],
-                },
-                "heatmaps": False,
-                "surveys": False,
-                "defaultIdentifiedOnly": True,
-                "siteApps": [],
-            }
-        )
+        assert data == self.snapshot
 
     def _assert_matches_config_js(self, data):
-        assert data == snapshot(
-            """\
-(function() {
-  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
-  window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},
-    siteApps: []
-  }
-})();\
-"""
-        )
+        assert data == self.snapshot
 
     def _assert_matches_config_array_js(self, data):
-        assert data == snapshot(
-            """\
-[MOCKED_ARRAY_JS_CONTENT]
-
-(function() {
-  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
-  window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},
-    siteApps: []
-  }
-})();\
-"""
-        )
+        assert data == self.snapshot
 
     def test_syncs_if_changes(self):
         synced_at = self.remote_config.synced_at
@@ -503,45 +474,44 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
 
     def test_sanitizes_config_for_public_cdn(self):
         config = self.remote_config.get_config_via_token(self.team.api_token)
+
         # Ensure the domain and siteAppsJS are removed
-        assert config == snapshot(
-            {
-                "token": "phc_12345",
-                "supportedCompression": ["gzip", "gzip-js"],
-                "hasFeatureFlags": False,
-                "captureDeadClicks": False,
-                "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-                "autocapture_opt_out": False,
+        assert config == {
+            "token": "phc_12345",
+            "supportedCompression": ["gzip", "gzip-js"],
+            "hasFeatureFlags": False,
+            "captureDeadClicks": False,
+            "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+            "autocapture_opt_out": False,
+            "autocaptureExceptions": False,
+            "analytics": {"endpoint": "/i/v0/e/"},
+            "elementsChainAsString": True,
+            "sessionRecording": {
+                "endpoint": "/s/",
+                "consoleLogRecordingEnabled": True,
+                "recorderVersion": "v2",
+                "sampleRate": None,
+                "minimumDurationMilliseconds": None,
+                "linkedFlag": None,
+                "networkPayloadCapture": None,
+                "masking": None,
+                "urlTriggers": [],
+                "urlBlocklist": [],
+                "eventTriggers": [],
+                "triggerMatchType": None,
+                "scriptConfig": {"script": "posthog-recorder"},
+            },
+            "errorTracking": {
                 "autocaptureExceptions": False,
-                "analytics": {"endpoint": "/i/v0/e/"},
-                "elementsChainAsString": True,
-                "sessionRecording": {
-                    "endpoint": "/s/",
-                    "consoleLogRecordingEnabled": True,
-                    "recorderVersion": "v2",
-                    "sampleRate": None,
-                    "minimumDurationMilliseconds": None,
-                    "linkedFlag": None,
-                    "networkPayloadCapture": None,
-                    "masking": None,
-                    "urlTriggers": [],
-                    "urlBlocklist": [],
-                    "eventTriggers": [],
-                    "triggerMatchType": None,
-                    "scriptConfig": {
-                        "script": "posthog-recorder",
-                    },
-                },
-                "errorTracking": {
-                    "autocaptureExceptions": False,
-                    "suppressionRules": [],
-                },
-                "heatmaps": False,
-                "surveys": False,
-                "defaultIdentifiedOnly": True,
-                "siteApps": [],
-            }
-        )
+                "suppressionRules": [],
+            },
+            "heatmaps": False,
+            "conversations": False,
+            "surveys": False,
+            "productTours": False,
+            "defaultIdentifiedOnly": True,
+            "siteApps": [],
+        }
 
     def test_only_includes_recording_for_approved_domains(self):
         with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
@@ -587,20 +557,11 @@ class TestRemoteConfigJS(_RemoteConfigBase):
     def test_renders_js_including_config(self):
         # NOTE: This is a very basic test to check that the JS is rendered correctly
         # It doesn't check the actual contents of the JS, as that changes often but checks some general things
+        # We can easily see if it changed because the snapshot will be regenerated
         js = self.remote_config.get_config_js_via_token(self.team.api_token)
 
         # TODO: Come up with a good way of solidly testing this...
-        assert js == snapshot(
-            """\
-(function() {
-  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
-  window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},
-    siteApps: []
-  }
-})();\
-"""
-        )
+        assert js == self.snapshot
 
     def test_renders_js_including_site_apps(self):
         files = [
@@ -636,17 +597,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         js = self.remote_config.get_config_js_via_token(self.team.api_token)
 
         # TODO: Come up with a good way of solidly testing this, ideally by running it in an actual browser environment
-        assert js == snapshot(
-            """\
-(function() {
-  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
-  window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},
-    siteApps: []
-  }
-})();\
-"""  # noqa: W291, W293
-        )
+        assert js == self.snapshot
 
     def test_renders_js_including_site_functions(self):
         non_site_app = HogFunction.objects.create(
@@ -686,221 +637,13 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert str(site_destination.id) in js
         assert str(site_app.id) in js
 
+        # Normalize text to be able to match against snapshot
         js = js.replace(str(non_site_app.id), "NON_SITE_APP_ID")
         js = js.replace(str(site_destination.id), "SITE_DESTINATION_ID")
         js = js.replace(str(site_app.id), "SITE_APP_ID")
 
         # TODO: Come up with a good way of solidly testing this, ideally by running it in an actual browser environment
-        assert js == snapshot(
-            """\
-(function() {
-  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
-  window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},
-    siteApps: [    
-    {
-      id: 'SITE_DESTINATION_ID',
-      init: function(config) { return     (function() {
-        function toString (value) { return __STLToString(value) }
-        function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }
-        function ilike (str, pattern) { return __like(str, pattern, true) }
-        function __like(str, pattern, caseInsensitive = false) {
-            if (caseInsensitive) {
-                str = str.toLowerCase()
-                pattern = pattern.toLowerCase()
-            }
-            pattern = String(pattern)
-                .replaceAll(/[-/\\\\^$*+?.()|[\\]{}]/g, '\\\\$&')
-                .replaceAll('%', '.*')
-                .replaceAll('_', '.')
-            return new RegExp(pattern).test(str)
-        }
-        function __getProperty(objectOrArray, key, nullish) {
-            if ((nullish && !objectOrArray) || key === 0) { return null }
-            if (Array.isArray(objectOrArray)) { return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key] }
-            else { return objectOrArray[key] }
-        }
-        function __STLToString(arg) {
-            if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; }
-            else if (arg && __isHogDateTime(arg)) { return __DateTimeToString(arg); }
-            return __printHogStringOutput(arg); }
-        function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
-        function __printHogValue(obj, marked = new Set()) {
-            if (typeof obj === 'object' && obj !== null && obj !== undefined) {
-                if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj)) { return 'null'; }
-                marked.add(obj);
-                try {
-                    if (Array.isArray(obj)) {
-                        if (obj.__isHogTuple) { return obj.length < 2 ? `tuple(${obj.map((o) => __printHogValue(o, marked)).join(', ')})` : `(${obj.map((o) => __printHogValue(o, marked)).join(', ')})`; }
-                        return `[${obj.map((o) => __printHogValue(o, marked)).join(', ')}]`;
-                    }
-                    if (__isHogDateTime(obj)) { const millis = String(obj.dt); return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${__escapeString(obj.zone)})`; }
-                    if (__isHogDate(obj)) return `Date(${obj.year}, ${obj.month}, ${obj.day})`;
-                    if (__isHogError(obj)) { return `${String(obj.type)}(${__escapeString(obj.message)}${obj.payload ? `, ${__printHogValue(obj.payload, marked)}` : ''})`; }
-                    if (obj instanceof Map) { return `{${Array.from(obj.entries()).map(([key, value]) => `${__printHogValue(key, marked)}: ${__printHogValue(value, marked)}`).join(', ')}}`; }
-                    return `{${Object.entries(obj).map(([key, value]) => `${__printHogValue(key, marked)}: ${__printHogValue(value, marked)}`).join(', ')}}`;
-                } finally {
-                    marked.delete(obj);
-                }
-            } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
-            else if (obj === null || obj === undefined) return 'null';
-            else if (typeof obj === 'string') return __escapeString(obj);
-                    if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
-            return obj.toString();
-        }
-        function __isHogError(obj) {return obj && obj.__hogError__ === true}
-        function __escapeString(value) {
-            const singlequoteEscapeCharsMap = { '\\b': '\\\\b', '\\f': '\\\\f', '\\r': '\\\\r', '\\n': '\\\\n', '\\t': '\\\\t', '\\0': '\\\\0', '\\v': '\\\\v', '\\\\': '\\\\\\\\', "'": "\\\\'" }
-            return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
-        }
-        function __escapeIdentifier(identifier) {
-            const backquoteEscapeCharsMap = { '\\b': '\\\\b', '\\f': '\\\\f', '\\r': '\\\\r', '\\n': '\\\\n', '\\t': '\\\\t', '\\0': '\\\\0', '\\v': '\\\\v', '\\\\': '\\\\\\\\', '`': '\\\\`' }
-            if (typeof identifier === 'number') return identifier.toString();
-            if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
-            return `\\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\\``;
-        }
-        function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
-        function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
-        function __DateTimeToString(dt) {
-            if (__isHogDateTime(dt)) {
-                const date = new Date(dt.dt * 1000);
-                const timeZone = dt.zone || 'UTC';
-                const milliseconds = Math.floor(dt.dt * 1000 % 1000);
-                const options = { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
-                const formatter = new Intl.DateTimeFormat('en-US', options);
-                const parts = formatter.formatToParts(date);
-                let year, month, day, hour, minute, second;
-                for (const part of parts) {
-                    switch (part.type) {
-                        case 'year': year = part.value; break;
-                        case 'month': month = part.value; break;
-                        case 'day': day = part.value; break;
-                        case 'hour': hour = part.value; break;
-                        case 'minute': minute = part.value; break;
-                        case 'second': second = part.value; break;
-                        default: break;
-                    }
-                }
-                const getOffset = (date, timeZone) => {
-                    const tzDate = new Date(date.toLocaleString('en-US', { timeZone }));
-                    const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
-                    const offset = (tzDate - utcDate) / 60000; // in minutes
-                    const sign = offset >= 0 ? '+' : '-';
-                    const absOffset = Math.abs(offset);
-                    const hours = Math.floor(absOffset / 60);
-                    const minutes = absOffset % 60;
-                    return `${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-                };
-                let offset = 'Z';
-                if (timeZone !== 'UTC') {
-                    offset = getOffset(date, timeZone);
-                }
-                let isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
-                isoString += `.${milliseconds.toString().padStart(3, '0')}`;
-                isoString += offset;
-                return isoString;
-            }
-        }
-        function buildInputs(globals, initial) {
-        let inputs = {
-        };
-        let __getGlobal = (key) => key === 'inputs' ? inputs : globals[key];
-        return inputs;}
-        const source = (function () {let exports={};"use strict";;return exports;})();
-            let processEvent = undefined;
-            if ('onEvent' in source) {
-                processEvent = function processEvent(globals, posthog) {
-                    if (!('onEvent' in source)) { return; };
-                    const inputs = buildInputs(globals);
-                    const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
-                    let __getGlobal = (key) => filterGlobals[key];
-                    const filterMatches = !!(!ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@posthog.com%") && ((!match(toString(__getProperty(__getGlobal("properties"), "$host", true)), "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)")) ?? 1) && (__getGlobal("event") == "$pageview"));
-                    if (!filterMatches) { return; }
-                    ;
-                }
-            }
-        
-            function init(config) {
-                const posthog = config.posthog;
-                const callback = config.callback;
-                if ('onLoad' in source) {
-                    const globals = {
-                        person: {
-                            properties: posthog.get_property('$stored_person_properties'),
-                        }
-                    }
-                    const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
-                    if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
-                } else {
-                    callback(true);
-                }
-        
-                const response = {}
-        
-                if (processEvent) {
-                    response.processEvent = (globals) => processEvent(globals, posthog)
-                }
-        
-                return response
-            }
-        
-            return { init: init };
-        })().init(config) } 
-    },    
-    {
-      id: 'SITE_APP_ID',
-      init: function(config) { return     (function() {
-        
-        function buildInputs(globals, initial) {
-        let inputs = {
-        };
-        let __getGlobal = (key) => key === 'inputs' ? inputs : globals[key];
-        return inputs;}
-        const source = (function () {let exports={};"use strict";;return exports;})();
-            let processEvent = undefined;
-            if ('onEvent' in source) {
-                processEvent = function processEvent(globals, posthog) {
-                    if (!('onEvent' in source)) { return; };
-                    const inputs = buildInputs(globals);
-                    const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
-                    let __getGlobal = (key) => filterGlobals[key];
-                    const filterMatches = true;
-                    if (!filterMatches) { return; }
-                    ;
-                }
-            }
-        
-            function init(config) {
-                const posthog = config.posthog;
-                const callback = config.callback;
-                if ('onLoad' in source) {
-                    const globals = {
-                        person: {
-                            properties: posthog.get_property('$stored_person_properties'),
-                        }
-                    }
-                    const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
-                    if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
-                } else {
-                    callback(true);
-                }
-        
-                const response = {}
-        
-                if (processEvent) {
-                    response.processEvent = (globals) => processEvent(globals, posthog)
-                }
-        
-                return response
-            }
-        
-            return { init: init };
-        })().init(config) } 
-    }]
-  }
-})();\
-"""  # noqa: W291, W293
-        )
+        assert js == self.snapshot
 
     def test_removes_deleted_site_functions(self):
         site_destination = HogFunction.objects.create(

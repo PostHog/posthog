@@ -16,6 +16,7 @@ members = [
     "common/limiters",
     "common/metrics",
     "common/profiler",
+    "common/continuous_profiling",
     "common/redis",
     "common/s3",
     "common/serve_metrics",
@@ -52,6 +53,11 @@ unit_bindings = "deny"
 # See https://rust-lang.github.io/rust-clippy/, we might want to add more
 enum_glob_use = "deny"
 
+# this is needed until getsentry/symbolic update the js-source-scopes to >0.6.0
+# I made a PR for the upstream fix here https://github.com/getsentry/symbolic/pull/945
+[patch.crates-io]
+js-source-scopes = { git = "https://github.com/getsentry/js-source-scopes", rev = "abea51a0e74840a8d1ec96a61ff36b488994f68c" }
+
 [workspace.dependencies]
 anyhow = "1.0"
 assert-json-diff = "2.0.2"
@@ -62,6 +68,7 @@ base64 = "0.22.0"
 bytes = "1"
 chrono = { version = "0.4.38", features = ["default", "serde"] }
 chrono-tz = "0.10.1"
+dashmap = "6.1"
 envconfig = "0.10.0"
 eyre = "0.6.9"
 flate2 = "1.0"
@@ -71,9 +78,12 @@ governor = { version = "0.5.1", features = ["dashmap"] }
 http = { version = "1.1.0" }
 http-body-util = "0.1.0"
 httpmock = "0.7.0"
+hyper = { version = "1.6", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
 itoa = "1.0.15"
 metrics = "0.22.0"
 metrics-exporter-prometheus = "0.14.0"
+metrics-util = "0.16.0"
 once_cell = "1.18.0"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry-otlp = "0.15.0"
@@ -105,10 +115,10 @@ time = { version = "0.3.36", features = [
 thiserror = { version = "2.0" }
 tokio = { version = "1.34.0", features = ["full"] }
 tower = { version = "0.4.13", features = ["default", "limit"] }
-tower-http = { version = "0.5.2", features = ["cors", "limit", "trace"] }
+tower-http = { version = "0.5.2", features = ["cors", "decompression-br", "decompression-deflate", "decompression-gzip", "decompression-zstd", "limit", "trace"] }
 tracing = "0.1.40"
 tracing-opentelemetry = "0.23.0"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 url = "2.5.0"
 uuid = { version = "1.6.1", features = ["v4", "v7", "serde"] }
 neon = "1"
@@ -119,10 +129,10 @@ aws-sdk-s3 = "1.58.0"
 mockall = "0.13.0"
 moka = { version = "0.12.8", features = ["sync", "future"] }
 posthog-rs = { version = "0.3.5", features = ["async-client"] }
-redis = { version = "0.32.7", features = ["tokio-comp", "cluster", "cluster-async"] }
+redis = { version = "0.32.7", features = ["tokio-comp", "cluster", "cluster-async", "tls-rustls", "tls-rustls-webpki-roots", "tokio-rustls-comp"] }
 regex = "1.11.1"
 lz-str = "0.2.1"
-opentelemetry-proto = "0.29.0"
+opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
 tonic = "0.12.3"
 clickhouse = { version = "0.13.2", features = [
     "uuid",
@@ -134,3 +144,4 @@ clickhouse = { version = "0.13.2", features = [
 # Used for decrypting django encrypted fields
 fernet = "0.2"
 tiktoken-rs = "0.7.0"
+sha2 = "0.10"

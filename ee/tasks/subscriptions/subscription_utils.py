@@ -10,6 +10,7 @@ from celery import chain
 from prometheus_client import Histogram
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
@@ -17,6 +18,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
+from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY, USER_QUERY_ERRORS, record_export_failure
 from posthog.utils import wait_for_parallel_celery_group
 
 logger = structlog.get_logger(__name__)
@@ -26,10 +28,15 @@ DEFAULT_MAX_ASSET_COUNT = 6
 # Maximum height for screenshots in pixels. This prevents Chrome from consuming excessive memory
 # when rendering very tall pages (e.g., tables with thousands of rows).
 MAX_SCREENSHOT_HEIGHT_PIXELS = 5000
+ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
+
+
+def _has_asset_failed(asset: ExportedAsset) -> bool:
+    return (not asset.content and not asset.content_location) or asset.exception is not None
 
 
 def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscription, SharingConfiguration]) -> dict:
-    failed_assets = [a for a in assets if not a.content and not a.content_location]
+    failed_assets = [a for a in assets if _has_asset_failed(a)]
     failed_insight_ids = [a.insight_id for a in failed_assets if a.insight_id]
     failed_insight_urls = [
         f"/project/{resource.team_id}/insights/{a.insight.short_id}"
@@ -107,12 +114,14 @@ def generate_assets(
             raise Exception("There are no insights to be sent for this Subscription")
 
         # Create all the assets we need
+        expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
         assets = [
             ExportedAsset(
                 team=resource.team,
-                export_format="image/png",
+                export_format=ExportedAsset.ExportFormat.PNG,
                 insight=insight,
                 dashboard=resource.dashboard,
+                expires_after=expiry,
             )
             for insight in insights[:max_asset_count]
         ]
@@ -166,12 +175,14 @@ async def generate_assets_async(
             raise Exception("There are no insights to be sent for this Subscription")
 
         # Create all the assets we need
+        expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
         assets = [
             ExportedAsset(
                 team=resource.team,
-                export_format="image/png",
+                export_format=ExportedAsset.ExportFormat.PNG,
                 insight=insight,
                 dashboard=resource.dashboard,
+                expires_after=expiry,
             )
             for insight in insights[:max_asset_count]
         ]
@@ -182,37 +193,65 @@ async def generate_assets_async(
 
         # Create async tasks for each asset export
         async def export_single_asset(asset: ExportedAsset) -> None:
-            try:
+            subscription_id = getattr(resource, "id", None)
+
+            def log_attempt(retry_state: RetryCallState) -> None:
                 logger.info(
                     "generate_assets_async.exporting_asset",
                     asset_id=asset.id,
                     insight_id=asset.insight_id,
-                    subscription_id=getattr(resource, "id", None),
+                    subscription_id=subscription_id,
                     team_id=resource.team_id,
+                    attempt=retry_state.attempt_number,
                 )
+
+            @retry(
+                retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
+                stop=stop_after_attempt(4),
+                wait=wait_exponential_jitter(initial=2, max=10),
+                reraise=True,
+                before=log_attempt,
+            )
+            async def export_with_retry() -> None:
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
                     asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS
                 )
+
+            try:
+                await export_with_retry()
                 logger.info(
                     "generate_assets_async.asset_exported",
                     asset_id=asset.id,
                     insight_id=asset.insight_id,
-                    subscription_id=getattr(resource, "id", None),
+                    subscription_id=subscription_id,
                     team_id=resource.team_id,
                 )
             except Exception as e:
-                logger.error(
-                    "generate_assets_async.export_failed",
-                    asset_id=asset.id,
-                    insight_id=asset.insight_id,
-                    subscription_id=getattr(resource, "id", None),
-                    error=str(e),
-                    exc_info=True,
-                    team_id=resource.team_id,
-                )
-                # Save the exception but continue with other assets
-                asset.exception = str(e)
-                await database_sync_to_async(asset.save, thread_sensitive=False)()
+                is_user_error = isinstance(e, USER_QUERY_ERRORS)
+                retryable_error = isinstance(e, EXCEPTIONS_TO_RETRY)
+
+                if is_user_error:
+                    logger.warning(
+                        "generate_assets_async.user_config_error",
+                        asset_id=asset.id,
+                        insight_id=asset.insight_id,
+                        subscription_id=subscription_id,
+                        error=str(e),
+                        team_id=resource.team_id,
+                    )
+                else:
+                    logger.exception(
+                        "generate_assets_async.export_failed",
+                        asset_id=asset.id,
+                        insight_id=asset.insight_id,
+                        subscription_id=subscription_id,
+                        error=str(e),
+                        exc_info=True,
+                        retryable_error=retryable_error,
+                        team_id=resource.team_id,
+                    )
+
+                await database_sync_to_async(record_export_failure, thread_sensitive=False)(asset, e)
 
         # Reserve buffer time for email/Slack delivery after exports
         buffer_seconds = 120  # 2 minutes

@@ -6,18 +6,18 @@ import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { GroupsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { GroupTypeIndex } from '~/types'
 
-export function getCRMColumns(groupTypeName: string, groupTypeIndex: GroupTypeIndex): QueryContext['columns'] {
+export function getCRMColumns(groupTypeName: string, groupTypeIndex: number): QueryContext['columns'] {
     return {
         group_name: {
             title: groupTypeName,
-            render: function renderGroupName({ query, record, value }) {
-                const sourceQuery = query.source as GroupsQuery
-                const keyIndex = sourceQuery?.select?.indexOf('key') ?? -1
-                const groupKey = (record as string[])[keyIndex]
+            render: function renderGroupName({ record, value }) {
+                // IMPORTANT: Backend guarantees that 'key' is ALWAYS at index 1 in the results array
+                // This is enforced by groups_query_runner.py which always returns group_name at index 0
+                // and key at index 1, regardless of the select parameter ordering.
+                // See test_column_ordering_consistency in test_groups_query_runner.py
+                const groupKey = (record as string[])[1]
                 return (
                     <div className="min-w-40">
                         <LemonTableLink to={urls.group(groupTypeIndex, groupKey)} title={value as string} />

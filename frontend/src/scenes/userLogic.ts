@@ -9,7 +9,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AvailableFeature, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
 
 import { urls } from './urls'
 import type { userLogicType } from './userLogicType'
@@ -76,7 +77,7 @@ export const userLogic = kea<userLogicType>([
                     }
                     try {
                         const response = await api.update<UserType>('api/users/@me/', user)
-                        successCallback && successCallback()
+                        successCallback?.()
                         return response
                     } catch (error: any) {
                         console.error(error)

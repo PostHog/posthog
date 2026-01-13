@@ -1,0 +1,4 @@
+export enum ErrorCode {
+    INVALID_API_KEY = 'INVALID_API_KEY',
+    INACTIVE_OAUTH_TOKEN = 'INACTIVE_OAUTH_TOKEN',
+}

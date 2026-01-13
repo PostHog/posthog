@@ -1,7 +1,10 @@
+from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
 
@@ -16,6 +19,7 @@ from posthog.hogql.property import (
     selector_to_expr,
     tag_name_to_expr,
 )
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
@@ -24,6 +28,8 @@ from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
@@ -80,7 +86,7 @@ class TestProperty(BaseTest):
             self._parse_expr("group_3.properties.a = 'b'"),
         )
         self.assertEqual(
-            self._parse_expr("group_0.properties.a = NULL OR (NOT JSONHas(group_0.properties, 'a'))"),
+            self._parse_expr("group_0.properties.a = NULL"),
             self._property_to_expr(
                 {"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"}
             ),
@@ -144,7 +150,7 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.a != NULL"),
         )
         self.assertEqual(
-            self._parse_expr("properties.a = NULL OR (NOT JSONHas(properties, 'a'))"),
+            self._parse_expr("properties.a = NULL"),
             self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not_set"}),
         )
         self.assertEqual(
@@ -181,7 +187,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("ifNull(match(properties.a, '.*'), 0)"),
+            self._parse_expr("ifNull(match(toString(properties.a), '.*'), 0)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
@@ -246,6 +252,35 @@ class TestProperty(BaseTest):
                 "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
             ),
         )
+        # Python boolean True (not string "true") should also work
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = true"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "string_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.string_prop = 'true'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": False},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = false"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "unknown_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.unknown_prop = 'true'"),
+        )
 
     def test_property_to_expr_event_list(self):
         # positive
@@ -267,7 +302,9 @@ class TestProperty(BaseTest):
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
             a,
-            self._parse_expr("ifNull(match(properties.a, 'b'), 0) or ifNull(match(properties.a, 'c'), 0)"),
+            self._parse_expr(
+                "ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)"
+            ),
         )
         # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
         self.assertIs(0, a.exprs[1].args[1].value)
@@ -445,7 +482,9 @@ class TestProperty(BaseTest):
                     "operator": "regex",
                 }
             ),
-            self._parse_expr("arrayExists(text -> ifNull(match(text, 'text-text.'), 0), elements_chain_texts)"),
+            self._parse_expr(
+                "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
+            ),
         )
 
     def test_property_groups(self):
@@ -886,20 +925,20 @@ class TestProperty(BaseTest):
         ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
 
         assert self._property_to_expr(
-            {"type": "person", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="person"
-        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+            {"type": "person", "key": "$virt_mrr", "value": 100, "operator": "exact"}, scope="person"
+        ) == self._parse_expr("$virt_mrr = 100")
 
     def test_virtual_group_properties_on_group_scope(self):
         assert self._property_to_expr(
             {
                 "type": "group",
-                "key": "$virt_revenue_last_30_days",
+                "key": "$virt_mrr",
                 "value": 100,
                 "operator": "exact",
                 "group_type_index": 0,
             },
             scope="group",
-        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+        ) == self._parse_expr("$virt_mrr = 100")
 
     def test_virtual_person_properties_on_event_scope(self):
         assert self._property_to_expr(
@@ -968,3 +1007,228 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 {"type": "event_metadata", "key": "$group_3", "operator": "exact", "value": ["1", "2"]}, scope="group"
             )
+
+    def test_property_to_expr_between_operator(self):
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
+            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
+            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
+            self._parse_expr("(properties.score < 0 OR properties.score > 100)"),
+        )
+
+    def test_property_to_expr_between_operator_validation(self):
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": 25})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 25, 65]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": 1})
+
+        with self.assertRaisesMessage(
+            QueryError, "between operator requires min value to be less than or equal to max value"
+        ):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [10, 1]})
+
+        with self.assertRaisesMessage(
+            QueryError, "not_between operator requires min value to be less than or equal to max value"
+        ):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": [10, 1]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": ["abc", "def"]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": ["xyz", "123"]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [None, 10]})
+
+    def test_property_to_expr_min_max_operators(self):
+        # Test MIN operator (alias for GTE)
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
+            self._parse_expr("properties.age >= 18"),
+        )
+
+        # Test MAX operator (alias for LTE)
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
+            self._parse_expr("properties.age <= 65"),
+        )
+
+        # Test MIN with person properties
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
+            self._parse_expr("person.properties.age >= 25"),
+        )
+
+        # Test MAX with person properties
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
+            self._parse_expr("person.properties.score <= 100"),
+        )
+
+
+class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
+    # Sentinel to indicate a property should not be included in the event
+    NOT_SET: Any = object()
+
+    # Expected is_set value can be True, False, or a callable(is_materialized) -> bool
+    # When materialized, empty string and "null" string become NULL due to nullIf wrapping
+    # (this is a long-standing bug, and it's ok to change these tests if you fix it!)
+    ONLY_WHEN_NOT_MATERIALIZED = staticmethod(lambda m: not m)
+
+    def setUp(self):
+        super().setUp()
+        self.event_name = "test_is_set_event"
+
+        # (property_name, value, property_type, expected_is_set)
+        # expected_is_set: True, False, or callable(is_materialized) -> bool
+        self.test_cases: list[tuple[str, Any, PropertyType, Any]] = [
+            # String type: value, empty, "null" literal, null, not set
+            ("string_value_prop", "hello", PropertyType.String, True),
+            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
+            ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
+            ("string_null_prop", None, PropertyType.String, False),
+            ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),
+            # Numeric type: zero, non-zero int, non-zero float, string values, null, not set
+            # Type coercion converts invalid strings to NULL
+            ("numeric_zero_prop", 0, PropertyType.Numeric, True),
+            ("numeric_int_prop", 42, PropertyType.Numeric, True),
+            ("numeric_float_prop", 3.14, PropertyType.Numeric, True),
+            ("numeric_string_valid_prop", "42", PropertyType.Numeric, True),
+            ("numeric_string_invalid_prop", "invalid_number", PropertyType.Numeric, False),
+            ("numeric_string_empty_prop", "", PropertyType.Numeric, False),
+            ("numeric_null_prop", None, PropertyType.Numeric, False),
+            ("numeric_not_set_prop", self.NOT_SET, PropertyType.Numeric, False),
+            # Boolean type: true, false, string variants, invalid, null, not set
+            # Only lowercase "true"/"false" strings are recognized
+            ("bool_true_prop", True, PropertyType.Boolean, True),
+            ("bool_false_prop", False, PropertyType.Boolean, True),
+            ("bool_string_true_lower_prop", "true", PropertyType.Boolean, True),
+            ("bool_string_true_title_prop", "True", PropertyType.Boolean, False),
+            ("bool_string_true_upper_prop", "TRUE", PropertyType.Boolean, False),
+            ("bool_string_false_lower_prop", "false", PropertyType.Boolean, True),
+            ("bool_string_invalid_prop", "invalid_bool", PropertyType.Boolean, False),
+            ("bool_string_empty_prop", "", PropertyType.Boolean, False),
+            ("bool_null_prop", None, PropertyType.Boolean, False),
+            ("bool_not_set_prop", self.NOT_SET, PropertyType.Boolean, False),
+        ]
+
+        # Create PropertyDefinitions for each property
+        for prop_name, _, prop_type, _ in self.test_cases:
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=prop_name,
+                type=PropertyDefinition.Type.EVENT,
+                property_type=prop_type,
+            )
+
+        # Create a single event with all properties (except NOT_SET ones)
+        properties = {prop_name: value for prop_name, value, _, _ in self.test_cases if value is not self.NOT_SET}
+
+        _create_event(
+            team=self.team,
+            event=self.event_name,
+            distinct_id="test_user",
+            properties=properties,
+        )
+
+    def _expected_is_set_values(self, is_materialized: bool) -> dict[str, int]:
+        result = {}
+        for prop_name, _, _, expected in self.test_cases:
+            if callable(expected):
+                result[prop_name] = 1 if expected(is_materialized) else 0
+            else:
+                result[prop_name] = 1 if expected else 0
+        return result
+
+    def _expected_is_not_set_values(self, is_materialized: bool) -> dict[str, int]:
+        return {k: 1 - v for k, v in self._expected_is_set_values(is_materialized).items()}
+
+    @parameterized.expand([("not_materialized", False), ("materialized", True)])
+    def test_is_set_operator(self, _name: str, is_materialized: bool):
+        if is_materialized:
+            self.addCleanup(cleanup_materialized_columns)
+            for prop_name, _, _, _ in self.test_cases:
+                materialize("events", prop_name)
+
+        select_exprs: list[ast.Expr] = [
+            ast.Alias(
+                alias=prop_name,
+                expr=property_to_expr(
+                    {"type": "event", "key": prop_name, "operator": "is_set"},
+                    team=self.team,
+                    scope="event",
+                ),
+            )
+            for prop_name, _, _, _ in self.test_cases
+        ]
+
+        query_ast = ast.SelectQuery(
+            select=select_exprs,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=self.event_name),
+            ),
+        )
+
+        result = execute_hogql_query(team=self.team, query=query_ast)
+        assert result.columns
+        row: Iterable[Any] = result.results[0]
+        assert row
+        results = dict(zip(result.columns, row))
+
+        assert results == self._expected_is_set_values(is_materialized)
+
+    @parameterized.expand([("not_materialized", False), ("materialized", True)])
+    def test_is_not_set_operator(self, _name: str, is_materialized: bool):
+        if is_materialized:
+            self.addCleanup(cleanup_materialized_columns)
+            for prop_name, _, _, _ in self.test_cases:
+                materialize("events", prop_name)
+
+        select_exprs: list[ast.Expr] = [
+            ast.Alias(
+                alias=prop_name,
+                expr=property_to_expr(
+                    {"type": "event", "key": prop_name, "operator": "is_not_set"},
+                    team=self.team,
+                    scope="event",
+                ),
+            )
+            for prop_name, _, _, _ in self.test_cases
+        ]
+
+        query_ast = ast.SelectQuery(
+            select=select_exprs,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=self.event_name),
+            ),
+        )
+
+        result = execute_hogql_query(team=self.team, query=query_ast)
+        assert result.columns
+        row: Iterable[Any] = result.results[0]
+        assert row
+        results = dict(zip(result.columns, row))
+
+        assert results == self._expected_is_not_set_values(is_materialized)

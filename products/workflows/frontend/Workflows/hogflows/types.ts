@@ -1,7 +1,9 @@
-import { Node } from '@xyflow/react'
+import { Edge, Node } from '@xyflow/react'
 import { z } from 'zod'
 
 import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+
+import { UserBasicType } from '~/types'
 
 import { CyclotronJobInputSchemaTypeSchema, HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
 
@@ -50,12 +52,28 @@ export const HogFlowSchema = z.object({
     created_at: z.string(),
 })
 
+export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend({
+    image_url: z.string().optional().nullable(),
+    scope: z.enum(['team', 'global']).optional().nullable(),
+})
+
 // NOTE: these are purposefully exported as interfaces to support kea typegen
-export interface HogFlow extends z.infer<typeof HogFlowSchema> {}
+export interface HogFlow extends z.infer<typeof HogFlowSchema> {
+    created_by?: UserBasicType | null
+}
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
+export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge; label?: string }> {}
+
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>
 export interface HogFlowActionNode extends Node<HogFlowAction> {}
 
+// Dropzone nodes are ephemeral and on the client only, used in the editor to highlight where nodes can be added to a workflow
+export type DropzoneNode = Node<{ edge: HogFlowActionEdge; isBranchJoinDropzone?: boolean }>
+
 export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult & {
     schema: z.ZodError | null
+}
+
+export interface HogFlowTemplate extends z.infer<typeof HogFlowTemplateSchema> {
+    created_by?: UserBasicType | null
 }

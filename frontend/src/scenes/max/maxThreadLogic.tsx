@@ -14,6 +14,7 @@ import {
     selectors,
 } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
@@ -26,10 +27,15 @@ import { uuid } from 'lib/utils'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
 import {
+    AgentMode,
+    ApprovalDecisionStatus,
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
@@ -39,19 +45,33 @@ import {
     AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
+    PENDING_APPROVAL_STATUS,
     RootAssistantMessage,
+    SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
+import { Conversation, ConversationDetail, ConversationStatus, ConversationType, PendingApproval } from '~/types'
 
-import { maxBillingContextLogic } from './maxBillingContextLogic'
+import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { ToolRegistration } from './max-constants'
+import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { RENDERABLE_UI_PAYLOAD_TOOLS } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isNotebookUpdateMessage } from './utils'
+import {
+    getAgentModeForScene,
+    isAssistantMessage,
+    isAssistantToolCallMessage,
+    isHumanMessage,
+    isSubagentUpdateEvent,
+    threadEndsWithMultiQuestionForm,
+} from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
+
+/** Key for persisting pending AI prompts across page reloads (e.g., OAuth redirects) */
+export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -72,14 +92,14 @@ export interface MaxThreadLogicProps {
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
-    path(['scenes', 'max', 'maxThreadLogic']),
-
     key((props) => {
         if (!props.tabId) {
             throw new Error('Max thread logic must have a tabId prop')
         }
         return `${props.conversationId}-${props.tabId}`
     }),
+
+    path((key) => ['scenes', 'max', 'maxThreadLogic', key]),
 
     props({} as MaxThreadLogicProps),
 
@@ -104,15 +124,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     connect(({ tabId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'toolMap', 'tools'],
+            ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
             maxLogic({ tabId }),
-            ['question', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
+            ['question', 'autoRun', 'threadLogicKey as activeThreadKey', 'activeStreamingThreads'],
             maxContextLogic,
             ['compiledContext'],
             maxBillingContextLogic,
             ['billingContext'],
             featureFlagLogic,
             ['featureFlags'],
+            sceneLogic,
+            ['sceneId'],
         ],
         actions: [
             maxLogic({ tabId }),
@@ -127,6 +149,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'setAutoRun',
                 'loadConversationHistorySuccess',
             ],
+            maxGlobalLogic,
+            ['loadConversation'],
         ],
     })),
 
@@ -135,13 +159,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         reconnectToStream: true,
         streamConversation: (
             streamData: {
+                agent_mode: AgentMode | null
                 content: string | null
                 conversation?: string
                 contextual_tools?: Record<string, any>
                 ui_context?: any
+                resume_payload?: { action: 'approve' | 'reject'; proposal_id: string; feedback?: string } | null
             },
-            generationAttempt: number
-        ) => ({ streamData, generationAttempt }),
+            generationAttempt: number,
+            addToThread: boolean = true
+        ) => ({ streamData, generationAttempt, addToThread }),
         stopGeneration: true,
         completeThreadGeneration: true,
         addMessage: (message: ThreadMessage) => ({ message }),
@@ -149,15 +176,39 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setThread: (thread: ThreadMessage[]) => ({ thread }),
         setMessageStatus: (index: number, status: MessageStatus) => ({ index, status }),
         retryLastMessage: true,
+        resetRetryCount: true,
+        resetCancelCount: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
+        finalizeStreamingMessages: true,
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
+        setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
+        syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
+        setSupportOverrideEnabled: (enabled: boolean) => ({ enabled }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
+        appendMessageToConversation: (message: string) => ({ message }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
-        setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
+        setToolCallUpdate: (
+            update: AssistantUpdateEvent | SubagentUpdateEvent,
+            toolMap: Record<string, ToolRegistration>
+        ) => ({
+            update,
+            toolMap,
+        }),
+        setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
+        setPendingApproval: (proposalId: string) => ({ proposalId }),
+        clearPendingApproval: true,
+        continueAfterApproval: (proposalId: string) => ({ proposalId }),
+        continueAfterRejection: (proposalId: string, feedback?: string) => ({ proposalId, feedback }),
+        setResolvedApprovalStatus: (proposalId: string, status: 'approved' | 'rejected' | 'auto_rejected') => ({
+            proposalId,
+            status,
+        }),
+        addPendingApprovalData: (approval: PendingApproval) => ({ approval }),
+        loadPendingApprovalsData: (approvals: PendingApproval[]) => ({ approvals }),
     }),
 
     reducers(({ props }) => ({
@@ -186,6 +237,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     ...state.slice(index + 1),
                 ],
                 setThread: (_, { thread }) => thread,
+                // Remove streaming messages on failure so server state becomes source of truth
+                finalizeStreamingMessages: (state) => state.filter((msg) => msg.status !== 'loading'),
             },
         ],
 
@@ -219,6 +272,33 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        agentMode: [
+            null as AgentMode | null,
+            {
+                setAgentMode: (_, { agentMode }) => agentMode,
+                syncAgentModeFromConversation: (_, { agentMode }) => agentMode,
+            },
+        ],
+
+        // Tracks if user manually selected agent mode after submission - if true, don't sync from conversation
+        agentModeLockedByUser: [
+            false,
+            {
+                setAgentMode: () => true,
+                askMax: () => false,
+            },
+        ],
+
+        // Edge case, storing the prompt when askMax is called but AIConsent hasn't been given (yet)
+        pendingPrompt: [
+            null as string | null,
+            {
+                askMax: (_, { prompt }) => prompt,
+                completeThreadGeneration: () => null,
+                stopGeneration: () => null,
+            },
+        ],
+
         // Whether generation should be immediately continued due to tool execution
         isAnotherAgenticIterationScheduled: [
             false,
@@ -232,32 +312,161 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         toolCallUpdateMap: [
             new Map<string, string[]>(),
             {
-                setToolCallUpdate: (value, { update }: { update: AssistantUpdateEvent }) => {
+                setToolCallUpdate: (
+                    value,
+                    {
+                        update,
+                        toolMap,
+                    }: { update: AssistantUpdateEvent | SubagentUpdateEvent; toolMap: Record<string, ToolRegistration> }
+                ) => {
                     const currentValue = value.get(update.tool_call_id) || []
-                    if (currentValue.includes(update.content) || update.content === '') {
+                    const newMap = new Map(value)
+                    let newValue: string
+                    if (isSubagentUpdateEvent(update)) {
+                        const [description, _] = getToolCallDescriptionAndWidget(
+                            update.content as unknown as EnhancedToolCall,
+                            toolMap
+                        )
+                        newValue = description
+                    } else {
+                        newValue = update.content
+                    }
+                    if (currentValue.includes(newValue) || newValue === '') {
                         return value
                     }
-
-                    const newMap = new Map(value)
-                    newMap.set(update.tool_call_id, [...currentValue, update.content])
+                    newMap.set(update.tool_call_id, [...currentValue, newValue])
                     return newMap
                 },
+            },
+        ],
+
+        cancelLoading: [
+            false,
+            {
+                stopGeneration: () => true,
+                setCancelLoading: (_, { cancelLoading }) => cancelLoading,
+            },
+        ],
+
+        retryCount: [
+            0,
+            {
+                retryLastMessage: (state) => state + 1,
+                resetThread: () => 0,
+                resetRetryCount: () => 0,
+            },
+        ],
+
+        cancelCount: [
+            0,
+            {
+                stopGeneration: (state) => state + 1,
+                resetThread: () => 0,
+                resetCancelCount: () => 0,
+            },
+        ],
+
+        // Track pending approval proposals for auto-rejection when user sends a new message
+        // Initialized from props.conversation.pending_approvals if there's a pending approval on load
+        pendingApprovalProposalId: [
+            (props.conversation?.pending_approvals?.find((a) => a.decision_status === 'pending')?.proposal_id ??
+                null) as string | null,
+            {
+                setPendingApproval: (_, { proposalId }) => proposalId,
+                clearPendingApproval: () => null,
+                // Also set pendingApprovalProposalId when loading a conversation with a pending approval
+                setConversation: (state, { conversation }) => {
+                    // If we already have a pending approval tracked, keep it
+                    if (state) {
+                        return state
+                    }
+                    // Otherwise check if the conversation has any pending approvals
+                    const pendingApproval = conversation?.pending_approvals?.find(
+                        (a) => a.decision_status === 'pending'
+                    )
+                    return pendingApproval?.proposal_id ?? null
+                },
+            },
+        ],
+
+        // Track resolved approval statuses by proposalId (persists across re-renders)
+        // Note: Only resolved statuses are stored here, not 'pending' (cards start in pending state)
+        resolvedApprovalStatuses: [
+            {} as Record<string, 'approved' | 'rejected' | 'auto_rejected'>,
+            {
+                setResolvedApprovalStatus: (state, { proposalId, status }) => ({
+                    ...state,
+                    [proposalId]: status,
+                }),
+            },
+        ],
+
+        // Store full pending approval data by proposal_id (for rendering approval cards)
+        // Initialized from props.conversation.pending_approvals on first mount
+        pendingApprovalsData: [
+            Object.fromEntries((props.conversation?.pending_approvals ?? []).map((a) => [a.proposal_id, a])) as Record<
+                string,
+                PendingApproval
+            >,
+            {
+                addPendingApprovalData: (state, { approval }) => ({
+                    ...state,
+                    [approval.proposal_id]: approval,
+                }),
+                loadPendingApprovalsData: (_, { approvals }) =>
+                    Object.fromEntries(approvals.map((a) => [a.proposal_id, a])),
+                // Handle conversation updates - merge existing data with incoming to preserve streaming approvals
+                setConversation: (state, { conversation }) => {
+                    const incomingApprovals = Object.fromEntries(
+                        (conversation?.pending_approvals ?? []).map((a) => [a.proposal_id, a])
+                    ) as Record<string, PendingApproval>
+
+                    // Merge: existing data takes precedence (streaming approvals are more up-to-date)
+                    // This prevents losing approval cards when setConversation is called during askMax
+                    const hasExistingData = Object.keys(state).length > 0
+                    if (hasExistingData) {
+                        return {
+                            ...incomingApprovals,
+                            ...state,
+                        }
+                    }
+
+                    return incomingApprovals
+                },
+            },
+        ],
+
+        // Whether support agents have explicitly acknowledged they want to use an existing conversation
+        supportOverrideEnabled: [
+            false,
+            {
+                setSupportOverrideEnabled: (_, { enabled }) => enabled,
+                // Reset when changing conversations
+                setConversation: () => false,
             },
         ],
     })),
 
     listeners((logic) => ({
-        streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
+        streamConversation: async (
+            { streamData: { agent_mode: agentMode, ...streamData }, generationAttempt, addToThread = true },
+            breakpoint
+        ) => {
             const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
             // Set active streaming threads, so we know streaming is active
             const releaseStreamingLock = mount() // lock the logic - don't unmount before we're done streaming
             actions.incrActiveStreamingThreads()
 
-            if (generationAttempt === 0 && streamData.content) {
+            // Generate a new trace ID for this interaction
+            const traceId = uuid()
+            actions.setTraceId(traceId)
+
+            if (generationAttempt === 0 && streamData.content && addToThread) {
                 const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
                     content: streamData.content,
                     status: 'completed',
+                    trace_id: traceId,
                 }
                 actions.addMessage(message)
             }
@@ -267,10 +476,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 // Ensure we have valid data for the API call
                 const apiData: any = { ...streamData }
-
-                // Generate a new trace ID for this interaction
-                const traceId = uuid()
-                actions.setTraceId(traceId)
                 apiData.trace_id = traceId
 
                 if (values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
@@ -279,6 +484,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (values.deepResearchMode) {
                     apiData.deep_research_mode = true
+                }
+
+                if (agentMode) {
+                    apiData.agent_mode = agentMode
                 }
 
                 const response = await api.conversations.stream(apiData, {
@@ -295,7 +504,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const parser = createParser({
                     onEvent: async ({ data, event }) => {
                         pendingEventHandlers.push(
-                            onEventImplementation(event as string, data, { actions, values, props })
+                            onEventImplementation(event as string, data, { actions, values, props, agentMode })
                         )
                     },
                 })
@@ -309,46 +518,100 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             } catch (e) {
-                actions.setForAnotherAgenticIteration(false) // Cancel any next iteration
-                if (!(e instanceof DOMException) || e.name !== 'AbortError') {
-                    const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
+                // Cancel any next iteration
+                actions.setForAnotherAgenticIteration(false)
 
-                    // Prevents parallel generation attempts. Total wait time is: 21 seconds.
-                    if (e instanceof ApiError) {
-                        if (e.status === 409 && generationAttempt < 6) {
-                            await breakpoint(1000 * (generationAttempt + 1))
-                            actions.streamConversation(
-                                {
-                                    content: streamData.content,
-                                    conversation: streamData.conversation,
-                                    contextual_tools: streamData.contextual_tools,
-                                    ui_context: streamData.ui_context,
-                                },
-                                generationAttempt + 1
-                            )
+                // Retry logic
+                async function retry(): Promise<void> {
+                    await breakpoint(1000 * (generationAttempt + 1))
+                    // Need to decrement the active streaming threads here, as we exit early.
+                    actions.decrActiveStreamingThreads()
+                    actions.streamConversation(
+                        {
+                            content: streamData.content,
+                            conversation: streamData.conversation,
+                            contextual_tools: streamData.contextual_tools,
+                            ui_context: streamData.ui_context,
+                            agent_mode: agentMode,
+                        },
+                        generationAttempt + 1
+                    )
+                }
+
+                if (!(e instanceof DOMException) || e.name !== 'AbortError') {
+                    let releaseException = true
+                    // Generic message by default
+                    const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() }
+                    const offlineMessage = 'You appear to be offline. Please check your internet connection.'
+
+                    // Network exception errors might be overwritten by the API wrapper, so we check for the generic Error type.
+                    if (e instanceof Error && e.message.toLowerCase().includes('failed to fetch')) {
+                        // Failed to fetch -> request failed to connect.
+                        // If the conversation is in progress, we retry up to 15 times.
+                        if (values.conversation?.status === ConversationStatus.InProgress) {
+                            if (generationAttempt > 15) {
+                                relevantErrorMessage.content = offlineMessage
+                            } else {
+                                await retry()
+                                return
+                            }
+                        } else {
+                            // No started conversation, show the offline message.
+                            relevantErrorMessage.content = offlineMessage
+                        }
+                    } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
+                        // Network error -> request failed in progress.
+                        if (generationAttempt > 15) {
+                            relevantErrorMessage.content = offlineMessage
+                        } else {
+                            await retry()
+                            return
+                        }
+                    } else if (e instanceof ApiError) {
+                        if (e.status === 400) {
+                            // Validation exception for non-retryable errors, such as idempotency conflict
+                            if (!e.data?.attr && e.data?.code === 'invalid_input') {
+                                releaseException = false
+                            }
+
+                            // Validation exception for the content length
+                            if (e.data?.attr === 'content') {
+                                relevantErrorMessage.content =
+                                    'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                            }
+                        }
+
+                        // Prevents parallel generation attempts. Total wait time is: 21 seconds.
+                        if (e.status === 409 && generationAttempt <= 5) {
+                            await retry()
                             return
                         }
 
                         if (e.status === 429) {
-                            relevantErrorMessage.content = `You've reached my usage limit for now. Please try again ${e.formattedRetryAfter}.`
+                            relevantErrorMessage.content = `You've reached PostHog AI's usage limit for the moment. Please try again ${e.formattedRetryAfter}.`
                         }
 
-                        if (e.status === 400 && e.data?.attr === 'content') {
+                        if (e.status === 402) {
                             relevantErrorMessage.content =
-                                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                                'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.'
                         }
-                    } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
-                        relevantErrorMessage.content =
-                            'Oops! You appear to be offline. Please check your internet connection.'
+
+                        if (e.status && e.status >= 500) {
+                            relevantErrorMessage.content =
+                                'Something is wrong with our servers. Please try again later.'
+                        }
                     } else {
                         posthog.captureException(e)
                         console.error(e)
                     }
 
-                    if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
-                        actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
-                    } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
+                    if (releaseException) {
+                        // Remove streaming messages and reload from server (source of truth)
+                        actions.finalizeStreamingMessages()
                         actions.addMessage(relevantErrorMessage)
+                        if (values.conversation?.id) {
+                            actions.loadConversation(values.conversation.id)
+                        }
                     }
                 }
             }
@@ -365,10 +628,59 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
     })),
     listeners(({ actions, values, cache }) => ({
-        askMax: async ({ prompt }) => {
+        setConversation: ({ conversation }) => {
+            // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
+            if (!values.agentModeLockedByUser && conversation?.agent_mode) {
+                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
+            }
+            // Note: pending approvals loading is handled in the reducer (pendingApprovalsData.setConversation)
+        },
+        askMax: async ({ prompt, addToThread = true, uiContext }) => {
+            // Only process if this thread is the currently active one
+            if (values.conversationId !== values.activeThreadKey) {
+                return
+            }
             if (!values.dataProcessingAccepted) {
+                // Persist prompt to sessionStorage in case of OAuth redirect during consent flow
+                if (prompt) {
+                    try {
+                        sessionStorage.setItem(
+                            PENDING_AI_PROMPT_KEY,
+                            JSON.stringify({
+                                prompt,
+                                timestamp: Date.now(),
+                            })
+                        )
+                    } catch {
+                        // sessionStorage might be unavailable
+                    }
+                }
                 return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
             }
+
+            // Clear any stored prompt since we're proceeding with submission
+            try {
+                sessionStorage.removeItem(PENDING_AI_PROMPT_KEY)
+            } catch {
+                // sessionStorage might be unavailable
+            }
+
+            // Build auto-rejection payload if there's a pending approval that hasn't already been resolved
+            // (pendingApprovalProposalId might get re-set during streaming even after user approved/rejected)
+            let autoRejectPayload: { action: 'reject'; proposal_id: string; feedback?: string } | undefined = undefined
+            const pendingProposalId = values.pendingApprovalProposalId
+            const alreadyResolved = pendingProposalId ? !!values.resolvedApprovalStatuses[pendingProposalId] : false
+            if (pendingProposalId && !alreadyResolved) {
+                autoRejectPayload = {
+                    action: 'reject',
+                    proposal_id: pendingProposalId,
+                    feedback: prompt ?? undefined,
+                }
+                actions.clearPendingApproval()
+                actions.setResolvedApprovalStatus(pendingProposalId, 'auto_rejected')
+            }
+            const agentMode = values.agentMode
+
             // Clear the question
             actions.setQuestion('')
             // For a new conversations, set the frontend conversation ID
@@ -377,6 +689,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } else {
                 const updatedConversation = {
                     ...values.conversation,
+                    agent_mode: agentMode || values.conversation?.agent_mode,
                     status: ConversationStatus.InProgress,
                     updated_at: dayjs().toISOString(),
                 }
@@ -386,18 +699,28 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.updateGlobalConversationCache(updatedConversation)
             }
 
+            // Merge the compiled context with any additional ui_context (e.g., form_answers)
+            const mergedUiContext = uiContext
+                ? { ...values.compiledContext, ...uiContext }
+                : values.compiledContext || undefined
+
             actions.streamConversation(
                 {
+                    agent_mode: agentMode,
                     content: prompt,
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
-                    ui_context: values.compiledContext || undefined,
+                    ui_context: mergedUiContext,
                     conversation: values.conversation?.id || values.conversationId,
+                    // Include auto-rejection payload if there was a pending approval
+                    resume_payload: autoRejectPayload,
                 },
-                0
+                0,
+                addToThread
             )
         },
         stopGeneration: async () => {
             if (!values.conversation?.id) {
+                actions.setCancelLoading(false)
                 return
             }
 
@@ -408,6 +731,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } catch (e: any) {
                 lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')
             }
+
+            try {
+                await actions.loadConversation(values.conversation.id)
+            } catch {}
+
+            actions.setCancelLoading(false)
         },
 
         reconnectToStream: () => {
@@ -419,7 +748,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (cache.generationController) {
                 return
             }
-            actions.streamConversation({ conversation: id, content: null }, 0)
+            actions.streamConversation({ conversation: id, content: null, agent_mode: values.agentMode }, 0)
         },
 
         retryLastMessage: () => {
@@ -446,7 +775,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.updateGlobalConversationCache(newConversation)
 
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
-            if (values.selectedConversationId !== values.conversationId && cache.unmount) {
+            if (values.activeThreadKey !== values.conversationId && cache.unmount) {
                 cache.unmount()
             }
         },
@@ -497,12 +826,109 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 console.error('Failed to navigate to notebook:', error)
             }
         },
+        appendMessageToConversation: async ({ message }) => {
+            const conversationId = values.conversationId
+            if (!conversationId) {
+                return
+            }
+
+            await api.conversations.appendMessage(conversationId, message)
+
+            actions.addMessage({
+                type: AssistantMessageType.Assistant,
+                content: message,
+                id: uuid(),
+                status: 'completed',
+            })
+        },
+        continueAfterApproval: ({ proposalId }) => {
+            // Clear the pending approval state so askMax doesn't auto-reject
+            actions.clearPendingApproval()
+            // Persist the approved status for the card to display
+            actions.setResolvedApprovalStatus(proposalId, 'approved')
+            // Resume the conversation with the approval payload
+            actions.streamConversation(
+                {
+                    agent_mode: values.agentMode,
+                    content: null,
+                    conversation: values.conversationId,
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    resume_payload: { action: 'approve', proposal_id: proposalId },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
+        },
+        continueAfterRejection: ({ proposalId, feedback }) => {
+            // Clear the pending approval state
+            actions.clearPendingApproval()
+            // Persist the rejected status for the card to display
+            actions.setResolvedApprovalStatus(proposalId, 'rejected')
+            // Resume the conversation with the rejection payload
+            actions.streamConversation(
+                {
+                    agent_mode: values.agentMode,
+                    content: null,
+                    conversation: values.conversationId,
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    resume_payload: { action: 'reject', proposal_id: proposalId, feedback },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
+        },
     })),
 
     selectors({
         conversationId: [
             (s, p) => [s.conversation, p.conversationId],
             (conversation, propsConversationId) => conversation?.id || propsConversationId,
+        ],
+
+        effectiveApprovalStatuses: [
+            (s) => [s.resolvedApprovalStatuses, s.pendingApprovalsData],
+            (resolved, pendingApprovalsData): Record<string, ApprovalDecisionStatus> => {
+                // Get statuses from pending approvals data
+                const baseStatuses: Record<string, ApprovalDecisionStatus> = {}
+                for (const [proposalId, approval] of Object.entries(pendingApprovalsData)) {
+                    baseStatuses[proposalId] = approval.decision_status
+                }
+
+                // Frontend resolved statuses take precedence
+                return {
+                    ...baseStatuses,
+                    ...resolved,
+                }
+            },
+        ],
+
+        isSharedThread: [
+            (s) => [s.conversation, userLogic.selectors.user],
+            (conversation, user): boolean => !!conversation?.user && !!user && conversation.user.uuid !== user.uuid,
+        ],
+
+        // Whether the current user is impersonating and viewing an existing conversation
+        isImpersonatingExistingConversation: [
+            (s) => [s.conversation, s.supportOverrideEnabled, userLogic.selectors.user],
+            (conversation, supportOverrideEnabled, user): boolean => {
+                // Only when user is impersonating
+                if (!user?.is_impersonated) {
+                    return false
+                }
+                // If conversation was created during impersonation (is_internal), allow typing
+                if (conversation?.is_internal) {
+                    return false
+                }
+                // Only applies to existing conversations
+                if (!conversation?.title) {
+                    return false
+                }
+                // Support agent has explicitly acknowledged they want to continue
+                if (supportOverrideEnabled) {
+                    return false
+                }
+                return true
+            },
         ],
 
         threadLoading: [
@@ -570,11 +996,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                     // Don't add thinking message if:
                     // 1. There are tool calls in progress, OR
-                    // 2. The last message is a streaming ASSISTANT message (no id) - it will show its own thinking/content
+                    // 2. The last message is a streaming ASSISTANT message (no ID or it starts with 'temp-') - it will show its own thinking/content
                     // Note: Human messages should always trigger thinking loader, only assistant messages can be "streaming"
-                    // Note: NotebookUpdateMessages do stream, but they are not added to the thread until they have an id
                     const lastMessageIsStreamingAssistant =
-                        finalMessageSoFar && isAssistantMessage(finalMessageSoFar) && !finalMessageSoFar.id
+                        finalMessageSoFar &&
+                        isAssistantMessage(finalMessageSoFar) &&
+                        (!finalMessageSoFar.id || finalMessageSoFar.id.startsWith('temp-'))
                     const shouldAddThinkingMessage =
                         toolCallsInProgress.length === 0 && !lastMessageIsStreamingAssistant
 
@@ -606,34 +1033,94 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
-        inputDisabled: [
-            (s) => [s.formPending, s.threadLoading, s.dataProcessingAccepted],
-            (formPending, threadLoading, dataProcessingAccepted) =>
-                // Input unavailable when:
-                // - Answer must be provided using a form returned by Max only
-                // - We are awaiting user to approve or reject external AI processing data
-                formPending || (threadLoading && !dataProcessingAccepted),
+        multiQuestionFormPending: [
+            (s) => [s.threadRaw],
+            (threadRaw) => {
+                return threadEndsWithMultiQuestionForm(threadRaw)
+            },
         ],
 
-        submissionDisabledReason: [
-            (s) => [s.formPending, s.question, s.threadLoading, s.activeStreamingThreads],
-            (formPending, question, threadLoading, activeStreamingThreads): string | undefined => {
+        inputDisabled: [
+            (s) => [
+                s.formPending,
+                s.multiQuestionFormPending,
+                s.threadLoading,
+                s.dataProcessingAccepted,
+                s.isSharedThread,
+                s.isImpersonatingExistingConversation,
+            ],
+            (
+                formPending,
+                multiQuestionFormPending,
+                threadLoading,
+                dataProcessingAccepted,
+                isSharedThread,
+                isImpersonatingExistingConversation
+            ) =>
+                // Input unavailable when:
+                // - Answer must be provided using a form returned by Max only
+                // - Answer must be provided using a multi-question form
+                // - We are awaiting user to approve or reject external AI processing data
+                // - Support agent is viewing an existing conversation without override
+                isSharedThread ||
+                formPending ||
+                multiQuestionFormPending ||
+                (threadLoading && !dataProcessingAccepted) ||
+                isImpersonatingExistingConversation,
+        ],
+
+        contextDisabledReason: [
+            (s) => [
+                s.formPending,
+                s.multiQuestionFormPending,
+                s.threadLoading,
+                s.activeStreamingThreads,
+                s.isImpersonatingExistingConversation,
+            ],
+            (
+                formPending,
+                multiQuestionFormPending,
+                threadLoading,
+                activeStreamingThreads,
+                isImpersonatingExistingConversation
+            ): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
+                }
+
+                // Support agents should create new conversations instead of using existing ones
+                if (isImpersonatingExistingConversation) {
+                    return 'You should create new conversations during impersonation. Use the checkbox to override.'
                 }
 
                 if (formPending) {
                     return 'Please choose one of the options above'
                 }
 
-                if (!question) {
-                    return 'I need some input first'
+                if (multiQuestionFormPending) {
+                    return 'Please answer the questions above'
                 }
 
-                // Prevent submission if there are active streaming threads
-                if (activeStreamingThreads > 0) {
-                    return 'Please wait for one of the chats to finish'
+                // Prevent submission if too many active streaming threads (limit: 10)
+                if (activeStreamingThreads >= 10) {
+                    return 'You have too many chats running. Please wait for one to finish.'
+                }
+
+                return undefined
+            },
+        ],
+
+        submissionDisabledReason: [
+            (s) => [s.contextDisabledReason, s.question],
+            (contextDisabledReason, question): string | undefined => {
+                // Context-related reasons take precedence (form pending, streaming, etc.)
+                if (contextDisabledReason) {
+                    return contextDisabledReason
+                }
+
+                if (!question) {
+                    return 'I need some input first'
                 }
 
                 return undefined
@@ -641,9 +1128,27 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         filteredCommands: [
-            (s) => [s.question],
-            (question): SlashCommand[] =>
-                MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(question.toLowerCase())),
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.billingContext],
+            (
+                question: string,
+                featureFlags: Record<string, boolean | string>,
+                threadLoading: boolean,
+                billingContext: MaxBillingContext | null
+            ): SlashCommand[] => {
+                const hasPaidPlan =
+                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.PAID ||
+                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.CUSTOM ||
+                    billingContext?.trial?.is_active ||
+                    process.env.NODE_ENV === 'development'
+
+                return MAX_SLASH_COMMANDS.filter(
+                    (command) =>
+                        command.name.toLowerCase().startsWith(question.toLowerCase()) &&
+                        (!command.flag || featureFlags[command.flag]) &&
+                        (!command.requiresIdle || !threadLoading) &&
+                        (!command.requiresPaidPlan || hasPaidPlan)
+                )
+            },
         ],
 
         showDeepResearchModeToggle: [
@@ -660,14 +1165,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (s) => [s.conversation, s.featureFlags],
             (conversation, featureFlags) =>
                 featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH]
-                    ? conversation?.type !== ConversationType.DeepResearch &&
-                      conversation?.status !== ConversationStatus.InProgress
+                    ? conversation?.type !== ConversationType.DeepResearch
                     : true,
         ],
     }),
 
     afterMount((logic) => {
-        const { actions, values, props } = logic
+        const { actions, values, props, cache } = logic
         for (const l of maxThreadLogic.findAllMounted()) {
             if (l !== logic && l.props.conversationId === props.conversationId) {
                 // We found a logic with the same conversationId, but a different tabId
@@ -684,8 +1188,30 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
+        } else if (
+            props.conversation?.status === ConversationStatus.InProgress &&
+            !values.streamingActive &&
+            !cache.generationController
+        ) {
+            // If the conversation is in progress and we don't have an active stream, reconnect
+            setTimeout(() => {
+                actions.reconnectToStream()
+            }, 0)
         }
     }),
+
+    subscriptions(({ actions, values }) => ({
+        sceneId: (sceneId: Scene | null) => {
+            // Only auto-set mode when no conversation is active
+            if (!values.conversation) {
+                const suggestedMode = getAgentModeForScene(sceneId)
+                if (suggestedMode !== values.agentMode) {
+                    // Use sync action to not lock - allows conversation to still update mode if agent changes it
+                    actions.syncAgentModeFromConversation(suggestedMode)
+                }
+            }
+        },
+    })),
 ])
 
 /**
@@ -735,40 +1261,45 @@ function enhanceThreadToolCalls(
     }
 
     // Enhance assistant messages with tool call status
-    return group.map((message, index) => {
+    return group.map((message, messageIndex) => {
+        message = { ...message }
+        // A message is in the final group if it comes after or is the last human message
+        const isFinalGroup = messageIndex >= lastHumanMessageIndex
         if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
-            // A message is in the final group if it comes after or is the last human message
-            const isFinalGroup = index >= lastHumanMessageIndex
             const isLastPlanningMessage = message.id === lastPlanningMessageId
-            const enhancedToolCalls = message.tool_calls.map((toolCall) => {
+            message.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
                 const isCompleted = !!toolCallCompletions.get(toolCall.id)
-                const isFailed = !isCompleted && (!isFinalGroup || !isLoading)
+                // create_form is an interactive tool - it's "completed" once rendered (waiting for user input)
+                const isInteractiveTool = toolCall.name === 'create_form'
+                const isFailed = !isCompleted && !isInteractiveTool && (!isFinalGroup || !isLoading)
                 return {
                     ...toolCall,
                     status: isFailed
                         ? TaskExecutionStatus.Failed
-                        : isCompleted
+                        : isCompleted || (isInteractiveTool && !isLoading)
                           ? TaskExecutionStatus.Completed
                           : TaskExecutionStatus.InProgress,
                     isLastPlanningMessage: toolCall.name === 'todo_write' && isLastPlanningMessage,
                     updates: toolCallUpdateMap.get(toolCall.id) ?? [],
                 }
             })
-
-            return {
-                ...message,
-                tool_calls: enhancedToolCalls,
-            }
         }
         return message
     })
 }
 
 /** Assistant streaming event handler. */
-async function onEventImplementation(
+export async function onEventImplementation(
     event: string,
     data: string,
-    { actions, values, props }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'>
+    {
+        actions,
+        values,
+        props,
+        agentMode,
+    }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'> & {
+        agentMode: AgentMode | null
+    }
 ): Promise<void> {
     // A Conversation object is only received when the conversation is new
     if (event === AssistantEventType.Conversation) {
@@ -779,16 +1310,17 @@ async function onEventImplementation(
         const conversationWithTitle = {
             ...parsedResponse,
             title: parsedResponse.title || 'New chat',
+            agent_mode: agentMode,
         }
 
         actions.setConversation(conversationWithTitle)
         actions.updateGlobalConversationCache(conversationWithTitle)
     } else if (event === AssistantEventType.Update) {
-        const parsedResponse = parseResponse<AssistantUpdateEvent>(data)
+        const parsedResponse = parseResponse<AssistantUpdateEvent | SubagentUpdateEvent>(data)
         if (!parsedResponse) {
             return
         }
-        actions.setToolCallUpdate(parsedResponse)
+        actions.setToolCallUpdate(parsedResponse, values.toolMap)
         return
     } else if (event === AssistantEventType.Message) {
         const parsedResponse = parseResponse<RootAssistantMessage>(data)
@@ -810,6 +1342,14 @@ async function onEventImplementation(
             }
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
+                    continue // Static tools (mode-level) don't operate via ui_payload
+                }
+                // Track pending approval proposals for auto-rejection
+                const proposalId = toolResult?.proposalId || toolResult?.proposal_id
+                if (toolResult?.status === PENDING_APPROVAL_STATUS && proposalId) {
+                    actions.setPendingApproval(proposalId)
+                }
                 await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
             }
             actions.addMessage({
@@ -817,11 +1357,12 @@ async function onEventImplementation(
                 status: 'completed',
             })
         } else {
-            if (isNotebookUpdateMessage(parsedResponse)) {
-                actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
-                if (!parsedResponse.id) {
-                    // we do not want to show partial notebook update messages
-                    return
+            if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {
+                for (const { name: toolName, args: toolResult } of parsedResponse.tool_calls) {
+                    if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
+                        continue // Non-static tools (contextual) operate via ui_payload instead
+                    }
+                    await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
                 }
             }
             // Check if a message with the same ID already exists
@@ -829,24 +1370,27 @@ async function onEventImplementation(
                 ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
                 : -1
 
+            const isLoading = !parsedResponse.id || parsedResponse.id.startsWith('temp-')
             if (existingMessageIndex >= 0) {
-                // Replace existing message with same ID
+                // When streaming a message with an already-present ID, we simply replace it
+                // (primarily when streaming in-progress messages with a temp- ID)
                 actions.replaceMessage(existingMessageIndex, {
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: isLoading ? 'loading' : 'completed',
                 })
-            } else if (
-                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
-                values.threadRaw.length === 0
-            ) {
+            } else if (isLoading) {
+                // When a new temp message is streamed for the first time, we append it
                 actions.addMessage({
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: 'loading',
                 })
-            } else if (parsedResponse) {
-                actions.replaceMessage(values.threadRaw.length - 1, {
+            } else {
+                // When we get the completed messages at the end of a generation,
+                // we replace from the last completed message to arrive at the final state
+                const lastCompletedMessageIndex = values.threadRaw.findLastIndex((msg) => msg.status === 'completed')
+                actions.replaceMessage(lastCompletedMessageIndex + 1, {
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: 'completed',
                 })
             }
         }
@@ -859,6 +1403,15 @@ async function onEventImplementation(
         if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
             actions.setMessageStatus(values.threadRaw.length - 1, 'error')
         }
+    } else if (event === AssistantEventType.Approval) {
+        const parsedResponse = parseResponse<PendingApproval>(data)
+        if (!parsedResponse) {
+            return
+        }
+        // Store the approval data for rendering
+        actions.addPendingApprovalData(parsedResponse)
+        // Track pending approval for auto-rejection
+        actions.setPendingApproval(parsedResponse.proposal_id)
     }
 }
 

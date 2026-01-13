@@ -22,8 +22,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { ANY_VARIANT, variantOptions } from 'lib/components/IngestionControls/triggers/FlagTrigger/VariantSelector'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -36,8 +36,8 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { formatDate } from 'lib/utils'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { ANY_VARIANT, variantOptions } from 'scenes/settings/environment/ReplayTriggers'
-import { SurveyEventTrigger } from 'scenes/surveys/SurveyEventTrigger'
+import { SurveyActionTrigger } from 'scenes/surveys/SurveyActionTrigger'
+import { SurveyCancelEventTrigger, SurveyEventTrigger } from 'scenes/surveys/SurveyEventTrigger'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
@@ -50,7 +50,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { actionsModel } from '~/models/actionsModel'
 import { getPropertyKey } from '~/taxonomy/helpers'
 import {
-    ActionType,
     LinkSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
@@ -760,6 +759,16 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                       )
                                                                   )
                                                               }
+                                                              if (
+                                                                  'surveyPopupDelaySeconds' in appearance &&
+                                                                  !appearance.surveyPopupDelaySeconds &&
+                                                                  survey.conditions?.cancelEvents?.values?.length
+                                                              ) {
+                                                                  setSurveyValue('conditions', {
+                                                                      ...survey.conditions,
+                                                                      cancelEvents: undefined,
+                                                                  })
+                                                              }
                                                           }}
                                                           validationErrors={surveyErrors?.appearance}
                                                       />
@@ -1203,49 +1212,28 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                   )}
                                                               </BindLogic>
                                                           </LemonField.Pure>
-                                                          <SurveyEventTrigger />
-                                                          {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && (
+                                                          {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] ? (
                                                               <LemonField.Pure
-                                                                  label="User performs actions"
-                                                                  info="Note that these actions are only observed, and activate this survey, in the current user session."
+                                                                  label="Activation triggers"
+                                                                  info="Survey will activate when any of these conditions are met"
                                                               >
-                                                                  <EventSelect
-                                                                      filterGroupTypes={[
-                                                                          TaxonomicFilterGroupType.Actions,
-                                                                      ]}
-                                                                      onItemChange={(items: ActionType[]) => {
-                                                                          setSurveyValue('conditions', {
-                                                                              ...survey.conditions,
-                                                                              actions: {
-                                                                                  values: items.map((e) => {
-                                                                                      return { id: e.id, name: e.name }
-                                                                                  }),
-                                                                              },
-                                                                          })
-                                                                      }}
-                                                                      selectedItems={
-                                                                          survey.conditions?.actions?.values &&
-                                                                          survey.conditions?.actions?.values.length > 0
-                                                                              ? survey.conditions?.actions?.values
-                                                                              : []
-                                                                      }
-                                                                      selectedEvents={
-                                                                          survey.conditions?.actions?.values?.map(
-                                                                              (v) => v.name
-                                                                          ) ?? []
-                                                                      }
-                                                                      addElement={
-                                                                          <LemonButton
-                                                                              size="small"
-                                                                              type="secondary"
-                                                                              icon={<IconPlus />}
-                                                                              sideIcon={null}
-                                                                          >
-                                                                              Add action
-                                                                          </LemonButton>
-                                                                      }
-                                                                  />
+                                                                  <div className="border rounded p-3 space-y-3">
+                                                                      <SurveyEventTrigger />
+                                                                      <div className="flex items-center gap-2">
+                                                                          <div className="flex-1 border-t border-dashed" />
+                                                                          <span className="text-xs font-semibold text-muted uppercase">
+                                                                              or
+                                                                          </span>
+                                                                          <div className="flex-1 border-t border-dashed" />
+                                                                      </div>
+                                                                      <SurveyActionTrigger />
+                                                                  </div>
                                                               </LemonField.Pure>
+                                                          ) : (
+                                                              <SurveyEventTrigger />
+                                                          )}
+                                                          {!!survey.appearance?.surveyPopupDelaySeconds && (
+                                                              <SurveyCancelEventTrigger />
                                                           )}
                                                       </>
                                                   )}

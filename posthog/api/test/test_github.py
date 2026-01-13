@@ -9,6 +9,9 @@ from rest_framework import status
 
 from posthog import redis
 from posthog.api.github import SignatureVerificationError, verify_github_signature
+from posthog.models import PersonalAPIKey
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal, mask_key_value
 
 
 class TestGitHubSignatureVerification(TestCase):
@@ -214,8 +217,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             "/api/alerts/github",
             data=json.dumps(self.valid_payload),
             content_type="application/json",
-            HTTP_GITHUB_PUBLIC_KEY_IDENTIFIER="test_kid",
-            HTTP_GITHUB_PUBLIC_KEY_SIGNATURE="test_signature",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_signature"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -249,8 +251,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             "/api/alerts/github",
             data=json.dumps(self.valid_payload),
             content_type="application/json",
-            HTTP_GITHUB_PUBLIC_KEY_IDENTIFIER="test_kid",
-            HTTP_GITHUB_PUBLIC_KEY_SIGNATURE="invalid_signature",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "invalid_signature"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -269,8 +270,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             "/api/alerts/github",
             data=json.dumps(self.valid_payload),
             content_type="application/json",
-            HTTP_GITHUB_PUBLIC_KEY_IDENTIFIER="test_kid",
-            HTTP_GITHUB_PUBLIC_KEY_SIGNATURE="invalid_signature",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "invalid_signature"},
         )
 
         # Should get 401 for invalid signature, not 500 for RawPostDataException
@@ -292,3 +292,162 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         # Verify it's complaining about headers, not content type
         data = response.json()
         self.assertIn("Github-Public-Key-Identifier", str(data))
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_personal_api_key_exposed")
+    def test_secret_alert_finds_and_rolls_existing_personal_api_key(self, mock_send_email, mock_verify):
+        """Test that an existing personal API key is found, rolled, and email is sent."""
+        mock_verify.return_value = None
+
+        # Create a real key
+        token = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test Key",
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+        )
+        original_secure_value = key.secure_value
+
+        # Send alert with the token
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": "posthog_personal_api_key",
+                        "url": "https://github.com/test/repo/blob/main/secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["label"], "true_positive")
+        self.assertEqual(data[0]["token_type"], "posthog_personal_api_key")
+
+        # Verify key was rolled (secure_value changed)
+        key.refresh_from_db()
+        self.assertNotEqual(key.secure_value, original_secure_value)
+        self.assertIsNotNone(key.last_rolled_at)
+
+        # Verify email was sent
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        self.assertEqual(call_args[0][0], self.user.id)
+        self.assertEqual(call_args[0][1], key.id)
+
+    @patch("posthog.api.github.verify_github_signature")
+    def test_secret_alert_returns_false_positive_for_unknown_key(self, mock_verify):
+        """Test that an unknown token returns false_positive."""
+        mock_verify.return_value = None
+
+        # Send alert with a non-existent token
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": "phx_nonexistent_token_12345678901234567890",
+                        "type": "posthog_personal_api_key",
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["label"], "false_positive")
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_personal_api_key_exposed")
+    def test_secret_alert_finds_key_with_legacy_pbkdf2_hash(self, mock_send_email, mock_verify):
+        """Test that keys stored with legacy PBKDF2 hash are still found."""
+        mock_verify.return_value = None
+
+        # Create a key with legacy PBKDF2 hash (260000 iterations)
+        token = generate_random_token_personal()
+        legacy_hash = hash_key_value(token, mode="pbkdf2", iterations=260000)
+        key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Legacy Key",
+            secure_value=legacy_hash,
+            mask_value=mask_key_value(token),
+        )
+
+        # Send alert with the token
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": "posthog_personal_api_key",
+                        "url": "https://github.com/test/repo/blob/main/old_secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["label"], "true_positive")
+
+        # Verify key was rolled
+        key.refresh_from_db()
+        self.assertIsNotNone(key.last_rolled_at)
+
+    @patch("posthog.api.github.verify_github_signature")
+    def test_secret_alert_does_not_find_key_for_inactive_user(self, mock_verify):
+        """Test that keys for inactive users are not found (returns false_positive)."""
+        mock_verify.return_value = None
+
+        # Create a key for an inactive user
+        self.user.is_active = False
+        self.user.save()
+
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Inactive User Key",
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+        )
+
+        # Send alert with the token
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": "posthog_personal_api_key",
+                        "url": "https://github.com/test/repo/blob/main/inactive_secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        # Key should NOT be found because user is inactive
+        self.assertEqual(data[0]["label"], "false_positive")

@@ -1,4 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -16,6 +17,7 @@ export interface ColumnConfiguratorLogicProps {
     columns: string[]
     setColumns: (columns: string[]) => void
     isPersistent?: boolean
+    contextKey?: string
     context?: {
         type: 'event_definition' | 'groups' | 'team_columns'
         eventDefinitionId?: string
@@ -44,6 +46,25 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         context: [
             () => [(_, props) => props.context],
             (context: NonNullable<ColumnConfiguratorLogicProps['context']>) => context,
+        ],
+    })),
+    loaders(({ props }) => ({
+        savedColumnConfiguration: [
+            null as { id: string; columns: string[] } | null,
+            {
+                loadSavedColumnConfiguration: async (): Promise<{ id: string; columns: string[] } | null> => {
+                    if (!props.contextKey) {
+                        return null
+                    }
+                    const response = await api.get(
+                        `api/environments/${teamLogic.values.currentTeamId}/column_configurations/?context_key=${props.contextKey}`
+                    )
+                    if (response.results && response.results.length > 0) {
+                        return { id: response.results[0].id, columns: response.results[0].columns }
+                    }
+                    return null
+                },
+            },
         ],
     })),
     reducers(({ props }) => ({
@@ -83,9 +104,41 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         }
     }),
     listeners(({ actions, values, props }) => ({
+        loadSavedColumnConfigurationSuccess: ({ savedColumnConfiguration }) => {
+            if (savedColumnConfiguration) {
+                props.setColumns(savedColumnConfiguration.columns)
+            }
+        },
         save: async () => {
-            actions.reportDataTableColumnsUpdated(props.context?.type ?? 'live_events')
+            actions.reportDataTableColumnsUpdated(props.contextKey ?? props.context?.type ?? 'live_events')
             if (!props.isPersistent || !values.saveAsDefault) {
+                props.setColumns(values.columns)
+                return
+            }
+
+            if (props.contextKey) {
+                try {
+                    if (values.savedColumnConfiguration?.id) {
+                        await api.update(
+                            `api/environments/${teamLogic.values.currentTeamId}/column_configurations/${values.savedColumnConfiguration.id}`,
+                            { columns: values.columns }
+                        )
+                    } else {
+                        const response = await api.create(
+                            `api/environments/${teamLogic.values.currentTeamId}/column_configurations/`,
+                            {
+                                context_key: props.contextKey,
+                                columns: values.columns,
+                            }
+                        )
+                        actions.loadSavedColumnConfigurationSuccess({ id: response.id, columns: response.columns })
+                    }
+
+                    lemonToast.success('Default columns saved')
+                } catch (error: any) {
+                    console.error('Error saving column configuration:', error)
+                    lemonToast.error(error.detail || 'Failed to save column configuration')
+                }
                 props.setColumns(values.columns)
                 return
             }
@@ -123,4 +176,9 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
             props.setColumns(values.columns)
         },
     })),
+    afterMount(({ actions, props }) => {
+        if (props.contextKey) {
+            actions.loadSavedColumnConfiguration()
+        }
+    }),
 ])

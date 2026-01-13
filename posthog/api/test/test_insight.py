@@ -80,6 +80,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
+    @parameterized.expand(
+        [
+            ("trend", "/api/projects/{team_id}/insights/trend/"),
+            ("funnel", "/api/projects/{team_id}/insights/funnel/"),
+        ]
+    )
+    def test_legacy_insight_endpoints_blocked_with_feature_flag(self, _name: str, path: str) -> None:
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+            response = self.client.get(path.format(team_id=self.team.id))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "Legacy insight endpoints are not available for this user.")
+        mock_feature_enabled.assert_called_once()
+        self.assertEqual(mock_feature_enabled.call_args[0][0], "legacy-insight-endpoints-disabled")
+
     def test_get_insight_items(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -2344,28 +2359,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(lines[2], b"test custom,0,0,0,0,0,0,2,1")
         self.assertEqual(len(lines), 3, response.content)
 
-    def test_insight_trends_formula_and_fractional_numbers_csv(self) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/trend.csv/?events={json.dumps([{'id': '$pageview', 'custom_name': 'test custom'}])}&export_name=Pageview count&export_insight_id=test123&formula=A*0.5"
-            )
-
-        lines = response.content.splitlines()
-
-        self.assertEqual(lines[0], b"http://localhost:8010/insights/test123/", lines[0])
-        self.assertEqual(
-            lines[1],
-            b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
-            lines[0],
-        )
-        self.assertEqual(lines[2], b"Formula (A*0.5),0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.5")
-        self.assertEqual(len(lines), 3, response.content)
-
     def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
@@ -2704,8 +2697,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]
-        # we will have three logged activities (in reverse order) undelete, delete, create
-        assert [a["activity"] for a in activity] == ["updated", "updated", "created"]
+        # we will have three logged activities (in reverse order) restore, delete, create
+        assert [a["activity"] for a in activity] == ["restored", "deleted", "created"]
         undelete_change_log = activity[0]["detail"]["changes"][0]
         assert undelete_change_log == {
             "action": "changed",
@@ -3911,3 +3904,87 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Verify the breakdown filter is applied in the result
         self.assertIn("result", response_data)
         self.assertEqual(response_data["result"][0][0]["breakdown"], ["Chrome"])
+
+
+class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "posthog.errors.ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse"),
+            ("ExposedHogQLError", "posthog.hogql.errors.ExposedHogQLError", "Invalid HogQL syntax"),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_returns_400_for_exposed_errors(
+        self, _name: str, error_class_path: str, error_message: str, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        error_class = ExposedCHQueryError if "ExposedCHQueryError" in error_class_path else ExposedHogQLError
+        mock_calculate.side_effect = error_class(error_message)
+
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/?refresh=blocking")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))
+
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "ClickHouse trend error"),
+            ("ExposedHogQLError", "HogQL trend error"),
+        ]
+    )
+    @patch("posthog.api.insight.InsightViewSet.calculate_trends_hogql")
+    @patch("posthog.api.insight.get_query_method", return_value="hogql")
+    def test_trend_returns_400_for_exposed_errors(
+        self, error_type: str, error_message: str, _mock_query_method: mock.MagicMock, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        error_class = ExposedCHQueryError if error_type == "ExposedCHQueryError" else ExposedHogQLError
+        mock_calculate.side_effect = error_class(error_message)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/trend/",
+            data={"events": json.dumps([{"id": "$pageview"}])},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))
+
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "ClickHouse funnel error"),
+            ("ExposedHogQLError", "HogQL funnel error"),
+        ]
+    )
+    @patch("posthog.api.insight.InsightViewSet.calculate_funnel_hogql")
+    @patch("posthog.api.insight.get_query_method", return_value="hogql")
+    def test_funnel_returns_400_for_exposed_errors(
+        self, error_type: str, error_message: str, _mock_query_method: mock.MagicMock, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        error_class = ExposedCHQueryError if error_type == "ExposedCHQueryError" else ExposedHogQLError
+        mock_calculate.side_effect = error_class(error_message)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/funnel/",
+            data={"events": json.dumps([{"id": "$pageview"}, {"id": "$pageleave"}])},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))

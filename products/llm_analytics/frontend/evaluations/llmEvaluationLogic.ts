@@ -10,10 +10,12 @@ import { Breadcrumb } from '~/types'
 
 import { queryEvaluationRuns } from '../utils'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
+import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import { EvaluationConditionSet, EvaluationConfig, EvaluationRun } from './types'
 
 export interface LLMEvaluationLogicProps {
     evaluationId: string
+    templateKey?: EvaluationTemplateKey
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
@@ -133,21 +135,26 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
             } else if (props.evaluationId === 'new') {
                 // Initialize new evaluation
+                // Check if we should pre-fill from a template
+                const template = props.templateKey
+                    ? defaultEvaluationTemplates.find((t) => t.key === props.templateKey)
+                    : undefined
+
                 const newEvaluation: EvaluationConfig = {
                     id: '',
-                    name: '',
-                    description: '',
-                    enabled: false,
+                    name: template?.name || '',
+                    description: template?.description || '',
+                    enabled: true,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
-                        prompt: '',
+                        prompt: template?.prompt || '',
                     },
                     output_type: 'boolean',
                     output_config: {},
                     conditions: [
                         {
                             id: `cond-${Date.now()}`,
-                            rollout_percentage: 100,
+                            rollout_percentage: 0,
                             properties: [],
                         },
                     ],
@@ -169,7 +176,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     id: '',
                     name: '',
                     description: '',
-                    enabled: false,
+                    enabled: true,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
                         prompt: '',
@@ -179,7 +186,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     conditions: [
                         {
                             id: `cond-${Date.now()}`,
-                            rollout_percentage: 100,
+                            rollout_percentage: 0,
                             properties: [],
                         },
                     ],
@@ -280,9 +287,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     }),
 
     urlToAction(({ actions, props }) => ({
-        '/llm-analytics/evaluations/:id': (_, __, ___, { method }) => {
-            // Only reload when user clicked link, not on browser back/forward
-            if (method === 'PUSH') {
+        '/llm-analytics/evaluations/:id': ({ id }, _, __, { method }) => {
+            // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
+            const newEvaluationId = id && id !== 'new' ? id : 'new'
+            if (method === 'PUSH' && newEvaluationId !== props.evaluationId) {
                 actions.loadEvaluation()
                 if (props.evaluationId !== 'new') {
                     actions.loadEvaluationRuns()

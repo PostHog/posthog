@@ -22,7 +22,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "default_experiment_stats_method": "bayesian",
     "enforce_2fa": false,
     "id": "ABCD",
+    "is_active": true,
     "is_member_join_email_enabled": true,
+    "is_not_active_reason": null,
     "logo_media_id": null,
     "member_count": 2,
     "members_can_use_personal_api_keys": true,
@@ -57,6 +59,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "capture_dead_clicks": false,
         "capture_performance_opt_in": true,
         "completed_snippet_onboarding": true,
+        "core_events_config": {
+          "core_events": [],
+        },
         "correlation_config": {
           "excluded_event_names": [
             "$autocapture",
@@ -73,6 +78,17 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           ],
         },
         "created_at": "2020-06-30T09:53:35.932534Z",
+        "customer_analytics_config": {
+          "activity_event": {
+            "event": "$pageview",
+            "kind": "EventsNode",
+            "name": "$pageview",
+          },
+          "payment_event": {},
+          "signup_event": {},
+          "signup_pageview_event": {},
+          "subscription_event": {},
+        },
         "data_attributes": [
           "data-attr",
         ],
@@ -137,6 +153,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
+        "require_evaluation_environment_tags": false,
         "revenue_analytics_config": {
           "events": [
             {

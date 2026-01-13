@@ -23,8 +23,8 @@ import {
 
 function EventRow({ event }: { event: EventDefinitionBasic }): JSX.Element {
     return (
-        <div className="py-3 px-4 border-b last:border-b-0 bg-white">
-            <Link to={urls.eventDefinition(event.id)} className="font-semibold">
+        <div className="py-3 px-4 border-b last:border-b-0">
+            <Link to={urls.eventDefinition(event.id)} className="font-semibold text-default">
                 {event.name}
             </Link>
         </div>
@@ -33,11 +33,11 @@ function EventRow({ event }: { event: EventDefinitionBasic }): JSX.Element {
 
 function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): JSX.Element {
     return (
-        <div className="flex items-center gap-4 py-3 px-4 border-b last:border-b-0 bg-white">
+        <div className="flex items-center gap-4 py-3 px-4 border-b last:border-b-0">
             <div className="flex-1">
                 <Link
                     to={`${urls.propertyDefinitions()}?property=${encodeURIComponent(property.name)}`}
-                    className="font-semibold"
+                    className="font-semibold text-default"
                 >
                     {property.name}
                 </Link>
@@ -169,7 +169,7 @@ export function SchemaManagement(): JSX.Element {
                                 {/* Events Section */}
                                 <div>
                                     <h3 className="text-sm font-semibold mb-2">Events</h3>
-                                    <div className="border rounded overflow-hidden">
+                                    <div className="border rounded overflow-hidden bg-bg-light">
                                         {propertyGroup.events && propertyGroup.events.length > 0 ? (
                                             <>
                                                 <div className="flex gap-4 py-2 px-4 bg-accent-3000 border-b text-xs font-semibold uppercase tracking-wider">
@@ -190,7 +190,7 @@ export function SchemaManagement(): JSX.Element {
                                 {/* Properties Section */}
                                 <div>
                                     <h3 className="text-sm font-semibold mb-2">Properties</h3>
-                                    <div className="border rounded overflow-hidden">
+                                    <div className="border rounded overflow-hidden bg-bg-light">
                                         {propertyGroup.properties && propertyGroup.properties.length > 0 ? (
                                             <>
                                                 <div className="flex gap-4 py-2 px-4 bg-accent-3000 border-b text-xs font-semibold uppercase tracking-wider">

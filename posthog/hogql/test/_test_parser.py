@@ -2105,10 +2105,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         # 4. <strong><a href="…">Hello <em>{event}</em></a>{'a'}</strong>
         def test_visit_hogqlx_mixed_nested_attributes(self) -> None:
             node = self._select(
-                "select <strong>"
-                "<a href='https://google.com'>Hello <em>{event}</em></a>"
-                "{'a'}"
-                "</strong> from events"
+                "select <strong><a href='https://google.com'>Hello <em>{event}</em></a>{'a'}</strong> from events"
             )
             assert isinstance(node, ast.SelectQuery)
             outer = cast(ast.HogQLXTag, node.select[0])
@@ -2922,5 +2919,22 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ]
             )
             self.assertEqual(program, expected)
+
+        def test_trailing_semicolon_select(self):
+            self.assertEqual(self._select("SELECT 1;"), self._select("SELECT 1"))
+
+            self.assertEqual(self._select("SELECT 1 FROM events;"), self._select("SELECT 1 FROM events"))
+
+            self.assertEqual(
+                self._select("SELECT * FROM events WHERE timestamp > now();"),
+                self._select("SELECT * FROM events WHERE timestamp > now()"),
+            )
+
+            self.assertEqual(
+                self._select("SELECT e.event FROM events e JOIN persons p ON e.person_id = p.id;"),
+                self._select("SELECT e.event FROM events e JOIN persons p ON e.person_id = p.id"),
+            )
+
+            self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
 
     return TestParser

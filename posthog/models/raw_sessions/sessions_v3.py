@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
 
     -- urls
-    urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+    urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
     entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
     last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -161,6 +161,10 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- Flags - store every seen value for each flag
     flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+    flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+
+    -- Event names - store unique event names seen in this session
+    event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
 
     -- Replay
     has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -178,8 +182,20 @@ def SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3():
 
 
 def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
+    # For the sharded table, we need to add the index definition in the column list
+    # Remove the closing parenthesis and ENGINE from base SQL
+    base_sql = RAW_SESSIONS_TABLE_BASE_SQL_V3.replace(
+        ") ENGINE = {engine}",
+        """,
+
+    -- Indexes
+    INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+    INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
+) ENGINE = {engine}""",
+    )
+
     return (
-        RAW_SESSIONS_TABLE_BASE_SQL_V3
+        base_sql
         + """
 PARTITION BY toYYYYMM(session_timestamp)
 ORDER BY (
@@ -249,7 +265,7 @@ PROPERTIES = f"""
             `gclid` Nullable(String),
             `gad_source` Nullable(String),
             `fbclid` Nullable(String),
-{f',{new_line}'.join([f'            `{ad_id}` Nullable(String)' for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
+{f",{new_line}".join([f"            `{ad_id}` Nullable(String)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         )') as p,
         tupleElement(p, '$current_url') as _current_url,
         tupleElement(p, '$external_click_url') as _external_click_url,
@@ -274,12 +290,12 @@ PROPERTIES = f"""
         tupleElement(p, 'gclid') as _gclid,
         tupleElement(p, 'gad_source') as _gad_source,
         tupleElement(p, 'fbclid') as _fbclid,
-{f',{new_line}'.join([f"        tupleElement(p, '{ad_id}') as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])},
+{f",{new_line}".join([f"        tupleElement(p, '{ad_id}') as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])},
         CAST(mapFilter((k, v) -> v IS NOT NULL, map(
-{f',{new_line}'.join([f"            '{ad_id}', {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
+{f",{new_line}".join([f"            '{ad_id}', {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         )) AS Map(String, String)) as ad_ids_map,
         CAST(arrayFilter(x -> x IS NOT NULL, [
-{f',{new_line}'.join([f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
+{f",{new_line}".join([f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         ]) AS Array(String)) as ad_ids_set"""
 
 
@@ -357,6 +373,10 @@ SELECT
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+    mapKeys(properties_group_feature_flags) as flag_keys,
+
+    -- event names
+    [event] as event_names,
 
     false as has_replay_events
 FROM {source_table} AS source_table
@@ -475,6 +495,10 @@ SELECT
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+    CAST([], 'Array(String)') as flag_keys,
+
+    -- event names
+    CAST([], 'Array(String)') as event_names,
 
     -- replay
     true as has_replay_events
@@ -505,34 +529,48 @@ AS
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE", use_sharded_source=True):
+def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where: str, shard_index: int, num_shards: int):
+    """
+    Generates SQL to backfill sessions from events.
+
+    Each shard should call this with its own shard_index to only SELECT events
+    that will end up on that shard, then INSERT directly to the local sharded table.
+    """
+    shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
+    combined_where = f"({where}) AND {shard_filter}"
+
     return """
-INSERT INTO {database}.{writable_table}
+INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
-            where=where,
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
-            if use_sharded_source
-            else f"{settings.CLICKHOUSE_DATABASE}.events",
+            where=combined_where,
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
         ),
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where="TRUE", use_sharded_source=True):
+def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where: str, shard_index: int, num_shards: int):
+    """
+    Generates SQL to backfill sessions from session replay events.
+
+    Each shard should call this with its own shard_index to only SELECT recordings
+    that will end up on that shard, then INSERT directly to the local sharded table.
+    """
+    shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
+    combined_where = f"({where}) AND {shard_filter}"
+
     return """
-INSERT INTO {database}.{writable_table}
+INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
-            where=where,
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_session_replay_events"
-            if use_sharded_source
-            else f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
+            where=combined_where,
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
         ),
     )
 
@@ -585,7 +623,7 @@ SELECT
     max(max_inserted_at) as max_inserted_at,
 
     -- urls
-    arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
+    groupUniqArrayArray(2000)(urls) AS urls,
     argMinMerge(entry_url) as entry_url,
     argMaxMerge(end_url) as end_url,
     argMaxMerge(last_external_click_url) as last_external_click_url,
@@ -636,6 +674,10 @@ SELECT
 
     -- flags
     groupUniqArrayMapMerge(flag_values) as flag_values,
+    groupUniqArrayArray(flag_keys) as flag_keys,
+
+    -- event names
+    groupUniqArrayArray(2000)(event_names) as event_names,
 
     -- replay
     max(has_replay_events) as has_replay_events
@@ -684,3 +726,28 @@ GROUP BY value
 ORDER BY count(value) DESC
 LIMIT 20
 """
+
+
+def GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(partitions: list[str]) -> str:
+    """Get the maximum number of active parts across specified partitions and all nodes.
+
+    Args:
+        partitions: List of partition names in YYYYMM format (e.g., ['202501', '202412'])
+    """
+    if not partitions:
+        raise ValueError("partitions list cannot be empty")
+    # Format partitions for SQL IN clause: ('202501', '202412')
+    partitions_sql = ", ".join(f"'{p}'" for p in partitions)
+
+    return f"""
+        SELECT coalesce(max(parts_count), 0), argMax(partition, parts_count), argMax(host, parts_count)
+        FROM (
+            SELECT hostName() as host, count() as parts_count, partition
+            FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)
+            WHERE database = '{settings.CLICKHOUSE_DATABASE}'
+              AND table = '{SHARDED_RAW_SESSIONS_TABLE_V3()}'
+              AND partition IN ({partitions_sql})
+              AND active = 1
+            GROUP BY host, partition
+        )
+    """

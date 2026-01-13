@@ -119,6 +119,7 @@ async def test_generate_digest_data_workflow():
         "user_notification": 0,
         "filter": 0,
         "recording": 0,
+        "product_suggestion": 0,
         "org_digest": 0,
     }
 
@@ -172,6 +173,10 @@ async def test_generate_digest_data_workflow():
     async def generate_recording_lookup_mocked(input) -> None:
         activity_calls["recording"] += 1
 
+    @activity.defn(name="generate-product-suggestion-lookup")
+    async def generate_product_suggestion_lookup_mocked(input) -> None:
+        activity_calls["product_suggestion"] += 1
+
     @activity.defn(name="generate-organization-digest-batch")
     async def generate_organization_digest_batch_mocked(input) -> None:
         activity_calls["org_digest"] += 1
@@ -195,6 +200,7 @@ async def test_generate_digest_data_workflow():
                 generate_user_notification_lookup_mocked,
                 generate_filter_lookup_mocked,
                 generate_recording_lookup_mocked,
+                generate_product_suggestion_lookup_mocked,
                 generate_organization_digest_batch_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
@@ -230,6 +236,7 @@ async def test_generate_digest_data_workflow():
     assert activity_calls["user_notification"] == expected_team_batches
     assert activity_calls["filter"] == expected_team_batches
     assert activity_calls["recording"] == expected_team_batches
+    assert activity_calls["product_suggestion"] == expected_team_batches
 
     # Calculate expected batches for organizations
     expected_org_batches = (TEST_ORG_COUNT + TEST_BATCH_SIZE - 1) // TEST_BATCH_SIZE
@@ -278,6 +285,7 @@ async def test_send_weekly_digest_workflow():
                 SendWeeklyDigestWorkflow.run,
                 SendWeeklyDigestInput(
                     dry_run=True,
+                    allow_already_sent=False,
                     digest=digest,
                     common=CommonInput(batch_size=TEST_BATCH_SIZE, redis_host="localhost", redis_port=6379),
                 ),

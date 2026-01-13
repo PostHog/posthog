@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
-from posthog.batch_exports.service import backfill_export, disable_and_delete_export, sync_batch_export
+from posthog.batch_exports.service import backfill_export, delete_batch_export, sync_batch_export
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team
 from posthog.temporal.common.client import sync_connect
 
@@ -106,7 +106,7 @@ class Command(BaseCommand):
                     raise CommandError("Didn't receive 'y', exiting")
                 print()  # noqa: T201
 
-                disable_and_delete_export(existing_export)
+                delete_batch_export(existing_export)
                 is_existing_export = False
                 display("Deleted existing batch export and backfill")
         except BatchExport.DoesNotExist:

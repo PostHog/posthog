@@ -157,9 +157,7 @@ class TestFetchSessionDataActivity:
                 return_value=(mock_raw_events_columns, []),  # Return columns but no events
             ),
         ):
-            with patch(
-                "posthog.temporal.ai.session_summary.summarize_session.logger.exception"
-            ) as mock_logger_exception:
+            with patch("temporalio.activity.logger.exception") as mock_logger_exception:
                 # Call the activity and expect an ExceptionToRetry to be raised
                 with pytest.raises(ExceptionToRetry):
                     await fetch_session_data_activity(input_data)
@@ -458,7 +456,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
             results = []
             generator = execute_summarize_session_stream(
                 session_id=mock_session_id,
-                user_id=mock_user.id,
+                user=mock_user,
                 team=mock_team,
                 extra_summary_context=None,
                 local_reads_prod=False,
@@ -530,7 +528,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
                 list(
                     execute_summarize_session_stream(
                         session_id=mock_session_id,
-                        user_id=mock_user.id,
+                        user=mock_user,
                         team=mock_team,
                         extra_summary_context=None,
                         local_reads_prod=False,
@@ -617,7 +615,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
             result = list(
                 execute_summarize_session_stream(
                     session_id=mock_session_id,
-                    user_id=mock_user.id,
+                    user=mock_user,
                     team=mock_team,
                     extra_summary_context=None,
                     local_reads_prod=False,

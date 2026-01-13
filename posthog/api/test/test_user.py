@@ -22,7 +22,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -110,6 +110,8 @@ class TestUserAPI(APIBaseTest):
                     "logo_media_id": None,
                     "membership_level": 1,
                     "members_can_use_personal_api_keys": True,
+                    "is_active": True,
+                    "is_not_active_reason": None,
                 },
                 {
                     "id": str(self.new_org.id),
@@ -118,6 +120,8 @@ class TestUserAPI(APIBaseTest):
                     "logo_media_id": None,
                     "membership_level": 1,
                     "members_can_use_personal_api_keys": True,
+                    "is_active": True,
+                    "is_not_active_reason": None,
                 },
             ],
         )
@@ -978,6 +982,26 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
 
+    @patch("posthog.api.user.send_password_changed_email.delay")
+    def test_user_without_password_can_set_password(self, mock_send_email):
+        # Create a user without a password (e.g., SSO user)
+        self.user.set_unusable_password()
+        self.user.save()
+
+        # Re-authenticate with force_login since password is now unusable
+        self.client.force_login(self.user)
+
+        # User should be able to set password without providing current_password
+        # Use a strong password that meets validation requirements
+        new_password = "NewSecurePassword123!"
+        response = self.client.patch("/api/users/@me/", {"password": new_password})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Password should be set
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.has_usable_password())
+        self.assertTrue(self.user.check_password(new_password))
+
     def test_unauthenticated_user_cannot_update_anything(self):
         self.client.logout()
         response = self.client.patch(
@@ -1132,7 +1156,7 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         assert (
             unquote(locationHeader)
-            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -1148,7 +1172,7 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert (
             unquote(response.json()["toolbarParams"])
-            == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -1179,7 +1203,7 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "productTourId": null, "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -1214,6 +1238,110 @@ class TestUserAPI(APIBaseTest):
         assert_allowed_url("https://subdomain.otherexample.com")
         assert_allowed_url("https://sub.subdomain.otherexample.com")
 
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_prepare_toolbar_preloaded_flags_with_feature_flags(self, patched_token):
+        """Test that prepare_toolbar_preloaded_flags creates a cache entry with feature flags"""
+        from django.core.cache import cache
+
+        from posthog.models import FeatureFlag
+
+        patched_token.return_value = "test-cache-key-123"
+
+        # Create some feature flags
+        FeatureFlag.objects.create(team=self.team, key="test-flag-1", created_by=self.user, rollout_percentage=100)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag-2",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100, "variant": "test-variant"}]},
+        )
+
+        response = self.client.post(
+            "/api/user/prepare_toolbar_preloaded_flags/", {"distinct_id": "user123"}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        # Should return cache key and flag count
+        self.assertIn("key", data)
+        self.assertIn("flag_count", data)
+        self.assertEqual(data["key"], "test-cache-key-123")
+        self.assertGreater(data["flag_count"], 0)
+
+        # Verify flags are cached with security metadata
+        cached_data = cache.get(f"toolbar_flags_{data['key']}")
+        self.assertIsNotNone(cached_data)
+        self.assertIn("feature_flags", cached_data)
+        self.assertIn("team_id", cached_data)
+        self.assertEqual(cached_data["team_id"], self.team.id)
+        self.assertIn("test-flag-1", cached_data["feature_flags"])
+        self.assertIn("test-flag-2", cached_data["feature_flags"])
+
+    def test_get_toolbar_preloaded_flags_retrieves_from_cache(self):
+        """Test that get_toolbar_preloaded_flags retrieves flags from cache"""
+        from django.core.cache import cache
+
+        # Set up cached flags with metadata
+        test_flags = {"flag1": True, "flag2": "variant-a", "flag3": False}
+        cache_data = {"feature_flags": test_flags, "team_id": self.team.id}
+        cache_key = "toolbar_flags_test-key-456"
+        cache.set(cache_key, cache_data, timeout=300)
+
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=test-key-456")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["featureFlags"], test_flags)
+
+    def test_get_toolbar_preloaded_flags_returns_404_for_missing_key(self):
+        """Test that get_toolbar_preloaded_flags returns 404 for expired/missing cache key"""
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=nonexistent-key")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("error", response.json())
+
+    def test_get_toolbar_preloaded_flags_prevents_cross_team_access(self):
+        """Test that users cannot access flags from other teams"""
+        from django.core.cache import cache
+
+        # Create flags for a different team
+        other_team = Team.objects.create(name="Other Team", organization=self.organization)
+        test_flags = {"secret-flag": True}
+        cache_data = {"feature_flags": test_flags, "team_id": other_team.id}
+        cache_key = "toolbar_flags_test-key-789"
+        cache.set(cache_key, cache_data, timeout=300)
+
+        # Try to access with current user (who belongs to self.team, not other_team)
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=test-key-789")
+
+        # Should be forbidden
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("error", response.json())
+
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_redirect_to_site_with_toolbar_flags_key(self, patched_token):
+        """Test that redirect_to_site passes toolbarFlagsKey through to params"""
+        patched_token.return_value = "tokenvalue"
+
+        self.team.app_urls = ["http://127.0.0.1:8010"]
+        self.team.save()
+
+        response = self.client.get(
+            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8010&toolbarFlagsKey=test-key-789"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location_header = response.headers.get("location", "not found")
+
+        # Verify toolbarFlagsKey is in the redirect URL params
+        self.assertIn("toolbarFlagsKey", unquote(location_header))
+        self.assertIn("test-key-789", unquote(location_header))
+
+        # Verify the full params structure
+        decoded_location = unquote(location_header)
+        self.assertIn('"toolbarFlagsKey": "test-key-789"', decoded_location)
+
     def test_user_cannot_update_protected_fields(self):
         self.user.is_staff = False
         self.user.save()
@@ -1229,9 +1357,9 @@ class TestUserAPI(APIBaseTest):
 
         for field, value in fields.items():
             response = self.client.patch("/api/users/@me/", {field: value})
-            assert (
-                response.json()[field] == initial_user[field]
-            ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            assert response.json()[field] == initial_user[field], (
+                f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            )
 
     def test_can_update_notification_settings(self):
         response = self.client.patch(
@@ -1786,7 +1914,7 @@ class TestUserTwoFactor(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         backup_codes = response.json()["backup_codes"]
-        self.assertEqual(len(backup_codes), 5)  # Verify 5 backup codes are generated
+        self.assertEqual(len(backup_codes), 10)  # Verify 10 backup codes are generated
 
         # Verify codes are stored in database
         static_device = StaticDevice.objects.get(user=self.user)
@@ -1850,7 +1978,7 @@ class TestUserTwoFactor(APIBaseTest):
             scoped_teams=[self.team.id],
         )
 
-        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {access_token.token}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()

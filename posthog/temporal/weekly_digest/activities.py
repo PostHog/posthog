@@ -15,13 +15,14 @@ from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.ph_client import get_client as get_ph_client
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.clickhouse import get_client as get_ch_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.weekly_digest.keys import TeamDataKey, UserDataKey, org_digest_key, team_data_key, user_data_key
 from posthog.temporal.weekly_digest.queries import (
     query_experiments_completed,
     query_experiments_launched,
@@ -35,12 +36,14 @@ from posthog.temporal.weekly_digest.queries import (
     query_saved_filters,
     query_surveys_launched,
     query_teams_for_digest,
+    query_user_product_suggestions,
     queryset_to_list,
 )
 from posthog.temporal.weekly_digest.types import (
     ClickHouseResponse,
     CommonInput,
     DashboardList,
+    DigestProductSuggestion,
     DigestResourceType,
     EventDefinitionList,
     ExperimentList,
@@ -55,6 +58,7 @@ from posthog.temporal.weekly_digest.types import (
     SendWeeklyDigestBatchInput,
     SurveyList,
     TeamDigest,
+    UserDigestContext,
 )
 
 
@@ -88,7 +92,7 @@ LOGGER = get_write_only_logger()
 
 async def generate_digest_data_lookup(
     input: GenerateDigestDataBatchInput,
-    resource_key: str,
+    key_kind: TeamDataKey,
     query_func: Callable[[datetime, datetime], QuerySet],
     resource_type: DigestResourceType,
 ) -> None:
@@ -101,7 +105,7 @@ async def generate_digest_data_lookup(
             batch_end=input.batch[1],
         )
         logger = LOGGER.bind()
-        logger.info(f"Generating digest data batch", resource_key=resource_key)
+        logger.info("Generating digest data batch", key_kind=key_kind)
 
         resource_count = 0
         team_count = 0
@@ -114,7 +118,7 @@ async def generate_digest_data_lookup(
                 try:
                     digest_data = resource_type(await queryset_to_list(db_query.filter(team_id=team.id)))
 
-                    key: str = f"{input.digest.key}-{resource_key}-{team.id}"
+                    key = team_data_key(input.digest.key, key_kind, team.id)
                     await r.setex(key, input.common.redis_ttl, digest_data.model_dump_json())
 
                     team_count += 1
@@ -126,8 +130,8 @@ async def generate_digest_data_lookup(
                     continue
 
         logger.info(
-            f"Finished generating digest data batch",
-            resource_key=resource_key,
+            "Finished generating digest data batch",
+            key_kind=key_kind,
             resource_count=resource_count,
             team_count=team_count,
         )
@@ -137,7 +141,7 @@ async def generate_digest_data_lookup(
 async def generate_dashboard_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
-        resource_key="dashboards",
+        key_kind=TeamDataKey.DASHBOARDS,
         query_func=query_new_dashboards,
         resource_type=DashboardList,
     )
@@ -147,7 +151,7 @@ async def generate_dashboard_lookup(input: GenerateDigestDataBatchInput) -> None
 async def generate_event_definition_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
-        resource_key="event-definitions",
+        key_kind=TeamDataKey.EVENT_DEFINITIONS,
         query_func=query_new_event_definitions,
         resource_type=EventDefinitionList,
     )
@@ -157,7 +161,7 @@ async def generate_event_definition_lookup(input: GenerateDigestDataBatchInput) 
 async def generate_experiment_completed_lookup(input: GenerateDigestDataBatchInput) -> None:
     await generate_digest_data_lookup(
         input,
-        resource_key="experiments-completed",
+        key_kind=TeamDataKey.EXPERIMENTS_COMPLETED,
         query_func=query_experiments_completed,
         resource_type=ExperimentList,
     )
@@ -167,7 +171,7 @@ async def generate_experiment_completed_lookup(input: GenerateDigestDataBatchInp
 async def generate_experiment_launched_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
-        resource_key="experiments-launched",
+        key_kind=TeamDataKey.EXPERIMENTS_LAUNCHED,
         query_func=query_experiments_launched,
         resource_type=ExperimentList,
     )
@@ -177,7 +181,7 @@ async def generate_experiment_launched_lookup(input: GenerateDigestDataBatchInpu
 async def generate_external_data_source_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
-        resource_key="external-data-sources",
+        key_kind=TeamDataKey.EXTERNAL_DATA_SOURCES,
         query_func=query_new_external_data_sources,
         resource_type=ExternalDataSourceList,
     )
@@ -187,7 +191,7 @@ async def generate_external_data_source_lookup(input: GenerateDigestDataBatchInp
 async def generate_feature_flag_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
-        resource_key="feature-flags",
+        key_kind=TeamDataKey.FEATURE_FLAGS,
         query_func=query_new_feature_flags,
         resource_type=FeatureFlagList,
     )
@@ -197,7 +201,7 @@ async def generate_feature_flag_lookup(input: GenerateDigestDataBatchInput) -> N
 async def generate_survey_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
-        resource_key="surveys-launched",
+        key_kind=TeamDataKey.SURVEYS_LAUNCHED,
         query_func=query_surveys_launched,
         resource_type=SurveyList,
     )
@@ -242,7 +246,7 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
 
                     ordered_filters = filters.order_by_recording_count()
 
-                    key: str = f"{input.digest.key}-saved-filters-{team.id}"
+                    key = team_data_key(input.digest.key, TeamDataKey.SAVED_FILTERS, team.id)
                     await r.setex(key, input.common.redis_ttl, ordered_filters.model_dump_json())
 
                     team_count += 1
@@ -290,7 +294,6 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                     parameters = {
                         "team_id": team.id,
                         "python_now": datetime.now(UTC),
-                        "ttl_days": await database_sync_to_async(ttl_days)(team),
                         "ttl_threshold": TTL_THRESHOLD,
                     }
 
@@ -305,7 +308,7 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                     response = ClickHouseResponse.model_validate_json(raw_response)
                     expiring_recordings = RecordingCount.model_validate(response.data[0])
 
-                    key: str = f"{input.digest.key}-expiring-recordings-{team.id}"
+                    key = team_data_key(input.digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id)
                     await r.setex(key, input.common.redis_ttl, expiring_recordings.model_dump_json())
 
                     team_count += 1
@@ -341,7 +344,7 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
                 try:
                     async for user in await database_sync_to_async(team.all_users_with_access)():
                         if should_send_notification(user, NotificationSetting.WEEKLY_PROJECT_DIGEST.value, team.id):
-                            key: str = f"{input.digest.key}-user-notify-{user.id}"
+                            key = user_data_key(input.digest.key, UserDataKey.NOTIFY_TEAMS, user.id)
                             await r.sadd(key, team.id)
                             await r.expire(key, input.common.redis_ttl)
 
@@ -359,6 +362,64 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
             "Finished generating team access and notification settings batch",
             user_count=user_count,
             team_count=team_count,
+        )
+
+
+@activity.defn(name="generate-product-suggestion-lookup")
+async def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput) -> None:
+    async with Heartbeater():
+        bind_contextvars(
+            digest_key=input.digest.key,
+            period_start=input.digest.period_start,
+            period_end=input.digest.period_end,
+            batch_start=input.batch[0],
+            batch_end=input.batch[1],
+        )
+        logger = LOGGER.bind()
+        logger.info("Generating product suggestions batch")
+
+        team_count = 0
+        user_count = 0
+        suggestion_count = 0
+        users_with_suggestion: set[int] = set()
+
+        async with redis.from_url(_redis_url(input.common)) as r:
+            batch_start, batch_end = input.batch
+            async for team in query_teams_for_digest()[batch_start:batch_end]:
+                try:
+                    async for user in await database_sync_to_async(team.all_users_with_access)():
+                        # Only store one suggestion per user (first one found)
+                        if user.id in users_with_suggestion:
+                            continue
+
+                        suggestions = await queryset_to_list(
+                            query_user_product_suggestions(
+                                user.id, team.id, input.digest.period_start, input.digest.period_end
+                            )
+                        )
+
+                        if suggestions:
+                            suggestion = DigestProductSuggestion(team_id=team.id, **suggestions[0])
+                            key = user_data_key(input.digest.key, UserDataKey.PRODUCT_SUGGESTION, user.id)
+                            await r.setex(key, input.common.redis_ttl, suggestion.model_dump_json())
+                            users_with_suggestion.add(user.id)
+                            suggestion_count += 1
+
+                        user_count += 1
+                    team_count += 1
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate product suggestions for team {team.id}, skipping...",
+                        error=str(e),
+                        team_id=team.id,
+                    )
+                    continue
+
+        logger.info(
+            "Finished generating product suggestions batch",
+            user_count=user_count,
+            team_count=team_count,
+            suggestion_count=suggestion_count,
         )
 
 
@@ -393,33 +454,48 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                     async for team in query_org_teams(organization):
                         results: list[str | None] = await r.mget(
                             [
-                                f"{input.digest.key}-dashboards-{team.id}",
-                                f"{input.digest.key}-event-definitions-{team.id}",
-                                f"{input.digest.key}-experiments-launched-{team.id}",
-                                f"{input.digest.key}-experiments-completed-{team.id}",
-                                f"{input.digest.key}-external-data-sources-{team.id}",
-                                f"{input.digest.key}-feature-flags-{team.id}",
-                                f"{input.digest.key}-saved-filters-{team.id}",
-                                f"{input.digest.key}-expiring-recordings-{team.id}",
-                                f"{input.digest.key}-surveys-launched-{team.id}",
+                                team_data_key(input.digest.key, TeamDataKey.DASHBOARDS, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.EVENT_DEFINITIONS, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.EXPERIMENTS_LAUNCHED, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.EXPERIMENTS_COMPLETED, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.EXTERNAL_DATA_SOURCES, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.FEATURE_FLAGS, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.SAVED_FILTERS, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.SURVEYS_LAUNCHED, team.id),
                             ]
                         )
 
-                        digest_data: list[str] = ["[]" if v is None else v for v in results]
+                        defaults = [
+                            DashboardList(root=[]),
+                            EventDefinitionList(root=[]),
+                            ExperimentList(root=[]),
+                            ExperimentList(root=[]),
+                            ExternalDataSourceList(root=[]),
+                            FeatureFlagList(root=[]),
+                            FilterList(root=[]),
+                            RecordingCount(recording_count=0),
+                            SurveyList(root=[]),
+                        ]
+
+                        digest_data = [
+                            default if result is None else default.__class__.model_validate_json(result)
+                            for default, result in zip(defaults, results)
+                        ]
 
                         team_digests.append(
                             TeamDigest(
                                 id=team.id,
                                 name=team.name,
-                                dashboards=DashboardList.model_validate_json(digest_data[0]),
-                                event_definitions=EventDefinitionList.model_validate_json(digest_data[1]),
-                                experiments_launched=ExperimentList.model_validate_json(digest_data[2]),
-                                experiments_completed=ExperimentList.model_validate_json(digest_data[3]),
-                                external_data_sources=ExternalDataSourceList.model_validate_json(digest_data[4]),
-                                feature_flags=FeatureFlagList.model_validate_json(digest_data[5]),
-                                filters=FilterList.model_validate_json(digest_data[6]),
-                                expiring_recordings=RecordingCount.model_validate_json(digest_data[7]),
-                                surveys_launched=SurveyList.model_validate_json(digest_data[8]),
+                                dashboards=digest_data[0],
+                                event_definitions=digest_data[1],
+                                experiments_launched=digest_data[2],
+                                experiments_completed=digest_data[3],
+                                external_data_sources=digest_data[4],
+                                feature_flags=digest_data[5],
+                                filters=digest_data[6],
+                                expiring_recordings=digest_data[7],
+                                surveys_launched=digest_data[8],
                             )
                         )
                         team_count += 1
@@ -431,7 +507,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                         team_digests=team_digests,
                     )
 
-                    key: str = f"{input.digest.key}-{organization.id}"
+                    key = org_digest_key(input.digest.key, organization.id)
                     await r.setex(key, input.common.redis_ttl, org_digest.model_dump_json())
 
                     organization_count += 1
@@ -479,7 +555,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
             async for organization in query_orgs_for_digest()[batch_start:batch_end]:
                 partial = False
                 try:
-                    raw_digest: Optional[str] = await r.get(f"{input.digest.key}-{organization.id}")
+                    raw_digest: Optional[str] = await r.get(org_digest_key(input.digest.key, organization.id))
 
                     if not raw_digest:
                         logger.warning(
@@ -500,7 +576,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
                     )
 
-                    if not created and messaging_record.sent_at:
+                    if not created and messaging_record.sent_at and not input.allow_already_sent:
                         logger.info(
                             f"Digest already sent for organization, skipping...", organization_id=organization.id
                         )
@@ -509,14 +585,30 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                     async for member in query_org_members(organization):
                         user = member.user
                         user_notify_teams: set[int] = set(
-                            map(int, await r.smembers(f"{input.digest.key}-user-notify-{user.id}"))
+                            map(
+                                int,
+                                await r.smembers(user_data_key(input.digest.key, UserDataKey.NOTIFY_TEAMS, user.id)),
+                            )
                         )
-                        user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
 
-                        if (
-                            user_specific_digest.is_empty()
-                            or user_specific_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD
-                        ):
+                        # Load user-specific context
+                        product_suggestion: DigestProductSuggestion | None = None
+                        raw_suggestion: str | None = await r.get(
+                            user_data_key(input.digest.key, UserDataKey.PRODUCT_SUGGESTION, user.id)
+                        )
+                        if raw_suggestion:
+                            try:
+                                product_suggestion = DigestProductSuggestion.model_validate_json(raw_suggestion)
+                            except ValidationError:
+                                logger.warning(
+                                    "Failed to parse product suggestion, skipping...",
+                                    user_id=user.id,
+                                )
+
+                        user_context = UserDigestContext(product_suggestion=product_suggestion)
+                        digest_for_user = org_digest.for_user(user_notify_teams, user_context)
+
+                        if digest_for_user.is_empty() or digest_for_user.count_items() < DIGEST_ITEM_COUNT_THRESHOLD:
                             logger.warning(
                                 "Got empty digest for user, skipping...",
                                 organization_id=organization.id,
@@ -525,7 +617,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             empty_user_digest_count += 1
                             continue
 
-                        payload = user_specific_digest.render_payload(input.digest)
+                        payload = digest_for_user.render_payload(input.digest)
 
                         if input.dry_run:
                             logger.info(

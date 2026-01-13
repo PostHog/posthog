@@ -1,28 +1,55 @@
 import json
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from functools import cached_property
+from string import Formatter
 from typing import Any, Literal, Self
 
+import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
+from langgraph.types import interrupt
 from pydantic import BaseModel
 
 from posthog.schema import AssistantTool
 
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
+from posthog.scopes import APIScopeObject
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.base.context import get_node_path, set_node_path
-from ee.hogai.graph.mixins import AssistantContextMixin, AssistantDispatcherMixin
+from ee.hogai.core.context import get_node_path, set_node_path
+from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
+
+logger = structlog.get_logger(__name__)
 
 
 class ToolMessagesArtifact(BaseModel):
     """Return messages directly. Use with `artifact`."""
 
     messages: Sequence[AssistantMessageUnion]
+
+
+PENDING_APPROVAL_STATUS: Literal["pending_approval"] = "pending_approval"
+
+
+class ApprovalRequest(BaseModel):
+    """
+    Interrupt payload when a tool operation requires user approval.
+    This is passed to interrupt() and surfaced to the FE. When the user approves or rejects,
+    """
+
+    status: Literal["pending_approval"] = PENDING_APPROVAL_STATUS
+    proposal_id: str
+    tool_name: str
+    preview: str
+    payload: dict[str, Any]
 
 
 class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
@@ -33,7 +60,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     billable: bool = False
     """Whether LLM generations triggered by this tool should count toward billing."""
 
-    context_prompt_template: str = "No context provided for this tool."
+    context_prompt_template: str | None = None
     """The template for context associated with this tool, that will be injected into the root node's context messages.
     Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.
     It will be formatted like an f-string, with the tool context as the variables.
@@ -53,6 +80,92 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     async def _arun_impl(self, *args, **kwargs) -> tuple[str, Any]:
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
+
+    def is_dangerous_operation(self, **kwargs) -> bool:
+        """
+        Override to mark certain operations as requiring user approval.
+
+        Returns True if the operation should require explicit user approval
+        before being executed. The default implementation returns False.
+        """
+        return False
+
+    async def format_dangerous_operation_preview(self, **kwargs) -> str:
+        """
+        Override to provide a human-readable preview of the dangerous operation.
+        This is shown to the user when asking for approval. Should clearly
+        describe what will happen if the operation is approved.
+
+        This method can make async calls (e.g., database queries) to build a rich preview.
+        """
+        return f"Execute {self.name} operation"
+
+    def _get_conversation_id(self) -> str | None:
+        """Extract conversation_id from the config."""
+        configurable = self._config.get("configurable", {})
+        thread_id = configurable.get("thread_id")
+        # Ensure we return a string for consistent cache key matching
+        return str(thread_id) if thread_id is not None else None
+
+    @property
+    def _original_tool_call_id(self) -> str | None:
+        """Get the original tool_call_id from the AssistantMessage that invoked this tool."""
+        if self._node_path:
+            # Find the first NodePath with a tool_call_id
+            for path in reversed(self._node_path):
+                if path.tool_call_id:
+                    return path.tool_call_id
+        return None
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        """
+        Declare what resource-level access this tool requires to be used.
+
+        Override this method to specify access requirements for your tool.
+        The check runs before `_arun_impl` is called.
+
+        Returns:
+            List of (resource, required_level) tuples.
+            Empty list means no access control check (default for backward compatibility).
+
+        Examples:
+            # Tool that creates feature flags
+            return [("feature_flag", "editor")]
+
+            # Tool that reads insights
+            return [("insight", "viewer")]
+
+            # Tool that needs multiple permissions
+            return [("dashboard", "editor"), ("insight", "viewer")]
+        """
+        return []
+
+    # -------------------------------------------------------------------------
+    # Access Control (Resource-level)
+    # -------------------------------------------------------------------------
+    # TODO: Implement object-level access check after retrieval in the ArtifactManager
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        """Access control instance for checking user permissions."""
+        return UserAccessControl(
+            user=self._user,
+            team=self._team,
+            organization_id=str(self._team.organization_id),
+        )
+
+    def _check_access_control(self) -> None:
+        """
+        Checks all resource-level access requirements declared in `get_required_resource_access()`.
+        Raises MaxToolAccessDeniedError if any check fails.
+        """
+        required_access = self.get_required_resource_access()
+        if not required_access:
+            return
+
+        for resource, required_level in required_access:
+            if not self.user_access_control.check_access_level_for_resource(resource, required_level):
+                raise MaxToolAccessDeniedError(resource, required_level, action="use")
 
     def __init__(
         self,
@@ -101,6 +214,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
+        self._check_access_control()
         try:
             return self._run_with_context(*args, **kwargs)
         except NotImplementedError:
@@ -109,6 +223,8 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
+        # using database_sync_to_async because UserAccessControl is fully sync
+        await database_sync_to_async(self._check_access_control)()
         try:
             return await self._arun_with_context(*args, **kwargs)
         except NotImplementedError:
@@ -121,9 +237,99 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             return self._run_impl(*args, **kwargs)
 
     async def _arun_with_context(self, *args, **kwargs):
-        """Sets the context for the tool."""
+        """Sets the context for the tool. Checks for approved/dangerous operations before executing."""
         with set_node_path(self.node_path):
+            is_dangerous = self.is_dangerous_operation(**kwargs)
+
+            # Handle dangerous operation approval flow
+            # Pre-compute preview before calling _handle_dangerous_operation
+            preview = await self.format_dangerous_operation_preview(**kwargs) if is_dangerous else None
+            dangerous_result = self._handle_dangerous_operation(preview=preview, **kwargs)
+            if dangerous_result is not None:
+                return dangerous_result
+
+            # Normal execution
             return await self._arun_impl(*args, **kwargs)
+
+    def _handle_dangerous_operation(self, preview: str | None = None, **kwargs) -> tuple[str, Any] | None:
+        """
+        Handle dangerous operation approval flow using LangGraph's interrupt().
+
+        If the operation is dangerous, this method calls interrupt() which pauses execution
+        and returns an ApprovalRequest to the frontend. When the user approves or rejects,
+        the graph is resumed with a Command(resume=payload) and interrupt() returns that payload.
+
+        Args:
+            preview: Human-readable preview of the operation. Must be provided when the operation
+                     is dangerous (pre-computed async by the caller).
+        """
+        if not self.is_dangerous_operation(**kwargs):
+            return None
+
+        if preview is None:
+            raise ValueError("preview must be provided for dangerous operations")
+
+        proposal_id = str(uuid.uuid4())
+        serialized_payload = self._serialize_kwargs_for_storage(kwargs)
+
+        approval_request = ApprovalRequest(
+            proposal_id=proposal_id,
+            tool_name=self.name,
+            preview=preview,
+            payload=serialized_payload,
+        )
+
+        # Call interrupt() - execution pauses here and ApprovalRequest is sent to frontend
+        # When resumed with Command(resume=response), interrupt() returns the response
+        response = interrupt(
+            {
+                **approval_request.model_dump(),
+                # Include original tool_call_id for proper card positioning on reload
+                "original_tool_call_id": self._original_tool_call_id,
+            }
+        )
+
+        # Handle the response from the user
+        if isinstance(response, dict) and response.get("action") == "approve":
+            # User approved - update kwargs with any modifications and proceed
+            updated_payload = response.get("payload", serialized_payload)
+            kwargs.update(self._reconstruct_kwargs_from_payload(updated_payload))
+            return None  # Continue with _arun_impl
+        else:
+            # User rejected
+            feedback = response.get("feedback", "") if isinstance(response, dict) else ""
+            if feedback:
+                return (
+                    f"The user rejected this operation with the following feedback: {feedback}. "
+                    "Please acknowledge their feedback and adjust your approach accordingly.",
+                    None,
+                )
+            return (
+                "The user rejected this operation. "
+                "Please acknowledge their decision and ask if they would like to proceed differently.",
+                None,
+            )
+
+    def _reconstruct_kwargs_from_payload(self, payload: dict) -> dict:
+        """Reconstruct kwargs from stored payload (Pydantic deserialization)."""
+        args_schema = getattr(self, "args_schema", None)
+        if args_schema is not None and isinstance(args_schema, type) and issubclass(args_schema, BaseModel):
+            try:
+                validated_args = args_schema.model_validate(payload)
+                return {field_name: getattr(validated_args, field_name) for field_name in validated_args.model_fields}
+            except Exception as e:
+                logger.warning(f"Failed to reconstruct kwargs from payload: {e}, using raw payload")
+        return payload
+
+    def _serialize_kwargs_for_storage(self, kwargs: dict) -> dict:
+        """Serialize kwargs for cache storage, converting Pydantic models to dicts."""
+        serialized = {}
+        for key, value in kwargs.items():
+            if isinstance(value, BaseModel):
+                serialized[key] = value.model_dump()
+            else:
+                serialized[key] = value
+        return serialized
 
     @property
     def node_name(self) -> str:
@@ -137,11 +343,28 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     def context(self) -> dict:
         return self._context_manager.get_contextual_tools().get(self.get_name(), {})
 
-    def format_context_prompt_injection(self, context: dict[str, Any]) -> str:
+    def format_context_prompt_injection(self, context: dict[str, Any]) -> str | None:
+        if not self.context_prompt_template:
+            return None
+        # Build initial context
         formatted_context = {
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
+        # Extract expected keys from template
+        expected_keys = {
+            field for _, field, _, _ in Formatter().parse(self.context_prompt_template) if field is not None
+        }
+        # If they expect key is not present in the context (for example, cached FE) - use None as a default
+        for key in expected_keys:
+            if key not in formatted_context:
+                formatted_context[key] = None
+                logger.warning(
+                    f"Context prompt template for {self.get_name()} expects key {key} but it is not present in the context"
+                )
         return self.context_prompt_template.format(**formatted_context)
+
+    def set_node_path(self, node_path: tuple[NodePath, ...]):
+        self._node_path = node_path
 
     @classmethod
     async def create_tool_class(

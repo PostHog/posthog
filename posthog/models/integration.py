@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.db import models
+from django.http import HttpRequest
 
 import jwt
 import requests
@@ -42,6 +43,26 @@ from posthog.sync import database_sync_to_async
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
+
+
+def _decode_jwt_payload(token: str) -> dict | None:
+    """
+    Decode JWT payload without signature verification.
+
+    Used to extract claims from OAuth tokens (id_token, access_token) where
+    we trust the token source (received directly from provider over HTTPS).
+
+    Returns None if JWT doesn't have enough parts. Raises on decode errors
+    so callers can log exceptions with full traceback.
+    """
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    payload = parts[1]
+    # Handle missing base64 padding
+    decoded = base64.urlsafe_b64decode(payload + "===")
+    return json.loads(decoded)
+
 
 oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
@@ -76,6 +97,7 @@ class Integration(models.Model):
         LINKEDIN_ADS = "linkedin-ads"
         REDDIT_ADS = "reddit-ads"
         TIKTOK_ADS = "tiktok-ads"
+        BING_ADS = "bing-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
@@ -86,6 +108,7 @@ class Integration(models.Model):
         CLICKUP = "clickup"
         VERCEL = "vercel"
         DATABRICKS = "databricks"
+        AZURE_BLOB = "azure-blob"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -171,6 +194,7 @@ class OauthIntegration:
         "linkedin-ads",
         "reddit-ads",
         "tiktok-ads",
+        "bing-ads",
         "meta-ads",
         "intercom",
         "linear",
@@ -306,16 +330,30 @@ class OauthIntegration:
             if not settings.LINKEDIN_APP_CLIENT_ID or not settings.LINKEDIN_APP_CLIENT_SECRET:
                 raise NotImplementedError("LinkedIn Ads app not configured")
 
+            # Note: We extract user info from id_token JWT instead of calling token_info_url
+            # because LinkedIn's /v2/userinfo endpoint has intermittent issues returning
+            # REVOKED_ACCESS_TOKEN errors for valid tokens. See JWT extraction below.
             return OauthConfig(
                 authorize_url="https://www.linkedin.com/oauth/v2/authorization",
-                token_info_url="https://api.linkedin.com/v2/userinfo",
-                token_info_config_fields=["sub", "email"],
                 token_url="https://www.linkedin.com/oauth/v2/accessToken",
                 client_id=settings.LINKEDIN_APP_CLIENT_ID,
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
                 scope="r_ads rw_conversions r_ads_reporting openid profile email",
                 id_path="sub",
                 name_path="email",
+            )
+        elif kind == "bing-ads":
+            if not settings.BING_ADS_CLIENT_ID or not settings.BING_ADS_CLIENT_SECRET:
+                raise NotImplementedError("Bing Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+                token_url="https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                client_id=settings.BING_ADS_CLIENT_ID,
+                client_secret=settings.BING_ADS_CLIENT_SECRET,
+                scope="https://ads.microsoft.com/msads.manage offline_access openid profile",
+                id_path="id",
+                name_path="userPrincipalName",
             )
         elif kind == "intercom":
             if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:
@@ -537,19 +575,31 @@ class OauthIntegration:
 
         integration_id = dot_get(config, oauth_config.id_path)
 
+        # Bing Ads id_token is a JWT, extract user ID from it
+        if kind == "bing-ads" and not integration_id:
+            try:
+                id_token = config.get("id_token")
+                if id_token:
+                    jwt_data = _decode_jwt_payload(id_token)
+                    if jwt_data:
+                        bing_user_id = jwt_data.get("oid")
+                        bing_username = jwt_data.get("preferred_username")
+                        if bing_user_id:
+                            config["id"] = bing_user_id
+                            config["userPrincipalName"] = bing_username
+                            integration_id = bing_user_id
+                else:
+                    logger.error("Bing Ads OAuth response missing id_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode Bing Ads JWT")
+
         # Reddit access token is a JWT, extract user ID from it
         if kind == "reddit-ads" and not integration_id:
             try:
                 access_token = config.get("access_token")
                 if access_token:
-                    # Split JWT and get payload (middle part)
-                    parts = access_token.split(".")
-                    if len(parts) >= 2:
-                        payload = parts[1]
-                        # Decode JWT payload (handle missing padding)
-                        decoded = base64.urlsafe_b64decode(payload + "===")
-                        jwt_data = json.loads(decoded)
-
+                    jwt_data = _decode_jwt_payload(access_token)
+                    if jwt_data:
                         # Extract user ID from JWT (lid = login ID)
                         reddit_user_id = jwt_data.get("lid", jwt_data.get("aid"))
                         if reddit_user_id:
@@ -557,6 +607,25 @@ class OauthIntegration:
                             integration_id = reddit_user_id
             except Exception as e:
                 logger.exception("Failed to decode Reddit JWT", error=str(e))
+
+        # LinkedIn id_token is a JWT, extract user ID and email from it
+        # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
+        if kind == "linkedin-ads" and not integration_id:
+            try:
+                id_token = config.get("id_token")
+                if id_token:
+                    jwt_data = _decode_jwt_payload(id_token)
+                    if jwt_data:
+                        linkedin_user_id = jwt_data.get("sub")
+                        linkedin_email = jwt_data.get("email")
+                        if linkedin_user_id:
+                            config["sub"] = linkedin_user_id
+                            config["email"] = linkedin_email
+                            integration_id = linkedin_user_id
+                else:
+                    logger.error("LinkedIn Ads OAuth response missing id_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode LinkedIn JWT")
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
@@ -657,6 +726,18 @@ class OauthIntegration:
                     "grant_type": "refresh_token",
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        elif self.integration.kind == "bing-ads":
+            # Microsoft Azure AD requires scope parameter on token refresh
+            res = requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                    "scope": oauth_config.scope,
+                },
             )
         else:
             res = requests.post(
@@ -781,7 +862,7 @@ class SlackIntegration:
         return channels
 
     @classmethod
-    def validate_request(cls, request: Request):
+    def validate_request(cls, request: HttpRequest | Request):
         """
         Based on https://api.slack.com/authentication/verifying-requests-from-slack
         """
@@ -1996,3 +2077,75 @@ class DatabricksIntegration:
             raise DatabricksIntegrationError(
                 f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )
+
+
+class AzureBlobIntegrationError(Exception):
+    pass
+
+
+class AzureBlobIntegration:
+    """Wraps Integration model to provide encrypted credential storage for Azure Blob Storage.
+
+    Attributes:
+        integration: The underlying Integration model instance.
+        connection_string: The decrypted Azure Storage connection string.
+    """
+
+    integration: Integration
+    connection_string: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.AZURE_BLOB.value:
+            raise AzureBlobIntegrationError(
+                f"Integration provided is not an Azure Blob integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+
+        try:
+            self.connection_string = self.integration.sensitive_config["connection_string"]
+        except KeyError:
+            raise AzureBlobIntegrationError("Azure Blob integration is missing required field: 'connection_string'")
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        connection_string: str,
+        created_by: "User | None" = None,
+    ) -> Integration:
+        account_name = cls._extract_account_name(connection_string)
+        if not account_name:
+            raise AzureBlobIntegrationError(
+                "Could not extract AccountName from connection string. "
+                "Ensure it contains 'AccountName=<your-account-name>;'"
+            )
+
+        config: dict[str, str] = {}
+        sensitive_config = {
+            "connection_string": connection_string,
+        }
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.AZURE_BLOB.value,
+            integration_id=account_name,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @staticmethod
+    def _extract_account_name(connection_string: str) -> str | None:
+        for part in connection_string.split(";"):
+            part = part.strip()
+            if part.startswith("AccountName="):
+                return part.split("=", 1)[1]
+        return None

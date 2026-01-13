@@ -3,20 +3,24 @@ on:
         branches:
             - master
     pull_request:
+    merge_group:
 
 name: Security
 
 permissions:
     contents: read
 
+env:
+    SEMGREP_ENABLE_VERSION_CHECK: 'false'
+
 jobs:
     ensure-pinned-actions:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
             - name: Ensure SHA pinned actions
-              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@9e9574ef04ea69da568d6249bd69539ccc704e74 # v4.0.0
+              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@6124774845927d14c601359ab8138699fa5b70c3 # v4.0.1
               with:
                   allowlist: |
                       actions/
@@ -26,3 +30,163 @@ jobs:
                       hashicorp/
                       PostHog/
                       tailscale/
+
+    semgrep-python:
+        runs-on: ubuntu-latest
+        container:
+            image: returntocorp/semgrep
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Run Semgrep
+              run: |
+                  semgrep \
+                    --config "p/python" \
+                    --config "p/owasp-top-ten" \
+                    --config "p/security-audit" \
+                    --config "p/trailofbits" \
+                    --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                    --exclude-rule "python.django.security.audit.csrf-exempt.no-csrf-exempt" \
+                    --exclude-rule "generic.html-templates.security.var-in-href.var-in-href" \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    common/ ee/ posthog/ products/
+
+    semgrep-go:
+        runs-on: ubuntu-latest
+        container:
+            image: returntocorp/semgrep
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Run Semgrep
+              run: |
+                  semgrep \
+                    --config "p/golang" \
+                    --config "p/owasp-top-ten" \
+                    --config "p/security-audit" \
+                    --config "p/trailofbits" \
+                    --config "r/go.lang.security" \
+                    --exclude-rule go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    livestream/
+
+    semgrep-rust:
+        runs-on: ubuntu-latest
+        container:
+            image: returntocorp/semgrep
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Run Semgrep
+              run: |
+                  semgrep \
+                    --config "p/rust" \
+                    --config "p/owasp-top-ten" \
+                    --config "p/security-audit" \
+                    --config "p/trailofbits" \
+                    --config "r/rust.lang.security" \
+                    --exclude-rule trailofbits.generic.curl-unencrypted-url.curl-unencrypted-url \
+                    --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                    --exclude-rule trailofbits.rs.panic-in-function-returning-result.panic-in-function-returning-result \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    cli/ rust/
+
+    semgrep-js:
+        runs-on: ubuntu-latest
+        container:
+            image: returntocorp/semgrep
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Run Semgrep
+              run: |
+                  semgrep \
+                    --config ".semgrep/rules/" \
+                    --config "p/javascript" \
+                    --config "p/owasp-top-ten" \
+                    --config "p/security-audit" \
+                    --config "p/trailofbits" \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    frontend/ nodejs/
+
+    # scans GitHub Actions and other repo-wide config
+    semgrep-general:
+        runs-on: ubuntu-latest
+        container:
+            image: returntocorp/semgrep
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            # exclude all directories already scanned by other jobs
+            - name: Run Semgrep
+              run: |
+                  semgrep \
+                    --config "p/owasp-top-ten" \
+                    --config "p/security-audit" \
+                    --config "p/trailofbits" \
+                    --config "p/github-actions" \
+                    --exclude-rule dockerfile.security.no-sudo-in-dockerfile.no-sudo-in-dockerfile \
+                    --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                    --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    --exclude ./cli/ \
+                    --exclude ./common/ \
+                    --exclude ./ee/ \
+                    --exclude ./frontend/ \
+                    --exclude ./livestream/ \
+                    --exclude ./nodejs/ \
+                    --exclude ./posthog/ \
+                    --exclude ./products/ \
+                    --exclude ./rust/ \
+                    .
+
+    semgrep_checks:
+        needs: [semgrep-python, semgrep-go, semgrep-rust, semgrep-js, semgrep-general]
+        name: Semgrep Checks Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check matrix outcome
+              run: |
+                  if [[ "${{ needs.semgrep-python.result }}" != "success" && "${{ needs.semgrep-python.result }}" != "skipped" ]]; then
+                    echo "semgrep-python did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-go.result }}" != "success" && "${{ needs.semgrep-go.result }}" != "skipped" ]]; then
+                    echo "semgrep-go did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-rust.result }}" != "success" && "${{ needs.semgrep-rust.result }}" != "skipped" ]]; then
+                    echo "semgrep-rust did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-js.result }}" != "success" && "${{ needs.semgrep-js.result }}" != "skipped" ]]; then
+                    echo "semgrep-js did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-general.result }}" != "success" && "${{ needs.semgrep-general.result }}" != "skipped" ]]; then
+                    echo "semgrep-general did not complete successfully."
+                    exit 1
+                  fi
+
+                  echo "All checks passed."

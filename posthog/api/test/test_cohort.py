@@ -25,9 +25,11 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Action, FeatureFlag, Person, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
 from posthog.tasks.calculate_cohort import (
@@ -345,7 +347,7 @@ email@example.org
         cohort = Cohort.objects.get(pk=response.json()["id"])
         self.assertFalse(cohort.is_calculating)
         # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
-        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
@@ -374,7 +376,7 @@ User ID
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)
         # Verify CSV update worked - 456 should now be included
-        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
@@ -392,7 +394,7 @@ User ID
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.name, "test2")
         # Verify distinct_ids remain the same after name-only update
-        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
@@ -460,7 +462,7 @@ email@example.org
         cohort.refresh_from_db()
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
     @parameterized.expand([("distinct-id",), ("distinct_id",)])
@@ -495,7 +497,7 @@ Zero User,0,zero@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify all three persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 3)
 
         # Verify specific persons are in the cohort
@@ -563,7 +565,7 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -606,7 +608,7 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
@@ -653,7 +655,7 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)
@@ -680,10 +682,17 @@ Jane Smith,user456,jane@example.com
         )
 
         self.assertEqual(response.status_code, 201)
-        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        response_data = response.json()
+        cohort = Cohort.objects.get(pk=response_data["id"])
+
+        # Verify the response contains a valid count (not a CombinedExpression or None)
+        self.assertIn("count", response_data)
+        self.assertIsInstance(response_data["count"], int)
+        self.assertEqual(response_data["count"], 2)
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -721,7 +730,7 @@ John Doe,{person1.uuid},john@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -1521,6 +1530,86 @@ email@example.org,
                     },
                     "created_at": mock.ANY,
                 }
+            ],
+        )
+
+    def test_update_static_cohort_activity_log(self):
+        """
+        Test that updating a static cohort with people does not load all people into memory.
+        Previously, updating cohorts called to_dict() which loaded all people, causing timeouts
+        and database connection errors for large cohorts.
+        """
+        num_people = 10
+        person_uuids = []
+        for i in range(num_people):
+            person = Person.objects.create(
+                team=self.team, distinct_ids=[f"user_{i}"], properties={"email": f"user{i}@example.com"}
+            )
+            person_uuids.append(str(person.uuid))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "my large cohort", "is_static": True, "_create_static_person_ids": person_uuids},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_id = response.json()["id"]
+
+        # Update the cohort - this should not load all people into memory
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            {"name": "renamed large cohort", "description": "A cohort with many people"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        # Verify the activity log was created with changes tracked
+        self.assert_cohort_activity(
+            cohort_id=cohort_id,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": [
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "name",
+                                "before": "my large cohort",
+                                "after": "renamed large cohort",
+                            },
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "description",
+                                "before": "",
+                                "after": "A cohort with many people",
+                            },
+                        ],
+                        "name": "renamed large cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": None,
+                        "name": "my large cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                },
             ],
         )
 
@@ -2517,8 +2606,18 @@ email@example.org,
         while response.json()["is_calculating"]:
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/duplicate_as_static_cohort")
-        self.assertEqual(response.status_code, 200, response.content)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            data={
+                "is_static": True,
+                "name": "cohort A (static copy)",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"SELECT person_id FROM cohort_people WHERE cohort_id = {cohort_id}",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
 
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
@@ -2553,8 +2652,18 @@ email@example.org,
         self.assertEqual(cohort.count, 2, "Original cohort should have 2 people")
 
         # Duplicate static cohort as static
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/duplicate_as_static_cohort")
-        self.assertEqual(response.status_code, 200, response.content)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            data={
+                "is_static": True,
+                "name": f"{cohort.name} (static copy)",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort.id}",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
 
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
@@ -3093,9 +3202,64 @@ email@example.org,
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(cohort_id), type="cohort").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Cohort."
-        assert (
-            "Special Folder/Cohorts" in fs_entry.path
-        ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+        assert "Special Folder/Cohorts" in fs_entry.path, (
+            f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+        )
+
+    def test_cohort_delete_restore_logs_activity(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Activities",
+            groups=[{"properties": {"prop": "5"}}],
+            created_by=self.user,
+        )
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", {"deleted": True}, format="json"
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+
+        latest_activity = (
+            ActivityLog.objects.filter(scope="Cohort", item_id=str(cohort.pk)).order_by("-created_at").first()
+        )
+        assert latest_activity is not None
+        assert latest_activity.activity == "deleted"
+
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", {"deleted": False}, format="json"
+        )
+        assert restore_response.status_code == status.HTTP_200_OK
+
+        restored_activity = (
+            ActivityLog.objects.filter(scope="Cohort", item_id=str(cohort.pk)).order_by("-created_at").first()
+        )
+        assert restored_activity is not None
+        assert restored_activity.activity == "restored"
+
+    def test_cohort_restore_can_target_folder(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Foldered",
+            groups=[{"properties": {"prop": "5"}}],
+            created_by=self.user,
+        )
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", {"deleted": True}, format="json"
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+        assert FileSystem.objects.filter(team=self.team, type="cohort", ref=str(cohort.pk)).count() == 0
+
+        restore_folder = "Restored/Cohorts"
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            {"deleted": False, "_create_in_folder": restore_folder},
+            format="json",
+        )
+        assert restore_response.status_code == status.HTTP_200_OK
+
+        fs_entry = FileSystem.objects.get(team=self.team, type="cohort", ref=str(cohort.pk))
+        assert fs_entry.path.startswith(f"{restore_folder}/"), fs_entry.path
 
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_filter_with_hogql_event_filter_and_null_value(self, patch_capture):
@@ -3945,6 +4109,128 @@ email@example.org,
         cohort = Cohort.objects.get(id=cohort1_id)
         self.assertTrue(cohort.deleted)
 
+    def test_cohort_last_error_message_from_calculation_history(self):
+        """Test that API returns friendly error message from failed calculation"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="ClickHouse query timeout after 1200 seconds",
+            error_code=CohortErrorCode.TIMEOUT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.json()["last_error_message"])
+        self.assertIn("taking too long", response.json()["last_error_message"].lower())
+
+    def test_cohort_last_error_message_in_list_view(self):
+        """Test that list view includes last_error_message via annotation"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="Memory limit exceeded",
+            error_code=CohortErrorCode.MEMORY_LIMIT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort_data = next(c for c in response.json()["results"] if c["id"] == cohort.id)
+        self.assertIsNotNone(cohort_data["last_error_message"])
+        self.assertIn("too much memory", cohort_data["last_error_message"].lower())
+
+    def test_cohort_last_error_message_none_when_successful(self):
+        """Test that successful cohorts return None for last_error_message"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            count=100,
+            error=None,
+            error_code=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["last_error_message"])
+
+    def test_cohort_last_error_message_uses_most_recent_failure(self):
+        """Test that only the most recent failed calculation's error is returned"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        # Older failure - timeout
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=2),
+            finished_at=timezone.now() - timedelta(hours=2),
+            error="Timeout",
+            error_code=CohortErrorCode.TIMEOUT,
+        )
+
+        # Newer failure - memory limit (should be returned)
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=1),
+            finished_at=timezone.now() - timedelta(hours=1),
+            error="Memory limit exceeded",
+            error_code=CohortErrorCode.MEMORY_LIMIT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("too much memory", response.json()["last_error_message"].lower())
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
@@ -4277,7 +4563,7 @@ jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -4320,7 +4606,7 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
@@ -4367,7 +4653,7 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)

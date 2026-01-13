@@ -10,7 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -578,14 +578,14 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
     def _do_request(self, url, method="GET", data=None):
         """Helper to make requests with OAuth token"""
         if method == "GET":
-            return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}")
+            return self.client.get(url, headers={"authorization": f"Bearer {self.access_token.token}"})
         elif method == "POST":
             return self.client.post(
-                url, data or {}, format="json", HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}"
+                url, data or {}, format="json", headers={"authorization": f"Bearer {self.access_token.token}"}
             )
         elif method == "PATCH":
             return self.client.patch(
-                url, data or {}, format="json", HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}"
+                url, data or {}, format="json", headers={"authorization": f"Bearer {self.access_token.token}"}
             )
 
     def test_denies_token_with_no_scopes(self):
@@ -684,7 +684,7 @@ class TestOAuthAccessTokenWithOrganizationScoping(BaseTest):
         )
 
     def _do_request(self, url):
-        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}")
+        return self.client.get(url, headers={"authorization": f"Bearer {self.access_token.token}"})
 
     def test_allows_access_to_scoped_org(self):
         """OAuth token scoped to an org can access that org"""
@@ -743,7 +743,7 @@ class TestOAuthAccessTokenWithTeamScoping(BaseTest):
         )
 
     def _do_request(self, url):
-        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}")
+        return self.client.get(url, headers={"authorization": f"Bearer {self.access_token.token}"})
 
     def test_allows_access_to_scoped_team(self):
         """OAuth token scoped to a team can access that team"""
@@ -805,7 +805,7 @@ class TestOAuthAccessTokenWithBothTeamAndOrgScoping(BaseTest):
         )
 
     def _do_request(self, url):
-        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}")
+        return self.client.get(url, headers={"authorization": f"Bearer {self.access_token.token}"})
 
     def test_allows_access_to_scoped_team(self):
         """OAuth token with both org and team scopes allows access to the scoped team"""
@@ -867,8 +867,7 @@ class TestOAuthAccessTokenExpiration(BaseTest):
     def _do_request(self, token=None):
         token = token or self.access_token.token
         return self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
+            f"/api/projects/{self.team.id}/feature_flags/", headers={"authorization": f"Bearer {token}"}
         )
 
     def test_valid_token_allows_access(self):
@@ -936,8 +935,7 @@ class TestOAuthAccessTokenUserMembership(BaseTest):
     def _do_request(self, token=None):
         token = token or self.access_token.token
         return self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
+            f"/api/projects/{self.team.id}/feature_flags/", headers={"authorization": f"Bearer {token}"}
         )
 
     def test_token_works_with_membership(self):
@@ -981,6 +979,6 @@ class TestOAuthAccessTokenUserMembership(BaseTest):
         # Verify token does NOT work because user is not in that org
         response = self.client.get(
             f"/api/projects/{other_team.id}/feature_flags/",
-            HTTP_AUTHORIZATION=f"Bearer {other_team_token.token}",
+            headers={"authorization": f"Bearer {other_team_token.token}"},
         )
         self.assertEqual(response.status_code, 403)  # Forbidden - user not in org

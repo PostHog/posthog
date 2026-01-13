@@ -4,7 +4,6 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { DatabaseTree } from './DatabaseTree/DatabaseTree'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
 import { PROJECT_TREE_KEY, ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
@@ -157,7 +156,6 @@ export function PanelLayout(): JSX.Element {
                     {activePanelIdentifier === 'Shortcuts' && (
                         <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
                     )}
-                    {activePanelIdentifier === 'Database' && <DatabaseTree />}
                     {activePanelIdentifier === 'DataManagement' && (
                         <ProjectTree root="data://" searchPlaceholder="Search data tools" />
                     )}

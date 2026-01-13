@@ -4,6 +4,7 @@ import typing
 import datetime as dt
 import dataclasses
 
+from django.conf import settings
 from django.db import close_old_connections
 
 import posthoganalytics
@@ -41,6 +42,10 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
+    DataImportsDuckLakeCopyInputs,
+    DuckLakeCopyDataImportsWorkflow,
+)
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
@@ -52,91 +57,11 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
-Any_Source_Errors: list[str] = [
-    "Could not establish session to SSH gateway",
-    "Primary key required for incremental syncs",
-    "The primary keys for this table are not unique",
-    "Integration matching query does not exist",
-]
-
-Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
-    ExternalDataSourceType.BIGQUERY: ["PermissionDenied: 403 request failed", "NotFound: 404"],
-    ExternalDataSourceType.STRIPE: [
-        "401 Client Error: Unauthorized for url: https://api.stripe.com",
-        "403 Client Error: Forbidden for url: https://api.stripe.com",
-        "Expired API Key provided",
-        "Invalid API Key provided",
-        "PermissionError",
-    ],
-    ExternalDataSourceType.POSTGRES: [
-        "NoSuchTableError",
-        "is not permitted to log in",
-        "Tenant or user not found connection to server",
-        "FATAL: Tenant or user not found",
-        "error received from server in SCRAM exchange: Wrong password",
-        "could not translate host name",
-        "timeout expired connection to server at",
-        "password authentication failed for user",
-        "No primary key defined for table",
-        "failed: timeout expired",
-        "SSL connection has been closed unexpectedly",
-        "Address not in tenant allow_list",
-        "FATAL: no such database",
-        "does not exist",
-        "timestamp too small",
-        "QueryTimeoutException",
-        "TemporaryFileSizeExceedsLimitException",
-        "Name or service not known",
-        "Network is unreachable",
-        "InsufficientPrivilege",
-        "OperationalError: connection failed: connection to server at",
-        "password authentication failed connection",
-    ],
-    ExternalDataSourceType.ZENDESK: [
-        "404 Client Error: Not Found for url",
-        "403 Client Error: Forbidden for url",
-        "401 Client Error",
-    ],
-    ExternalDataSourceType.MYSQL: [
-        "Can't connect to MySQL server on",
-        "No primary key defined for table",
-        "Access denied for user",
-        "sqlstate 42S02",  # Table not found error
-        "ProgrammingError: (1146",  # Table not found error
-        "OperationalError: (1356",  # View not found error
-        "Bad handshake",
-    ],
-    ExternalDataSourceType.SALESFORCE: [
-        "400 Client Error: Bad Request for url",
-        "403 Client Error: Forbidden for url",
-    ],
-    ExternalDataSourceType.SNOWFLAKE: [
-        "This account has been marked for decommission",
-        "404 Not Found",
-        "Your free trial has ended",
-        "Your account is suspended due to lack of payment method",
-        "MFA authentication is required",
-    ],
-    ExternalDataSourceType.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
-    ExternalDataSourceType.HUBSPOT: ["missing or invalid refresh token", "missing or unknown hub id"],
-    ExternalDataSourceType.GOOGLEADS: [
-        "PERMISSION_DENIED",
-        "UNAUTHENTICATED",
-        "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
-        "Account has been deleted",
-    ],
-    ExternalDataSourceType.METAADS: [
-        "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
-    ],
-    ExternalDataSourceType.MONGODB: ["The DNS query name does not exist", "authentication failed"],
-    ExternalDataSourceType.MSSQL: ["Adaptive Server connection failed", "Login failed for user"],
-    ExternalDataSourceType.GOOGLESHEETS: [
-        "the header row in the worksheet contains duplicates",
-        "can't be found",
-        "SpreadsheetNotFound",
-    ],
-    ExternalDataSourceType.LINKEDINADS: ["REVOKED_ACCESS_TOKEN"],
-    ExternalDataSourceType.REDDITADS: ["401 Client Error", "404 Client Error"],
+Any_Source_Errors: dict[str, str | None] = {
+    "Could not establish session to SSH gateway": None,
+    "Primary key required for incremental syncs": None,
+    "The primary keys for this table are not unique": None,
+    "Integration matching query does not exist": None,
 }
 
 
@@ -198,14 +123,15 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
         source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
-        non_retryable_errors = Non_Retryable_Schema_Errors.get(ExternalDataSourceType(source.source_type))
+        source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        non_retryable_errors = source_cls.get_non_retryable_errors()
 
-        if non_retryable_errors is None:
+        if len(non_retryable_errors) == 0:
             non_retryable_errors = Any_Source_Errors
         else:
-            non_retryable_errors.extend(Any_Source_Errors)
+            non_retryable_errors = {**non_retryable_errors, **Any_Source_Errors}
 
-        has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors)
+        has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
         if has_non_retryable_error:
             posthoganalytics.capture(
                 distinct_id=get_machine_id(),
@@ -221,25 +147,20 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             )
             update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
-    # Produce a more user friendly error message to be displayed in the UI
-    latest_error = inputs.latest_error
-    try:
-        schema = ExternalDataSchema.objects.get(pk=inputs.schema_id)
+            friendly_errors = [
+                friendly_error
+                for error, friendly_error in non_retryable_errors.items()
+                if error in internal_error_normalized
+            ]
 
-        latest_error = user_friendly_error_message(
-            source_type=source.source_type,
-            schema_name=schema.name,
-            raw_error=inputs.latest_error or inputs.internal_error,
-        )
-
-        logger.exception(latest_error)
-    except Exception:
-        latest_error = inputs.latest_error
+            if friendly_errors and friendly_errors[0] is not None:
+                logger.exception(friendly_errors[0])
+                inputs.latest_error = friendly_errors[0]
 
     job = update_external_job_status(
         job_id=job_id,
         status=ExternalDataJob.Status(inputs.status),
-        latest_error=latest_error,
+        latest_error=inputs.latest_error,
         team_id=inputs.team_id,
     )
 
@@ -312,7 +233,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 billable=inputs.billable,
             )
 
-            job_id, incremental, source_type = await workflow.execute_activity(
+            job_id, incremental_or_append, source_type = await workflow.execute_activity(
                 create_external_data_job_model_activity,
                 create_external_data_job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
@@ -366,9 +287,19 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 is_resumable_source = isinstance(source, ResumableSource)
 
             timeout_params = (
-                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=9)}
-                if incremental or is_resumable_source
-                else {"start_to_close_timeout": dt.timedelta(hours=24), "retry_policy": RetryPolicy(maximum_attempts=3)}
+                {
+                    "start_to_close_timeout": dt.timedelta(weeks=1),
+                    "retry_policy": RetryPolicy(
+                        maximum_attempts=9, non_retryable_error_types=["NonRetryableException"]
+                    ),
+                }
+                if incremental_or_append or is_resumable_source
+                else {
+                    "start_to_close_timeout": dt.timedelta(hours=24),
+                    "retry_policy": RetryPolicy(
+                        maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
+                    ),
+                }
             )
 
             await workflow.execute_activity(
@@ -395,6 +326,19 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
+            # Start DuckLake copy workflow as a child (fire-and-forget)
+            await workflow.start_child_workflow(
+                DuckLakeCopyDataImportsWorkflow.run,
+                DataImportsDuckLakeCopyInputs(
+                    team_id=inputs.team_id,
+                    job_id=job_id,
+                    schema_ids=[inputs.external_data_schema_id],
+                ),
+                id=f"ducklake-copy-data-imports-{job_id}",
+                task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+            )
+
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
                 # Check if this is a WorkerShuttingDownError - implement Buffer One retry
@@ -411,6 +355,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             ):
                 # Check if this is a BillingLimitsWillBeReachedException - update the job status
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
+            elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "NonRetryableException":
+                update_inputs.status = ExternalDataJob.Status.FAILED
+                update_inputs.internal_error = str(e.cause.cause)
+                update_inputs.latest_error = str(e.cause.cause)
+                raise
             else:
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED
@@ -437,63 +386,3 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "DoesNotExist"],
                 ),
             )
-
-
-def user_friendly_error_message(source_type: str, schema_name: str, raw_error: str | None) -> str | None:
-    """
-    Enhance or clarify raw source errors before saving to the job.
-    Returns the enhanced error if applicable, otherwise returns the original.
-    """
-
-    if not raw_error:
-        return raw_error
-
-    error_lower = raw_error.lower()
-
-    if source_type == ExternalDataSourceType.STRIPE:
-        if any(keyword in error_lower for keyword in ["permission", "403", "401", "rak_"]):
-            table_names = {
-                "Dispute": "disputes",
-                "Payout": "payouts",
-                "CreditNote": "credit notes",
-                "Account": "accounts",
-            }
-            display_name = table_names.get(schema_name, schema_name.lower())
-            return f"Your API key does not have permissions to access {display_name}. Please check your API key configuration and permissions in Stripe, then try again."
-
-        if "expired api key" in error_lower:
-            return "Your Stripe API key has expired. Please create a new key and reconnect."
-
-    if source_type == ExternalDataSourceType.SALESFORCE and "invalid_session_id" in error_lower:
-        return "Your Salesforce session has expired. Please reconnect the source."
-
-    if source_type == ExternalDataSourceType.HUBSPOT and "missing or invalid refresh token" in error_lower:
-        return "Your HubSpot connection is invalid or expired. Please reconnect it."
-
-    if source_type == ExternalDataSourceType.SNOWFLAKE:
-        if any(keyword in error_lower for keyword in ["account suspended", "trial ended", "decommission"]):
-            return "Your Snowflake account has been suspended or trial has ended. Please check your account status."
-        if "invalid credentials" in error_lower or "authentication failed" in error_lower:
-            return "Snowflake authentication failed. Please check your username, password, and account details."
-
-    if source_type == ExternalDataSourceType.BIGQUERY:
-        if "permission denied" in error_lower or "403" in error_lower:
-            return "BigQuery permission denied. Please check that your service account has the necessary permissions."
-        if "not found" in error_lower:
-            return "BigQuery dataset or table not found. Please verify your project, dataset, and table names."
-
-    if source_type == ExternalDataSourceType.ZENDESK:
-        if any(keyword in error_lower for keyword in ["401", "403", "unauthorized", "forbidden"]):
-            return "Zendesk authentication failed. Please check your API token and subdomain."
-
-    if source_type == ExternalDataSourceType.CHARGEBEE:
-        if any(keyword in error_lower for keyword in ["401", "403", "unauthorized", "forbidden"]):
-            return "Chargebee authentication failed. Please check your API key and site name."
-
-    if source_type == ExternalDataSourceType.GOOGLESHEETS:
-        if "must be real number, not str" in error_lower:
-            return "Import failed: all cells in a numerical column must have a value and not be blank"
-        if "the header row in the worksheet contains duplicates" in error_lower:
-            return "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated."
-
-    return raw_error
