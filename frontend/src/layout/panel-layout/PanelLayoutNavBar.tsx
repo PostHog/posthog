@@ -100,10 +100,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { user } = useValues(userLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { activeTabId } = useValues(sceneLogic)
+    const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const isAiUx = useFeatureFlag('AI_UX')
-    const { firstTabIsActive } = useValues(sceneLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -636,7 +635,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
-                            // top + 7ox is to match rounded-lg border-radius on <main>
+                            // top + 7px is to match rounded-lg border-radius on <main>
                             className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4', {
                                 // // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
                                 'top-[var(--scene-layout-header-height)]': firstTabIsActive,
