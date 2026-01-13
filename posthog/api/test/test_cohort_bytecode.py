@@ -464,3 +464,63 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertEqual(person_filter["type"], "person")
         self.assertIsNotNone(person_filter.get("bytecode"))
         self.assertIsNotNone(person_filter.get("conditionHash"))
+
+    def test_cohort_exceeding_20m_person_threshold_not_realtime(self):
+        # 7. Cohort with more than 20M persons should not be realtime
+
+        # Create a realtime-eligible cohort
+        filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$browser", "type": "person", "negation": False, "operator": "is_set"},
+                        ],
+                    }
+                ],
+            }
+        }
+
+        # Create the cohort first (it will be realtime by default)
+        cohort = self._create_and_fetch("Large cohort", filters)
+        self.assertEqual(cohort.cohort_type, "realtime")
+
+        # Now update the cohort's count to exceed 20M
+        cohort.count = 20_000_001
+        cohort.save()
+
+        # Update the cohort with the same filters - should no longer be realtime
+        cohort2 = self._patch_and_fetch(cohort.id, filters)
+        self.assertIsNone(cohort2.cohort_type)
+
+    def test_cohort_at_20m_person_threshold_is_realtime(self):
+        # 8. Cohort with exactly 20M persons should still be realtime
+
+        # Create a realtime-eligible cohort
+        filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$browser", "type": "person", "negation": False, "operator": "is_set"},
+                        ],
+                    }
+                ],
+            }
+        }
+
+        # Create the cohort first
+        cohort = self._create_and_fetch("At threshold cohort", filters)
+        self.assertEqual(cohort.cohort_type, "realtime")
+
+        # Set count to exactly 20M
+        cohort.count = 20_000_000
+        cohort.save()
+
+        # Update the cohort - should still be realtime (at threshold, not over)
+        cohort2 = self._patch_and_fetch(cohort.id, filters)
+        self.assertEqual(cohort2.cohort_type, "realtime")
