@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { LemonDropdown, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { projectLogic } from 'scenes/projectLogic'
@@ -15,14 +15,28 @@ export const ServiceFilter = (): JSX.Element => {
     const { serviceNames, dateRange, isAllServicesSelected, openServiceFilterRequest } = useValues(logsLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { setServiceNames } = useActions(logsLogic)
-    const [dropdownVisible, setDropdownVisible] = useState(false)
+    const [isSelectingService, setIsSelectingService] = useState(false)
+    const containerRef = useRef<HTMLSpanElement>(null)
 
     // Listen for requests to open the service filter from other components
     useEffect(() => {
         if (openServiceFilterRequest) {
-            setDropdownVisible(true)
+            setIsSelectingService(true)
         }
     }, [openServiceFilterRequest])
+
+    // Focus the input when switching to selection mode
+    useEffect(() => {
+        if (isSelectingService) {
+            // Small delay to let the component render
+            const timer = setTimeout(() => {
+                const input = containerRef.current?.querySelector('input')
+                input?.focus()
+                input?.click()
+            }, 50)
+            return () => clearTimeout(timer)
+        }
+    }, [isSelectingService])
 
     const endpoint = combineUrl(`api/environments/${currentProjectId}/logs/values`, {
         key: 'service.name',
@@ -30,54 +44,30 @@ export const ServiceFilter = (): JSX.Element => {
         dateRange,
     }).url
 
-    if (isAllServicesSelected) {
+    if (isAllServicesSelected && !isSelectingService) {
         return (
-            <LemonDropdown
-                visible={dropdownVisible}
-                onVisibilityChange={setDropdownVisible}
-                overlay={
-                    <div className="p-2 w-64">
-                        <PropertyValue
-                            size="small"
-                            endpoint={endpoint}
-                            operator={PropertyOperator.Exact}
-                            propertyKey="service_name"
-                            type={PropertyFilterType.Log}
-                            value={[]}
-                            onSet={(values) => {
-                                if (values && values.length > 0) {
-                                    setServiceNames(values)
-                                    setDropdownVisible(false)
-                                }
-                            }}
-                            placeholder="Search services..."
-                            preloadValues
-                            autoFocus
-                        />
-                    </div>
-                }
-                placement="bottom-start"
-            >
-                <LemonInput size="small" value="All services" readOnly className="cursor-pointer min-w-[150px]" />
-            </LemonDropdown>
+            <LemonButton size="small" onClick={() => setIsSelectingService(true)} className="min-w-[150px]">
+                All services
+            </LemonButton>
         )
     }
 
     return (
-        <span className="rounded bg-surface-primary min-w-[150px] flex items-stretch">
+        <span ref={containerRef} className="rounded bg-surface-primary min-w-[150px] flex items-stretch">
             <PropertyValue
                 size="small"
                 endpoint={endpoint}
                 operator={PropertyOperator.Exact}
                 propertyKey="service_name"
                 type={PropertyFilterType.Log}
-                value={serviceNames}
+                value={isAllServicesSelected ? [] : serviceNames}
                 onSet={(values) => {
                     if (!values || values.length === 0) {
                         setServiceNames([ALL_SERVICES_VALUE])
                     } else {
                         setServiceNames(values)
                     }
+                    setIsSelectingService(false)
                 }}
                 placeholder="All services"
                 preloadValues
