@@ -3642,7 +3642,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 placeholders={"pattern": pattern_expr},
             )
             not_ilike_matches = {d for (d,) in not_ilike_result.results}
-            assert not_ilike_matches == not_ilike_expected, "ilike " + str(pattern)
+            assert not_ilike_matches == not_ilike_expected, "not_ilike " + str(pattern)
 
 
 class TestPrinted(APIBaseTest):
