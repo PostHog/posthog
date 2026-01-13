@@ -1666,7 +1666,6 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
-    FEED = "feed"
     HOME = "home"
     APPS = "apps"
     LIVE = "live"
