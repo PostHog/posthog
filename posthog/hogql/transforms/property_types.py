@@ -318,8 +318,12 @@ class PropertySwapper(CloningVisitor):
             return node
 
         if "eav" in prop_info:
-            # Don't rewrite the AST - let the printer generate the EAV JOIN
-            # The printer will check context.property_swapper and use the EAV table
+            # EAV columns are pre-typed for Numeric (Float64) and Boolean (UInt8),
+            # but DateTime is stored as String to avoid timezone interpretation issues.
+            # Apply toDateTime() conversion at query time for DateTime properties.
+            if field_type == "DateTime":
+                return ast.Call(name="toDateTime", args=[node])
+            # Numeric and Boolean are already typed in EAV, no conversion needed
             return node
 
         return self._field_type_to_property_call(node, field_type)

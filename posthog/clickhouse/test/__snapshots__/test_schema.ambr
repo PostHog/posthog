@@ -1029,7 +1029,7 @@
       value_string Nullable(String),
       value_numeric Nullable(Float64),
       value_bool Nullable(UInt8),
-      value_datetime Nullable(DateTime64(6, 'UTC'))
+      value_datetime Nullable(String)
   
       
   , _timestamp DateTime
@@ -1052,14 +1052,10 @@
       distinct_id,
       uuid,
       key,
-      -- String: passthrough
       if(property_type = 'String', raw_value, NULL) as value_string,
-      -- Numeric: toFloat64OrNull (matches backfill/HogQL toFloat)
-      if(property_type = 'Numeric', toFloat64OrNull(raw_value), NULL) as value_numeric,
-      -- Boolean: transform with lowercase (matches backfill/HogQL toBool pattern)
-      if(property_type = 'Boolean', transform(lower(raw_value), ['true', 'false'], [1, 0], NULL), NULL) as value_bool,
-      -- DateTime: parseDateTime64BestEffortOrNull (matches backfill/HogQL toDateTime)
-      if(property_type = 'DateTime', parseDateTime64BestEffortOrNull(raw_value, 6), NULL) as value_datetime,
+      if(property_type = 'Numeric', accurateCastOrNull(raw_value, 'Float64'), NULL) as value_numeric,
+      if(property_type = 'Boolean', toBool(transform(toString(raw_value), ['true', 'false'], [1, 0], NULL)), NULL) as value_bool,
+      if(property_type = 'DateTime', raw_value, NULL) as value_datetime,
       _timestamp,
       _offset,
       _partition
@@ -3843,7 +3839,7 @@
       value_string Nullable(String),
       value_numeric Nullable(Float64),
       value_bool Nullable(UInt8),
-      value_datetime Nullable(DateTime64(6, 'UTC'))
+      value_datetime Nullable(String)
   
       
   , _timestamp DateTime
@@ -5123,7 +5119,7 @@
       value_string Nullable(String),
       value_numeric Nullable(Float64),
       value_bool Nullable(UInt8),
-      value_datetime Nullable(DateTime64(6, 'UTC'))
+      value_datetime Nullable(String)
   
       
   , _timestamp DateTime
@@ -6601,7 +6597,7 @@
       value_string Nullable(String),
       value_numeric Nullable(Float64),
       value_bool Nullable(UInt8),
-      value_datetime Nullable(DateTime64(6, 'UTC'))
+      value_datetime Nullable(String)
   
       
   , _timestamp DateTime

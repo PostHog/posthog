@@ -1,6 +1,12 @@
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_EVENT_PROPERTIES
+from posthog.models.event_properties.transformations import (
+    boolean_transform,
+    datetime_transform,
+    numeric_transform,
+    string_transform,
+)
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 EVENT_PROPERTIES_TABLE = "event_properties"
@@ -11,6 +17,8 @@ EVENT_PROPERTIES_MV = "event_properties_mv"
 
 # Columns for the storage tables (sharded, distributed, writable)
 # These are the typed columns that queries read from
+# Note: value_datetime is String, not DateTime64, to match traditional mat_* column behavior.
+# This avoids timezone interpretation issues - conversion happens at query time with team timezone.
 EVENT_PROPERTIES_STORAGE_COLUMNS = """
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
@@ -21,7 +29,7 @@ EVENT_PROPERTIES_STORAGE_COLUMNS = """
     value_string Nullable(String),
     value_numeric Nullable(Float64),
     value_bool Nullable(UInt8),
-    value_datetime Nullable(DateTime64(6, 'UTC'))
+    value_datetime Nullable(String)
 """
 
 # Columns for the Kafka table
@@ -133,16 +141,12 @@ def EVENT_PROPERTIES_MV_SQL():
     """
     Materialized view that transforms raw property values from Kafka into typed columns.
 
-    The transformation logic MUST match _generate_property_extraction_sql() in
-    posthog/temporal/backfill_materialized_property/activities.py to ensure
-    newly ingested events and backfilled historical events produce identical results.
-
-    Type conversions:
-    - String: passthrough (raw_value as-is)
-    - Numeric: toFloat64OrNull (matches HogQL toFloat)
-    - Boolean: transform with lowercase comparison (matches HogQL toBool pattern)
-    - DateTime: parseDateTime64BestEffortOrNull (matches HogQL toDateTime)
+    Transformation logic is defined in transformations.py and shared with the EAV backfill
+    to ensure newly ingested events and backfilled historical events produce identical results.
     """
+    # The MV receives raw_value as a string from Kafka
+    value_expr = "raw_value"
+
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
 AS SELECT
@@ -152,14 +156,10 @@ AS SELECT
     distinct_id,
     uuid,
     key,
-    -- String: passthrough
-    if(property_type = 'String', raw_value, NULL) as value_string,
-    -- Numeric: toFloat64OrNull (matches backfill/HogQL toFloat)
-    if(property_type = 'Numeric', toFloat64OrNull(raw_value), NULL) as value_numeric,
-    -- Boolean: transform with lowercase (matches backfill/HogQL toBool pattern)
-    if(property_type = 'Boolean', transform(lower(raw_value), ['true', 'false'], [1, 0], NULL), NULL) as value_bool,
-    -- DateTime: parseDateTime64BestEffortOrNull (matches backfill/HogQL toDateTime)
-    if(property_type = 'DateTime', parseDateTime64BestEffortOrNull(raw_value, 6), NULL) as value_datetime,
+    if(property_type = 'String', {string_transform}, NULL) as value_string,
+    if(property_type = 'Numeric', {numeric_transform}, NULL) as value_numeric,
+    if(property_type = 'Boolean', {boolean_transform}, NULL) as value_bool,
+    if(property_type = 'DateTime', {datetime_transform}, NULL) as value_datetime,
     _timestamp,
     _offset,
     _partition
@@ -168,4 +168,8 @@ FROM {kafka_table_name}
         mv_name=EVENT_PROPERTIES_MV,
         writable_table_name=EVENT_PROPERTIES_WRITABLE_TABLE,
         kafka_table_name=EVENT_PROPERTIES_KAFKA_TABLE,
+        string_transform=string_transform(value_expr),
+        numeric_transform=numeric_transform(value_expr),
+        boolean_transform=boolean_transform(value_expr),
+        datetime_transform=datetime_transform(value_expr),
     )

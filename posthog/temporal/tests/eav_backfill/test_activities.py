@@ -23,13 +23,13 @@ class TestEAVBackfillEndToEnd:
         # Define test cases: (property_name, property_type, input_value, expected_eav_value)
         # expected_eav_value of None means the row should NOT be inserted (filtered out)
         test_cases = [
-            # Boolean edge cases
+            # Boolean edge cases (case-sensitive matching, consistent with HogQL)
             ("bool_true_lowercase", PropertyType.Boolean, True, 1),
             ("bool_false_lowercase", PropertyType.Boolean, False, 0),
             ("bool_true_string", PropertyType.Boolean, "true", 1),
             ("bool_false_string", PropertyType.Boolean, "false", 0),
-            ("bool_TRUE_uppercase", PropertyType.Boolean, "TRUE", None),  # Not recognized
-            ("bool_FALSE_uppercase", PropertyType.Boolean, "FALSE", None),  # Not recognized
+            ("bool_TRUE_uppercase", PropertyType.Boolean, "TRUE", None),  # Case-sensitive: not recognized
+            ("bool_FALSE_uppercase", PropertyType.Boolean, "FALSE", None),  # Case-sensitive: not recognized
             ("bool_1_int", PropertyType.Boolean, 1, None),  # Int 1 is not "true"
             ("bool_0_int", PropertyType.Boolean, 0, None),  # Int 0 is not "false"
             ("bool_1_string", PropertyType.Boolean, "1", None),  # String "1" is not "true"
@@ -64,13 +64,15 @@ class TestEAVBackfillEndToEnd:
             ("str_number_as_string", PropertyType.String, "12345", "12345"),
             ("str_bool_as_string", PropertyType.String, "true", "true"),
             # DateTime edge cases
-            ("dt_iso_utc", PropertyType.Datetime, "2024-01-15T10:30:00Z", "2024-01-15 10:30:00"),
-            ("dt_iso_offset", PropertyType.Datetime, "2024-01-15T10:30:00+05:00", "2024-01-15 05:30:00"),
-            ("dt_date_only", PropertyType.Datetime, "2024-01-15", "2024-01-15 00:00:00"),
-            ("dt_with_millis", PropertyType.Datetime, "2024-01-15T10:30:00.123Z", "2024-01-15 10:30:00.123"),
-            ("dt_with_micros", PropertyType.Datetime, "2024-01-15T10:30:00.123456Z", "2024-01-15 10:30:00.123456"),
-            ("dt_invalid", PropertyType.Datetime, "not a date", None),
-            ("dt_unix_timestamp", PropertyType.Datetime, "1705315800", "2024-01-15 10:50:00"),  # Unix seconds
+            # DateTime is stored as raw string (like traditional mat_* columns) to avoid
+            # timezone interpretation issues. Conversion happens at query time.
+            ("dt_iso_utc", PropertyType.Datetime, "2024-01-15T10:30:00Z", "2024-01-15T10:30:00Z"),
+            ("dt_iso_offset", PropertyType.Datetime, "2024-01-15T10:30:00+05:00", "2024-01-15T10:30:00+05:00"),
+            ("dt_date_only", PropertyType.Datetime, "2024-01-15", "2024-01-15"),
+            ("dt_with_millis", PropertyType.Datetime, "2024-01-15T10:30:00.123Z", "2024-01-15T10:30:00.123Z"),
+            ("dt_with_micros", PropertyType.Datetime, "2024-01-15T10:30:00.123456Z", "2024-01-15T10:30:00.123456Z"),
+            ("dt_invalid", PropertyType.Datetime, "not a date", "not a date"),  # Stored as-is, validated at query time
+            ("dt_unix_timestamp", PropertyType.Datetime, "1705315800", "1705315800"),  # Stored as-is
         ]
 
         # Create an event for each test case

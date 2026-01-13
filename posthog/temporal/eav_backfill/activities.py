@@ -9,6 +9,12 @@ from temporalio import activity
 from posthog.clickhouse.cluster import get_cluster
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.event_properties.transformations import (
+    boolean_transform,
+    datetime_transform,
+    numeric_transform,
+    string_transform,
+)
 from posthog.models.materialized_column_slots import MaterializedColumnSlotState
 from posthog.models.property_definition import PropertyType
 
@@ -43,6 +49,9 @@ def _generate_value_extraction_sql(property_type: str, value_column: str) -> str
 
     Uses %(property_name)s placeholder for safe parameterization.
     Returns SQL that extracts the value and casts it for the target column.
+
+    Transformation logic is shared with the MV in sql.py via transformations.py
+    to ensure backfilled and newly ingested events produce identical results.
     """
     # Base JSON extraction with quote trimming and nullIf handling (same as HogQL printer)
     base_extract = (
@@ -50,17 +59,16 @@ def _generate_value_extraction_sql(property_type: str, value_column: str) -> str
     )
 
     if property_type == PropertyType.String:
-        return base_extract
+        return string_transform(base_extract)
 
     elif property_type == PropertyType.Numeric:
-        return f"toFloat64OrNull({base_extract})"
+        return numeric_transform(base_extract)
 
     elif property_type == PropertyType.Boolean:
-        # Convert string 'true'/'false' to 1/0, otherwise NULL
-        return f"transform(toString({base_extract}), ['true', 'false'], [1, 0], NULL)"
+        return boolean_transform(base_extract)
 
     elif property_type == PropertyType.Datetime:
-        return f"parseDateTime64BestEffortOrNull({base_extract}, 6)"
+        return datetime_transform(base_extract)
 
     else:
         raise ValueError(f"Unsupported property type for EAV materialization: {property_type}")
