@@ -55,12 +55,8 @@ SHORT_TABLE_COLUMN_NAME = {
 
 def _clear_materialized_columns_cache(table: TablesWithMaterializedColumns) -> None:
     """Clear the cache for materialized columns after mutations."""
-    cache_key = get_materialized_columns_cache_key(table)
+    cache_key = f"materialized_columns:{table}"
     cache.delete(cache_key)
-
-
-def get_materialized_columns_cache_key(table: TablesWithMaterializedColumns) -> str:
-    return f"materialized_columns:v2:{table}"
 
 
 @dataclass
@@ -68,9 +64,6 @@ class MaterializedColumn:
     name: ColumnName
     details: MaterializedColumnDetails
     is_nullable: bool
-    has_minmax_index: bool = False
-    has_bloom_filter_index: bool = False
-    has_ngram_lower_index: bool = False
 
     @property
     def type(self) -> str:
@@ -92,10 +85,10 @@ class MaterializedColumn:
             )
 
     @staticmethod
-    def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, bool, list[str]]]:
+    def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, bool]]:
         refresh_cache = random.random() < 0.002  # we run around 50 of those queries per minute
         if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
-            cache_key = get_materialized_columns_cache_key(table)
+            cache_key: str = f"materialized_columns:{table}"
 
             try:
                 cached_result = cache.get(cache_key)
@@ -105,37 +98,17 @@ class MaterializedColumn:
                 # If cache fails, continue to query ClickHouse
                 pass
 
-        # Get the data table name for index lookups (indexes are on data table, not distributed table)
-        table_info = tables.get(table)
-        data_table = table_info.data_table if table_info else table
-
         with tags_context(name="get_all_materialized_columns"):
-            # Query columns and their indexes in a single query using a LEFT JOIN
-            # Returns index names as an array, parsed in Python to set boolean flags
-            # Note: Columns exist on both distributed and data tables, but indexes only exist on data tables
             result = sync_execute(
                 """
-                SELECT
-                    c.name,
-                    c.comment,
-                    c.type like 'Nullable(%%)' as is_nullable,
-                    groupArray(i.name) as index_names
-                FROM system.columns c
-                LEFT JOIN system.data_skipping_indices i
-                    ON i.database = c.database
-                    AND i.table = %(data_table)s
-                    AND (
-                        i.name = concat('minmax_', c.name)
-                        OR i.name = concat('bf_', c.name)
-                        OR i.name = concat('ngram_lower_', c.name)
-                    )
-                WHERE c.database = %(database)s
-                  AND c.table = %(table)s
-                  AND c.comment LIKE '%%column_materializer::%%'
-                  AND c.comment not LIKE '%%column_materializer::elements_chain::%%'
-                GROUP BY c.name, c.comment, c.type
+                SELECT name, comment, type like 'Nullable(%%)' as is_nullable
+                FROM system.columns
+                WHERE database = %(database)s
+                  AND table = %(table)s
+                  AND comment LIKE '%%column_materializer::%%'
+                  AND comment not LIKE '%%column_materializer::elements_chain::%%'
                 """,
-                {"database": CLICKHOUSE_DATABASE, "table": table, "data_table": data_table},
+                {"database": CLICKHOUSE_DATABASE, "table": table},
                 ch_user=ClickHouseUser.HOGQL,
             )
 
@@ -155,18 +128,8 @@ class MaterializedColumn:
             return
 
         rows = MaterializedColumn._get_all(table)
-        for name, comment, is_nullable, index_names in rows:
-            has_minmax = any(idx and idx.startswith("minmax_") for idx in index_names)
-            has_bloom = any(idx and idx.startswith("bf_") for idx in index_names)
-            has_ngram = any(idx and idx.startswith("ngram_lower_") for idx in index_names)
-            yield MaterializedColumn(
-                name,
-                MaterializedColumnDetails.from_column_comment(comment),
-                is_nullable=bool(is_nullable),
-                has_minmax_index=has_minmax,
-                has_bloom_filter_index=has_bloom,
-                has_ngram_lower_index=has_ngram,
-            )
+        for name, comment, is_nullable in rows:
+            yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment), is_nullable)
 
     @staticmethod
     def get(table: TablesWithMaterializedColumns, column_name: ColumnName) -> MaterializedColumn:
@@ -267,22 +230,12 @@ def get_minmax_index_name(column: str) -> str:
     return f"minmax_{column}"
 
 
-def get_bloom_filter_index_name(column: str) -> str:
-    return f"bf_{column}"
-
-
-def get_ngram_lower_index_name(column: str) -> str:
-    return f"ngram_lower_{column}"
-
-
 @dataclass
 class CreateColumnOnDataNodesTask:
     table: str
     column: MaterializedColumn
     create_minmax_index: bool
     add_column_comment: bool
-    create_bloom_filter_index: bool = False
-    create_ngram_lower_index: bool = False
 
     def execute(self, client: Client) -> None:
         expression, parameters = self.column.get_expression_and_parameters()
@@ -297,27 +250,6 @@ class CreateColumnOnDataNodesTask:
         if self.create_minmax_index:
             index_name = get_minmax_index_name(self.column.name)
             actions.append(f"ADD INDEX IF NOT EXISTS {index_name} {self.column.name} TYPE minmax GRANULARITY 1")
-
-        if self.create_bloom_filter_index:
-            index_name = get_bloom_filter_index_name(self.column.name)
-            actions.append(
-                f"ADD INDEX IF NOT EXISTS {index_name} {self.column.name} TYPE bloom_filter(0.01) GRANULARITY 1"
-            )
-
-        if self.create_ngram_lower_index:
-            # There are 2 limitations in clickhouse we need to work around
-            # * clickhouse does not support a case-insensitive ngram index, so we need to call lower() on both sides and index lower(col)
-            # * clickhouse does not support ngram indexes on nullable columns, so we need to wrap the nullable version in coalesce(col, '')
-            # If either of these 2 limitations change, we should simplify this
-            index_name = get_ngram_lower_index_name(self.column.name)
-            if self.column.is_nullable:
-                actions.append(
-                    f"ADD INDEX IF NOT EXISTS {index_name} lower(coalesce({self.column.name}, '')) TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 1"
-                )
-            else:
-                actions.append(
-                    f"ADD INDEX IF NOT EXISTS {index_name} lower({self.column.name}) TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 1"
-                )
 
         client.execute(
             f"ALTER TABLE {self.table} " + ", ".join(actions),
@@ -350,8 +282,6 @@ def materialize(
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
     create_minmax_index=not TEST,
     is_nullable: bool = False,
-    create_bloom_filter_index: bool = False,
-    create_ngram_lower_index: bool = False,
 ) -> MaterializedColumn:
     if existing_column := get_materialized_columns(table).get((property, table_column)):
         if TEST:
@@ -382,8 +312,6 @@ def materialize(
             column,
             create_minmax_index,
             add_column_comment=table_info.read_table == table_info.data_table,
-            create_bloom_filter_index=create_bloom_filter_index,
-            create_ngram_lower_index=create_ngram_lower_index,
         ).execute,
     ).result()
 
@@ -478,17 +406,12 @@ class DropColumnTask:
 
         for column_name in self.column_names:
             if self.try_drop_index:
-                for get_index_name_fn in [
-                    get_minmax_index_name,
-                    get_bloom_filter_index_name,
-                    get_ngram_lower_index_name,
-                ]:
-                    index_name = get_index_name_fn(column_name)
-                    drop_index_action = f"DROP INDEX IF EXISTS {index_name}"
-                    if check_index_exists(client, self.table, index_name):
-                        actions.append(drop_index_action)
-                    else:
-                        logger.info("Skipping %r, nothing to do...", drop_index_action)
+                index_name = get_minmax_index_name(column_name)
+                drop_index_action = f"DROP INDEX IF EXISTS {index_name}"
+                if check_index_exists(client, self.table, index_name):
+                    actions.append(drop_index_action)
+                else:
+                    logger.info("Skipping %r, nothing to do...", drop_index_action)
 
             drop_column_action = f"DROP COLUMN IF EXISTS {column_name}"
             if check_column_exists(client, self.table, column_name):
