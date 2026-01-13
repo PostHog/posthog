@@ -261,11 +261,6 @@ async function takeSnapshotWithTheme(
     await page.evaluate(() => {
         // scroll main viewport to top
         window.scrollTo(0, 0)
-        // scroll the app's main content viewport (Navigation.tsx uses <main id="main-content"> as the scroll container)
-        const mainContent = document.querySelector('#main-content')
-        if (mainContent instanceof HTMLElement) {
-            mainContent.scrollTop = 0
-        }
         // scroll all overflow containers to top
         document.querySelectorAll('.overflow-auto, .overflow-y-auto, .overflow-x-auto').forEach((el) => {
             if (el instanceof HTMLElement) {

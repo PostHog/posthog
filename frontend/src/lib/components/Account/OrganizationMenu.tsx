@@ -16,12 +16,13 @@ export function OrganizationMenu({
     buttonProps = { className: 'font-semibold' },
     showName = true,
     allowCreate = true,
+    iconOnly = false,
 }: {
     showName?: boolean
     buttonProps?: ButtonPrimitiveProps
     allowCreate?: boolean
+    iconOnly?: boolean
 }): JSX.Element {
-    const iconOnly = buttonProps?.iconOnly ?? false
     const { currentOrganization } = useValues(organizationLogic)
 
     return (

@@ -1,55 +1,54 @@
+.scene-tab-active-indicator {
+    position: absolute;
+    right: 50%;
+    bottom: -7px;
+    z-index: 11;
+    width: calc(100% + 22px);
+    height: 12px;
+    background-color: var(--color-bg-primary);
+    transform: translateX(50%);
+}
+
+.scene-tab-active-indicator::before,
+.scene-tab-active-indicator::after {
+    position: absolute;
+    bottom: 1px;
+    width: 12px;
+    height: 12px;
+    content: '';
+    background-color: var(--color-bg-surface-tertiary);
+    border-bottom: 1px solid var(--color-border-primary);
+}
+
+.scene-tab-active-indicator::before {
+    left: 0.1px;
+    border-right: 1px solid var(--color-border-primary);
+    border-radius: 0 0 100%;
+}
+
+.scene-tab-active-indicator::after {
+    right: 0.1px;
+    border-left: 1px solid var(--color-border-primary);
+    border-radius: 0 0 0 100%;
+}
+
+.scene-tab-active-indicator--first {
+    right: -11px;
+    width: calc(100% + 11px);
+    border-left: 1px solid var(--color-border-primary);
+    transform: none;
+
+    &::before {
+        display: none;
+    }
+}
+
 .scene-tab--pinned {
-    max-width: 36px;
+    min-width: 36px;
     padding-right: 0.5rem;
     padding-left: 0.5rem;
 }
 
 .scene-tab--pinned .scene-tab-title {
     display: none;
-}
-
-.scene-tab-active-indicator {
-    position: absolute;
-    right: -5px;
-    bottom: -6px;
-    width: calc(100% + 10px);
-    height: 7px;
-    background-color: var(--color-bg-primary);
-}
-
-.scene-tab-active-indicator::before {
-    position: absolute;
-    right: calc(100% - 6px);
-    bottom: 0.5px;
-    width: 8px;
-    height: 8px;
-    content: '';
-    background-color: var(--color-bg-surface-tertiary);
-    border-right: 1px solid var(--color-border-primary);
-    border-bottom: 1px solid var(--color-border-primary);
-    border-radius: 0 0 var(--radius);
-}
-
-.scene-tab-active-indicator::after {
-    position: absolute;
-    bottom: 0.5px;
-    left: calc(100% - 6px);
-    width: 8px;
-    height: 8px;
-    content: '';
-    background-color: var(--color-bg-surface-tertiary);
-    border-bottom: 1px solid var(--color-border-primary);
-    border-left: 1px solid var(--color-border-primary);
-    border-radius: 0 0 0 var(--radius);
-}
-
-/* First tab - no left curve */
-.scene-tab-active-indicator--first::before {
-    display: none;
-}
-
-.scene-tab-indicator--active-first {
-    left: 0;
-    width: calc(100% + 5px);
-    border-left: 1px solid var(--color-border-primary);
 }

@@ -22,23 +22,39 @@ import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
-export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
-    const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
-    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+function SceneTitlePanelButton(): JSX.Element | null {
+    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
+        useValues(sceneLayoutLogic)
+    const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
 
-    if (!scenePanelIsPresent || (!inPanel && scenePanelOpenManual)) {
+    if (!scenePanelIsPresent) {
         return null
     }
 
     return (
         <LemonButton
-            className={cn(!inPanel && '-mr-2')}
-            onClick={() => setScenePanelOpen(!scenePanelOpenManual)}
-            icon={inPanel ? <IconX className="text-primary p-0.5" /> : <IconEllipsis className="text-primary" />}
-            tooltip={inPanel ? 'Close Info & actions panel' : 'Open Info & actions panel'}
+            onClick={() =>
+                scenePanelIsRelative
+                    ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
+                    : setScenePanelOpen(!scenePanelOpen)
+            }
+            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
+            tooltip={
+                !scenePanelOpen
+                    ? 'Open Info & actions panel'
+                    : scenePanelIsRelative
+                      ? 'Force close Info & actions panel'
+                      : 'Close Info & actions panel'
+            }
             data-attr="info-actions-panel"
-            aria-label={inPanel ? 'Close Info & actions panel' : 'Open Info & actions panel'}
-            active={inPanel ? true : scenePanelOpenManual}
+            aria-label={
+                !scenePanelOpen
+                    ? 'Open Info & actions panel'
+                    : scenePanelIsRelative
+                      ? 'Force close Info & actions panel'
+                      : 'Close Info & actions panel'
+            }
+            active={scenePanelOpen}
             size="small"
         />
     )
@@ -172,12 +188,12 @@ export function SceneTitleSection({
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
             {effectiveDescription != null && (
                 // When this element touches top of the scene, we set the sticky bar to be sticky
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
+                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute top-[-55px]" aria-hidden />
             )}
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    'bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
                     className

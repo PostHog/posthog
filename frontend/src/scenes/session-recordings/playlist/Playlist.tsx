@@ -219,7 +219,7 @@ export function Playlist({
                 ref={playlistRef}
                 data-attr="session-recordings-playlist"
                 className={clsx(
-                    'Playlist flex flex-row items-start justify-start h-full w-full min-w-60 min-h-82 overflow-hidden border rounded',
+                    'Playlist flex flex-row items-start justify-start h-full w-full min-w-60 min-h-96 overflow-hidden border rounded',
                     {
                         'Playlist--wide': size !== 'small',
                         'Playlist--embedded border-0': embedded,

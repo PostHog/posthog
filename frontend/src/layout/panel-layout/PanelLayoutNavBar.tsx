@@ -62,7 +62,7 @@ import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelState
 import { RecentItemsMenu } from './ProjectTree/menus/RecentItemsMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
+    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -92,6 +92,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         activePanelIdentifier,
         activePanelIdentifierFromUrl,
         mainContentRef,
+        isLayoutPanelPinned,
         isLayoutNavCollapsed,
         isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
@@ -114,8 +115,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     }
 
     function handleStaticNavbarItemClick(to?: string, isKeyboardAction = false): void {
-        clearActivePanelIdentifier()
-        showLayoutPanel(false)
+        if (!isLayoutPanelPinned) {
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
+        }
 
         if (isKeyboardAction) {
             mainContentRef?.current?.focus()
@@ -329,6 +332,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement: 'bottom',
                                     tooltip: 'Switch organization',
                                 }}
+                                iconOnly={isLayoutNavCollapsed}
                             />
                             <ProjectMenu
                                 buttonProps={{
@@ -339,6 +343,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement: 'bottom',
                                     tooltip: 'Switch project',
                                 }}
+                                iconOnly={isLayoutNavCollapsed}
                             />
 
                             <RecentItemsMenu />
@@ -347,8 +352,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
                         <ScrollableShadows
-                            className={cn('flex-1', { 'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive })}
-                            innerClassName="overflow-y-auto overflow-x-hidden"
+                            className={cn('flex-1', { 'rounded-tr-sm': !isLayoutPanelVisible })}
+                            innerClassName="overflow-y-auto"
                             direction="vertical"
                             styledScrollbars
                         >
@@ -498,7 +503,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltipPlacement="right"
                                 onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
                                 menuItem={!isLayoutNavCollapsed}
-                                className="hidden lg:flex"
                             >
                                 {isLayoutNavCollapsed ? (
                                     <>
@@ -619,10 +623,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
-                            // top + 7px is to match rounded-lg border-radius on <main>
-                            className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4', {
-                                // // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
-                                'top-[var(--scene-layout-header-height)]': firstTabIsActive,
+                            className={cn('top-[var(--scene-layout-header-height)] right-[-1px]', {
+                                // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
+                                'top-[calc(var(--scene-layout-header-height)+10px)]': !firstTabIsActive,
                                 'top-0': isLayoutPanelVisible,
                             })}
                             offset={0}

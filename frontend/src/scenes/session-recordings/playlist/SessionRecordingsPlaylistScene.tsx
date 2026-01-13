@@ -143,7 +143,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 )}
             </ScenePanel>
 
-            <SceneContent className="SessionRecordingPlaylistHeightWrapper grow">
+            <SceneContent className="SessionRecordingPlaylistHeightWrapper">
                 <SceneTitleSection
                     name={playlist.name || ''}
                     description={playlist.description || ''}

@@ -14,6 +14,7 @@ import {
 } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
+import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
@@ -21,6 +22,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -115,6 +117,7 @@ export function ProjectTree({
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
+        treeTableKeys,
         lastViewedId,
         expandedFolders,
         expandedSearchFolders,
@@ -124,6 +127,8 @@ export function ProjectTree({
         checkedItemCountNumeric,
         scrollTargetId,
         editingItemId,
+        treeTableColumnSizes,
+        treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
         sortMethod,
@@ -142,6 +147,7 @@ export function ProjectTree({
         clearScrollTarget,
         setEditingItemId,
         setSortMethod,
+        setTreeTableColumnSizes,
         setSelectMode,
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
@@ -150,6 +156,8 @@ export function ProjectTree({
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
+    const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
     const { customProducts, customProductsLoading } = useValues(customProductsLogic)
@@ -279,8 +287,9 @@ export function ProjectTree({
             contentRef={mainContentRef as RefObject<HTMLElement>}
             className="px-0 py-1"
             data={treeData}
-            mode="tree"
+            mode={onlyTree ? 'tree' : projectTreeMode}
             selectMode={selectMode}
+            tableViewKeys={treeTableKeys}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
             isItemActive={isItemActive}
             size={treeSize}
@@ -440,7 +449,103 @@ export function ProjectTree({
                     </ContextMenuGroup>
                 )
             }}
+            tableModeTotalWidth={treeTableTotalWidth}
+            tableModeHeader={() => {
+                return (
+                    <>
+                        {/* Headers */}
+                        {treeTableKeys?.headers.map((header, index) => (
+                            <ResizableElement
+                                key={header.key}
+                                defaultWidth={header.width || 0}
+                                onResize={(width) => {
+                                    setTreeTableColumnSizes([
+                                        ...treeTableColumnSizes.slice(0, index),
+                                        width,
+                                        ...treeTableColumnSizes.slice(index + 1),
+                                    ])
+                                }}
+                                className="absolute h-[30px] flex items-center"
+                                style={{
+                                    transform: `translateX(${header.offset || 0}px)`,
+                                }}
+                                aria-label={`Resize handle for column "${header.title}"`}
+                            >
+                                <ButtonPrimitive
+                                    key={header.key}
+                                    fullWidth
+                                    className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
+                                    style={{
+                                        paddingLeft: index === 0 ? '35px' : undefined,
+                                    }}
+                                >
+                                    <span>{header.title}</span>
+                                </ButtonPrimitive>
+                            </ResizableElement>
+                        ))}
+                    </>
+                )
+            }}
+            tableModeRow={(item, firstColumnOffset) => {
+                return (
+                    <>
+                        {treeTableKeys?.headers.slice(0).map((header, index) => {
+                            const width = header.width || 0
+                            const offset = header.offset || 0
+                            const value = header.key.split('.').reduce<any>((obj, key) => obj?.[key], item)
+                            const isFolder =
+                                (item.children && item.children.length > 0) || item.record?.type === 'folder'
+
+                            // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
+                            const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
+                            const offsetAdjusted = index === 0 ? offset : offset - 12
+
+                            return (
+                                <span
+                                    key={header.key}
+                                    className="text-left flex items-center h-[var(--button-height-base)]"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        // First we keep relative
+                                        position: index === 0 ? 'relative' : 'absolute',
+                                        transform: `translateX(${offsetAdjusted}px)`,
+                                        // First column we offset for the icons
+                                        width: `${widthAdjusted}px`,
+                                        paddingLeft: index !== 0 ? '6px' : undefined,
+                                    }}
+                                >
+                                    <Tooltip
+                                        title={
+                                            typeof header.tooltip === 'function'
+                                                ? header.tooltip(value)
+                                                : header.tooltip
+                                        }
+                                        placement="top-start"
+                                    >
+                                        <span
+                                            className={cn(
+                                                'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
+                                                {
+                                                    'font-semibold':
+                                                        index === 0 && isFolder && item.type !== 'empty-folder',
+                                                }
+                                            )}
+                                        >
+                                            {header.formatComponent
+                                                ? header.formatComponent(value, item)
+                                                : header.formatString
+                                                  ? header.formatString(value, item)
+                                                  : value}
+                                        </span>
+                                    </Tooltip>
+                                </span>
+                            )
+                        })}
+                    </>
+                )
+            }}
             renderItemTooltip={(item) => {
+                const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
                 if (
@@ -521,6 +626,26 @@ export function ProjectTree({
                     return <>Create a new {nameNode}</>
                 }
 
+                if (projectTreeMode === 'tree') {
+                    return (
+                        <>
+                            Name: {nameNode} <br />
+                            Created by:{' '}
+                            <ProfilePicture
+                                user={user || { first_name: 'PostHog' }}
+                                size="xs"
+                                showName
+                                className="font-semibold"
+                            />
+                            <br />
+                            Created at:{' '}
+                            <span className="font-semibold">
+                                {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
+                            </span>
+                        </>
+                    )
+                }
+
                 return undefined
             }}
             renderItemIcon={(item) => {
@@ -546,7 +671,7 @@ export function ProjectTree({
 
                 return (
                     <>
-                        {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
+                        {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
                             <ProfilePicture
                                 user={item.record?.user as UserBasicType | undefined}
                                 size="xs"
@@ -584,7 +709,7 @@ export function ProjectTree({
                             ) : null}
                         </span>
 
-                        {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
+                        {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
                             <span className="text-tertiary text-xxs pt-[3px] ml-1">
                                 {dayjs(item.record?.created_at).fromNow()}
                             </span>
@@ -685,6 +810,22 @@ export function ProjectTree({
                 },
             ]}
         >
+            {root === 'project://' && (
+                <ButtonPrimitive
+                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2  bg-surface-primary border border-primary z-[var(--z-resizer)]"
+                    data-attr="tree-panel-switch-view-button"
+                    iconOnly
+                >
+                    <IconChevronRight
+                        className={cn('size-3', {
+                            'rotate-180': projectTreeMode === 'table',
+                            'rotate-0': projectTreeMode === 'tree',
+                        })}
+                    />
+                </ButtonPrimitive>
+            )}
             {showRecents && (
                 <>
                     <div role="status" aria-live="polite" className="sr-only">

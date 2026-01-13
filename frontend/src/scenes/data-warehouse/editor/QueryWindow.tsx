@@ -76,7 +76,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const isMaterializedView = editingView?.is_materialized === true
 
     return (
-        <div className="flex grow flex-col overflow-hidden">
+        <div className="flex flex-1 flex-col h-full overflow-hidden">
             {(editingView || editingInsight) && (
                 <div className="h-5 bg-warning-highlight">
                     <span className="pl-2 text-xs">
