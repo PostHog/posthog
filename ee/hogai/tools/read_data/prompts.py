@@ -39,33 +39,27 @@ Retrieves and optionally retrieves data for an existing insight by its ID.
 - The user wants to see or discuss a specific saved insight.
 - You need to understand what an existing insight shows.
 
-# List entities
+# List artifacts
 
-Lists created data (insights, dashboards, cohorts, etc.) and conversation artifacts with pagination.
+Lists conversation artifacts with pagination.
 
 ## Use this when:
-- The user wants to browse their saved work
-- You need to find created data but don't have the ID
-- The user asks "what insights do I have?" or similar
+- The user wants to browse artifacts created in the conversation
+- You need to find artifacts but don't have the ID
+- The user asks "what artifacts did we create?" or similar
 
 ## Parameters:
-- entity_type: Type to list (e.g., "insight", "dashboard", "artifact")
 - limit: Results per page (1-100, default 100)
 - offset: Number to skip for pagination (default 0)
 
 **Sorting**: Results are always sorted by `updated_at DESC` (most recently updated first).
 
-**Filtering**: To search/filter by name or description, use the search tool instead.
+**Note**: To list other entities like insights, dashboards, cohorts, etc., use the search tool with mode="list" instead.
 
 ## Pagination workflow:
 1. First call: offset=0, limit=100 (gets first 100)
 2. If has_more=true, next call: offset=100, limit=100 (gets next 100)
 3. Continue incrementing offset by limit
-
-## Examples:
-- "Show me my recent insights" → entity_type="insight"
-- "List all dashboards" → entity_type="dashboard"
-- "What artifacts did we create?" → entity_type="artifact"
 
 {{{billing_prompt}}}
 """.strip()

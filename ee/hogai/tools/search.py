@@ -7,13 +7,43 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from ee.hogai.context.entity_search.context import EntitySearchContext
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
+from ee.hogai.utils.prompt import format_prompt_string
 
 SEARCH_TOOL_PROMPT = """
-Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog.
+Use this tool to search or list docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys, and error tracking issues in PostHog.
+
+# Modes
+
+## Search mode (default)
+Use mode="search" to find entities by query using full-text search.
 If the user's question mentions multiple topics, search for each topic separately and combine the results.
+
+## List mode
+Use mode="list" to browse entities with pagination, sorted by most recently updated first.
+
+### Use list mode when:
+- The user wants to browse their saved work
+- You need to find entities but don't have the ID
+- The user asks "what insights do I have?" or similar
+- After searching, to discover additional relevant entities that search may have missed due to different naming
+
+### Parameters:
+- kind: Type to list (e.g., "insights", "dashboards")
+- limit: Results per page (1-100, default 100)
+- offset: Number to skip for pagination (default 0)
+
+### Pagination workflow:
+1. First call: offset=0, limit=100 (gets first 100)
+2. If has_more indicated, next call: offset=100, limit=100 (gets next 100)
+3. Continue incrementing offset by limit
+
+### Examples:
+- "Show me my recent insights" → mode="list", kind="insights"
+- "List all dashboards" → mode="list", kind="dashboards"
 
 # Documentation search
 
@@ -54,12 +84,12 @@ Important:
 5. Never suggest emailing support@posthog.com or say you’ll create a support ticket. Tell paying users to use Help → "Email our support engineers" in the right sidebar. Free users can ask for help in Community Questions.
 6. Never use Community Questions as a source or cite them; they’re often outdated or incorrect.
 
-# Other entity kinds
+# Entity search
 
 Use this tool to find PostHog entities using full-text search.
 Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
 So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
-If you want to search for all entities, you should use `all`.
+If you want to search for all entities, you should use kind="all".
 
 """.strip()
 
@@ -71,12 +101,39 @@ ENTITIES = [f"{entity}" for entity in FTSKind if entity != FTSKind.INSIGHTS]
 
 SearchKind = Literal["insights", "docs", *ENTITIES]  # type: ignore
 
+LIST_ENTITIES_PROMPT = """
+Offset {{{offset}}}, limit {{{limit}}}.
 
-class SearchToolArgs(BaseModel):
+# Results
+{{{results}}}
+
+---
+{{#next_offset}}
+<system_reminder>To see more results, use offset={{{next_offset}}}</system_reminder>
+{{/next_offset}}
+{{^next_offset}}
+<system_reminder>You reached the end of results for this entity type.</system_reminder>
+{{/next_offset}}
+""".strip()
+
+
+class SearchArgs(BaseModel):
+    """Search for entities by query using full-text search."""
+
+    mode: Literal["search"] = "search"
     kind: SearchKind = Field(description="Select the entity you want to find")
     query: str = Field(
         description="Describe what you want to find. Include as much details from the context as possible."
     )
+
+
+class ListArgs(BaseModel):
+    """List entities with pagination, sorted by most recently updated first."""
+
+    mode: Literal["list"] = "list"
+    kind: SearchKind = Field(description="Select the entity type you want to list")
+    limit: int = Field(default=100, ge=1, le=100, description="Number of entities to return per page")
+    offset: int = Field(default=0, ge=0, description="Number of entities to skip for pagination")
 
 
 class InkeepDocumentContent(BaseModel):
@@ -101,39 +158,80 @@ class InkeepResponse(BaseModel):
     content: list[InkeepDocument]
 
 
+class SearchToolArgs(BaseModel):
+    args: SearchArgs | ListArgs = Field(..., discriminator="mode")
+
+
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
     description: str = SEARCH_TOOL_PROMPT
     context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
 
-    async def _arun_impl(self, kind: str, query: str) -> tuple[str, ToolMessagesArtifact | None]:
-        if kind == "docs":
-            if not settings.INKEEP_API_KEY:
-                raise MaxToolFatalError(
-                    "Documentation search is not available: INKEEP_API_KEY environment variable is not configured. "
-                )
-            docs_tool = InkeepDocsSearchTool(
-                team=self._team,
-                user=self._user,
-                state=self._state,
-                config=self._config,
-                context_manager=self._context_manager,
-            )
-            return await docs_tool.execute(query, self.tool_call_id)
+    async def _arun_impl(self, args: dict) -> tuple[str, ToolMessagesArtifact | None]:
+        validated_args = SearchToolArgs(args=args).args
 
+        match validated_args:
+            case ListArgs() as list_args:
+                return await self._list_entities(list_args.kind, list_args.limit, list_args.offset)
+            case SearchArgs() as search_args:
+                if search_args.kind == "docs":
+                    if not settings.INKEEP_API_KEY:
+                        raise MaxToolFatalError(
+                            "Documentation search is not available: INKEEP_API_KEY environment variable is not configured. "
+                        )
+                    docs_tool = InkeepDocsSearchTool(
+                        team=self._team,
+                        user=self._user,
+                        state=self._state,
+                        config=self._config,
+                        context_manager=self._context_manager,
+                    )
+                    return await docs_tool.execute(search_args.query, self.tool_call_id)
+
+                if search_args.kind not in self._fts_entities:
+                    raise MaxToolRetryableError(INVALID_ENTITY_KIND_PROMPT.format(kind=search_args.kind))
+
+                entity_search_toolkit = EntitySearchTool(
+                    team=self._team,
+                    user=self._user,
+                    state=self._state,
+                    config=self._config,
+                    context_manager=self._context_manager,
+                )
+                response = await entity_search_toolkit.execute(search_args.query, FTSKind(search_args.kind))
+                return response, None
+
+    async def _list_entities(self, kind: str, limit: int, offset: int) -> tuple[str, None]:
         if kind not in self._fts_entities:
             raise MaxToolRetryableError(INVALID_ENTITY_KIND_PROMPT.format(kind=kind))
 
-        entity_search_toolkit = EntitySearchTool(
-            team=self._team,
-            user=self._user,
-            state=self._state,
-            config=self._config,
-            context_manager=self._context_manager,
-        )
-        response = await entity_search_toolkit.execute(query, FTSKind(kind))
-        return response, None
+        # Map FTSKind to database entity type
+        from ee.hogai.tools.full_text_search.tool import SEARCH_KIND_TO_DATABASE_ENTITY_TYPE
+
+        if kind == FTSKind.ALL:
+            raise MaxToolRetryableError("Cannot list all entities. Please specify a specific entity type.")
+
+        entity_type = SEARCH_KIND_TO_DATABASE_ENTITY_TYPE.get(FTSKind(kind))
+        if not entity_type:
+            raise MaxToolRetryableError(f"Invalid entity kind for listing: {kind}")
+
+        entities_context = EntitySearchContext(team=self._team, user=self._user, context_manager=self._context_manager)
+        all_entities, total_count = await entities_context.list_entities(entity_type, limit, offset)
+
+        formatted_entities = entities_context.format_entities(all_entities)
+
+        # Build pagination metadata
+        has_more = total_count > offset + limit
+        next_offset = offset + limit if has_more else None
+
+        return format_prompt_string(
+            LIST_ENTITIES_PROMPT,
+            results=formatted_entities,
+            offset=offset,
+            limit=limit,
+            next_offset=next_offset,
+        ), None
 
     @property
     def _fts_entities(self) -> list[str]:

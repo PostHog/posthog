@@ -77,24 +77,12 @@ class ReadBillingInfo(BaseModel):
     kind: Literal["billing_info"] = "billing_info"
 
 
-class ReadEntitiesList(BaseModel):
-    """Lists PostHog entities and conversation artifacts with pagination, sorted by most recently updated first."""
+class ReadArtifactsList(BaseModel):
+    """Lists conversation artifacts with pagination, sorted by most recently updated first."""
 
-    kind: Literal["entities_list"] = "entities_list"
-    entity_type: Literal[
-        "insight",
-        "dashboard",
-        "cohort",
-        "action",
-        "experiment",
-        "feature_flag",
-        "notebook",
-        "survey",
-        "error_tracking_issue",
-        "artifact",
-    ] = Field(description="Specify the type of entity to list.")
-    limit: int = Field(default=100, ge=1, le=100, description="The number of entities to return per page.")
-    offset: int = Field(default=0, ge=0, description="The number of entities to skip.")
+    kind: Literal["artifacts_list"] = "artifacts_list"
+    limit: int = Field(default=100, ge=1, le=100, description="The number of artifacts to return per page.")
+    offset: int = Field(default=0, ge=0, description="The number of artifacts to skip.")
 
 
 class ReadErrorTrackingIssue(BaseModel):
@@ -111,7 +99,7 @@ ReadDataQuery = (
     | ReadDashboard
     | ReadBillingInfo
     | ReadErrorTrackingIssue
-    | ReadEntitiesList
+    | ReadArtifactsList
 )
 
 
@@ -161,7 +149,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ReadInsight,
             ReadDashboard,
             ReadErrorTrackingIssue,
-            ReadEntitiesList,
+            ReadArtifactsList,
         )
         ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
@@ -207,8 +195,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_data_warehouse_schema(), None
             case ReadDataWarehouseTableSchema() as data_warehouse_table:
                 return await self._read_data_warehouse_table_schema(data_warehouse_table.table_name), None
-            case ReadEntitiesList() as schema:
-                return await self._list_entities(schema.entity_type, schema.limit, schema.offset)
+            case ReadArtifactsList() as schema:
+                return await self._list_artifacts(schema.limit, schema.offset)
             case ReadInsight() as schema:
                 return await self._read_insight(schema.insight_id, schema.execute)
             case ReadDashboard() as schema:
@@ -263,14 +251,13 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         return "", ToolMessagesArtifact(messages=[artifact_message, tool_call_message])
 
-    async def _list_entities(
+    async def _list_artifacts(
         self,
-        entity_type: str,
         limit: int,
         offset: int,
     ) -> tuple[str, None]:
         entities_context = EntitySearchContext(team=self._team, user=self._user, context_manager=self._context_manager)
-        all_entities, total_count = await entities_context.list_entities(entity_type, limit, offset)
+        all_entities, total_count = await entities_context.list_entities("artifact", limit, offset)
 
         formatted_entities = entities_context.format_entities(all_entities)
 

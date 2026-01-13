@@ -81,8 +81,8 @@ class TestReadDataTool(BaseTest):
             mock_context_class.assert_called_once()
             assert tool is not None
 
-    async def test_arun_impl_entities_list_returns_artifacts(self):
-        """Test that entities_list kind returns formatted artifact data."""
+    async def test_arun_impl_artifacts_list_returns_artifacts(self):
+        """Test that artifacts_list kind returns formatted artifact data."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -111,9 +111,7 @@ class TestReadDataTool(BaseTest):
                 context_manager=context_manager,
             )
 
-            result, _ = await tool._arun_impl(
-                {"kind": "entities_list", "entity_type": "artifact", "limit": 100, "offset": 0}
-            )
+            result, _ = await tool._arun_impl({"kind": "artifacts_list", "limit": 100, "offset": 0})
 
             MockEntitySearchContext.assert_called_once_with(team=team, user=user, context_manager=context_manager)
             mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
@@ -125,8 +123,8 @@ class TestReadDataTool(BaseTest):
             assert "artifact-123" in result
             assert "You reached the end of results" in result
 
-    async def test_arun_impl_entities_list_returns_empty_results(self):
-        """Test that entities_list kind returns empty results when no entities found."""
+    async def test_arun_impl_artifacts_list_returns_empty_results(self):
+        """Test that artifacts_list kind returns empty results when no entities found."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -146,15 +144,13 @@ class TestReadDataTool(BaseTest):
                 context_manager=context_manager,
             )
 
-            result, _ = await tool._arun_impl(
-                {"kind": "entities_list", "entity_type": "artifact", "limit": 100, "offset": 0}
-            )
+            result, _ = await tool._arun_impl({"kind": "artifacts_list", "limit": 100, "offset": 0})
 
             mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
             assert "Offset 0, limit 100" in result
             assert "You reached the end of results" in result
 
-    async def test_arun_impl_entities_list_with_pagination(self):
+    async def test_arun_impl_artifacts_list_with_pagination(self):
         """Test pagination functionality with multiple pages."""
         team = MagicMock()
         user = MagicMock()
@@ -176,9 +172,7 @@ class TestReadDataTool(BaseTest):
             MockEntitySearchContext.return_value = mock_instance
 
             tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
-            result, _ = await tool._arun_impl(
-                {"kind": "entities_list", "entity_type": "artifact", "limit": 2, "offset": 0}
-            )
+            result, _ = await tool._arun_impl({"kind": "artifacts_list", "limit": 2, "offset": 0})
 
             assert "Offset 0, limit 2" in result
             assert "To see more results, use offset=2" in result
@@ -199,9 +193,7 @@ class TestReadDataTool(BaseTest):
             MockEntitySearchContext.return_value = mock_instance
 
             tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
-            result, _ = await tool._arun_impl(
-                {"kind": "entities_list", "entity_type": "artifact", "limit": 2, "offset": 2}
-            )
+            result, _ = await tool._arun_impl({"kind": "artifacts_list", "limit": 2, "offset": 2})
 
             assert "Offset 2, limit 2" in result
             assert "To see more results, use offset=4" in result
@@ -219,15 +211,13 @@ class TestReadDataTool(BaseTest):
             MockEntitySearchContext.return_value = mock_instance
 
             tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
-            result, _ = await tool._arun_impl(
-                {"kind": "entities_list", "entity_type": "artifact", "limit": 2, "offset": 4}
-            )
+            result, _ = await tool._arun_impl({"kind": "artifacts_list", "limit": 2, "offset": 4})
 
             assert "Offset 4, limit 2" in result
             assert "You reached the end of results" in result
             assert "Chart 5" in result
 
-    async def test_arun_impl_entities_list_default_pagination(self):
+    async def test_arun_impl_artifacts_list_default_pagination(self):
         """Test that default pagination values are used when not specified."""
         team = MagicMock()
         user = MagicMock()
@@ -248,13 +238,13 @@ class TestReadDataTool(BaseTest):
 
             tool = ReadDataTool(team=team, user=user, state=state, context_manager=context_manager)
             # Don't specify limit and offset - should default to limit=100, offset=0
-            result, _ = await tool._arun_impl({"kind": "entities_list", "entity_type": "artifact"})
+            result, _ = await tool._arun_impl({"kind": "artifacts_list"})
 
             # Verify defaults are used
             mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
             assert "Offset 0, limit 100" in result
 
-    async def test_arun_impl_entities_list_validates_limit_bounds(self):
+    async def test_arun_impl_artifacts_list_validates_limit_bounds(self):
         """Test that limit validation works (1-100 range)."""
         from pydantic import ValidationError
 
@@ -268,11 +258,11 @@ class TestReadDataTool(BaseTest):
 
         # Test limit=0 should fail
         with pytest.raises(ValidationError):
-            await tool._arun_impl({"kind": "entities_list", "entity_type": "artifact", "limit": 0, "offset": 0})
+            await tool._arun_impl({"kind": "artifacts_list", "limit": 0, "offset": 0})
 
         # Test limit=101 should fail
         with pytest.raises(ValidationError):
-            await tool._arun_impl({"kind": "entities_list", "entity_type": "artifact", "limit": 101, "offset": 0})
+            await tool._arun_impl({"kind": "artifacts_list", "limit": 101, "offset": 0})
 
         # Test limit=1 should work
         with patch("ee.hogai.tools.read_data.tool.EntitySearchContext") as MockEntitySearchContext:
@@ -281,9 +271,7 @@ class TestReadDataTool(BaseTest):
             mock_instance.format_entities = MagicMock(return_value="")
             MockEntitySearchContext.return_value = mock_instance
 
-            result, _ = await tool._arun_impl(
-                {"kind": "entities_list", "entity_type": "artifact", "limit": 1, "offset": 0}
-            )
+            result, _ = await tool._arun_impl({"kind": "artifacts_list", "limit": 1, "offset": 0})
             mock_instance.list_entities.assert_called_once_with("artifact", 1, 0)
 
         # Test limit=100 should work
@@ -293,13 +281,11 @@ class TestReadDataTool(BaseTest):
             mock_instance.format_entities = MagicMock(return_value="")
             MockEntitySearchContext.return_value = mock_instance
 
-            result, _ = await tool._arun_impl(
-                {"kind": "entities_list", "entity_type": "artifact", "limit": 100, "offset": 0}
-            )
+            result, _ = await tool._arun_impl({"kind": "artifacts_list", "limit": 100, "offset": 0})
             mock_instance.list_entities.assert_called_once_with("artifact", 100, 0)
 
     async def test_create_tool_class_with_artifacts(self):
-        """Test that tool accepts entities_list with artifact entity type."""
+        """Test that tool accepts artifacts_list."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -312,13 +298,12 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
             can_read_artifacts=True,
         )
-        assert "# List entities" in tool.description
-        assert "entity_type" in tool.description
+        assert "# List artifacts" in tool.description
         assert "artifact" in tool.description
         assert "billing_info" not in tool.description
 
     async def test_create_tool_class_without_artifacts(self):
-        """Test that tool still has entities_list regardless of can_read_artifacts value."""
+        """Test that tool still has artifacts_list regardless of can_read_artifacts value."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -331,11 +316,10 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
             can_read_artifacts=False,
         )
-        assert "# List entities" in tool.description
-        assert "entity_type" in tool.description
+        assert "# List artifacts" in tool.description
 
     async def test_create_tool_class_with_artifacts_and_billing_access(self):
-        """Test that tool has entities_list and billing in description when billing access is granted."""
+        """Test that tool has artifacts_list and billing in description when billing access is granted."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -348,8 +332,7 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
             can_read_artifacts=True,
         )
-        assert "# List entities" in tool.description
-        assert "entity_type" in tool.description
+        assert "# List artifacts" in tool.description
         assert "billing_info" in tool.description
         assert "Billing information" in tool.description
 
