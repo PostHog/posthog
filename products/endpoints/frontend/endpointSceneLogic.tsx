@@ -270,6 +270,16 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             // Load versions when endpoint loads
             if (endpoint?.name) {
                 actions.loadVersions({ name: endpoint.name })
+
+                // Check if there's a version parameter in the URL
+                const { searchParams } = router.values
+                if (searchParams.version) {
+                    const version = parseInt(searchParams.version, 10)
+                    if (!isNaN(version) && version !== endpoint.current_version) {
+                        actions.setViewingVersion(version)
+                        actions.selectVersion(version)
+                    }
+                }
             }
         },
         selectVersion: ({ version }) => {

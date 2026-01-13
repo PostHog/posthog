@@ -148,31 +148,29 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
         createdAtColumn<EndpointVersionType>(),
         createdByColumn<EndpointVersionType>(),
         {
-            title: 'Status',
+            title: 'Materialization',
             render: function RenderStatus(_, item) {
                 const isCurrent = item.version === endpoint.current_version
                 const materialized = isCurrent ? endpoint.is_materialized : item.is_materialized
-                const materializationStatus = isCurrent
-                    ? endpoint.materialization?.status
-                    : item.materialization?.status
                 const sync = isCurrent ? endpoint.materialization?.sync_frequency : item.sync_frequency
 
-                if (materialized) {
+                if (materialized && sync) {
                     return (
-                        <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-2">
-                                <LemonTag type="success">Materialized</LemonTag>
-                                {materializationStatus && (
-                                    <LemonTag type={getStatusTagType(materializationStatus)}>
-                                        {materializationStatus}
-                                    </LemonTag>
-                                )}
-                            </div>
-                            {sync && <span className="text-xs text-muted">Sync: {sync}</span>}
-                        </div>
+                        <span className="text-sm">
+                            <LemonTag type="success" size="small">
+                                {sync}
+                            </LemonTag>
+                        </span>
                     )
                 }
-                return <LemonTag type="default">Not materialized</LemonTag>
+                if (materialized) {
+                    return (
+                        <LemonTag type="success" size="small">
+                            Enabled
+                        </LemonTag>
+                    )
+                }
+                return <span className="text-muted text-sm">—</span>
             },
         },
     ]
