@@ -38,6 +38,7 @@ export interface LogsViewerProps {
     onDateRangeChange: (dateRange: DateRange) => void
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
+    slowLoadingHint?: string | null
 }
 
 export function LogsViewer({
@@ -56,6 +57,7 @@ export function LogsViewer({
     onDateRangeChange,
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
+    slowLoadingHint,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
@@ -73,6 +75,7 @@ export function LogsViewer({
                     onDateRangeChange={onDateRangeChange}
                     sparklineBreakdownBy={sparklineBreakdownBy}
                     onSparklineBreakdownByChange={onSparklineBreakdownByChange}
+                    slowLoadingHint={slowLoadingHint}
                 />
             </BindLogic>
         </BindLogic>
@@ -92,6 +95,7 @@ interface LogsViewerContentProps {
     onDateRangeChange: (dateRange: DateRange) => void
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
+    slowLoadingHint?: string | null
 }
 
 function LogsViewerContent({
@@ -107,6 +111,7 @@ function LogsViewerContent({
     onDateRangeChange,
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
+    slowLoadingHint,
 }: LogsViewerContentProps): JSX.Element {
     const {
         tabId,
@@ -334,6 +339,7 @@ function LogsViewerContent({
                 showPinnedWithOpacity
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
                 onLoadMore={onLoadMore}
+                slowLoadingHint={slowLoadingHint}
             />
 
             <LogDetailsModal timezone={timezone} />

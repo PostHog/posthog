@@ -7,6 +7,7 @@ import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellM
 import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
@@ -32,6 +33,7 @@ interface VirtualizedLogsListProps {
     disableInfiniteScroll?: boolean
     hasMoreLogsToLoad?: boolean
     onLoadMore?: () => void
+    slowLoadingHint?: string | null
 }
 
 export function VirtualizedLogsList({
@@ -46,6 +48,7 @@ export function VirtualizedLogsList({
     disableInfiniteScroll = false,
     hasMoreLogsToLoad = false,
     onLoadMore,
+    slowLoadingHint,
 }: VirtualizedLogsListProps): JSX.Element {
     const {
         tabId,
@@ -241,7 +244,15 @@ export function VirtualizedLogsList({
         ]
     )
 
-    if (dataSource.length === 0 && !loading) {
+    if (dataSource.length === 0) {
+        if (loading) {
+            return (
+                <div className="flex flex-col items-center justify-center p-8 gap-3 h-full">
+                    <Spinner className="text-3xl" />
+                    {slowLoadingHint && <p className="text-muted text-sm text-center max-w-md">{slowLoadingHint}</p>}
+                </div>
+            )
+        }
         return <div className="p-4 text-muted text-center">No logs to display</div>
     }
 

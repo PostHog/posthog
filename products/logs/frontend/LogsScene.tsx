@@ -49,6 +49,11 @@ const LogsSceneContent = (): JSX.Element => {
     const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
         useActions(logsLogic)
 
+    const slowLoadingHint =
+        showSlowLoadingHint && isAllServicesSelected
+            ? 'Still searching through ALL your logs... like finding a needle in a haystack! Try selecting a specific service to speed things up.'
+            : null
+
     return (
         <>
             <SceneTitleSection
@@ -83,12 +88,6 @@ const LogsSceneContent = (): JSX.Element => {
                 </p>
             </LemonBanner>
             <LogsFilters />
-            {showSlowLoadingHint && isAllServicesSelected && logsLoading && (
-                <LemonBanner type="info" dismissKey="logs-slow-loading-hint">
-                    Still searching through ALL your logs... like finding a needle in a haystack! Try selecting a
-                    specific service to speed things up.
-                </LemonBanner>
-            )}
             <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
                 <LogsViewer
                     tabId={tabId}
@@ -106,6 +105,7 @@ const LogsSceneContent = (): JSX.Element => {
                     onDateRangeChange={setDateRange}
                     sparklineBreakdownBy={sparklineBreakdownBy}
                     onSparklineBreakdownByChange={setSparklineBreakdownBy}
+                    slowLoadingHint={slowLoadingHint}
                 />
             </div>
         </>
