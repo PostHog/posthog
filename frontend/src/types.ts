@@ -819,6 +819,15 @@ export enum PropertyOperator {
     NotIn = 'not_in',
     IsCleanedPathExact = 'is_cleaned_path_exact',
     FlagEvaluatesTo = 'flag_evaluates_to',
+    SemverEq = 'semver_eq',
+    SemverNeq = 'semver_neq',
+    SemverGt = 'semver_gt',
+    SemverGte = 'semver_gte',
+    SemverLt = 'semver_lt',
+    SemverLte = 'semver_lte',
+    SemverTilde = 'semver_tilde',
+    SemverCaret = 'semver_caret',
+    SemverWildcard = 'semver_wildcard',
 }
 
 export enum SavedInsightsTabs {
