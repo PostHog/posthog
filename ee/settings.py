@@ -61,7 +61,6 @@ if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_O
 
 CUSTOMER_IO_API_KEY = get_from_env("CUSTOMER_IO_API_KEY", "", type_cast=str)
 CUSTOMER_IO_API_URL = get_from_env("CUSTOMER_IO_API_URL", "https://api-eu.customer.io", type_cast=str)
-CUSTOMER_IO_APP_API_KEY = get_from_env("CUSTOMER_IO_APP_API_KEY", "", type_cast=str)
 
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent from materializing
