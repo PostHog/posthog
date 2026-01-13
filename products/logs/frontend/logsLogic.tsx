@@ -843,13 +843,12 @@ export const logsLogic = kea<logsLogicType>([
             actions.clearLogs()
             actions.setShowSlowLoadingHint(false)
             cache.disposables.dispose('slowLoadingHintTimer')
-            // Show slow loading hint after 5 seconds if still loading and using "all services"
+            // Show slow loading hint after 5 seconds if using "all services"
+            // The hint only displays if still loading (checked in VirtualizedLogsList)
             if (values.isAllServicesSelected) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
-                        if (values.logsLoading) {
-                            actions.setShowSlowLoadingHint(true)
-                        }
+                        actions.setShowSlowLoadingHint(true)
                     }, 5000)
                     return () => clearTimeout(timerId)
                 }, 'slowLoadingHintTimer')
