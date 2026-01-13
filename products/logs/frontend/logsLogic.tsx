@@ -543,10 +543,7 @@ export const logsLogic = kea<logsLogicType>([
             (s) => [s.serviceNames],
             (serviceNames): boolean => serviceNames?.includes(ALL_SERVICES_VALUE) ?? false,
         ],
-        hasServiceNameSelected: [
-            (s) => [s.serviceNames],
-            (serviceNames): boolean => (serviceNames?.length ?? 0) > 0,
-        ],
+        hasServiceNameSelected: [(s) => [s.serviceNames], (serviceNames): boolean => (serviceNames?.length ?? 0) > 0],
         serviceNamesForQuery: [
             (s) => [s.serviceNames, s.isAllServicesSelected],
             (serviceNames, isAllServicesSelected): LogsQuery['serviceNames'] => {

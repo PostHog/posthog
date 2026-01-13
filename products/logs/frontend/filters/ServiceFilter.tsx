@@ -34,12 +34,7 @@ export const ServiceFilter = (): JSX.Element => {
                                 Querying all services can be slow for high-volume logs. Consider selecting specific
                                 services for better performance.
                             </p>
-                            <LemonButton
-                                size="small"
-                                type="primary"
-                                fullWidth
-                                onClick={() => setServiceNames([])}
-                            >
+                            <LemonButton size="small" type="primary" fullWidth onClick={() => setServiceNames([])}>
                                 Select specific services
                             </LemonButton>
                         </div>
