@@ -1259,3 +1259,254 @@ class TestCSVExporter(APIBaseTest):
                     "Test Action,Firefox,1",
                 ],
             )
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_excel_streaming_saves_to_object_storage(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT=10) -> None:
+        """Test that Excel streaming export saves to object storage."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        query_limit = 5
+        for i in range(15):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.XLSX,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event, properties.prop as prop from events where distinct_id = '{random_uuid}' order by prop limit {query_limit}",
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/vnd.openxmlformats-officedocument.spreadsheetml.sheet/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read_bytes(exported_asset.content_location)
+            assert content is not None
+
+            workbook = load_workbook(filename=BytesIO(content))
+            worksheet = workbook.active
+            rows = list(worksheet.iter_rows(values_only=True))
+
+            header_row = 1
+            assert rows[0] == ("event", "prop")
+            assert len(rows) == query_limit + header_row
+            assert all(row[0] == "$pageview" for row in rows[1:])
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_streaming_saves_to_object_storage(self, mocked_uuidt: Any, csv_export_limit: int = 10) -> None:
+        """Test that CSV streaming export saves to object storage."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        for i in range(15):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content_location is not None
+            assert exported_asset.content is None
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            header_row = 1
+            assert lines[0] == "event"
+            assert len(lines) == csv_export_limit + header_row
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    def test_csv_streaming_fallback_when_object_storage_disabled(self) -> None:
+        """Test that CSV streaming falls back to DB storage when S3 is disabled."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        num_events = 5
+        for i in range(num_events):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content_location is None
+            assert exported_asset.content is not None
+
+            content = exported_asset.content.decode("utf-8")
+            lines = content.strip().split("\r\n")
+            header_row = 1
+            assert lines[0] == "event"
+            assert len(lines) == num_events + header_row
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    def test_excel_streaming_fallback_when_object_storage_disabled(self) -> None:
+        """Test that Excel streaming falls back to DB storage when S3 is disabled."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        num_events = 5
+        for i in range(num_events):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.XLSX,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content_location is None
+            assert exported_asset.content is not None
+
+            workbook = load_workbook(filename=BytesIO(exported_asset.content))
+            worksheet = workbook.active
+            rows = list(worksheet.iter_rows(values_only=True))
+
+            header_row = 1
+            assert rows[0] == ("event",)
+            assert len(rows) == num_events + header_row
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    def test_csv_streaming_uses_temp_file(self) -> None:
+        """Test that CSV streaming export writes to a temp file."""
+        import tempfile
+
+        original_temp_file = tempfile.NamedTemporaryFile
+        temp_file_calls: list = []
+
+        def tracking_temp_file(*args, **kwargs):
+            temp_file_calls.append({"args": args, "kwargs": kwargs})
+            return original_temp_file(*args, **kwargs)
+
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_event(
+            event="$pageview",
+            distinct_id=random_uuid,
+            team=self.team,
+            timestamp=now() - relativedelta(hours=1),
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+
+        with patch("posthog.tasks.exports.csv_exporter.tempfile.NamedTemporaryFile", tracking_temp_file):
+            csv_exporter.export_tabular(exported_asset)
+
+        assert len(temp_file_calls) == 1
+        call_kwargs = temp_file_calls[0]["kwargs"]
+        assert call_kwargs.get("suffix") == ".csv"
+        assert call_kwargs.get("delete") is False
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    def test_excel_streaming_uses_temp_file(self) -> None:
+        """Test that Excel streaming export writes to a temp file."""
+        import tempfile
+
+        original_temp_file = tempfile.NamedTemporaryFile
+        temp_file_calls: list = []
+
+        def tracking_temp_file(*args, **kwargs):
+            temp_file_calls.append({"args": args, "kwargs": kwargs})
+            return original_temp_file(*args, **kwargs)
+
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_event(
+            event="$pageview",
+            distinct_id=random_uuid,
+            team=self.team,
+            timestamp=now() - relativedelta(hours=1),
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.XLSX,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+
+        with patch("posthog.tasks.exports.csv_exporter.tempfile.NamedTemporaryFile", tracking_temp_file):
+            csv_exporter.export_tabular(exported_asset)
+
+        assert len(temp_file_calls) == 1
+        call_kwargs = temp_file_calls[0]["kwargs"]
+        assert call_kwargs.get("suffix") == ".xlsx"
+        assert call_kwargs.get("delete") is False
