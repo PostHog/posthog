@@ -365,7 +365,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            avg(accurateCastOrNull(metric_events.value, 'Float64')) AS value
+            avg(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -422,7 +422,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(accurateCastOrNull(metric_events.value, 'Float64')) AS value
+            max(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -479,7 +479,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            min(accurateCastOrNull(metric_events.value, 'Float64')) AS value
+            min(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,

@@ -1118,6 +1118,12 @@ class ExperimentQueryBuilder:
         math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
         column_ref = f"{events_alias}.{column_name}"
 
+        # Determine if we're aggregating from combined_events (ratio metrics)
+        # In combined_events, NULLs in numerator_value/denominator_value mean "this row is from
+        # the other event type" and should be ignored.
+        # In regular metric_events, NULLs mean "property not set" and should be treated as 0.
+        is_combined_events = column_name in ("numerator_value", "denominator_value")
+
         if math_type in [
             ExperimentMetricMathType.UNIQUE_SESSION,
             ExperimentMetricMathType.DAU,
@@ -1135,22 +1141,34 @@ class ExperimentQueryBuilder:
                 ))"""
             )
         elif math_type == ExperimentMetricMathType.MIN:
-            # Don't use coalesce - NULLs should be ignored, not treated as 0
-            return parse_expr(f"min(toFloat({column_ref}))")
+            if is_combined_events:
+                # Don't use coalesce - NULLs from other event type should be ignored
+                return parse_expr(f"min(toFloat({column_ref}))")
+            else:
+                return parse_expr(f"min(coalesce(toFloat({column_ref}), 0))")
         elif math_type == ExperimentMetricMathType.MAX:
-            # Don't use coalesce - NULLs should be ignored, not treated as 0
-            return parse_expr(f"max(toFloat({column_ref}))")
+            if is_combined_events:
+                # Don't use coalesce - NULLs from other event type should be ignored
+                return parse_expr(f"max(toFloat({column_ref}))")
+            else:
+                return parse_expr(f"max(coalesce(toFloat({column_ref}), 0))")
         elif math_type == ExperimentMetricMathType.AVG:
-            # Don't use coalesce - NULLs should be ignored, not treated as 0
-            return parse_expr(f"avg(toFloat({column_ref}))")
+            if is_combined_events:
+                # Don't use coalesce - NULLs from other event type should be ignored
+                return parse_expr(f"avg(toFloat({column_ref}))")
+            else:
+                return parse_expr(f"avg(coalesce(toFloat({column_ref}), 0))")
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
                 aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
                     # Build the aggregation with params if it's a parametric function
-                    # Use toFloat without coalesce - aggregate functions handle NULLs naturally
-                    inner_value_expr = parse_expr(f"toFloat({column_ref})")
+                    if is_combined_events:
+                        # Don't use coalesce - NULLs from other event type should be ignored
+                        inner_value_expr = parse_expr(f"toFloat({column_ref})")
+                    else:
+                        inner_value_expr = parse_expr(f"coalesce(toFloat({column_ref}), 0)")
                     return build_aggregation_call(aggregation_function, inner_value_expr, params=params)
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
         else:
