@@ -86,6 +86,7 @@ class PushGatewayTask(Task):
                 raise
             finally:
                 duration_gauge.set(time.monotonic() - start_time)
+                self._local.registry = None
 
 
 class CeleryQueue(Enum):
