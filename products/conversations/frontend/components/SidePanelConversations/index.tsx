@@ -22,7 +22,13 @@ function TicketListView(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonButton type="primary" fullWidth center onClick={startNewConversation}>
+            <LemonButton
+                type="primary"
+                fullWidth
+                center
+                onClick={startNewConversation}
+                data-attr="sidebar-create-new-ticket"
+            >
                 Create new ticket
             </LemonButton>
 
@@ -102,9 +108,15 @@ function ChatView(): JSX.Element {
     const { sendMessage, goBack } = useActions(sidePanelConversationsLogic)
     const [messageContent, setMessageContent] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const chatAreaRef = useRef<HTMLDivElement>(null)
 
     const scrollToBottom = (): void => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+        if (chatAreaRef.current && messagesEndRef.current) {
+            chatAreaRef.current.scrollTo({
+                top: chatAreaRef.current.scrollHeight,
+                behavior: 'smooth',
+            })
+        }
     }
 
     useEffect(() => {
@@ -121,7 +133,7 @@ function ChatView(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col h-full bg-surface-primary rounded-lg p-2">
+        <div className="flex flex-col h-full bg-surface-primary border rounded-lg p-2">
             <div className="flex items-center gap-2 mb-3">
                 <LemonButton icon={<IconArrowLeft />} size="small" onClick={goBack} />
                 <span className="font-semibold">
@@ -129,7 +141,7 @@ function ChatView(): JSX.Element {
                 </span>
             </div>
             <LemonDivider />
-            <div className="flex-1 overflow-y-auto space-y-1.5 min-h-[300px] max-h-[400px] mb-3">
+            <div ref={chatAreaRef} className="flex-1 overflow-y-auto space-y-1.5 min-h-[300px] max-h-[400px] mb-3">
                 {messagesLoading ? (
                     <div className="flex items-center justify-center h-full">
                         <Spinner />
