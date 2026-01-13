@@ -76,14 +76,12 @@ def _generate_value_extraction_sql(property_type: str, value_column: str) -> str
 
 
 @activity.defn
-def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> int:
+def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> None:
     """
     Backfill an EAV property by inserting rows into the event_properties table.
 
     This queries historical events that have the property set and inserts
     corresponding rows into the writable_event_properties table.
-
-    Returns the approximate number of rows inserted.
     """
     value_column = PROPERTY_TYPE_TO_EAV_COLUMN.get(inputs.property_type)
     if not value_column:
@@ -154,8 +152,6 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> int:
             team_id=inputs.team_id,
             property_name=inputs.property_name,
         )
-
-        return 0  # We don't track exact row count for performance
 
     except Exception as e:
         logger.exception(
