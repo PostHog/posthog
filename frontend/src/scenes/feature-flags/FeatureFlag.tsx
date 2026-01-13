@@ -109,7 +109,7 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -1035,6 +1035,7 @@ function FeatureFlagRollout({
         variantErrors,
         experiment,
         experimentLoading,
+        dependentFlags,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -1224,6 +1225,26 @@ function FeatureFlagRollout({
                                     </div>
                                 </div>
                             </>
+                        )}
+
+                        {dependentFlags.length > 0 && (
+                            <div className="mt-4">
+                                <span className="card-secondary mt-4">Dependent flags</span>
+                                <div className="flex flex-col gap-1">
+                                    {dependentFlags.map((flag: DependentFlag) => (
+                                        <div key={flag.id} className="flex gap-1 items-center">
+                                            <span className="font-normal text-sm">{flag.key}</span>
+                                            <Link
+                                                target="_blank"
+                                                className="font-semibold"
+                                                to={urls.featureFlag(flag.id)}
+                                            >
+                                                <IconOpenInNew fontSize="18" />
+                                            </Link>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         )}
                     </div>
                     <SceneDivider />
