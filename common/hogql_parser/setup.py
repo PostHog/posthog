@@ -18,7 +18,7 @@ module = Extension(
         "HogQLParserVisitor.cpp",
         "error.cpp",
         "string.cpp",
-        "json_builder.cpp",
+        "json.cpp",
         "parser_python.cpp",
     ],
     include_dirs=(
@@ -36,7 +36,7 @@ module = Extension(
 
 setup(
     name="hogql_parser",
-    version="1.2.12",
+    version="2.0.0",
     url="https://github.com/PostHog/posthog/tree/master/common/hogql_parser",
     description="HogQL parser for internal PostHog use",
     author="PostHog Inc.",
