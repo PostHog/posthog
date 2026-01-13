@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconLogs } from '@posthog/icons'
+import { IconTerminal } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -105,7 +105,7 @@ const LogsSceneContent = (): JSX.Element => {
                 </div>
             ) : (
                 <div className="flex flex-col items-center justify-center py-16 gap-4">
-                    <IconLogs className="text-muted-alt w-10 h-10" />
+                    <IconTerminal className="text-muted-alt w-10 h-10" />
                     <div className="text-center max-w-md">
                         <h3 className="text-lg font-semibold mb-2">Select a service to view logs</h3>
                         <p className="text-muted">
