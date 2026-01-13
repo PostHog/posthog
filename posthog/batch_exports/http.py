@@ -48,7 +48,6 @@ from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestinat
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
 from posthog.models.signals import model_activity_signal, mutable_receiver
-from posthog.security.url_validation import is_url_allowed
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -421,10 +420,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
         # SSRF protection for HTTP batch exports
         if destination_type == BatchExportDestination.Destination.HTTP:
             url = merged_config.get("url")
-            if url:
-                allowed, error = is_url_allowed(url)
-                if not allowed:
-                    raise serializers.ValidationError(f"Invalid destination URL: {error}")
+            if url and url not in ("https://us.i.posthog.com/batch/", "https://eu.i.posthog.com/batch/"):
+                raise serializers.ValidationError(f"Invalid destination URL: {url}")
 
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
             if config.get("authentication_type") == "password" and merged_config.get("password") is None:
