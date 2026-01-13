@@ -102,6 +102,7 @@ import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
+import { FeatureFlagNew } from './FeatureFlagNew'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -308,6 +309,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             content: <FeedbackTab featureFlag={featureFlag} />,
         })
     }
+
+    return <FeatureFlagNew />
 
     return (
         <>
