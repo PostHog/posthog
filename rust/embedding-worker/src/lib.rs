@@ -30,7 +30,7 @@ pub async fn handle_batch(
     _offsets: &[Offset], // TODO - tie errors to offsets
     context: Arc<AppContext>,
 ) -> Result<Vec<EmbeddingResponse>> {
-    let mut handle_buckets = vec![];
+    let mut handles = vec![];
 
     for request in requests.into_iter() {
         let team_id = request.team_id;
@@ -43,37 +43,27 @@ pub async fn handle_batch(
             .increment(1);
             continue;
         };
-        let mut handles = vec![];
-        for model in &request.models {
-            handles.push(handle_single(context.clone(), *model, request.clone()));
-        }
-        handle_buckets.push((request, handles));
-    }
 
-    let mut responses = vec![];
-    for (request, handles) in handle_buckets {
-        let results: Result<Vec<_>> = futures::future::join_all(handles)
-            .await
-            .into_iter()
-            .collect();
-
-        // Right now, any failed embedding stalls the pipeline, because we don't have
-        // any really good visibility or dead letter handling.
-        let results = results?;
-
-        responses.push(EmbeddingResponse {
-            request,
-            results: results
-                .into_iter()
-                .map(|(model, embedding)| ModelResult {
+        let ctx = context.clone();
+        handles.push(async move {
+            let mut results = vec![];
+            for model in &request.models {
+                let (model, embedding) = handle_single(ctx.clone(), *model, request.clone()).await?;
+                results.push(ModelResult {
                     model,
                     outcome: EmbeddingResult::Success { embedding },
-                })
-                .collect(),
+                });
+            }
+            Ok::<_, anyhow::Error>(EmbeddingResponse { request, results })
         });
     }
 
-    Ok(responses)
+    let results: Result<Vec<_>> = futures::future::join_all(handles)
+        .await
+        .into_iter()
+        .collect();
+
+    results
 }
 
 pub async fn handle_single(
