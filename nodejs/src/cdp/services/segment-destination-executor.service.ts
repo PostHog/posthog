@@ -84,6 +84,9 @@ const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: str
             throw new Error('Not implemented')
         },
         json: () => response.json(),
+        bytes: () => {
+            throw new Error('Not implemented')
+        },
     }
 
     return modifiedResponse
