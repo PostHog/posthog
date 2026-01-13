@@ -28,22 +28,22 @@ using namespace std;
 void addPositionInfo(Json& json, antlr4::ParserRuleContext* ctx) {
   if (!ctx) return;
 
-  auto startToken = ctx->getStart();
-  auto stopToken = ctx->getStop();
+  auto start_token = ctx->getStart();
+  auto stop_token = ctx->getStop();
 
-  if (startToken) {
+  if (start_token) {
     Json start = Json::object();
-    start["line"] = static_cast<int64_t>(startToken->getLine());
-    start["column"] = static_cast<int64_t>(startToken->getCharPositionInLine());
-    start["offset"] = static_cast<int64_t>(startToken->getStartIndex());
+    start["line"] = static_cast<int64_t>(start_token->getLine());
+    start["column"] = static_cast<int64_t>(start_token->getCharPositionInLine());
+    start["offset"] = static_cast<int64_t>(start_token->getStartIndex());
     json["start"] = std::move(start);
   }
 
-  if (stopToken) {
+  if (stop_token) {
     Json end = Json::object();
-    end["line"] = static_cast<int64_t>(stopToken->getLine());
-    end["column"] = static_cast<int64_t>(stopToken->getCharPositionInLine() + stopToken->getText().length());
-    end["offset"] = static_cast<int64_t>(stopToken->getStopIndex() + 1);
+    end["line"] = static_cast<int64_t>(stop_token->getLine());
+    end["column"] = static_cast<int64_t>(stop_token->getCharPositionInLine() + stop_token->getText().length());
+    end["offset"] = static_cast<int64_t>(stop_token->getStopIndex() + 1);
     json["end"] = std::move(end);
   }
 }
@@ -71,25 +71,43 @@ void addEndPositionInfo(Json& json, antlr4::Token* token) {
 }
 
 // Helper: Build a JSON error object
-string buildJSONError(const char* errorType, const string& message, size_t start, size_t end) {
+Json buildJSONError(const char* errorType, const string& message, size_t start, size_t end) {
   Json json = Json::object();
   json["error"] = true;
   json["type"] = errorType;
   json["message"] = message;
 
-  Json startPos = Json::object();
-  startPos["line"] = 0;
-  startPos["column"] = 0;
-  startPos["offset"] = static_cast<int64_t>(start);
-  json["start"] = std::move(startPos);
+  Json start_pos = Json::object();
+  start_pos["line"] = 0;
+  start_pos["column"] = 0;
+  start_pos["offset"] = static_cast<int64_t>(start);
+  json["start"] = std::move(start_pos);
 
-  Json endPos = Json::object();
-  endPos["line"] = 0;
-  endPos["column"] = 0;
-  endPos["offset"] = static_cast<int64_t>(end);
-  json["end"] = std::move(endPos);
+  Json end_pos = Json::object();
+  end_pos["line"] = 0;
+  end_pos["column"] = 0;
+  end_pos["offset"] = static_cast<int64_t>(end);
+  json["end"] = std::move(end_pos);
 
-  return json.dump();
+  return json;
+}
+
+bool isNodeOfType(const Json& json, const string& type) {
+  if (!json.isObject()) return false;
+  auto obj = json.getObject();
+  auto it = obj.find("node");
+  if (it == obj.end()) return false;
+  return it->second.getString() == type;
+}
+
+bool containsMatchingProperty(const Json& json, const string& prop_name, const string& prop_value) {
+  if (!json.isObject()) return false;
+  const auto& obj = json.getObject();
+  auto it = obj.find(prop_name);
+  if (it != obj.end() && it->second.isString() && it->second.getString() == prop_value) {
+    return true;
+  }
+  return false;
 }
 
 // PARSING AND AST CONVERSION
@@ -99,43 +117,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   bool is_internal;
 
   const vector<string> RESERVED_KEYWORDS = {"true", "false", "null", "team_id"};
-
-  // Check whether a serialized JSON string represents a JoinExpr at the top level.
-  bool isJoinExprJson(const string& json) const {
-    int depth = 0;
-    bool in_string = false;
-
-    for (size_t i = 0; i < json.size(); i++) {
-      char c = json[i];
-
-      if (c == '"' && (i == 0 || json[i - 1] != '\\')) {
-        if (!in_string && depth == 1 && json.compare(i, 6, "\"node\"") == 0) {
-          size_t colon_pos = json.find(":", i + 6);
-          if (colon_pos == string::npos) return false;
-
-          size_t value_start = json.find("\"", colon_pos + 1);
-          if (value_start == string::npos) return false;
-
-          size_t value_end = json.find("\"", value_start + 1);
-          if (value_end == string::npos) return false;
-
-          string node_value = json.substr(value_start + 1, value_end - value_start - 1);
-          return node_value == "JoinExpr";
-        }
-        in_string = !in_string;
-      }
-
-      if (in_string) continue;
-
-      if (c == '{' || c == '[') {
-        depth++;
-      } else if (c == '}' || c == ']') {
-        if (depth > 0) depth--;
-      }
-    }
-
-    return false;
-  }
 
  public:
   HogQLParseTreeConverter(bool is_internal) : is_internal(is_internal) {}
@@ -174,54 +155,53 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   // Entry point for external callers - wraps errors in JSON
   string visitAsJSONFinal(antlr4::tree::ParseTree* tree) {
     try {
-      return visitAsJSON(tree);
+      return visitAsJSON(tree).dump();
     } catch (const SyntaxError& e) {
-      return buildJSONError("SyntaxError", e.what(), e.start, e.end);
+      return buildJSONError("SyntaxError", e.what(), e.start, e.end).dump();
     } catch (const NotImplementedError& e) {
-      return buildJSONError("NotImplementedError", e.what(), e.start, e.end);
+      return buildJSONError("NotImplementedError", e.what(), e.start, e.end).dump();
     } catch (const ParsingError& e) {
-      return buildJSONError("ParsingError", e.what(), e.start, e.end);
+      return buildJSONError("ParsingError", e.what(), e.start, e.end).dump();
     } catch (const bad_any_cast& e) {
-      return buildJSONError("ParsingError", "Parsing failed due to bad type casting", 0, 0);
+      return buildJSONError("ParsingError", "Parsing failed due to bad type casting", 0, 0).dump();
     } catch (...) {
-      return buildJSONError("ParsingError", "Unknown parsing error occurred", 0, 0);
+      return buildJSONError("ParsingError", "Unknown parsing error occurred", 0, 0).dump();
     }
   }
 
   // JSON helper methods
-  string visitAsJSON(antlr4::tree::ParseTree* tree) {
+  Json visitAsJSON(antlr4::tree::ParseTree* tree) {
     if (!tree) {
-      return "null";
+      return Json(nullptr);
     }
-    return any_cast<string>(visit(tree));
+    return any_cast<Json>(visit(tree));
   }
 
-  string visitAsJSONOrNull(antlr4::tree::ParseTree* tree) {
+  Json visitAsJSONOrNull(antlr4::tree::ParseTree* tree) {
     if (tree == NULL) {
-      return "null";
+      return Json(nullptr);
     }
-    return visitAsJSON(tree);
+    try {
+      return visitAsJSON(tree);
+    } catch (const bad_any_cast& e) {
+      cout << tree->toStringTree(true) << endl;
+      throw ParsingError("Failed to cast parse tree node to JSON");
+    }
   }
 
-  string visitAsJSONOrEmptyArray(antlr4::tree::ParseTree* tree) {
+  Json visitAsJSONOrEmptyArray(antlr4::tree::ParseTree* tree) {
     if (tree == NULL) {
-      return "[]";
+      return Json::array();
     }
     return visitAsJSON(tree);
   }
 
   template <typename T>
-  string visitJSONArrayOfObjects(vector<T> trees) {
-    string result = "[";
-    bool first = true;
+  Json visitJSONArrayOfObjects(vector<T> trees) {
+    Json result = Json::array();
     for (auto tree : trees) {
-      if (!first) {
-        result += ",";
-      }
-      first = false;
-      result += visitAsJSON(tree);
+      result.pushBack(visitAsJSON(tree));
     }
-    result += "]";
     return result;
   }
 
@@ -238,8 +218,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   template <typename T>
-  vector<string> visitAsVectorOfJSON(vector<T> trees) {
-    vector<string> ret;
+  vector<Json> visitAsVectorOfJSON(vector<T> trees) {
+    vector<Json> ret;
     ret.reserve(trees.size());
     for (auto tree : trees) {
       ret.push_back(visitAsJSON(tree));
@@ -252,15 +232,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     json["node"] = "Program";
     if (!is_internal) addPositionInfo(json, ctx);
     Json declarations = Json::array();
-    auto declarationCtxs = ctx->declaration();
-    for (auto declarationCtx : declarationCtxs) {
-      if (declarationCtx->statement() && declarationCtx->statement()->emptyStmt()) {
+    const auto declaration_ctxs = ctx->declaration();
+    for (const auto declaration_ctx : declaration_ctxs) {
+      if (declaration_ctx->statement() && declaration_ctx->statement()->emptyStmt()) {
         continue;
       }
-      declarations.pushBack(Json::raw(visitAsJSON(declarationCtx)));
+      declarations.pushBack(visitAsJSON(declaration_ctx));
     }
     json["declarations"] = std::move(declarations);
-    return json.dump();
+    return json;
   }
 
   VISIT(Declaration) {
@@ -279,20 +259,20 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(VarDecl) {
     Json json = Json::object();
-    json["node"] = "VariableDeclaration";
     if (!is_internal) addPositionInfo(json, ctx);
+    json["node"] = "VariableDeclaration";
     json["name"] = visitAsString(ctx->identifier());
-    json["expr"] = Json::raw(visitAsJSONOrNull(ctx->expression()));
-    return json.dump();
+    json["expr"] = visitAsJSONOrNull(ctx->expression());
+    return json;
   }
 
   VISIT(VarAssignment) {
     Json json = Json::object();
     json["node"] = "VariableAssignment";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = Json::raw(visitAsJSON(ctx->expression(0)));
-    json["right"] = Json::raw(visitAsJSON(ctx->expression(1)));
-    return json.dump();
+    json["left"] = visitAsJSON(ctx->expression(0));
+    json["right"] = visitAsJSON(ctx->expression(1));
+    return json;
   }
 
   VISIT(Statement) {
@@ -367,24 +347,24 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ExprStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(visitAsJSON(ctx->expression()));
-    return json.dump();
+    json["expr"] = visitAsJSON(ctx->expression());
+    return json;
   }
 
   VISIT(ReturnStmt) {
     Json json = Json::object();
     json["node"] = "ReturnStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(visitAsJSONOrNull(ctx->expression()));
-    return json.dump();
+    json["expr"] = visitAsJSONOrNull(ctx->expression());
+    return json;
   }
 
   VISIT(ThrowStmt) {
     Json json = Json::object();
     json["node"] = "ThrowStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(visitAsJSONOrNull(ctx->expression()));
-    return json.dump();
+    json["expr"] = visitAsJSONOrNull(ctx->expression());
+    return json;
   }
 
   VISIT(CatchBlock) {
@@ -400,42 +380,42 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     } else {
       arr.pushBack(nullptr);
     }
-    arr.pushBack(Json::raw(visitAsJSON(ctx->catchStmt)));
-    return arr.dump();
+    arr.pushBack(visitAsJSON(ctx->catchStmt));
+    return arr;
   }
 
   VISIT(TryCatchStmt) {
     Json json = Json::object();
     json["node"] = "TryCatchStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["try_stmt"] = Json::raw(visitAsJSON(ctx->tryStmt));
+    json["try_stmt"] = visitAsJSON(ctx->tryStmt);
     Json catches = Json::array();
-    auto catchBlockCtxs = ctx->catchBlock();
-    for (auto catchBlockCtx : catchBlockCtxs) {
-      catches.pushBack(Json::raw(visitAsJSON(catchBlockCtx)));
+    const auto catch_block_ctxs = ctx->catchBlock();
+    for (const auto catch_block_ctx : catch_block_ctxs) {
+      catches.pushBack(visitAsJSON(catch_block_ctx));
     }
     json["catches"] = std::move(catches);
-    json["finally_stmt"] = Json::raw(visitAsJSONOrNull(ctx->finallyStmt));
-    return json.dump();
+    json["finally_stmt"] = visitAsJSONOrNull(ctx->finallyStmt);
+    return json;
   }
 
   VISIT(IfStmt) {
     Json json = Json::object();
     json["node"] = "IfStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(visitAsJSON(ctx->expression()));
-    json["then"] = Json::raw(visitAsJSON(ctx->statement(0)));
-    json["else_"] = Json::raw(visitAsJSONOrNull(ctx->statement(1)));
-    return json.dump();
+    json["expr"] = visitAsJSON(ctx->expression());
+    json["then"] = visitAsJSON(ctx->statement(0));
+    json["else_"] = visitAsJSONOrNull(ctx->statement(1));
+    return json;
   }
 
   VISIT(WhileStmt) {
     Json json = Json::object();
     json["node"] = "WhileStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(visitAsJSON(ctx->expression()));
-    json["body"] = Json::raw(visitAsJSONOrNull(ctx->statement()));
-    return json.dump();
+    json["expr"] = visitAsJSON(ctx->expression());
+    json["body"] = visitAsJSONOrNull(ctx->statement());
+    return json;
   }
 
   VISIT(ForStmt) {
@@ -444,29 +424,29 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
 
     if (ctx->initializerVarDeclr) {
-      json["initializer"] = Json::raw(visitAsJSON(ctx->initializerVarDeclr));
+      json["initializer"] = visitAsJSON(ctx->initializerVarDeclr);
     } else if (ctx->initializerVarAssignment) {
-      json["initializer"] = Json::raw(visitAsJSON(ctx->initializerVarAssignment));
+      json["initializer"] = visitAsJSON(ctx->initializerVarAssignment);
     } else if (ctx->initializerExpression) {
-      json["initializer"] = Json::raw(visitAsJSON(ctx->initializerExpression));
+      json["initializer"] = visitAsJSON(ctx->initializerExpression);
     } else {
       json["initializer"] = nullptr;
     }
 
-    json["condition"] = Json::raw(visitAsJSONOrNull(ctx->condition));
+    json["condition"] = visitAsJSONOrNull(ctx->condition);
 
     if (ctx->incrementVarDeclr) {
-      json["increment"] = Json::raw(visitAsJSON(ctx->incrementVarDeclr));
+      json["increment"] = visitAsJSON(ctx->incrementVarDeclr);
     } else if (ctx->incrementVarAssignment) {
-      json["increment"] = Json::raw(visitAsJSON(ctx->incrementVarAssignment));
+      json["increment"] = visitAsJSON(ctx->incrementVarAssignment);
     } else if (ctx->incrementExpression) {
-      json["increment"] = Json::raw(visitAsJSON(ctx->incrementExpression));
+      json["increment"] = visitAsJSON(ctx->incrementExpression);
     } else {
       json["increment"] = nullptr;
     }
 
-    json["body"] = Json::raw(visitAsJSON(ctx->statement()));
-    return json.dump();
+    json["body"] = visitAsJSON(ctx->statement());
+    return json;
   }
 
   VISIT(ForInStmt) {
@@ -484,9 +464,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       json["valueVar"] = firstIdentifier;
     }
 
-    json["expr"] = Json::raw(visitAsJSON(ctx->expression()));
-    json["body"] = Json::raw(visitAsJSON(ctx->statement()));
-    return json.dump();
+    json["expr"] = visitAsJSON(ctx->expression());
+    json["body"] = visitAsJSON(ctx->statement());
+    return json;
   }
 
   VISIT(FuncStmt) {
@@ -497,27 +477,33 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     json["name"] = visitAsString(ctx->identifier());
 
     Json params = Json::array();
-    auto identifierListCtx = ctx->identifierList();
-    if (identifierListCtx) {
-      vector<string> paramList = any_cast<vector<string>>(visit(ctx->identifierList()));
+    const auto identifier_list_ctx = ctx->identifierList();
+    if (identifier_list_ctx) {
+      vector<string> paramList = any_cast<vector<string>>(visit(identifier_list_ctx));
       for (const auto& param : paramList) {
         params.pushBack(param);
       }
     }
     json["params"] = std::move(params);
 
-    json["body"] = Json::raw(visitAsJSON(ctx->block()));
-    return json.dump();
+    json["body"] = visitAsJSON(ctx->block());
+    return json;
   }
 
-  VISIT(KvPairList) { return visitJSONArrayOfObjects(ctx->kvPair()); }
+  VISIT(KvPairList) {
+    Json arr = Json::array();
+    for (const auto kv_pair_ctx : ctx->kvPair()) {
+      arr.pushBack(visitAsJSON(kv_pair_ctx));
+    }
+    return arr;
+  }
 
   VISIT(KvPair) {
     // KvPair returns an array [key, value]
     Json arr = Json::array();
-    arr.pushBack(Json::raw(visitAsJSON(ctx->expression(0))));
-    arr.pushBack(Json::raw(visitAsJSON(ctx->expression(1))));
-    return arr.dump();
+    arr.pushBack(visitAsJSON(ctx->expression(0)));
+    arr.pushBack(visitAsJSON(ctx->expression(1)));
+    return arr;
   }
 
   VISIT(IdentifierList) { return visitAsVectorOfStrings(ctx->identifier()); }
@@ -527,7 +513,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     json["node"] = "ExprStatement";
     if (!is_internal) addPositionInfo(json, ctx);
     json["expr"] = nullptr;
-    return json.dump();
+    return json;
   }
 
   VISIT(Block) {
@@ -535,26 +521,24 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     json["node"] = "Block";
     if (!is_internal) addPositionInfo(json, ctx);
     Json declarations = Json::array();
-    auto declarationCtxs = ctx->declaration();
-    for (auto declarationCtx : declarationCtxs) {
-      if (!declarationCtx->statement() || !declarationCtx->statement()->emptyStmt()) {
-        declarations.pushBack(Json::raw(visitAsJSON(declarationCtx)));
+    const auto declaration_ctxs = ctx->declaration();
+    for (const auto declaration_ctx : declaration_ctxs) {
+      if (!declaration_ctx->statement() || !declaration_ctx->statement()->emptyStmt()) {
+        declarations.pushBack(visitAsJSON(declaration_ctx));
       }
     }
     json["declarations"] = std::move(declarations);
-    return json.dump();
+    return json;
   }
 
   // HogQL rules
 
   VISIT(Select) {
-    auto select_set_stmt_ctx = ctx->selectSetStmt();
-    if (select_set_stmt_ctx) {
+    if (const auto select_set_stmt_ctx = ctx->selectSetStmt()) {
       return visit(select_set_stmt_ctx);
     }
 
-    auto select_stmt_ctx = ctx->selectStmt();
-    if (select_stmt_ctx) {
+    if (const auto select_stmt_ctx = ctx->selectStmt()) {
       return visit(select_stmt_ctx);
     }
 
@@ -562,13 +546,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(SelectStmtWithParens) {
-    auto select_stmt_ctx = ctx->selectStmt();
-    if (select_stmt_ctx) {
+    if (const auto select_stmt_ctx = ctx->selectStmt()) {
       return visit(select_stmt_ctx);
     }
 
-    auto placeholder_ctx = ctx->placeholder();
-    if (placeholder_ctx) {
+    if (const auto placeholder_ctx = ctx->placeholder()) {
       return visit(placeholder_ctx);
     }
 
@@ -576,9 +558,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(SelectSetStmt) {
-    auto subsequentClauses = ctx->subsequentSelectSetClause();
+    const auto subsequent_clauses = ctx->subsequentSelectSetClause();
 
-    if (subsequentClauses.empty()) {
+    if (subsequent_clauses.empty()) {
       return visit(ctx->selectStmtWithParens());
     }
 
@@ -586,21 +568,21 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     json["node"] = "SelectSetQuery";
     if (!is_internal) addPositionInfo(json, ctx);
 
-    json["initial_select_query"] = Json::raw(visitAsJSON(ctx->selectStmtWithParens()));
+    json["initial_select_query"] = visitAsJSON(ctx->selectStmtWithParens());
 
-    Json subsequentSelectQueries = Json::array();
-    for (auto subsequent : subsequentClauses) {
-      const char* setOperator;
+    json["subsequent_select_queries"] = Json::array();
+    for (const auto subsequent : subsequent_clauses) {
+      const char* set_operator;
       if (subsequent->UNION() && subsequent->ALL()) {
-        setOperator = "UNION ALL";
+        set_operator = "UNION ALL";
       } else if (subsequent->UNION() && subsequent->DISTINCT()) {
-        setOperator = "UNION DISTINCT";
+        set_operator = "UNION DISTINCT";
       } else if (subsequent->INTERSECT() && subsequent->DISTINCT()) {
-        setOperator = "INTERSECT DISTINCT";
+        set_operator = "INTERSECT DISTINCT";
       } else if (subsequent->INTERSECT()) {
-        setOperator = "INTERSECT";
+        set_operator = "INTERSECT";
       } else if (subsequent->EXCEPT()) {
-        setOperator = "EXCEPT";
+        set_operator = "EXCEPT";
       } else {
         throw SyntaxError(
             "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
@@ -609,12 +591,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
       Json node_json = Json::object();
       node_json["node"] = "SelectSetNode";
-      node_json["select_query"] = Json::raw(visitAsJSON(subsequent->selectStmtWithParens()));
-      node_json["set_operator"] = setOperator;
-      subsequentSelectQueries.pushBack(std::move(node_json));
+      node_json["select_query"] = visitAsJSON(subsequent->selectStmtWithParens());
+      node_json["set_operator"] = set_operator;
+      json["subsequent_select_queries"].pushBack(node_json);
     }
-    json["subsequent_select_queries"] = std::move(subsequentSelectQueries);
-    return json.dump();
+
+    return json;
   }
 
   VISIT(SelectStmt) {
@@ -623,92 +605,87 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
 
     // Add basic query fields
-    json["ctes"] = Json::raw(visitAsJSONOrNull(ctx->withClause()));
-    json["select"] = Json::raw(visitAsJSONOrEmptyArray(ctx->columnExprList()));
+    json["ctes"] = visitAsJSONOrNull(ctx->withClause());
+    json["select"] = visitAsJSONOrEmptyArray(ctx->columnExprList());
     json["distinct"] = ctx->DISTINCT() ? Json(true) : Json(nullptr);
-    json["select_from"] = Json::raw(visitAsJSONOrNull(ctx->fromClause()));
-    json["where"] = Json::raw(visitAsJSONOrNull(ctx->whereClause()));
-    json["prewhere"] = Json::raw(visitAsJSONOrNull(ctx->prewhereClause()));
-    json["having"] = Json::raw(visitAsJSONOrNull(ctx->havingClause()));
-    json["group_by"] = Json::raw(visitAsJSONOrNull(ctx->groupByClause()));
-    json["order_by"] = Json::raw(visitAsJSONOrNull(ctx->orderByClause()));
+    json["select_from"] = visitAsJSONOrNull(ctx->fromClause());
+    json["where"] = visitAsJSONOrNull(ctx->whereClause());
+    json["prewhere"] = visitAsJSONOrNull(ctx->prewhereClause());
+    json["having"] = visitAsJSONOrNull(ctx->havingClause());
+    json["group_by"] = visitAsJSONOrNull(ctx->groupByClause());
+    json["order_by"] = visitAsJSONOrNull(ctx->orderByClause());
 
     // Handle window clause
-    auto windowClauseCtx = ctx->windowClause();
-    if (windowClauseCtx) {
-      auto windowExprCtxs = windowClauseCtx->windowExpr();
-      auto identifierCtxs = windowClauseCtx->identifier();
-      if (windowExprCtxs.size() != identifierCtxs.size()) {
+    if (const auto window_clause_ctx = ctx->windowClause()) {
+      const auto window_expr_ctxs = window_clause_ctx->windowExpr();
+      const auto identifier_ctxs = window_clause_ctx->identifier();
+      if (window_expr_ctxs.size() != identifier_ctxs.size()) {
         throw ParsingError("WindowClause must have a matching number of window exprs and identifiers");
       }
-      Json windowExprs = Json::object();
-      for (size_t i = 0; i < windowExprCtxs.size(); i++) {
-        string identifier = visitAsString(identifierCtxs[i]);
-        windowExprs[identifier] = Json::raw(visitAsJSON(windowExprCtxs[i]));
+      json["window_exprs"] = Json::object();
+      for (size_t i = 0; i < window_expr_ctxs.size(); i++) {
+        string identifier = visitAsString(identifier_ctxs[i]);
+        json["window_exprs"][identifier] = visitAsJSON(window_expr_ctxs[i]);
       }
-      json["window_exprs"] = std::move(windowExprs);
     }
 
     // Handle offset and limit clauses
-    auto limitAndOffsetClauseCtx = ctx->limitAndOffsetClause();
-    auto offsetOnlyClauseCtx = ctx->offsetOnlyClause();
+    const auto limit_and_offset_clause_ctx = ctx->limitAndOffsetClause();
+    const auto offset_only_clause_ctx = ctx->offsetOnlyClause();
 
-    if (offsetOnlyClauseCtx && !limitAndOffsetClauseCtx) {
-      json["offset"] = Json::raw(visitAsJSON(offsetOnlyClauseCtx));
+    if (offset_only_clause_ctx && !limit_and_offset_clause_ctx) {
+      json["offset"] = visitAsJSON(offset_only_clause_ctx);
     }
 
-    if (limitAndOffsetClauseCtx) {
-      json["limit"] = Json::raw(visitAsJSON(limitAndOffsetClauseCtx->columnExpr(0)));
+    if (limit_and_offset_clause_ctx) {
+      json["limit"] = visitAsJSON(limit_and_offset_clause_ctx->columnExpr(0));
 
-      auto offsetCtx = limitAndOffsetClauseCtx->columnExpr(1);
-      if (offsetCtx) {
-        json["offset"] = Json::raw(visitAsJSON(offsetCtx));
+      if (const auto offset_ctx = limit_and_offset_clause_ctx->columnExpr(1)) {
+        json["offset"] = visitAsJSON(offset_ctx);
       }
 
-      if (limitAndOffsetClauseCtx->WITH() && limitAndOffsetClauseCtx->TIES()) {
+      if (limit_and_offset_clause_ctx->WITH() && limit_and_offset_clause_ctx->TIES()) {
         json["limit_with_ties"] = true;
       }
     }
 
     // Handle limit_by clause
-    auto limitByClauseCtx = ctx->limitByClause();
-    if (limitByClauseCtx) {
-      json["limit_by"] = Json::raw(visitAsJSON(limitByClauseCtx));
+    const auto limit_by_clause_ctx = ctx->limitByClause();
+    if (limit_by_clause_ctx) {
+      json["limit_by"] = visitAsJSON(limit_by_clause_ctx);
     }
 
     // Handle array_join clause
-    auto arrayJoinClauseCtx = ctx->arrayJoinClause();
-    if (arrayJoinClauseCtx) {
-      string selectFromJson = visitAsJSONOrNull(ctx->fromClause());
-      if (selectFromJson == "null") {
+    if (const auto array_join_clause_ctx = ctx->arrayJoinClause()) {
+      Json select_from_json = visitAsJSONOrNull(ctx->fromClause());
+      if (select_from_json.isNull()) {
         throw SyntaxError("Using ARRAY JOIN without a FROM clause is not permitted");
       }
 
-      if (arrayJoinClauseCtx->LEFT()) {
+      if (array_join_clause_ctx->LEFT()) {
         json["array_join_op"] = "LEFT ARRAY JOIN";
-      } else if (arrayJoinClauseCtx->INNER()) {
+      } else if (array_join_clause_ctx->INNER()) {
         json["array_join_op"] = "INNER ARRAY JOIN";
       } else {
         json["array_join_op"] = "ARRAY JOIN";
       }
 
-      auto arrayJoinArraysCtx = arrayJoinClauseCtx->columnExprList();
-      auto arrayJoinExprs = arrayJoinArraysCtx->columnExpr();
+      const auto array_join_arrays_ctx = array_join_clause_ctx->columnExprList();
+      const auto array_join_exprs = array_join_arrays_ctx->columnExpr();
 
       // Validate that all array join expressions have aliases
-      for (size_t i = 0; i < arrayJoinExprs.size(); i++) {
-        string exprJson = visitAsJSON(arrayJoinExprs[i]);
-        // Simple check: see if the JSON contains "node":"Alias"
-        if (exprJson.find("\"node\":\"Alias\"") == string::npos) {
-          auto relevantColumnExprCtx = arrayJoinExprs[i];
+      for (const auto& expr_ctx : array_join_exprs) {
+        Json expr_json = visitAsJSON(expr_ctx);
+        if (!isNodeOfType(expr_json, "Alias")) {
+          auto relevant_column_expr_ctx = expr_ctx;
           throw SyntaxError(
-              "ARRAY JOIN arrays must have an alias", relevantColumnExprCtx->getStart()->getStartIndex(),
-              relevantColumnExprCtx->getStop()->getStopIndex() + 1
+              "ARRAY JOIN arrays must have an alias", relevant_column_expr_ctx->getStart()->getStartIndex(),
+              relevant_column_expr_ctx->getStop()->getStopIndex() + 1
           );
         }
       }
 
-      json["array_join_list"] = Json::raw(visitAsJSON(arrayJoinArraysCtx));
+      json["array_join_list"] = visitAsJSON(array_join_arrays_ctx);
     }
 
     // Check for unsupported clauses
@@ -719,7 +696,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw NotImplementedError("Unsupported: SelectStmt.settingsClause()");
     }
 
-    return json.dump();
+    return json;
   }
 
   VISIT(WithClause) { return visit(ctx->withExprList()); }
@@ -744,50 +721,33 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(LimitByClause) {
     // LimitExpr returns either single JSON or a JSON array [limit, offset]
-    string limitExprResult = visitAsJSON(ctx->limitExpr());
-    string exprs = visitAsJSON(ctx->columnExprList());
+    Json limit_expr_result = visitAsJSON(ctx->limitExpr());
+    Json exprs = visitAsJSON(ctx->columnExprList());
 
     Json json = Json::object();
     json["node"] = "LimitByExpr";
     if (!is_internal) addPositionInfo(json, ctx);
 
     // Check if limitExprResult is an array (contains both n and offsetValue)
-    if (limitExprResult[0] == '[') {
-      // It's an array, need to extract the two values
-      // Parse the JSON array to get n and offsetValue by counting braces
-      int braceCount = 0;
-      size_t commaPos = string::npos;
-      for (size_t i = 1; i < limitExprResult.length(); i++) {
-        if (limitExprResult[i] == '{')
-          braceCount++;
-        else if (limitExprResult[i] == '}')
-          braceCount--;
-        else if (limitExprResult[i] == ',' && braceCount == 0) {
-          commaPos = i;
-          break;
-        }
-      }
-      if (commaPos != string::npos) {
-        string n = limitExprResult.substr(1, commaPos - 1);  // Skip '[' and get until ','
-        string offsetValue =
-            limitExprResult.substr(commaPos + 1, limitExprResult.length() - commaPos - 2);  // Get after ',' until ']'
-        json["n"] = Json::raw(n);
-        json["offset_value"] = Json::raw(offsetValue);
+    if (limit_expr_result.isArray()) {
+      if (limit_expr_result.getArray().size() == 2) {
+        json["n"] = limit_expr_result.getArray()[0];
+        json["offset_value"] = limit_expr_result.getArray()[1];
       } else {
-        throw ParsingError("Invalid array format from limitExpr");
+        throw ParsingError("Invalid array format from limitExpr, expected 2 elements");
       }
     } else {
       // It's a single value, use as n with null offsetValue
-      json["n"] = Json::raw(limitExprResult);
+      json["n"] = limit_expr_result;
       json["offset_value"] = nullptr;
     }
 
-    json["exprs"] = Json::raw(exprs);
-    return json.dump();
+    json["exprs"] = exprs;
+    return json;
   }
 
   VISIT(LimitExpr) {
-    string first = visitAsJSON(ctx->columnExpr(0));
+    Json first = visitAsJSON(ctx->columnExpr(0));
 
     // If no second expression, just return the first
     if (!ctx->columnExpr(1)) {
@@ -795,19 +755,19 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     // We have both limit and offset - return as a simple array
-    string second = visitAsJSON(ctx->columnExpr(1));
+    Json second = visitAsJSON(ctx->columnExpr(1));
 
     Json arr = Json::array();
     if (ctx->COMMA()) {
       // For "LIMIT a, b" syntax: a is offset, b is limit
-      arr.pushBack(Json::raw(second));  // offset
-      arr.pushBack(Json::raw(first));   // limit
+      arr.pushBack(second);  // offset
+      arr.pushBack(first);   // limit
     } else {
       // For "LIMIT a OFFSET b" syntax: a is limit, b is offset
-      arr.pushBack(Json::raw(first));   // limit
-      arr.pushBack(Json::raw(second));  // offset
+      arr.pushBack(first);   // limit
+      arr.pushBack(second);  // offset
     }
-    return arr.dump();
+    return arr;
   }
 
   VISIT(OffsetOnlyClause) { return visitAsJSON(ctx->columnExpr()); }
@@ -819,97 +779,94 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(SettingsClause)
 
   // Helper: Chain two JOIN expressions together by finding the end of join1's chain
-  string chainJoinExprs(const string& join1_json, const string& join2_json) {
-    // Parse join1 to find the deepest next_join field and replace null with join2
-    // For simplicity, we'll use string manipulation to find and replace the last "next_join":null
-    size_t pos = join1_json.rfind("\"next_join\":null");
-    if (pos == string::npos) {
-      // If we've exceeded depth, throw error
-      throw ParsingError("Maximum recursion depth exceeded during JOIN parsing");
+  Json chainJoinExprs(Json join1, Json join2) {
+    if (!join1.isObject() || !join2.isObject()) {
+      throw ParsingError("Both arguments to chainJoinExprs must be JSON objects");
     }
 
-    string result = join1_json;
-    result.replace(pos, 16, "\"next_join\":" + join2_json);  // 16 is length of "next_join":null
-    return result;
+    Json* current = &join1;
+    int depth = 0;
+    const int max_depth = 1000;  // Prevent infinite loops
+
+    while (current->isObject()) {
+      auto& obj = current->getObjectMut();
+      auto it = obj.find("next_join");
+
+      if (it == obj.end()) {
+        // This should not happen for valid JoinExpr nodes from the parser
+        throw ParsingError("JoinExpr is missing 'next_join' field");
+      }
+
+      if (it->second.isNull()) {
+        it->second = std::move(join2);
+        return join1;
+      }
+
+      if (!it->second.isObject()) {
+        throw ParsingError("'next_join' field is not a JSON object");
+      }
+
+      current = &it->second;
+
+      if (++depth > max_depth) {
+        throw ParsingError("Maximum recursion depth exceeded during JOIN parsing");
+      }
+    }
+
+    // This part should be unreachable if the input is a valid JoinExpr
+    throw ParsingError("Invalid structure for join expression chaining");
   }
 
   VISIT(JoinExprOp) {
-    auto joinOpCtx = ctx->joinOp();
-    string joinOp;
-    if (joinOpCtx) {
-      joinOp = visitAsString(joinOpCtx);
-      joinOp.append(" JOIN");
+    auto join_op_ctx = ctx->joinOp();
+    string join_op;
+    if (join_op_ctx) {
+      join_op = visitAsString(join_op_ctx);
+      join_op.append(" JOIN");
     } else {
-      joinOp = "JOIN";
+      join_op = "JOIN";
     }
 
-    // Get join2 and add the joinType and constraint to it
-    string join2Json = visitAsJSON(ctx->joinExpr(1));
-    string constraintJson = visitAsJSON(ctx->joinConstraintClause());
-
-    // We need to inject joinType and constraint into join2Json
-    // Find the position after the opening brace and node type
-    size_t insertPos = join2Json.find(",", join2Json.find("\"node\""));
-    if (insertPos != string::npos) {
-      string injection = "\"join_type\":" + Json::escapeString(joinOp) + ",\"constraint\":" + constraintJson + ",";
-      join2Json.insert(insertPos + 1, injection);
-    }
-
-    string join1Json = visitAsJSON(ctx->joinExpr(0));
-
-    // Chain the joins together
-    return chainJoinExprs(join1Json, join2Json);
+    Json join2_json = visitAsJSON(ctx->joinExpr(1));
+    join2_json["join_type"] = join_op;
+    join2_json["constraint"] = visitAsJSON(ctx->joinConstraintClause());
+    Json join1_json = visitAsJSON(ctx->joinExpr(0));
+    return chainJoinExprs(join1_json, join2_json);
   }
 
   VISIT(JoinExprTable) {
-    string tableJson = visitAsJSON(ctx->tableExpr());
-    string sampleJson = visitAsJSONOrNull(ctx->sampleClause());
-    bool tableFinal = ctx->FINAL();
+    Json table_json = visitAsJSON(ctx->tableExpr());
+    Json sample_json = visitAsJSONOrNull(ctx->sampleClause());
+    bool table_final = ctx->FINAL();
 
     // Check if table is already a JoinExpr
-    bool isTableJoinExpr = isJoinExprJson(tableJson);
+    bool isTableJoinExpr = isNodeOfType(table_json, "JoinExpr");
 
     if (isTableJoinExpr) {
-      // Inject sample and tableFinal into the existing JoinExpr before the closing brace
-      size_t insertPos = tableJson.rfind("}");
-      if (insertPos != string::npos) {
-        string injection = ",\"sample\":" + sampleJson + ",\"table_final\":" + (tableFinal ? "true" : "null");
-        tableJson.insert(insertPos, injection);
-      }
-      return tableJson;
+      table_json["sample"] = sample_json;
+      table_json["table_final"] = table_final ? Json(true) : Json(nullptr);
+      return table_json;
     } else {
       // Create a new JoinExpr wrapping the table
       // Note: joinType/constraint will be injected by JoinExprOp before the closing }
       Json json = Json::object();
       json["node"] = "JoinExpr";
-      if (!is_internal) {
-        addPositionInfo(json, ctx);
-      }
-      json["table"] = Json::raw(tableJson);
-      json["table_final"] = tableFinal ? Json(true) : Json(nullptr);
-      json["sample"] = Json::raw(sampleJson);
+      if (!is_internal) addPositionInfo(json, ctx);
+      json["table"] = table_json;
+      json["table_final"] = table_final ? Json(true) : Json(nullptr);
+      json["sample"] = sample_json;
       json["next_join"] = nullptr;
       json["alias"] = nullptr;
-      return json.dump();
+      return json;
     }
   }
 
   VISIT(JoinExprParens) { return visit(ctx->joinExpr()); }
 
   VISIT(JoinExprCrossOp) {
-    string join_type = "CROSS JOIN";
-
-    string join2_json = visitAsJSON(ctx->joinExpr(1));
-    string join1_json = visitAsJSON(ctx->joinExpr(0));
-
-    // Inject join_type into join2
-    size_t insert_pos = join2_json.find(",", join2_json.find("\"node\""));
-    if (insert_pos != string::npos) {
-      string injection = "\"join_type\":\"" + join_type + "\",";
-      join2_json.insert(insert_pos + 1, injection);
-    }
-
-    // Chain the joins
+    Json join2_json = visitAsJSON(ctx->joinExpr(1));
+    Json join1_json = visitAsJSON(ctx->joinExpr(0));
+    join2_json["join_type"] = "CROSS JOIN";
     return chainJoinExprs(join1_json, join2_json);
   }
 
@@ -977,45 +934,30 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(JoinOpCross)
 
   VISIT(JoinConstraintClause) {
-    string columnExprListJson = visitAsJSON(ctx->columnExprList());
+    Json column_expr_list_json = visitAsJSON(ctx->columnExprList());
 
-    // Check if we have multiple expressions (array with more than one element)
-    // Simple check: count commas at depth 0
-    int bracketDepth = 0;
-    int exprCount = 1;
-    for (char c : columnExprListJson) {
-      if (c == '[' || c == '{')
-        bracketDepth++;
-      else if (c == ']' || c == '}')
-        bracketDepth--;
-      else if (c == ',' && bracketDepth == 1)
-        exprCount++;
-    }
-
-    if (exprCount > 1) {
+    if (column_expr_list_json.isArray() && column_expr_list_json.getArray().size() > 1) {
       throw NotImplementedError("Unsupported: JOIN ... ON with multiple expressions");
     }
 
     // Extract the single expression from the array
-    size_t firstBrace = columnExprListJson.find('{');
-    size_t lastBrace = columnExprListJson.rfind('}');
-    string exprJson = columnExprListJson.substr(firstBrace, lastBrace - firstBrace + 1);
+    Json expr_json = column_expr_list_json.getArray().at(0);
 
     Json json = Json::object();
     json["node"] = "JoinConstraint";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(exprJson);
+    json["expr"] = expr_json;
     json["constraint_type"] = ctx->USING() ? "USING" : "ON";
-    return json.dump();
+    return json;
   }
 
   VISIT(SampleClause) {
     Json json = Json::object();
     json["node"] = "SampleExpr";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["sample_value"] = Json::raw(visitAsJSON(ctx->ratioExpr(0)));
-    json["offset_value"] = Json::raw(visitAsJSONOrNull(ctx->ratioExpr(1)));
-    return json.dump();
+    json["sample_value"] = visitAsJSON(ctx->ratioExpr(0));
+    json["offset_value"] = visitAsJSONOrNull(ctx->ratioExpr(1));
+    return json;
   }
 
   VISIT(OrderExprList) { return visitJSONArrayOfObjects(ctx->orderExpr()); }
@@ -1025,34 +967,33 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "OrderExpr";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(visitAsJSON(ctx->columnExpr()));
+    json["expr"] = visitAsJSON(ctx->columnExpr());
     json["order"] = order;
-    return json.dump();
+    return json;
   }
 
   VISIT(RatioExpr) {
-    auto placeholderCtx = ctx->placeholder();
-    if (placeholderCtx) {
-      return visitAsJSON(placeholderCtx);
+    if (const auto placeholder_ctx = ctx->placeholder()) {
+      return visitAsJSON(placeholder_ctx);
     }
 
-    auto numberLiteralCtxs = ctx->numberLiteral();
+    const auto number_literal_ctxs = ctx->numberLiteral();
 
-    if (numberLiteralCtxs.size() > 2) {
+    if (number_literal_ctxs.size() > 2) {
       throw ParsingError("RatioExpr must have at most two number literals");
-    } else if (numberLiteralCtxs.size() == 0) {
+    } else if (number_literal_ctxs.size() == 0) {
       throw ParsingError("RatioExpr must have at least one number literal");
     }
 
-    auto leftCtx = numberLiteralCtxs[0];
-    auto rightCtx = ctx->SLASH() && numberLiteralCtxs.size() > 1 ? numberLiteralCtxs[1] : NULL;
+    auto left_ctx = number_literal_ctxs[0];
+    auto right_ctx = ctx->SLASH() && number_literal_ctxs.size() > 1 ? number_literal_ctxs[1] : NULL;
 
     Json json = Json::object();
     json["node"] = "RatioExpr";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = Json::raw(visitAsJSON(leftCtx));
-    json["right"] = Json::raw(visitAsJSONOrNull(rightCtx));
-    return json.dump();
+    json["left"] = visitAsJSON(left_ctx);
+    json["right"] = visitAsJSONOrNull(right_ctx);
+    return json;
   }
 
   VISIT_UNSUPPORTED(SettingExprList)
@@ -1060,56 +1001,45 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(SettingExpr)
 
   VISIT(WindowExpr) {
-    auto frameCtx = ctx->winFrameClause();
-    string frameJson = visitAsJSONOrNull(frameCtx);
+    auto frame_ctx = ctx->winFrameClause();
+    Json frame_json = visitAsJSONOrNull(frame_ctx);
+    Json frame_start_json = Json(nullptr);
+    Json frame_end_json = Json(nullptr);
 
-    // Check if frame is an array (tuple of [start, end])
-    bool isFrameArray = frameJson[0] == '[';
-    string frameStartJson;
-    string frameEndJson;
-
-    if (isFrameArray) {
-      // Extract start and end from array like [{...},{...}]
-      // Find the comma between the two objects by counting braces
-      int braceCount = 0;
-      size_t commaPos = string::npos;
-      for (size_t i = 1; i < frameJson.length(); i++) {
-        if (frameJson[i] == '{')
-          braceCount++;
-        else if (frameJson[i] == '}')
-          braceCount--;
-        else if (frameJson[i] == ',' && braceCount == 0) {
-          commaPos = i;
-          break;
+    if (!frame_json.isNull()) {
+      if (frame_json.isArray()) {
+        const auto& frameArray = frame_json.getArray();
+        if (frameArray.size() == 2) {
+          frame_start_json = frameArray[0];
+          frame_end_json = frameArray[1];
+        } else {
+          throw ParsingError("WindowExpr frame must be an array of size 2");
         }
-      }
-      if (commaPos != string::npos) {
-        frameStartJson = frameJson.substr(1, commaPos - 1);                                // Skip '['
-        frameEndJson = frameJson.substr(commaPos + 1, frameJson.length() - commaPos - 2);  // Skip ']'
       } else {
-        throw ParsingError("WindowExpr frame must be an array of size 2");
+        frame_start_json = frame_json;
       }
-    } else {
-      frameStartJson = frameJson;
-      frameEndJson = "null";
     }
 
-    string frameMethod;
-    if (frameCtx && frameCtx->RANGE()) {
-      frameMethod = "RANGE";
-    } else if (frameCtx && frameCtx->ROWS()) {
-      frameMethod = "ROWS";
+    const char* frame_method = nullptr;
+    if (frame_ctx) {
+      if (frame_ctx->RANGE()) {
+        frame_method = "RANGE";
+      } else if (frame_ctx->ROWS()) {
+        frame_method = "ROWS";
+      }
     }
 
     Json json = Json::object();
     json["node"] = "WindowExpr";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["partition_by"] = Json::raw(visitAsJSONOrNull(ctx->winPartitionByClause()));
-    json["order_by"] = Json::raw(visitAsJSONOrNull(ctx->winOrderByClause()));
-    json["frame_method"] = !frameMethod.empty() ? Json(frameMethod) : Json(nullptr);
-    json["frame_start"] = Json::raw(frameStartJson);
-    json["frame_end"] = Json::raw(frameEndJson);
-    return json.dump();
+    json["partition_by"] = visitAsJSONOrNull(ctx->winPartitionByClause());
+    json["order_by"] = visitAsJSONOrNull(ctx->winOrderByClause());
+    if (frame_method) {
+      json["frame_method"] = frame_method;
+    }
+    json["frame_start"] = frame_start_json;
+    json["frame_end"] = frame_end_json;
+    return json;
   }
 
   VISIT(WinPartitionByClause) { return visit(ctx->columnExprList()); }
@@ -1123,9 +1053,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(FrameBetween) {
     // Return an array with [start, end]
     Json arr = Json::array();
-    arr.pushBack(Json::raw(visitAsJSON(ctx->winFrameBound(0))));
-    arr.pushBack(Json::raw(visitAsJSON(ctx->winFrameBound(1))));
-    return arr.dump();
+    arr.pushBack(visitAsJSON(ctx->winFrameBound(0)));
+    arr.pushBack(visitAsJSON(ctx->winFrameBound(1)));
+    return arr;
   }
 
   VISIT(WinFrameBound) {
@@ -1136,15 +1066,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (ctx->PRECEDING() || ctx->FOLLOWING()) {
       json["frame_type"] = ctx->PRECEDING() ? "PRECEDING" : "FOLLOWING";
       if (ctx->numberLiteral()) {
-        // Extract the value from the Constant node
-        string constantJson = visitAsJSON(ctx->numberLiteral());
-        // Parse out the value field from the JSON
-        size_t valuePos = constantJson.find("\"value\":");
-        if (valuePos != string::npos) {
-          size_t valueStart = valuePos + 8;  // Skip "value":
-          size_t valueEnd = constantJson.find_first_of(",}", valueStart);
-          string valueStr = constantJson.substr(valueStart, valueEnd - valueStart);
-          json["frame_value"] = Json::raw(valueStr);
+        Json constant_json = visitAsJSON(ctx->numberLiteral());
+        if (constant_json.isObject() && constant_json.getObject().contains("value")) {
+          json["frame_value"] = constant_json["value"];
         } else {
           json["frame_value"] = nullptr;
         }
@@ -1155,7 +1079,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       json["frame_type"] = "CURRENT ROW";
     }
 
-    return json.dump();
+    return json;
   }
 
   VISIT(Expr) { return visit(ctx->columnExpr()); }
@@ -1178,11 +1102,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["name"] = "if";
     Json args = Json::array();
-    args.pushBack(Json::raw(visitAsJSON(ctx->columnExpr(0))));
-    args.pushBack(Json::raw(visitAsJSON(ctx->columnExpr(1))));
-    args.pushBack(Json::raw(visitAsJSON(ctx->columnExpr(2))));
+    args.pushBack(visitAsJSON(ctx->columnExpr(0)));
+    args.pushBack(visitAsJSON(ctx->columnExpr(1)));
+    args.pushBack(visitAsJSON(ctx->columnExpr(2)));
     json["args"] = std::move(args);
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprAlias) {
@@ -1203,9 +1127,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "Alias";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(visitAsJSON(ctx->columnExpr()));
+    json["expr"] = visitAsJSON(ctx->columnExpr());
     json["alias"] = alias;
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprNegate) {
@@ -1218,9 +1142,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     left_json["value"] = 0;
 
     json["left"] = std::move(left_json);
-    json["right"] = Json::raw(visitAsJSON(ctx->columnExpr()));
+    json["right"] = visitAsJSON(ctx->columnExpr());
     json["op"] = "-";
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprSubquery) { return visit(ctx->selectSetStmt()); }
@@ -1229,16 +1153,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "Array";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["exprs"] = Json::raw(visitAsJSONOrEmptyArray(ctx->columnExprList()));
-    return json.dump();
+    json["exprs"] = visitAsJSONOrEmptyArray(ctx->columnExprList());
+    return json;
   }
 
   VISIT(ColumnExprDict) {
     Json json = Json::object();
     json["node"] = "Dict";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["items"] = Json::raw(visitAsJSONOrEmptyArray(ctx->kvPairList()));
-    return json.dump();
+    json["items"] = visitAsJSONOrEmptyArray(ctx->kvPairList());
+    return json;
   }
 
   VISIT_UNSUPPORTED(ColumnExprSubstring)
@@ -1260,97 +1184,62 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ArithmeticOperation";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = Json::raw(visitAsJSON(ctx->columnExpr(0)));
-    json["right"] = Json::raw(visitAsJSON(ctx->right));
+    json["left"] = visitAsJSON(ctx->columnExpr(0));
+    json["right"] = visitAsJSON(ctx->right);
     json["op"] = op;
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprPrecedence2) {
-    string leftJson = visitAsJSON(ctx->left);
-    string rightJson = visitAsJSON(ctx->right);
+    Json left_json = visitAsJSON(ctx->left);
+    Json right_json = visitAsJSON(ctx->right);
 
     if (ctx->PLUS()) {
       Json json = Json::object();
       json["node"] = "ArithmeticOperation";
-      if (!is_internal) {
-        addPositionInfo(json, ctx);
-      }
-      json["left"] = Json::raw(leftJson);
-      json["right"] = Json::raw(rightJson);
+      if (!is_internal) addPositionInfo(json, ctx);
+      json["left"] = left_json;
+      json["right"] = right_json;
       json["op"] = "+";
-      return json.dump();
+      return json;
     } else if (ctx->DASH()) {
       Json json = Json::object();
       json["node"] = "ArithmeticOperation";
-      if (!is_internal) {
-        addPositionInfo(json, ctx);
-      }
-      json["left"] = Json::raw(leftJson);
-      json["right"] = Json::raw(rightJson);
+      if (!is_internal) addPositionInfo(json, ctx);
+      json["left"] = left_json;
+      json["right"] = right_json;
       json["op"] = "-";
-      return json.dump();
+      return json;
     } else if (ctx->CONCAT()) {
       // Check if left or right are already concat calls
-      bool isLeftConcat =
-          leftJson.find("\"node\":\"Call\"") != string::npos && leftJson.find("\"name\":\"concat\"") != string::npos;
-      bool isRightConcat =
-          rightJson.find("\"node\":\"Call\"") != string::npos && rightJson.find("\"name\":\"concat\"") != string::npos;
+      bool is_left_concat = isNodeOfType(left_json, "Call") && containsMatchingProperty(left_json, "name", "concat");
+      bool is_right_concat = isNodeOfType(right_json, "Call") && containsMatchingProperty(right_json, "name", "concat");
 
       // Build args string manually for concat flattening
-      string argsContent;
+      Json args = Json::array();
 
       // Extract args from left if it's a concat, otherwise use left itself
-      if (isLeftConcat) {
-        size_t argsPos = leftJson.find("\"args\":[");
-        if (argsPos != string::npos) {
-          size_t argsStart = leftJson.find('[', argsPos);
-          int depth = 0;
-          size_t i = argsStart;
-          for (; i < leftJson.length(); i++) {
-            if (leftJson[i] == '[' || leftJson[i] == '{')
-              depth++;
-            else if (leftJson[i] == ']' || leftJson[i] == '}') {
-              depth--;
-              if (depth == 0 && leftJson[i] == ']') break;
-            }
-          }
-          argsContent = leftJson.substr(argsStart + 1, i - argsStart - 1);
-        }
+      if (is_left_concat) {
+        args = left_json["args"];
       } else {
-        argsContent = leftJson;
+        args.pushBack(left_json);
       }
 
       // Extract args from right if it's a concat, otherwise use right itself
-      if (isRightConcat) {
-        size_t argsPos = rightJson.find("\"args\":[");
-        if (argsPos != string::npos) {
-          size_t argsStart = rightJson.find('[', argsPos);
-          int depth = 0;
-          size_t i = argsStart;
-          for (; i < rightJson.length(); i++) {
-            if (rightJson[i] == '[' || rightJson[i] == '{')
-              depth++;
-            else if (rightJson[i] == ']' || rightJson[i] == '}') {
-              depth--;
-              if (depth == 0 && rightJson[i] == ']') break;
-            }
-          }
-          string rightArgsContent = rightJson.substr(argsStart + 1, i - argsStart - 1);
-          argsContent += "," + rightArgsContent;
+      if (is_right_concat) {
+        for (const auto& item : right_json["args"].getArray()) {
+          args.pushBack(item);
         }
       } else {
-        argsContent += "," + rightJson;
+        args.pushBack(right_json);
       }
 
       Json json = Json::object();
       json["node"] = "Call";
-      if (!is_internal) {
-        addPositionInfo(json, ctx);
-      }
+      if (!is_internal) addPositionInfo(json, ctx);
       json["name"] = "concat";
-      json["args"] = Json::raw("[" + argsContent + "]");
-      return json.dump();
+      json["args"] = std::move(args);
+      return json;
     } else {
       throw ParsingError("Unsupported value of rule ColumnExprPrecedence2");
     }
@@ -1395,30 +1284,30 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "CompareOperation";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = Json::raw(visitAsJSON(ctx->left));
-    json["right"] = Json::raw(visitAsJSON(ctx->right));
+    json["left"] = visitAsJSON(ctx->left);
+    json["right"] = visitAsJSON(ctx->right);
     json["op"] = op;
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprInterval) {
-    auto intervalCtx = ctx->interval();
+    auto interval_ctx = ctx->interval();
     const char* name;
-    if (intervalCtx->SECOND()) {
+    if (interval_ctx->SECOND()) {
       name = "toIntervalSecond";
-    } else if (intervalCtx->MINUTE()) {
+    } else if (interval_ctx->MINUTE()) {
       name = "toIntervalMinute";
-    } else if (intervalCtx->HOUR()) {
+    } else if (interval_ctx->HOUR()) {
       name = "toIntervalHour";
-    } else if (intervalCtx->DAY()) {
+    } else if (interval_ctx->DAY()) {
       name = "toIntervalDay";
-    } else if (intervalCtx->WEEK()) {
+    } else if (interval_ctx->WEEK()) {
       name = "toIntervalWeek";
-    } else if (intervalCtx->MONTH()) {
+    } else if (interval_ctx->MONTH()) {
       name = "toIntervalMonth";
-    } else if (intervalCtx->QUARTER()) {
+    } else if (interval_ctx->QUARTER()) {
       name = "toIntervalQuarter";
-    } else if (intervalCtx->YEAR()) {
+    } else if (interval_ctx->YEAR()) {
       name = "toIntervalYear";
     } else {
       throw ParsingError("Unsupported value of rule ColumnExprInterval");
@@ -1429,9 +1318,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["name"] = name;
     Json args = Json::array();
-    args.pushBack(Json::raw(visitAsJSON(ctx->columnExpr())));
+    args.pushBack(visitAsJSON(ctx->columnExpr()));
     json["args"] = std::move(args);
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprIntervalString) {
@@ -1488,21 +1377,21 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     Json args = Json::array();
     args.pushBack(std::move(constant));
     json["args"] = std::move(args);
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprIsNull) {
     Json json = Json::object();
     json["node"] = "CompareOperation";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = Json::raw(visitAsJSON(ctx->columnExpr()));
+    json["left"] = visitAsJSON(ctx->columnExpr());
     // Create null constant for right side
-    Json nullConstant = Json::object();
-    nullConstant["node"] = "Constant";
-    nullConstant["value"] = nullptr;
-    json["right"] = std::move(nullConstant);
+    Json null_constant = Json::object();
+    null_constant["node"] = "Constant";
+    null_constant["value"] = nullptr;
+    json["right"] = std::move(null_constant);
     json["op"] = ctx->NOT() ? "!=" : "==";
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprTrim) {
@@ -1521,37 +1410,37 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["name"] = name;
     Json args = Json::array();
-    args.pushBack(Json::raw(visitAsJSON(ctx->columnExpr())));
-    args.pushBack(Json::raw(visitAsJSON(ctx->string())));
+    args.pushBack(visitAsJSON(ctx->columnExpr()));
+    args.pushBack(visitAsJSON(ctx->string()));
     json["args"] = std::move(args);
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprTuple) {
     Json json = Json::object();
     json["node"] = "Tuple";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["exprs"] = Json::raw(visitAsJSONOrEmptyArray(ctx->columnExprList()));
-    return json.dump();
+    json["exprs"] = visitAsJSONOrEmptyArray(ctx->columnExprList());
+    return json;
   }
 
   VISIT(ColumnExprArrayAccess) {
     Json json = Json::object();
     json["node"] = "ArrayAccess";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["array"] = Json::raw(visitAsJSON(ctx->columnExpr(0)));
-    json["property"] = Json::raw(visitAsJSON(ctx->columnExpr(1)));
-    return json.dump();
+    json["array"] = visitAsJSON(ctx->columnExpr(0));
+    json["property"] = visitAsJSON(ctx->columnExpr(1));
+    return json;
   }
 
   VISIT(ColumnExprNullArrayAccess) {
     Json json = Json::object();
     json["node"] = "ArrayAccess";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["array"] = Json::raw(visitAsJSON(ctx->columnExpr(0)));
-    json["property"] = Json::raw(visitAsJSON(ctx->columnExpr(1)));
+    json["array"] = visitAsJSON(ctx->columnExpr(0));
+    json["property"] = visitAsJSON(ctx->columnExpr(1));
     json["nullish"] = true;
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprPropertyAccess) {
@@ -1564,9 +1453,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ArrayAccess";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["array"] = Json::raw(visitAsJSON(ctx->columnExpr()));
+    json["array"] = visitAsJSON(ctx->columnExpr());
     json["property"] = std::move(property);
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprNullPropertyAccess) {
@@ -1577,30 +1466,26 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     property_json["node"] = "Constant";
     property_json["value"] = identifier;
 
-    string object_json = visitAsJSON(ctx->columnExpr());
+    Json object_json = visitAsJSON(ctx->columnExpr());
 
     Json json = Json::object();
     json["node"] = "ArrayAccess";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["array"] = Json::raw(object_json);
+    json["array"] = std::move(object_json);
     json["property"] = std::move(property_json);
     json["nullish"] = true;
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprBetween) {
-    string expr_json = visitAsJSON(ctx->columnExpr(0));
-    string low_json = visitAsJSON(ctx->columnExpr(1));
-    string high_json = visitAsJSON(ctx->columnExpr(2));
-
     Json json = Json::object();
     json["node"] = "BetweenExpr";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(expr_json);
-    json["low"] = Json::raw(low_json);
-    json["high"] = Json::raw(high_json);
+    json["expr"] = visitAsJSON(ctx->columnExpr(0));
+    json["low"] = visitAsJSON(ctx->columnExpr(1));
+    json["high"] = visitAsJSON(ctx->columnExpr(2));
     json["negated"] = ctx->NOT() != nullptr;
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprParens) { return visit(ctx->columnExpr()); }
@@ -1608,184 +1493,88 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(ColumnExprTimestamp)
 
   VISIT(ColumnExprAnd) {
-    string left_json = visitAsJSON(ctx->columnExpr(0));
-    string right_json = visitAsJSON(ctx->columnExpr(1));
+    Json left_json = visitAsJSON(ctx->columnExpr(0));
+    Json right_json = visitAsJSON(ctx->columnExpr(1));
 
-    // Check if left is an And node and extract its exprs
-    vector<string> exprs;
-    bool is_left_an_and = left_json.find("\"node\":\"And\"") != string::npos;
-    if (is_left_an_and) {
-      // Extract exprs array from left And node
-      size_t exprs_pos = left_json.find("\"exprs\":[");
-      if (exprs_pos != string::npos) {
-        size_t start = exprs_pos + 9;  // after "exprs":[
-        size_t end = left_json.find_last_of(']');
-        string exprs_content = left_json.substr(start, end - start);
-        if (!exprs_content.empty()) {
-          // Parse individual expressions (simple brace counting)
-          int depth = 0;
-          size_t expr_start = 0;
-          for (size_t i = 0; i < exprs_content.size(); i++) {
-            if (exprs_content[i] == '{')
-              depth++;
-            else if (exprs_content[i] == '}')
-              depth--;
-            else if (exprs_content[i] == ',' && depth == 0) {
-              exprs.push_back(exprs_content.substr(expr_start, i - expr_start));
-              expr_start = i + 1;
-            }
-          }
-          if (expr_start < exprs_content.size()) {
-            exprs.push_back(exprs_content.substr(expr_start));
-          }
-        }
-      }
+    Json exprs = Json::array();
+    if (isNodeOfType(left_json, "And")) {
+      exprs = left_json["exprs"];
     } else {
-      exprs.push_back(left_json);
+      exprs.pushBack(left_json);
     }
 
-    // Check if right is an And node and merge its exprs
-    bool is_right_an_and = right_json.find("\"node\":\"And\"") != string::npos;
-    if (is_right_an_and) {
-      size_t exprs_pos = right_json.find("\"exprs\":[");
-      if (exprs_pos != string::npos) {
-        size_t start = exprs_pos + 9;
-        size_t end = right_json.find_last_of(']');
-        string exprs_content = right_json.substr(start, end - start);
-        if (!exprs_content.empty()) {
-          int depth = 0;
-          size_t expr_start = 0;
-          for (size_t i = 0; i < exprs_content.size(); i++) {
-            if (exprs_content[i] == '{')
-              depth++;
-            else if (exprs_content[i] == '}')
-              depth--;
-            else if (exprs_content[i] == ',' && depth == 0) {
-              exprs.push_back(exprs_content.substr(expr_start, i - expr_start));
-              expr_start = i + 1;
-            }
-          }
-          if (expr_start < exprs_content.size()) {
-            exprs.push_back(exprs_content.substr(expr_start));
-          }
-        }
+    if (isNodeOfType(right_json, "And")) {
+      for (const auto& item : right_json["exprs"].getArray()) {
+        exprs.pushBack(item);
       }
     } else {
-      exprs.push_back(right_json);
+      exprs.pushBack(right_json);
     }
 
     Json json = Json::object();
     json["node"] = "And";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["exprs"] = Json::raw("[" + boost::algorithm::join(exprs, ",") + "]");
-    return json.dump();
+    json["exprs"] = exprs;
+    return json;
   }
 
   VISIT(ColumnExprOr) {
-    string left_json = visitAsJSON(ctx->columnExpr(0));
-    string right_json = visitAsJSON(ctx->columnExpr(1));
+    Json left_json = visitAsJSON(ctx->columnExpr(0));
+    Json right_json = visitAsJSON(ctx->columnExpr(1));
 
-    // Check if left is an Or node and extract its exprs
-    vector<string> exprs;
-    bool is_left_an_or = left_json.find("\"node\":\"Or\"") != string::npos;
-    if (is_left_an_or) {
-      // Extract exprs array from left Or node
-      size_t exprs_pos = left_json.find("\"exprs\":[");
-      if (exprs_pos != string::npos) {
-        size_t start = exprs_pos + 9;  // after "exprs":[
-        size_t end = left_json.find_last_of(']');
-        string exprs_content = left_json.substr(start, end - start);
-        if (!exprs_content.empty()) {
-          // Parse individual expressions (simple brace counting)
-          int depth = 0;
-          size_t expr_start = 0;
-          for (size_t i = 0; i < exprs_content.size(); i++) {
-            if (exprs_content[i] == '{')
-              depth++;
-            else if (exprs_content[i] == '}')
-              depth--;
-            else if (exprs_content[i] == ',' && depth == 0) {
-              exprs.push_back(exprs_content.substr(expr_start, i - expr_start));
-              expr_start = i + 1;
-            }
-          }
-          if (expr_start < exprs_content.size()) {
-            exprs.push_back(exprs_content.substr(expr_start));
-          }
-        }
-      }
+    Json exprs = Json::array();
+    if (isNodeOfType(left_json, "Or")) {
+      exprs = left_json["exprs"];
     } else {
-      exprs.push_back(left_json);
+      exprs.pushBack(left_json);
     }
 
-    // Check if right is an Or node and merge its exprs
-    bool is_right_an_or = right_json.find("\"node\":\"Or\"") != string::npos;
-    if (is_right_an_or) {
-      size_t exprs_pos = right_json.find("\"exprs\":[");
-      if (exprs_pos != string::npos) {
-        size_t start = exprs_pos + 9;
-        size_t end = right_json.find_last_of(']');
-        string exprs_content = right_json.substr(start, end - start);
-        if (!exprs_content.empty()) {
-          int depth = 0;
-          size_t expr_start = 0;
-          for (size_t i = 0; i < exprs_content.size(); i++) {
-            if (exprs_content[i] == '{')
-              depth++;
-            else if (exprs_content[i] == '}')
-              depth--;
-            else if (exprs_content[i] == ',' && depth == 0) {
-              exprs.push_back(exprs_content.substr(expr_start, i - expr_start));
-              expr_start = i + 1;
-            }
-          }
-          if (expr_start < exprs_content.size()) {
-            exprs.push_back(exprs_content.substr(expr_start));
-          }
-        }
+    if (isNodeOfType(right_json, "Or")) {
+      for (const auto& item : right_json["exprs"].getArray()) {
+        exprs.pushBack(item);
       }
     } else {
-      exprs.push_back(right_json);
+      exprs.pushBack(right_json);
     }
 
     Json json = Json::object();
     json["node"] = "Or";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["exprs"] = Json::raw("[" + boost::algorithm::join(exprs, ",") + "]");
-    return json.dump();
+    json["exprs"] = exprs;
+    return json;
   }
 
   VISIT(ColumnExprTupleAccess) {
     string index_str = ctx->DECIMAL_LITERAL()->getText();
     int64_t index_value = stoll(index_str);
-    string tuple_json = visitAsJSON(ctx->columnExpr());
+    Json tuple_json = visitAsJSON(ctx->columnExpr());
 
     Json json = Json::object();
     json["node"] = "TupleAccess";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["tuple"] = Json::raw(tuple_json);
+    json["tuple"] = tuple_json;
     json["index"] = index_value;
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprNullTupleAccess) {
     string index_str = ctx->DECIMAL_LITERAL()->getText();
     int64_t index_value = stoll(index_str);
-    string tuple_json = visitAsJSON(ctx->columnExpr());
+    Json tuple_json = visitAsJSON(ctx->columnExpr());
 
     Json json = Json::object();
     json["node"] = "TupleAccess";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["tuple"] = Json::raw(tuple_json);
+    json["tuple"] = tuple_json;
     json["index"] = index_value;
     json["nullish"] = true;
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprCase) {
     auto column_expr_ctx = ctx->columnExpr();
     size_t columns_size = column_expr_ctx.size();
-    vector<string> columns = visitAsVectorOfJSON(column_expr_ctx);
+    vector<Json> columns = visitAsVectorOfJSON(column_expr_ctx);
 
     Json json = Json::object();
     json["node"] = "Call";
@@ -1799,92 +1588,92 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Json args = Json::array();
 
       // arg_0: the case expression
-      args.pushBack(Json::raw(columns[0]));
+      args.pushBack(columns[0]);
 
       // arg_1: Array of conditions (odd indices from 1 to columns_size-2)
       Json conditions_array = Json::object();
       conditions_array["node"] = "Array";
-      conditions_array["exprs"] = Json::raw("[" + [&]() {
-        vector<string> conds;
-        for (size_t index = 1; index < columns_size - 1; index++) {
-          if ((index - 1) % 2 == 0) {
-            conds.push_back(columns[index]);
-          }
+      Json conditions_exprs = Json::array();
+      for (size_t index = 1; index < columns_size - 1; index++) {
+        if ((index - 1) % 2 == 0) {
+          conditions_exprs.pushBack(columns[index]);
         }
-        return boost::algorithm::join(conds, ",");
-      }() + "]");
+      }
+      conditions_array["exprs"] = std::move(conditions_exprs);
       args.pushBack(std::move(conditions_array));
 
       // arg_2: Array of results (even indices from 1 to columns_size-2)
       Json results_array = Json::object();
       results_array["node"] = "Array";
-      results_array["exprs"] = Json::raw("[" + [&]() {
-        vector<string> ress;
-        for (size_t index = 1; index < columns_size - 1; index++) {
-          if ((index - 1) % 2 == 1) {
-            ress.push_back(columns[index]);
-          }
+      Json results_exprs = Json::array();
+      for (size_t index = 1; index < columns_size - 1; index++) {
+        if ((index - 1) % 2 == 1) {
+          results_exprs.pushBack(columns[index]);
         }
-        return boost::algorithm::join(ress, ",");
-      }() + "]");
+      }
+      results_array["exprs"] = std::move(results_exprs);
       args.pushBack(std::move(results_array));
 
       // arg_3: else result (last element)
-      args.pushBack(Json::Raw(columns[columns_size - 1]));
+      args.pushBack(columns[columns_size - 1]);
 
       json["args"] = args;
     } else {
       // CASE WHEN ... THEN ... ELSE ... END
       json["name"] = columns_size == 3 ? "if" : "multiIf";
-      json["args"] = Json::raw("[" + boost::algorithm::join(columns, ",") + "]");
+      Json args = Json::array();
+      for (const auto& col : columns) {
+        args.pushBack(col);
+      }
+      json["args"] = std::move(args);
     }
 
-    return json.dump();
+    return json;
   }
 
   VISIT_UNSUPPORTED(ColumnExprDate)
 
   VISIT(ColumnExprNot) {
-    string expr_json = visitAsJSON(ctx->columnExpr());
+    Json expr_json = visitAsJSON(ctx->columnExpr());
     Json json = Json::object();
     json["node"] = "Not";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(expr_json);
-    return json.dump();
+    json["expr"] = expr_json;
+    return json;
   }
 
   VISIT(ColumnExprWinFunctionTarget) {
     auto column_expr_list_ctx = ctx->columnExprs;
     string name = visitAsString(ctx->identifier(0));
     string over_identifier = visitAsString(ctx->identifier(1));
-    string exprs_json = visitAsJSONOrEmptyArray(column_expr_list_ctx);
-    string args_json = visitAsJSONOrEmptyArray(ctx->columnArgList);
+    Json exprs_json = visitAsJSONOrEmptyArray(column_expr_list_ctx);
+    Json args_json = visitAsJSONOrEmptyArray(ctx->columnArgList);
 
     Json json = Json::object();
     json["node"] = "WindowFunction";
     if (!is_internal) addPositionInfo(json, ctx);
     json["name"] = name;
-    json["exprs"] = Json::raw(exprs_json);
-    json["args"] = Json::raw(args_json);
+    json["exprs"] = exprs_json;
+    json["args"] = args_json;
     json["over_identifier"] = over_identifier;
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprWinFunction) {
     string identifier = visitAsString(ctx->identifier());
     auto column_expr_list_ctx = ctx->columnExprs;
-    string exprs_json = visitAsJSONOrEmptyArray(column_expr_list_ctx);
-    string args_json = visitAsJSONOrEmptyArray(ctx->columnArgList);
-    string over_expr_json = visitAsJSONOrNull(ctx->windowExpr());
+    Json exprs_json = visitAsJSONOrEmptyArray(column_expr_list_ctx);
+    Json args_json = visitAsJSONOrEmptyArray(ctx->columnArgList);
+    Json over_expr_json = visitAsJSONOrNull(ctx->windowExpr());
 
     Json json = Json::object();
     json["node"] = "WindowFunction";
     if (!is_internal) addPositionInfo(json, ctx);
     json["name"] = identifier;
-    json["exprs"] = Json::raw(exprs_json);
-    json["args"] = Json::raw(args_json);
-    json["over_expr"] = Json::raw(over_expr_json);
-    return json.dump();
+    json["exprs"] = exprs_json;
+    json["args"] = args_json;
+    json["over_expr"] = over_expr_json;
+    return json;
   }
 
   VISIT(ColumnExprIdentifier) { return visit(ctx->columnIdentifier()); }
@@ -1893,23 +1682,23 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string name = visitAsString(ctx->identifier());
 
     // if two LPARENs ()(), make sure the first one is at least an empty list
-    string params_json;
+    Json params_json;
     if (ctx->LPAREN(1)) {
       params_json = visitAsJSONOrEmptyArray(ctx->columnExprs);
     } else {
       params_json = visitAsJSONOrNull(ctx->columnExprs);
     }
 
-    string args_json = visitAsJSONOrEmptyArray(ctx->columnArgList);
+    Json args_json = visitAsJSONOrEmptyArray(ctx->columnArgList);
 
     Json json = Json::object();
     json["node"] = "Call";
     if (!is_internal) addPositionInfo(json, ctx);
     json["name"] = name;
-    json["params"] = Json::raw(params_json);
-    json["args"] = Json::raw(args_json);
+    json["params"] = params_json;
+    json["args"] = args_json;
     json["distinct"] = ctx->DISTINCT() != nullptr;
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprAsterisk) {
@@ -1931,7 +1720,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     json["chain"] = std::move(chain);
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
@@ -1943,7 +1732,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw ParsingError("ColumnLambdaExpr must have either a columnExpr or a block");
     }
 
-    string expr_json;
+    Json expr_json;
     if (column_expr_ctx) {
       expr_json = visitAsJSON(column_expr_ctx);
     } else {
@@ -1960,8 +1749,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       args.pushBack(arg);
     }
     json["args"] = std::move(args);
-    json["expr"] = Json::raw(expr_json);
-    return json.dump();
+    json["expr"] = std::move(expr_json);
+    return json;
   }
 
   VISIT(WithExprList) {
@@ -1969,55 +1758,40 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
 
     for (auto with_expr_ctx : ctx->withExpr()) {
-      string cte_json = visitAsJSON(with_expr_ctx);
-
-      // Extract the "name" field from the CTE JSON to use as the key
-      size_t name_pos = cte_json.find("\"name\":\"");
-      if (name_pos != string::npos) {
-        size_t name_start = name_pos + 8;  // after "name":"
-        size_t name_end = cte_json.find("\"", name_start);
-        string name = cte_json.substr(name_start, name_end - name_start);
-
-        json[name] = Json::raw(cte_json);
-      }
+      Json cte_json = visitAsJSON(with_expr_ctx);
+      auto name = cte_json.getObject().at("name").getString();
+      json[name] = std::move(cte_json);
     }
 
-    return json.dump();
+    return json;
   }
 
   VISIT(WithExprSubquery) {
-    string name = visitAsString(ctx->identifier());
-    string expr_json = visitAsJSON(ctx->selectSetStmt());
-
     Json json = Json::object();
     json["node"] = "CTE";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["name"] = name;
-    json["expr"] = Json::raw(expr_json);
+    json["name"] = visitAsString(ctx->identifier());
+    json["expr"] = visitAsJSON(ctx->selectSetStmt());
     json["cte_type"] = "subquery";
-    return json.dump();
+    return json;
   }
 
   VISIT(WithExprColumn) {
-    string name = visitAsString(ctx->identifier());
-    string expr_json = visitAsJSON(ctx->columnExpr());
-
     Json json = Json::object();
     json["node"] = "CTE";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["name"] = name;
-    json["expr"] = Json::raw(expr_json);
+    json["name"] = visitAsString(ctx->identifier());
+    json["expr"] = visitAsJSON(ctx->columnExpr());
     json["cte_type"] = "column";
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnIdentifier) {
-    auto placeholder_ctx = ctx->placeholder();
-    if (placeholder_ctx) {
+    if (const auto placeholder_ctx = ctx->placeholder()) {
       return visitAsJSON(placeholder_ctx);
     }
-    auto table_identifier_ctx = ctx->tableIdentifier();
-    auto nested_identifier_ctx = ctx->nestedIdentifier();
+    const auto table_identifier_ctx = ctx->tableIdentifier();
+    const auto nested_identifier_ctx = ctx->nestedIdentifier();
     vector<string> table =
         table_identifier_ctx ? any_cast<vector<string>>(visit(table_identifier_ctx)) : vector<string>();
     vector<string> nested =
@@ -2031,14 +1805,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         json["node"] = "Constant";
         if (!is_internal) addPositionInfo(json, ctx);
         json["value"] = true;
-        return json.dump();
+        return json;
       }
       if (!text.compare("false")) {
         Json json = Json::object();
         json["node"] = "Constant";
         if (!is_internal) addPositionInfo(json, ctx);
         json["value"] = false;
-        return json.dump();
+        return json;
       }
       Json json = Json::object();
       json["node"] = "Field";
@@ -2048,7 +1822,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         chain.pushBack(part);
       }
       json["chain"] = std::move(chain);
-      return json.dump();
+      return json;
     }
     vector<string> table_plus_nested = table;
     table_plus_nested.insert(table_plus_nested.end(), nested.begin(), nested.end());
@@ -2061,7 +1835,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       chain.pushBack(part);
     }
     json["chain"] = std::move(chain);
-    return json.dump();
+    return json;
   }
 
   VISIT(NestedIdentifier) { return visitAsVectorOfStrings(ctx->identifier()); }
@@ -2077,7 +1851,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       chain.pushBack(part);
     }
     json["chain"] = std::move(chain);
-    return json.dump();
+    return json;
   }
 
   VISIT(TableExprSubquery) { return visit(ctx->selectSetStmt()); }
@@ -2092,17 +1866,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw SyntaxError("ALIAS is a reserved keyword");
     }
 
-    string table_json = visitAsJSON(ctx->tableExpr());
+    Json table_json = visitAsJSON(ctx->tableExpr());
 
     // Check if table is already a JoinExpr
-    bool is_table_a_join_expr = isJoinExprJson(table_json);
+    bool is_table_a_join_expr = isNodeOfType(table_json, "JoinExpr");
     if (is_table_a_join_expr) {
-      // Inject alias into existing JoinExpr before the closing brace
-      size_t insert_pos = table_json.rfind("}");
-      if (insert_pos != string::npos) {
-        string alias_injection = ",\"alias\":" + Json::escapeString(alias);
-        table_json.insert(insert_pos, alias_injection);
-      }
+      // Inject alias into the existing JoinExpr
+      table_json["alias"] = alias;
       return table_json;
     }
 
@@ -2111,10 +1881,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "JoinExpr";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["table"] = Json::raw(table_json);
+    json["table"] = std::move(table_json);
     json["alias"] = alias;
     json["next_join"] = nullptr;
-    return json.dump();
+    return json;
   }
 
   VISIT(TableExprFunction) { return visit(ctx->tableFunctionExpr()); }
@@ -2124,7 +1894,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(TableFunctionExpr) {
     string table_name = visitAsString(ctx->identifier());
     auto table_args_ctx = ctx->tableArgList();
-    string table_args_json = table_args_ctx ? visitAsJSON(table_args_ctx) : "[]";
+    Json table_args_json = table_args_ctx ? visitAsJSON(table_args_ctx) : Json::array();
 
     // Build Field node for table name
     Json table_json = Json::object();
@@ -2138,8 +1908,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     json["node"] = "JoinExpr";
     if (!is_internal) addPositionInfo(json, ctx);
     json["table"] = std::move(table_json);
-    json["table_args"] = Json::raw(table_args_json);
-    return json.dump();
+    json["table_args"] = std::move(table_args_json);
+    return json;
   }
 
   VISIT(TableIdentifier) {
@@ -2163,43 +1933,47 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(FloatingLiteral)
 
   VISIT(NumberLiteral) {
-    string text = ctx->getText();
-    boost::algorithm::to_lower(text);
-
     Json json = Json::object();
     json["node"] = "Constant";
     if (!is_internal) addPositionInfo(json, ctx);
 
-    if (text.find(".") != string::npos || text.find("e") != string::npos || !text.compare("-inf") ||
-        !text.compare("inf") || !text.compare("nan")) {
+    string text = ctx->getText();
+    boost::algorithm::to_lower(text);
+
+    if (text.find("inf") != string::npos || text.find("nan") != string::npos) {
+      // Handle special number cases (infinity and NaN)
+      if (!text.compare("-inf")) {
+        json["value"] = "-Infinity";
+      } else if (!text.compare("inf")) {
+        json["value"] = "Infinity";
+      } else {
+        json["value"] = "NaN";
+      }
+    } else if (text.find(".") != string::npos || text.find("e") != string::npos) {
       json["value"] = stod(text);  // Float
+      return json;
     } else {
       json["value"] = stoll(text);  // Integer
+      return json;
     }
 
-    return json.dump();
+    return json;
   }
 
   VISIT(Literal) {
     if (ctx->NULL_SQL()) {
       Json json = Json::object();
       json["node"] = "Constant";
-      if (!is_internal) {
-        addPositionInfo(json, ctx);
-      }
+      if (!is_internal) addPositionInfo(json, ctx);
       json["value"] = nullptr;
-      return json.dump();
+      return json;
     }
-    auto string_literal_terminal = ctx->STRING_LITERAL();
-    if (string_literal_terminal) {
-      string text = parse_string_literal_ctx(string_literal_terminal);
+    if (const auto string_literal_terminal = ctx->STRING_LITERAL()) {
       Json json = Json::object();
       json["node"] = "Constant";
-      if (!is_internal) {
-        addPositionInfo(json, ctx);
-      }
-      json["value"] = text;
-      return json.dump();
+      if (!is_internal) addPositionInfo(json, ctx);
+      json["value"] = parse_string_literal_ctx(string_literal_terminal);
+      return json;
     }
     return visitChildren(ctx);
   }
@@ -2232,69 +2006,52 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(HogqlxTagAttribute) {
-    string name = visitAsString(ctx->identifier());
-
-    string value_json;
-    auto column_expr_ctx = ctx->columnExpr();
-    if (column_expr_ctx) {
-      value_json = visitAsJSON(column_expr_ctx);
-    } else {
-      auto string_ctx = ctx->string();
-      if (string_ctx) {
-        value_json = visitAsJSON(string_ctx);
-      } else {
-        // Default to true Constant
-        Json value_obj = Json::object();
-        value_obj["node"] = "Constant";
-        value_obj["value"] = true;
-        value_json = value_obj.dump();
-      }
-    }
-
     Json json = Json::object();
     json["node"] = "HogQLXAttribute";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["name"] = name;
-    json["value"] = Json::raw(value_json);
-    return json.dump();
+    json["name"] = visitAsString(ctx->identifier());
+
+    if (const auto column_expr_ctx = ctx->columnExpr()) {
+      json["value"] = visitAsJSON(column_expr_ctx);
+    } else {
+      if (const auto string_ctx = ctx->string()) {
+        json["value"] = visitAsJSON(string_ctx);
+      } else {
+        // Default to true Constant
+        json["value"] = Json::object();
+        json["value"]["node"] = "Constant";
+        json["value"]["value"] = true;
+      }
+    }
+
+    return json;
   }
 
   VISIT(HogqlxChildElement) {
-    auto tag_element_ctx = ctx->hogqlxTagElement();
-    if (tag_element_ctx) {
+    if (const auto tag_element_ctx = ctx->hogqlxTagElement()) {
       return visitAsJSON(tag_element_ctx);
     }
-    auto text_element_ctx = ctx->hogqlxText();
-    if (text_element_ctx) {
+    if (const auto text_element_ctx = ctx->hogqlxText()) {
       return visitAsJSON(text_element_ctx);
     }
     return visitAsJSON(ctx->columnExpr());
   }
 
   VISIT(HogqlxText) {
-    string text = ctx->HOGQLX_TEXT_TEXT()->getText();
-
     Json json = Json::object();
     json["node"] = "Constant";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["value"] = text;
-    return json.dump();
+    json["value"] = ctx->HOGQLX_TEXT_TEXT()->getText();
+    return json;
   }
 
   VISIT(HogqlxTagElementClosed) {
-    string kind = visitAsString(ctx->identifier());
-    vector<string> attributes_vec = visitAsVectorOfJSON(ctx->hogqlxTagAttribute());
-
     Json json = Json::object();
     json["node"] = "HogQLXTag";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["kind"] = kind;
-    Json attributes = Json::array();
-    for (const auto& attr : attributes_vec) {
-      attributes.pushBack(Json::raw(attr));
-    }
-    json["attributes"] = std::move(attributes);
-    return json.dump();
+    json["kind"] = visitAsString(ctx->identifier());
+    json["attributes"] = visitAsVectorOfJSON(ctx->hogqlxTagAttribute());
+    return json;
   }
 
   VISIT(HogqlxTagElementNested) {
@@ -2304,46 +2061,42 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw SyntaxError("Opening and closing HogQLX tags must match. Got " + opening + " and " + closing);
     }
 
-    auto attribute_ctxs = ctx->hogqlxTagAttribute();
-    vector<string> attributes = visitAsVectorOfJSON(attribute_ctxs);
+    const auto attribute_ctxs = ctx->hogqlxTagAttribute();
+    vector<Json> attributes = visitAsVectorOfJSON(attribute_ctxs);
 
     /* ── children ───────────────────────────────────────────── */
-    std::vector<string> kept_children;
-    for (auto childCtx : ctx->hogqlxChildElement()) {
-      string child_json = visitAsJSON(childCtx);
+    std::vector<Json> kept_children;
+    for (const auto child_ctx : ctx->hogqlxChildElement()) {
+      Json child_json = visitAsJSON(child_ctx);
 
       /* drop Constant nodes that are only-whitespace *and* contain a line-break */
-      bool is_const = child_json.find("\"node\":\"Constant\"") != string::npos;
-      if (is_const) {
-        // Extract value from JSON
-        size_t value_pos = child_json.find("\"value\":\"");
-        if (value_pos != string::npos) {
-          size_t value_start = value_pos + 9;  // after "value":"
-          size_t value_end = child_json.find("\"", value_start);
-          if (value_end != string::npos) {
-            string value_text = child_json.substr(value_start, value_end - value_start);
-            // Unescape the string to check for whitespace
-            bool only_ws = std::all_of(value_text.begin(), value_text.end(), [](unsigned char c) {
-              return std::isspace(c) || c == '\\';
-            });
-            bool has_newline = value_text.find("\\n") != std::string::npos ||
-                               value_text.find("\\r") != std::string::npos ||
-                               value_text.find('\n') != std::string::npos || value_text.find('\r') != std::string::npos;
-            if (only_ws && has_newline) {
-              continue;  // skip it
+      if (isNodeOfType(child_json, "Constant")) {
+        const auto& obj = child_json.getObject();
+        auto value_it = obj.find("value");
+        if (value_it != obj.end() && value_it->second.isString()) {
+          const string& value_text = value_it->second.getString();
+          bool only_ws = true;
+          for (char c : value_text) {
+            if (!isspace(static_cast<unsigned char>(c))) {
+              only_ws = false;
+              break;
             }
+          }
+          bool has_newline = value_text.find('\n') != string::npos || value_text.find('\r') != string::npos;
+          if (only_ws && has_newline) {
+            continue;  // skip it
           }
         }
       }
 
-      kept_children.push_back(child_json);  // keep
+      kept_children.emplace_back(std::move(child_json));  // keep it
     }
 
     /* if we have child nodes, validate + attach them as attribute "children" */
     if (!kept_children.empty()) {
       // Check if any attribute is named "children"
       for (const auto& attr_json : attributes) {
-        if (attr_json.find("\"name\":\"children\"") != string::npos) {
+        if (attr_json.isObject() && attr_json.getObject().at("name").getString() == "children") {
           throw SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute");
         }
       }
@@ -2351,121 +2104,99 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       /* build children attribute */
       Json children_array = Json::array();
       for (const auto& child : kept_children) {
-        children_array.pushBack(Json::raw(child));
+        children_array.pushBack(child);
       }
 
       Json children_attr = Json::object();
       children_attr["node"] = "HogQLXAttribute";
       children_attr["name"] = "children";
       children_attr["value"] = std::move(children_array);
-
-      attributes.push_back(children_attr.dump());
+      attributes.push_back(children_attr);
     }
 
     Json json = Json::object();
     json["node"] = "HogQLXTag";
     if (!is_internal) addPositionInfo(json, ctx);
     json["kind"] = opening;
-    Json attrs = Json::array();
-    for (const auto& attr : attributes) {
-      attrs.pushBack(Json::raw(attr));
-    }
-    json["attributes"] = std::move(attrs);
-    return json.dump();
+    json["attributes"] = std::move(attributes);
+    return json;
   }
 
   VISIT(Placeholder) {
-    string expr_json = visitAsJSON(ctx->columnExpr());
-
     Json json = Json::object();
     json["node"] = "Placeholder";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(expr_json);
-    return json.dump();
+    json["expr"] = visitAsJSON(ctx->columnExpr());
+    return json;
   }
 
   VISIT_UNSUPPORTED(EnumValue)
 
   VISIT(ColumnExprNullish) {
-    string value_json = visitAsJSON(ctx->columnExpr(0));
-    string fallback_json = visitAsJSON(ctx->columnExpr(1));
+    Json value_json = visitAsJSON(ctx->columnExpr(0));
+    Json fallback_json = visitAsJSON(ctx->columnExpr(1));
 
     Json json = Json::object();
     json["node"] = "Call";
     if (!is_internal) addPositionInfo(json, ctx);
     json["name"] = "ifNull";
     Json args = Json::array();
-    args.pushBack(Json::raw(value_json));
-    args.pushBack(Json::raw(fallback_json));
+    args.pushBack(value_json);
+    args.pushBack(fallback_json);
     json["args"] = std::move(args);
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprCall) {
-    string expr_json = visitAsJSON(ctx->columnExpr());
-    string args_json = visitAsJSONOrEmptyArray(ctx->columnExprList());
-
     Json json = Json::object();
     json["node"] = "ExprCall";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(expr_json);
-    json["args"] = Json::raw(args_json);
-    return json.dump();
+    json["expr"] = visitAsJSON(ctx->columnExpr());
+    json["args"] = visitAsJSONOrEmptyArray(ctx->columnExprList());
+    return json;
   }
 
   VISIT(ColumnExprCallSelect) {
     // 1) Parse the "function expression" from columnExpr().
-    string expr_json = visitAsJSON(ctx->columnExpr());
+    Json expr_json = visitAsJSON(ctx->columnExpr());
 
     // 2) Check if `expr` is a Field node with a chain of length == 1.
     //    If so, interpret that chain[0] as the function name, and the SELECT as the function argument.
-    bool is_field = expr_json.find("\"node\":\"Field\"") != string::npos;
+    bool is_field = isNodeOfType(expr_json, "Field");
 
     if (is_field) {
       // Extract chain array from Field
-      size_t chain_pos = expr_json.find("\"chain\":[");
-      if (chain_pos != string::npos) {
-        size_t chain_start = chain_pos + 9;  // after "chain":[
-        size_t chain_end = expr_json.find("]", chain_start);
-        string chain_content = expr_json.substr(chain_start, chain_end - chain_start);
+      Json chain_json = expr_json.getObject().at("chain");
 
-        // Check if chain has exactly one string element
-        if (chain_content.find("\"") != string::npos &&
-            chain_content.find("\",\"") == string::npos) {  // single element
+      if (!chain_json.isArray()) {
+        throw ParsingError("Expected 'chain' to be an array in Field node");
+      }
 
-          // Extract function name
-          size_t name_start = chain_content.find("\"") + 1;
-          size_t name_end = chain_content.find("\"", name_start);
-          string func_name = chain_content.substr(name_start, name_end - name_start);
+      if (chain_json.getArray().size() == 1) {
+        // Extract function name
+        string func_name = chain_json.getArray()[0].getString();
 
-          // Build Call(name=func_name, args=[select])
-          string select_json = visitAsJSON(ctx->selectSetStmt());
-
-          Json json = Json::object();
-          json["node"] = "Call";
-          if (!is_internal) {
-            addPositionInfo(json, ctx);
-          }
-          json["name"] = func_name;
-          Json args = Json::array();
-          args.pushBack(Json::raw(select_json));
-          json["args"] = std::move(args);
-          return json.dump();
-        }
+        // Build Call(name=func_name, args=[select])
+        Json json = Json::object();
+        json["node"] = "Call";
+        if (!is_internal) addPositionInfo(json, ctx);
+        json["name"] = func_name;
+        Json args = Json::array();
+        args.pushBack(visitAsJSON(ctx->selectSetStmt()));
+        json["args"] = std::move(args);
+        return json;
       }
     }
 
     // 3) Otherwise, build ExprCall(expr=<expr>, args=[select])
-    string select_json = visitAsJSON(ctx->selectSetStmt());
-
     Json json = Json::object();
     json["node"] = "ExprCall";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = Json::raw(expr_json);
+    json["expr"] = expr_json;
     Json args = Json::array();
-    args.pushBack(Json::raw(select_json));
+    args.pushBack(visitAsJSON(ctx->selectSetStmt()));
     json["args"] = std::move(args);
-    return json.dump();
+    return json;
   }
 
   VISIT(ColumnExprTemplateString) { return visit(ctx->templateString()); }
@@ -2476,11 +2207,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       string text = parse_string_literal_ctx(string_literal);
       Json json = Json::object();
       json["node"] = "Constant";
-      if (!is_internal) {
-        addPositionInfo(json, ctx);
-      }
+      if (!is_internal) addPositionInfo(json, ctx);
       json["value"] = text;
-      return json.dump();
+      return json;
     }
     return visit(ctx->templateString());
   }
@@ -2493,24 +2222,20 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       json["node"] = "Constant";
       if (!is_internal) addPositionInfo(json, ctx);
       json["value"] = "";
-      return json.dump();
+      return json;
     }
 
     if (string_contents.size() == 1) {
       return visit(string_contents[0]);
     }
 
-    vector<string> args_vec = visitAsVectorOfJSON(string_contents);
+    vector<Json> args_vec = visitAsVectorOfJSON(string_contents);
     Json json = Json::object();
     json["node"] = "Call";
     if (!is_internal) addPositionInfo(json, ctx);
     json["name"] = "concat";
-    Json args = Json::array();
-    for (const auto& arg : args_vec) {
-      args.pushBack(Json::raw(arg));
-    }
-    json["args"] = std::move(args);
-    return json.dump();
+    json["args"] = args_vec;
+    return json;
   }
 
   VISIT(FullTemplateString) {
@@ -2521,24 +2246,24 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       json["node"] = "Constant";
       if (!is_internal) addPositionInfo(json, ctx);
       json["value"] = "";
-      return json.dump();
+      return json;
     }
 
     if (string_contents_full.size() == 1) {
       return visit(string_contents_full[0]);
     }
 
-    vector<string> args_vec = visitAsVectorOfJSON(string_contents_full);
+    vector<Json> args_vec = visitAsVectorOfJSON(string_contents_full);
     Json json = Json::object();
     json["node"] = "Call";
     if (!is_internal) addPositionInfo(json, ctx);
     json["name"] = "concat";
     Json args = Json::array();
     for (const auto& arg : args_vec) {
-      args.pushBack(Json::raw(arg));
+      args.pushBack(arg);
     }
     json["args"] = std::move(args);
-    return json.dump();
+    return json;
   }
 
   VISIT(StringContents) {
@@ -2549,7 +2274,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       json["node"] = "Constant";
       if (!is_internal) addPositionInfo(json, ctx);
       json["value"] = text;
-      return json.dump();
+      return json;
     }
     auto column_expr = ctx->columnExpr();
     if (column_expr) {
@@ -2559,7 +2284,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     json["node"] = "Constant";
     if (!is_internal) addPositionInfo(json, ctx);
     json["value"] = "";
-    return json.dump();
+    return json;
   }
 
   VISIT(StringContentsFull) {
@@ -2570,7 +2295,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       json["node"] = "Constant";
       if (!is_internal) addPositionInfo(json, ctx);
       json["value"] = text;
-      return json.dump();
+      return json;
     }
     auto column_expr = ctx->columnExpr();
     if (column_expr) {
@@ -2580,6 +2305,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     json["node"] = "Constant";
     if (!is_internal) addPositionInfo(json, ctx);
     json["value"] = "";
-    return json.dump();
+    return json;
   }
 };
