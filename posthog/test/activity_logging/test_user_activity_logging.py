@@ -206,9 +206,12 @@ class TestUserActivitySignalHandler(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(scope="User", activity="updated", item_id=str(new_user.id)).first()
 
         self.assertIsNotNone(log, "ActivityLog should be created for user update")
+        assert log is not None
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         first_name_change = next((c for c in changes if c["field"] == "first_name"), None)
         self.assertIsNotNone(first_name_change)
+        assert first_name_change is not None
         self.assertEqual(first_name_change["before"], "Update")
         self.assertEqual(first_name_change["after"], "Updated")
 
@@ -270,7 +273,7 @@ class TestUserActivitySignalHandler(ActivityLogTestHelper):
 
         log = ActivityLog.objects.filter(scope="User", activity="updated", item_id=str(new_user.id)).first()
 
-        if log:
+        if log and log.detail:
             changes = log.detail.get("changes", [])
             email_change = next((c for c in changes if c["field"] == "pending_email"), None)
             if email_change:

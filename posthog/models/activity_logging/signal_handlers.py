@@ -16,6 +16,7 @@ from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
+    ActivityScope,
     Detail,
     LogActivityEntry,
     bulk_log_activity,
@@ -198,7 +199,7 @@ def log_user_logout_activity(sender, user, request: HttpRequest, **kwargs):  # n
 @mutable_receiver(model_activity_signal, sender=User)
 def log_user_change_activity(
     sender: type[User],
-    scope: str,
+    scope: ActivityScope,
     before_update: User | None,
     after_update: User | None,
     activity: str,
