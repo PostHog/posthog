@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -85,7 +86,7 @@ def semver_range_compare(
     expr: ast.Expr,
     value: ast.Any,
     operator_name: str,
-    bounds_calculator: callable,
+    bounds_calculator: Callable[[str], tuple[str, str]],
 ) -> ast.And:
     """
     Build a semver range comparison AST (lower_bound <= expr < upper_bound).
