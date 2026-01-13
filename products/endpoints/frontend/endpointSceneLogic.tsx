@@ -20,19 +20,32 @@ export interface EndpointSceneLogicProps {
     tabId: string
 }
 
+// Query types that support user-configurable breakdown filtering
+const BREAKDOWN_SUPPORTED_QUERY_TYPES = new Set([NodeKind.TrendsQuery, NodeKind.FunnelsQuery, NodeKind.RetentionQuery])
+
+function getSingleBreakdownProperty(breakdownFilter: any): string | null {
+    if (breakdownFilter?.breakdown) {
+        return breakdownFilter.breakdown
+    }
+    const breakdowns = breakdownFilter?.breakdowns || []
+    if (breakdowns.length === 1) {
+        return breakdowns[0]?.property
+    }
+    return null
+}
+
 export function generateEndpointPayload(endpoint: EndpointVersionType | null): Record<string, any> {
     if (!endpoint) {
         return {}
     }
 
-    if (isInsightQueryNode(endpoint.query)) {
-        return {
-            query_override: {},
-            filters_override: {},
-        }
-    }
-    if (endpoint.query?.kind === NodeKind.HogQLQuery) {
-        const variables = endpoint.query?.variables || {}
+    const query = endpoint.query
+    const isMaterialized = endpoint.is_materialized
+    const queryKind = query?.kind
+
+    if (queryKind === NodeKind.HogQLQuery) {
+        // HogQL: include variables with default values
+        const variables = query.variables || {}
         const entries = Object.entries(variables)
 
         if (entries.length === 0) {
@@ -46,6 +59,31 @@ export function generateEndpointPayload(endpoint: EndpointVersionType | null): R
 
         return { variables: variablesValues }
     }
+
+    if (isInsightQueryNode(query)) {
+        // Insight query - build variables based on what's available
+        const variablesValues: Record<string, any> = {}
+
+        // Only include breakdown for query types that support it
+        if (queryKind && BREAKDOWN_SUPPORTED_QUERY_TYPES.has(queryKind as NodeKind)) {
+            const breakdownFilter = (query as any).breakdownFilter || {}
+            const breakdown = getSingleBreakdownProperty(breakdownFilter)
+            if (breakdown) {
+                variablesValues[breakdown] = ''
+            }
+        }
+
+        // Non-materialized also supports date filtering
+        if (!isMaterialized) {
+            variablesValues['date_from'] = '-7d'
+            variablesValues['date_to'] = ''
+        }
+
+        if (Object.keys(variablesValues).length > 0) {
+            return { variables: variablesValues }
+        }
+    }
+
     return {}
 }
 
