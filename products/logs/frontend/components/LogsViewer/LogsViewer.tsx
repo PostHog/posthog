@@ -38,8 +38,7 @@ export interface LogsViewerProps {
     onDateRangeChange: (dateRange: DateRange) => void
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
-    showSlowLoadingHint?: boolean
-    onOpenServiceFilter?: () => void
+    slowLoadingHint?: string | null
 }
 
 export function LogsViewer({
@@ -58,8 +57,7 @@ export function LogsViewer({
     onDateRangeChange,
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
-    showSlowLoadingHint,
-    onOpenServiceFilter,
+    slowLoadingHint,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
@@ -77,8 +75,7 @@ export function LogsViewer({
                     onDateRangeChange={onDateRangeChange}
                     sparklineBreakdownBy={sparklineBreakdownBy}
                     onSparklineBreakdownByChange={onSparklineBreakdownByChange}
-                    showSlowLoadingHint={showSlowLoadingHint}
-                    onOpenServiceFilter={onOpenServiceFilter}
+                    slowLoadingHint={slowLoadingHint}
                 />
             </BindLogic>
         </BindLogic>
@@ -98,8 +95,7 @@ interface LogsViewerContentProps {
     onDateRangeChange: (dateRange: DateRange) => void
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
-    showSlowLoadingHint?: boolean
-    onOpenServiceFilter?: () => void
+    slowLoadingHint?: string | null
 }
 
 function LogsViewerContent({
@@ -115,8 +111,7 @@ function LogsViewerContent({
     onDateRangeChange,
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
-    showSlowLoadingHint,
-    onOpenServiceFilter,
+    slowLoadingHint,
 }: LogsViewerContentProps): JSX.Element {
     const {
         tabId,
@@ -344,8 +339,7 @@ function LogsViewerContent({
                 showPinnedWithOpacity
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
                 onLoadMore={onLoadMore}
-                showSlowLoadingHint={showSlowLoadingHint}
-                onOpenServiceFilter={onOpenServiceFilter}
+                slowLoadingHint={slowLoadingHint}
             />
 
             <LogDetailsModal timezone={timezone} />

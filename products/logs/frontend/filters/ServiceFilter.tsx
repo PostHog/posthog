@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { projectLogic } from 'scenes/projectLogic'
@@ -10,13 +10,11 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ALL_SERVICES_VALUE, logsLogic } from '../logsLogic'
 
 export const ServiceFilter = (): JSX.Element => {
-    const { serviceNames, dateRange, isAllServicesSelected, openServiceFilterRequest } = useValues(logsLogic)
+    const { serviceNames, dateRange } = useValues(logsLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { setServiceNames } = useActions(logsLogic)
     const { options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
-    const [isSelectingService, setIsSelectingService] = useState(false)
-    const containerRef = useRef<HTMLSpanElement>(null)
 
     const endpoint = combineUrl(`api/environments/${currentProjectId}/logs/values`, {
         key: 'service.name',
@@ -27,7 +25,6 @@ export const ServiceFilter = (): JSX.Element => {
     const propertyKey = 'service_name'
     const propertyOptions = options[propertyKey]
 
-    // Load service values on mount and when endpoint changes
     useEffect(() => {
         if (propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             loadPropertyValues({
@@ -41,29 +38,11 @@ export const ServiceFilter = (): JSX.Element => {
         }
     }, [endpoint, loadPropertyValues, propertyOptions?.status])
 
-    // Listen for requests to open the service filter from other components
-    useEffect(() => {
-        if (openServiceFilterRequest) {
-            setIsSelectingService(true)
-        }
-    }, [openServiceFilterRequest])
-
-    // Focus the input when switching to selection mode
-    useEffect(() => {
-        if (isSelectingService) {
-            const timer = setTimeout(() => {
-                const input = containerRef.current?.querySelector('input')
-                input?.focus()
-                input?.click()
-            }, 50)
-            return () => clearTimeout(timer)
-        }
-    }, [isSelectingService])
-
     const selectOptions: LemonInputSelectOption[] = useMemo(() => {
         const allServicesOption: LemonInputSelectOption = {
             key: ALL_SERVICES_VALUE,
             label: 'All services',
+            labelComponent: <strong>All services</strong>,
         }
         const serviceOptions: LemonInputSelectOption[] = (propertyOptions?.values || []).map(({ name }) => ({
             key: String(name),
@@ -72,20 +51,25 @@ export const ServiceFilter = (): JSX.Element => {
         return [allServicesOption, ...serviceOptions]
     }, [propertyOptions?.values])
 
-    const displayValue = useMemo(() => {
-        if (isAllServicesSelected) {
-            return [ALL_SERVICES_VALUE]
-        }
-        return serviceNames || []
-    }, [isAllServicesSelected, serviceNames])
+    const currentHasAllServices = serviceNames?.includes(ALL_SERVICES_VALUE) ?? false
 
     const handleChange = (newValue: string[]): void => {
-        if (newValue.length === 0 || newValue.includes(ALL_SERVICES_VALUE)) {
+        if (newValue.length === 0) {
+            // Nothing selected, default to all services
             setServiceNames([ALL_SERVICES_VALUE])
+        } else if (newValue.includes(ALL_SERVICES_VALUE)) {
+            if (!currentHasAllServices) {
+                // User explicitly selected "All services" - clear other selections
+                setServiceNames([ALL_SERVICES_VALUE])
+            } else if (newValue.length > 1) {
+                // User added a specific service while "All services" was selected - remove "All services"
+                setServiceNames(newValue.filter((v) => v !== ALL_SERVICES_VALUE))
+            } else {
+                setServiceNames(newValue)
+            }
         } else {
             setServiceNames(newValue)
         }
-        setIsSelectingService(false)
     }
 
     const handleSearchChange = (searchTerm: string): void => {
@@ -99,40 +83,17 @@ export const ServiceFilter = (): JSX.Element => {
         })
     }
 
-    if (isAllServicesSelected && !isSelectingService) {
-        return (
-            <span
-                ref={containerRef}
-                className="rounded bg-surface-primary min-w-[150px] flex items-stretch cursor-pointer"
-                onClick={() => setIsSelectingService(true)}
-            >
-                <LemonInputSelect
-                    mode="single"
-                    size="small"
-                    value={displayValue}
-                    options={selectOptions}
-                    onChange={handleChange}
-                    onInputChange={handleSearchChange}
-                    placeholder="All services"
-                    loading={propertyOptions?.status === 'loading'}
-                    allowCustomValues
-                />
-            </span>
-        )
-    }
-
     return (
-        <span ref={containerRef} className="rounded bg-surface-primary min-w-[150px] flex items-stretch">
+        <span className="rounded bg-surface-primary min-w-[150px] flex items-stretch">
             <LemonInputSelect
-                mode="single"
+                mode="multiple"
                 size="small"
-                value={displayValue}
+                value={serviceNames || []}
                 options={selectOptions}
                 onChange={handleChange}
                 onInputChange={handleSearchChange}
-                placeholder="All services"
+                placeholder="Service name"
                 loading={propertyOptions?.status === 'loading'}
-                autoFocus={isSelectingService}
                 allowCustomValues
             />
         </span>

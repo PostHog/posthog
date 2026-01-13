@@ -269,7 +269,6 @@ export const logsLogic = kea<logsLogicType>([
         addLogsToSparkline: (logs: LogMessage[]) => logs,
         setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => ({ sparklineBreakdownBy }),
         setShowSlowLoadingHint: (showSlowLoadingHint: boolean) => ({ showSlowLoadingHint }),
-        openServiceFilter: true,
     }),
 
     reducers({
@@ -456,12 +455,6 @@ export const logsLogic = kea<logsLogicType>([
                 setShowSlowLoadingHint: (_, { showSlowLoadingHint }) => showSlowLoadingHint,
                 fetchLogsSuccess: () => false,
                 fetchLogsFailure: () => false,
-            },
-        ],
-        openServiceFilterRequest: [
-            0,
-            {
-                openServiceFilter: (state) => state + 1,
             },
         ],
     }),

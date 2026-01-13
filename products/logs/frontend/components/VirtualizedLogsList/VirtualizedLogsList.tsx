@@ -33,8 +33,7 @@ interface VirtualizedLogsListProps {
     disableInfiniteScroll?: boolean
     hasMoreLogsToLoad?: boolean
     onLoadMore?: () => void
-    showSlowLoadingHint?: boolean
-    onOpenServiceFilter?: () => void
+    slowLoadingHint?: string | null
 }
 
 export function VirtualizedLogsList({
@@ -49,8 +48,7 @@ export function VirtualizedLogsList({
     disableInfiniteScroll = false,
     hasMoreLogsToLoad = false,
     onLoadMore,
-    showSlowLoadingHint = false,
-    onOpenServiceFilter,
+    slowLoadingHint,
 }: VirtualizedLogsListProps): JSX.Element {
     const {
         tabId,
@@ -254,23 +252,7 @@ export function VirtualizedLogsList({
                     <span className="font-semibold mb-1 text-center">Loading logs...</span>
                     <div className="flex flex-col gap-2 justify-center items-center max-w-120">
                         <LoadingBar />
-                        {showSlowLoadingHint && (
-                            <p className="text-xs m-0 text-muted">
-                                Taking a long time? Try to{' '}
-                                {onOpenServiceFilter ? (
-                                    <button
-                                        type="button"
-                                        onClick={onOpenServiceFilter}
-                                        className="text-link cursor-pointer underline bg-transparent border-none p-0"
-                                    >
-                                        select a specific service
-                                    </button>
-                                ) : (
-                                    'select a specific service'
-                                )}{' '}
-                                instead of "All services".
-                            </p>
-                        )}
+                        {slowLoadingHint && <p className="text-xs m-0 text-muted">{slowLoadingHint}</p>}
                     </div>
                 </div>
             )
