@@ -1,10 +1,14 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,7 +23,7 @@ import {
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
-import { Breadcrumb, InsightLogicProps, InsightShortId, SimpleIntervalType } from '~/types'
+import { Breadcrumb, DataWarehouseSavedQuery, InsightLogicProps, InsightShortId, SimpleIntervalType } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
@@ -113,10 +117,14 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             ['baseCurrency'],
             revenueAnalyticsSettingsLogic,
             ['events', 'dataWarehouseSources', 'goals as revenueGoals'],
+            dataWarehouseViewsLogic,
+            ['dataWarehouseSavedQueries'],
         ],
         actions: [
             dataWarehouseSettingsLogic,
             ['loadSourcesSuccess'],
+            dataWarehouseViewsLogic,
+            ['loadDataWarehouseSavedQueries'],
             eventUsageLogic,
             [
                 'reportRevenueAnalyticsMRRModeChanged',
@@ -138,6 +146,8 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setBreakdownProperties: (breakdownProperties: RevenueAnalyticsBreakdown[]) => ({ breakdownProperties }),
         addBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
         removeBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
+        resumeRevenueViewSchedule: (viewId: string) => ({ viewId }),
+        resumeAllPausedSchedules: true,
     }),
     reducers(() => ({
         dateFilter: [
@@ -206,6 +216,14 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 },
             },
         ],
+        resumingSchedules: [
+            false,
+            {
+                resumeRevenueViewSchedule: () => true,
+                resumeAllPausedSchedules: () => true,
+                loadDataWarehouseSavedQueries: () => false,
+            },
+        ],
     })),
     selectors({
         breadcrumbs: [
@@ -252,6 +270,22 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 }
 
                 return Boolean(dataWarehouseSources.length)
+            },
+        ],
+
+        pausedRevenueViews: [
+            (s) => [s.dataWarehouseSavedQueries],
+            (savedQueries): DataWarehouseSavedQuery[] => {
+                if (!savedQueries) {
+                    return []
+                }
+                const result = savedQueries.filter(
+                    (query) =>
+                        query.managed_viewset_kind === 'revenue_analytics' &&
+                        (!query.sync_frequency || query.sync_frequency === 'never') &&
+                        (query.status === 'Failed' || query.latest_error)
+                )
+                return result
             },
         ],
 
@@ -362,7 +396,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setMRRMode: ({ mrrMode }) => {
             actions.reportRevenueAnalyticsMRRModeChanged(mrrMode)
         },
@@ -377,6 +411,29 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         },
         removeBreakdown: ({ breakdown }) => {
             actions.reportRevenueAnalyticsBreakdownRemoved(breakdown.property, breakdown.type)
+        },
+        resumeRevenueViewSchedule: async ({ viewId }) => {
+            try {
+                await api.dataWarehouseSavedQueries.resumeSchedule(viewId)
+                lemonToast.success('Schedule resumed successfully')
+                actions.loadDataWarehouseSavedQueries()
+            } catch {
+                lemonToast.error('Failed to resume schedule')
+            }
+        },
+        resumeAllPausedSchedules: async () => {
+            const pausedViews = values.pausedRevenueViews
+            if (pausedViews.length === 0) {
+                return
+            }
+            try {
+                await Promise.all(pausedViews.map((view) => api.dataWarehouseSavedQueries.resumeSchedule(view.id)))
+                lemonToast.success(`Resumed ${pausedViews.length} schedule${pausedViews.length > 1 ? 's' : ''}`)
+                actions.loadDataWarehouseSavedQueries()
+            } catch {
+                lemonToast.error('Failed to resume some schedules')
+                actions.loadDataWarehouseSavedQueries()
+            }
         },
     })),
     tabAwareActionToUrl(() => ({
@@ -400,4 +457,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadDataWarehouseSavedQueries()
+    }),
 ])

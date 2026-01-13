@@ -47,6 +47,7 @@ from products.data_warehouse.backend.data_load.saved_query_service import (
     saved_query_workflow_exists,
     sync_saved_query_workflow,
     trigger_saved_query_schedule,
+    unpause_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -367,12 +368,11 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 )
                 self.context["activity_log"] = latest_activity_log
             # update the temporal schedule if it exists
-            view_id = str(view.id)
-            temporal_schedule_exists = saved_query_workflow_exists(view_id)
+            temporal_schedule_exists = saved_query_workflow_exists(view)
             if temporal_schedule_exists:
                 try:
                     if sync_frequency == "never":
-                        pause_saved_query_schedule(view_id)
+                        pause_saved_query_schedule(view)
                     elif sync_frequency:
                         sync_saved_query_workflow(view, create=not temporal_schedule_exists)
                 except Exception as e:
@@ -606,6 +606,23 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             )
 
         return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def resume_schedule(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Resume a paused materialization schedule for matviews.
+
+        This endpoint is idempotent - calling it on an already running schedule
+        or non-existent schedule is safe.
+        """
+        saved_query: DataWarehouseSavedQuery = self.get_object()
+        schedule_exists = saved_query_workflow_exists(saved_query)
+        if schedule_exists:
+            saved_query.latest_error = None
+            saved_query.status = None
+            saved_query.save(update_fields=["latest_error", "status"])
+            unpause_saved_query_schedule(saved_query)
+        return response.Response(status=status.HTTP_202_ACCEPTED)
 
     @action(methods=["POST"], detail=True)
     def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:
