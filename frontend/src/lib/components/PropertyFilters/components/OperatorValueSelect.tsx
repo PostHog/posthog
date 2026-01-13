@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react'
 import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -13,6 +15,7 @@ import {
     isOperatorMulti,
     isOperatorRange,
     isOperatorRegex,
+    isOperatorSemver,
 } from 'lib/utils'
 
 import {
@@ -107,6 +110,7 @@ export function OperatorValueSelect({
     operatorAllowlist,
     forceSingleSelect,
 }: OperatorValueSelectProps): JSX.Element {
+    const semverTargetingEnabled = useFeatureFlag(FEATURE_FLAGS.SEMVER_TARGETING)
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
 
@@ -157,6 +161,10 @@ export function OperatorValueSelect({
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
         let operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
+            // Filter out semver operators if feature flag is not enabled
+            if (!semverTargetingEnabled && isOperatorSemver(op)) {
+                return false
+            }
             return !operatorAllowlist || operatorAllowlist.includes(op)
         })
 
@@ -190,7 +198,7 @@ export function OperatorValueSelect({
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator, operatorAllowlist]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [propertyDefinition, propertyKey, operator, operatorAllowlist, semverTargetingEnabled]) // oxlint-disable-line react-hooks/exhaustive-deps
     return (
         <>
             <div data-attr="taxonomic-operator">
