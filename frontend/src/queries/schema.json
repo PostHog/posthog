@@ -18328,7 +18328,8 @@
                 "databricks",
                 "tiktok-ads",
                 "bing-ads",
-                "vercel"
+                "vercel",
+                "azure-blob"
             ],
             "type": "string"
         },
