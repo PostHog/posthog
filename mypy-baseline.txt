@@ -1030,4 +1030,3 @@ products/web_analytics/dags/web_preaggregated_team_selection.py:0: error: Argume
 products/web_analytics/dags/web_preaggregated_team_selection.py:0: error: Argument 1 to "get_team_ids_from_sources" has incompatible type "AssetExecutionContext"; expected "OpExecutionContext"  [arg-type]
 products/web_analytics/dags/web_preaggregated_team_selection.py:0: error: Argument 1 to "store_team_selection_in_clickhouse" has incompatible type "AssetExecutionContext"; expected "OpExecutionContext"  [arg-type]
 products/web_analytics/dags/web_preaggregated_utils.py:0: error: Argument 1 to "get_schedule_def" of "RepositoryDefinition" has incompatible type "str | None"; expected "str"  [arg-type]
-products/workflows/backend/migrations/0002_alter_integration_kind.py:0: error: Need type annotation for "field"  [var-annotated]
