@@ -26,7 +26,7 @@ Add UI capabilities to view historical versions of endpoints and manage material
 1. **Configuration is versioned**: Each version stores its own cache_age and sync_frequency settings
 2. **Sync frequency is per-version**: Each materialized version can have different sync frequencies
 3. **No new API endpoints**: Use existing endpoints with version parameters in body
-4. **Table naming includes version**: Materialized tables named with version suffix (e.g., `endpoint_foo_v2`)
+4. **Table naming includes version**: Materialized tables named as `{name}_v{version}` (e.g., `user_metrics_v2`)
 5. **Query time version selection**: Router selects correct versioned table based on request
 6. **No limits**: No limit on number of materialized versions or total versions kept
 7. **No auto-materialization**: New versions don't auto-materialize even if previous version was materialized
@@ -142,13 +142,13 @@ When clicking "View" on an old version, switch entire UI to read-only mode.
 **Old Versions:**
 - Each version in history table has independent materialization control
 - Clicking "Materialize":
-  - Opens inline form to select sync frequency (hourly/daily/weekly options)
-  - OR uses a default and allows editing later
-  - Calls existing update endpoint with version-specific materialization flag
+  - Shows inline sync frequency selector (dropdown with hourly/daily/weekly options)
+  - User MUST select sync frequency (no default value)
+  - After selection, calls existing update endpoint with version-specific materialization flag
   - Updates table row status to "Syncing..." then "Materialized"
 - Clicking "Unmaterialize":
-  - Optional: Show confirmation "Remove materialized data for v2?"
-  - Calls update endpoint to disable materialization for that version
+  - Shows confirmation dialog: "Remove materialized data for version vX?"
+  - On confirm, calls update endpoint to disable materialization for that version
   - Updates UI status to "Not materialized"
 
 **Materialization Status Display:**
@@ -200,33 +200,43 @@ class EndpointVersion(models.Model):
 
 ### 2. Saved Query Table Naming
 
+**Current Implementation:**
+The saved query name is currently set as:
+```python
+saved_query = DataWarehouseSavedQuery(
+    name=endpoint.name,  # Just the endpoint name, no prefix
+    team=self.team,
+    origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+)
+```
+
 **Table Naming Convention:**
-- Current: `endpoint_{endpoint_name}_saved`
-- New: `endpoint_{endpoint_name}_v{version}_saved`
-- Example: `endpoint_user_metrics_v2_saved`, `endpoint_user_metrics_v3_saved`
+- Current (single version): Table name is `{endpoint.name}` (e.g., `user_metrics`)
+- New (with versions): Table name is `{endpoint.name}_v{version}` (e.g., `user_metrics_v2`, `user_metrics_v3`)
 
 **Changes Needed:**
 
-1. **Materialization service** (`products/endpoints/backend/materialization.py` or similar):
-   - Update table creation to include version in name
-   - When materializing version N, create table with `_vN_saved` suffix
-   - Keep existing logic, just parameterize table name
+1. **Endpoint materialization logic** (where saved query is created):
+   - When creating saved query for a specific version, set name to include version suffix
+   - For version N: `name = f"{endpoint.name}_v{version.version}"`
+   - Example: If endpoint name is "user_metrics" and version is 2, saved query name is "user_metrics_v2"
+   - **Do NOT modify DataWarehouseSavedQuery model or related files** - just change the name parameter
 
 2. **Query execution** (`products/endpoints/backend/api.py` - `run` method):
    - When executing endpoint with specific version parameter:
-     - If version is materialized, query from `endpoint_{name}_v{version}_saved`
+     - If version is materialized, query from table named `{endpoint.name}_v{version}`
      - If version not materialized, execute query directly (existing behavior)
    - Table name selection logic:
      ```python
      if version and version.is_materialized:
-         table_name = f"endpoint_{endpoint.endpoint_path}_v{version.version}_saved"
+         table_name = f"{endpoint.name}_v{version.version}"
          # Query from materialized table
      else:
          # Execute query directly
      ```
 
 3. **Cleanup considerations**:
-   - When unmaterializing a version, drop the versioned table
+   - When unmaterializing a version, drop/delete the saved query (which drops the table)
    - Consider background job to clean up orphaned tables (future enhancement)
 
 ### 3. API Endpoint Updates
@@ -256,11 +266,12 @@ class EndpointVersion(models.Model):
 
 ### 4. Minimal Changes to Saved Query Service
 
-- **Primary change**: Parameterize table name to include version
-- **Table creation**: When materializing, create table with version suffix
-- **Table dropping**: When unmaterializing, drop versioned table
-- **Avoid**: Major refactoring of materialization logic
-- **Goal**: Minimal invasive changes, just version-aware table naming
+- **Critical**: Do NOT modify DataWarehouseSavedQuery model or related saved query service files
+- **Only change**: The `name` parameter when creating saved queries for endpoints
+  - Pass versioned name: `name=f"{endpoint.name}_v{version.version}"`
+- **Table creation**: Existing saved query creation logic handles table creation (no changes needed)
+- **Table dropping**: Existing saved query deletion logic handles table dropping (no changes needed)
+- **Goal**: Absolute minimal changes - just pass a different name parameter
 
 ---
 
@@ -328,15 +339,29 @@ currentEndpointData: [
 - Add version history section below existing materialization controls
 - Use LemonTable to display versions
 - Add "View" buttons using LemonButton
-- Add "Materialize"/"Unmaterialize" buttons
+- Add "Materialize" button that reveals inline sync frequency dropdown (hourly/daily/weekly)
+  - User must select frequency before materialization begins (no default)
+  - After selection, trigger materialization
+- Add "Unmaterialize" button with confirmation dialog
 - Load versions on mount: `useEffect(() => { actions.loadVersions() }, [])`
 - Handle version selection: `onClick={() => actions.selectVersion(version.version)}`
-- Handle materialization toggle:
+- Handle materialization with inline frequency selection:
   ```typescript
-  const handleMaterialize = (version: number) => {
+  const handleMaterialize = (version: number, syncFrequency: string) => {
       actions.updateVersionMaterialization(version, {
           is_materialized: true,
-          sync_frequency: 'hourly' // or show modal to select
+          sync_frequency: syncFrequency // User-selected value (required)
+      })
+  }
+
+  const handleUnmaterialize = (version: number) => {
+      LemonDialog.open({
+          title: `Remove materialized data for version v${version}?`,
+          onConfirm: () => {
+              actions.updateVersionMaterialization(version, {
+                  is_materialized: false
+              })
+          }
       })
   }
   ```
@@ -420,9 +445,10 @@ export interface EndpointVersionType {
 
 ### Phase 4: Frontend - Materialization Controls
 1. Add "Materialize"/"Unmaterialize" buttons to version history
-2. Implement materialization toggle logic
-3. Show sync frequency selector (inline or modal)
-4. Update status display after materialization changes
+2. Implement inline sync frequency selector (dropdown, no default value)
+3. Implement unmaterialize confirmation dialog
+4. Implement materialization toggle logic
+5. Update status display after materialization changes
 
 ### Phase 5: Testing & Polish
 1. Test version viewing with different query types (HogQL, Insights)
@@ -465,16 +491,19 @@ export interface EndpointVersionType {
 
 ---
 
-## Open Questions
+## Design Decisions (Answered)
 
-1. **Materialization sync frequency UI**: Should selecting "Materialize" open a modal to choose sync frequency, or use a default and allow editing later?
-   - **Recommendation**: Use default (hourly) and allow editing later via inline dropdown in version history table
+1. **Materialization sync frequency UI**:
+   - ✅ Inline dropdown selector (not modal)
+   - ✅ No default value - user MUST select frequency
+   - ✅ Simple, not overcomplicated
 
-2. **Configuration display in read-only mode**: Should we show what the configuration values were for that version, or just indicate "view only"?
-   - **Answer**: Show actual values from that version (cache_age_seconds, sync_frequency from EndpointVersion record)
+2. **Configuration display in read-only mode**:
+   - ✅ Show actual configuration values from that version (cache_age_seconds, sync_frequency)
+   - ✅ Display as read-only fields
 
-3. **Unmaterialize confirmation**: Should we show a confirmation dialog?
-   - **Recommendation**: Yes, simple confirmation: "Remove materialized data for version vX?"
+3. **Unmaterialize confirmation**:
+   - ✅ Yes, show confirmation dialog: "Remove materialized data for version vX?"
 
-4. **Version table in Configuration vs new tab**: Keep in Configuration tab or create dedicated "Versions" tab?
-   - **Answer**: Keep in Configuration tab (per original requirements)
+4. **Version table location**:
+   - ✅ Keep in Configuration tab (may move to dedicated tab later if needed)
