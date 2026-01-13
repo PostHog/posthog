@@ -73,7 +73,12 @@ export function BatchExportConfiguration(): JSX.Element {
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
 
     return (
-        <Form logic={batchExportConfigurationLogic} props={logicProps} formKey="configuration">
+        <Form
+            logic={batchExportConfigurationLogic}
+            props={logicProps}
+            formKey="configuration"
+            className="flex flex-col gap-3"
+        >
             <div className="flex flex-wrap gap-4 items-start">
                 <div className="flex flex-col flex-1 max-w-200 min-w-100 gap-y-3">
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
@@ -484,7 +489,7 @@ export function BatchExportConfigurationTests({
                     return (
                         <div key={`${step.name}-${index}`}>
                             <div className="flex gap-2 items-start">
-                                <div className="mt-1">{renderStatusIcon(step, index)}</div>
+                                <div className="mt-px">{renderStatusIcon(step, index)}</div>
                                 <div className="flex-1">
                                     <LemonLabel info={step.description} className="mb-2">
                                         {step.name}
