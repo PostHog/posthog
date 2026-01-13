@@ -1,11 +1,12 @@
-import { SDKInstallRemixJSInstructions } from '../sdk-install-instructions/remix'
-import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
+import { JSEventCapture } from '@posthog/shared-onboarding/product-analytics/_snippets/js-event-capture'
+import { RemixInstallation } from '@posthog/shared-onboarding/product-analytics/remix'
+
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export function ProductAnalyticsRemixJSInstructions(): JSX.Element {
     return (
-        <>
-            <SDKInstallRemixJSInstructions />
-            <ProductAnalyticsAllJSFinalSteps />
-        </>
+        <OnboardingDocsContentWrapper snippets={{ JSEventCapture }}>
+            <RemixInstallation />
+        </OnboardingDocsContentWrapper>
     )
 }

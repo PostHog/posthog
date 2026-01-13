@@ -324,7 +324,7 @@ class TestBatchTraceSummarizationWorkflow:
 
         assert inputs.team_id == 123
         assert inputs.max_traces == 100
-        assert inputs.batch_size == 5
+        assert inputs.batch_size == 3
         assert inputs.mode == "detailed"
         assert inputs.window_minutes == 60
 
