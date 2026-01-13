@@ -500,6 +500,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 DatabricksIntegration(integration)
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
+
         if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
             team_id = self.context["team_id"]
             team = Team.objects.get(id=team_id)
@@ -532,18 +533,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             except AzureBlobIntegrationError as e:
                 raise serializers.ValidationError(str(e))
 
-            config = destination_attrs["config"]
-            file_format = config.get("file_format", "JSONLines")
+            file_format = merged_config.get("file_format", "JSONLines")
             supported_file_formats = AZURE_BLOB_SUPPORTED_COMPRESSIONS.keys()
             if file_format not in supported_file_formats:
                 raise serializers.ValidationError(
                     f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
                 )
-            compression = config.get("compression", None)
+            compression = merged_config.get("compression", None)
             if compression and compression not in AZURE_BLOB_SUPPORTED_COMPRESSIONS[file_format]:
                 raise serializers.ValidationError(
                     f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {AZURE_BLOB_SUPPORTED_COMPRESSIONS[file_format]}"
                 )
+
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
             mode = merged_config.get("mode")
 
