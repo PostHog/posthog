@@ -327,8 +327,8 @@ def test_use_distributed_events_recent_table(test_data: dict[str, typing.Any]):
             [
                 {"key": "$created_at", "type": "person", "operator": "between", "value": [0, 1]},
             ],
-            """and(ifNull(greaterOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), 0.0), 0), ifNull(lessOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\'), 1.0), 0))""",
-            {"hogql_val_0": "$created_at", "hogql_val_1": "$created_at"},
+            """if(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\')), and(ifNull(greaterOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\'), 0.0), 0), ifNull(lessOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_2)s), \'\'), \'null\'), \'^"|"$\', \'\'), 1.0), 0)), 0)""",
+            {"hogql_val_0": "$created_at", "hogql_val_1": "$created_at", "hogql_val_2": "$created_at"},
         ),
         # HogQL
         (
