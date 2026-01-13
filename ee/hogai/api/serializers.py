@@ -62,11 +62,18 @@ class ConversationSerializer(ConversationMinimalSerializer):
         if state is None:
             return []
 
-        team = self.context["team"]
-        user = self.context["user"]
-        artifact_manager = ArtifactManager(team, user)
-        enriched_messages = async_to_sync(artifact_manager.aenrich_messages)(list(state.messages))
-        return [message.model_dump() for message in enriched_messages if should_output_assistant_message(message)]
+        try:
+            team = self.context["team"]
+            user = self.context["user"]
+            artifact_manager = ArtifactManager(team, user)
+            enriched_messages = async_to_sync(artifact_manager.aenrich_messages)(list(state.messages))
+            messages = [
+                message.model_dump() for message in enriched_messages if should_output_assistant_message(message)
+            ]
+            return messages
+        except Exception as e:
+            capture_exception(e)
+            return []
 
     def get_has_unsupported_content(self, conversation: Conversation) -> bool:
         _, has_unsupported_content, _ = self._get_cached_state(conversation)

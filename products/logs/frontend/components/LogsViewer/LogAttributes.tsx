@@ -37,7 +37,7 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
     }
 
     return (
-        <div className="bg-primary rounded border border-border overflow-hidden">
+        <div className="bg-primary overflow-hidden rounded border border-border">
             <div className="px-3 py-2 bg-bg-light border-b border-border">
                 <span className="text-xs font-semibold text-muted uppercase">{title}</span>
             </div>
