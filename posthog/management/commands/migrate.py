@@ -23,7 +23,7 @@ from django.core.management.commands.migrate import Command as DjangoMigrateComm
 from django.db import DEFAULT_DB_ALIAS
 from django.db.migrations.recorder import MigrationRecorder
 
-from migration_utils import (
+from common.migration_utils import (
     MIGRATION_CACHE_DIR,
     get_cached_migration,
     get_managed_app_names,
