@@ -1051,9 +1051,9 @@
       distinct_id,
       uuid,
       key,
-      if(property_type IN ('String', 'DateTime'), raw_value, NULL) as value_string,
+      if(property_type IN ('Numeric', 'Boolean'), NULL, raw_value) as value_string,
       if(property_type = 'Numeric', accurateCastOrNull(raw_value, 'Float64'), NULL) as value_numeric,
-      if(property_type = 'Boolean', toBool(transform(toString(raw_value), ['true', 'false'], [1, 0], NULL)), NULL) as value_bool,
+      if(property_type = 'Boolean', transform(toString(raw_value), ['true', 'false'], [1, 0], NULL), NULL) as value_bool,
       _timestamp,
       _offset,
       _partition
