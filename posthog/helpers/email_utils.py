@@ -6,7 +6,7 @@ while maintaining backwards compatibility with existing data that may have mixed
 import hashlib
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import quote
 
 from django.conf import settings
@@ -264,16 +264,6 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
     except Exception as e:
         logger.exception("ESP suppression check unexpected error", error=str(e))
         return _esp_suppression_api_failure_fallback(email, "unexpected_error", str(e))
-
-
-def _parse_esp_suppression_response(data: Any) -> bool:
-    if not data:
-        return False
-    if isinstance(data, list):
-        return len(data) > 0
-    if isinstance(data, dict):
-        return bool(data.get("suppressed", False)) or bool(data.get("suppressions", []))
-    return False
 
 
 @dataclass
