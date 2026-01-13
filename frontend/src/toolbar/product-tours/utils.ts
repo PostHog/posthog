@@ -1,6 +1,6 @@
 import { domToJpeg } from 'modern-screenshot'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_ID, elementToQuery } from '~/toolbar/utils'
 
 export interface ElementInfo {
@@ -12,6 +12,14 @@ export interface ElementInfo {
     rect: { top: number; left: number; width: number; height: number }
 }
 
+export interface ElementScreenshot {
+    mediaId: string
+}
+
+function screenshotFilter(node: Node): boolean {
+    return !(node instanceof HTMLElement && node.id === TOOLBAR_ID)
+}
+
 /**
  * Capture a screenshot of the current page using modern-screenshot.
  * No user prompt required - captures DOM directly.
@@ -21,13 +29,7 @@ export async function captureScreenshot(): Promise<string> {
     const dataUrl = await domToJpeg(document.body, {
         quality: 0.7,
         scale: 0.5, // Reduce size for faster upload
-        filter: (node) => {
-            // Exclude the toolbar from the screenshot
-            if (node instanceof HTMLElement && node.id === TOOLBAR_ID) {
-                return false
-            }
-            return true
-        },
+        filter: screenshotFilter,
     })
     return dataUrl.split(',')[1]
 }
@@ -139,4 +141,60 @@ export function getPageContext(): { url: string; title: string } {
         url: window.location.href,
         title: document.title,
     }
+}
+
+/**
+ * Capture a screenshot of just an element and upload it.
+ * Captures full page then crops to element to preserve styles.
+ * Returns the media ID for display.
+ */
+export async function captureAndUploadElementScreenshot(element: HTMLElement): Promise<ElementScreenshot> {
+    const padding = 20
+    const fillColor = '#ffffff'
+
+    const dataUrl = await domToJpeg(document.documentElement, {
+        quality: 0.9,
+        scale: 1,
+        backgroundColor: fillColor,
+        filter: screenshotFilter,
+    })
+
+    const rect = element.getBoundingClientRect()
+    const x = Math.max(0, rect.left + window.scrollX - padding)
+    const y = Math.max(0, rect.top + window.scrollY - padding)
+    const width = rect.width + padding * 2
+    const height = rect.height + padding * 2
+
+    const img = new Image()
+    img.src = dataUrl
+    await new Promise((resolve) => (img.onload = resolve))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+        throw new Error('Failed to get canvas 2d context')
+    }
+    ctx.fillStyle = fillColor
+    ctx.fillRect(0, 0, width, height)
+    ctx.drawImage(img, x, y, width, height, 0, 0, width, height)
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+            (b) => {
+                if (b) {
+                    resolve(b)
+                } else {
+                    reject(new Error('Failed to create blob from canvas'))
+                }
+            },
+            'image/jpeg',
+            0.9
+        )
+    })
+    const file = new File([blob], `tour-step-${Date.now()}.jpg`, { type: 'image/jpeg' })
+
+    const { id } = await toolbarUploadMedia(file)
+    return { mediaId: id }
 }
