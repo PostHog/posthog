@@ -203,16 +203,16 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     return withSpan('postgres', 'query.postgres', { tag: tag ?? 'unknown' }, async () => {
         const queryConfig =
             typeof queryString === 'string'
-                ? {
+                ? ({
                       // Annotate query string to give context when looking at DB logs
                       // TODO: Use the plugin-server-mode tag to be extra specific
                       text: `/* nodejs:${tag} */ ${queryString}`,
                       values,
-                  }
+                  } as QueryConfig<I>)
                 : queryString
 
         try {
-            return await client.query(queryConfig, values)
+            return await client.query<R, I>(queryConfig)
         } catch (error) {
             if (
                 error.message &&

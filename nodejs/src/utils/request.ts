@@ -207,7 +207,6 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         headers: options.headers,
         body: options.body,
         dispatcher,
-        maxRedirections: 0, // No redirects allowed by default
         signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
     })
 
