@@ -52,7 +52,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
                 status: 'danger',
             },
         ])
-    }, [setMenuItems])
+    }, [removeNode, setMenuItems])
 
     if (!expanded) {
         return null

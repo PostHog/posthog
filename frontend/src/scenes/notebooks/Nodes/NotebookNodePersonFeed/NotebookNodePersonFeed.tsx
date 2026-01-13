@@ -67,7 +67,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttri
                 status: 'danger',
             },
         ])
-    }, [setMenuItems])
+    }, [removeNode, setMenuItems])
 
     if (!expanded) {
         return null

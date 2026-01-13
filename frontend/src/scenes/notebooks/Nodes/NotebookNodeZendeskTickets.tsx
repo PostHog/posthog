@@ -36,7 +36,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeZendeskTicketsA
                 status: 'danger',
             },
         ])
-    }, [setMenuItems])
+    }, [removeNode, setMenuItems])
 
     const query = personId
         ? zendeskPersonTicketsQuery({ personId, status, priority, orderBy, orderDirection })

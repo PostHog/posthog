@@ -550,8 +550,7 @@ export const notebookLogic = kea<notebookLogicType>([
             (shouldBeEditable, previewContent, notebook, mode) =>
                 shouldBeEditable &&
                 (mode === 'canvas' ||
-                    (shouldBeEditable &&
-                        !previewContent &&
+                    (!previewContent &&
                         !!notebook?.user_access_level &&
                         accessLevelSatisfied(
                             AccessControlResourceType.Notebook,

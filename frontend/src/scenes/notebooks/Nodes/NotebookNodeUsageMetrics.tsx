@@ -81,7 +81,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 status: 'danger',
             },
         ])
-    }, [setActions, setMenuItems, loadData, openModal])
+    }, [removeNode, setActions, setMenuItems, loadData, openModal])
 
     if (!expanded) {
         return null
