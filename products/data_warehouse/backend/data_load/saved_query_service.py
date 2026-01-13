@@ -32,12 +32,6 @@ if TYPE_CHECKING:
     from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
-def _clear_sync_interval(saved_query: "DataWarehouseSavedQuery"):
-    # update the sync interval on the model
-    saved_query.sync_frequency_interval = None
-    saved_query.save()
-
-
 def get_sync_frequency(saved_query: "DataWarehouseSavedQuery") -> tuple[timedelta, timedelta]:
     interval = saved_query.sync_frequency_interval or timedelta(hours=24)
 
@@ -109,15 +103,11 @@ def delete_saved_query_schedule(saved_query: "DataWarehouseSavedQuery"):
 def pause_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> None:
     temporal = sync_connect()
     pause_schedule(temporal, schedule_id=str(saved_query.id))
-    _clear_sync_interval(saved_query)
 
 
 async def a_pause_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> None:
-    from asgiref.sync import sync_to_async
-
     temporal = await async_connect()
     await a_pause_schedule(temporal, schedule_id=str(saved_query.id))
-    await sync_to_async(_clear_sync_interval)(saved_query)
 
 
 def unpause_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> None:

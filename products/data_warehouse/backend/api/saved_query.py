@@ -607,18 +607,21 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=True)
-    def resume_schedule(self, request: request.Request, *args, **kwargs) -> response.Response:
+    @action(methods=["POST"], detail=False)
+    def resume_schedules(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
-        Resume a paused materialization schedule for matviews.
+        Resume paused materialization schedules for multiple matviews.
 
-        This endpoint is idempotent - calling it on an already running schedule
-        or non-existent schedule is safe.
+        Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
+        This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
         """
-        saved_query: DataWarehouseSavedQuery = self.get_object()
-        schedule_exists = saved_query_workflow_exists(saved_query)
-        if schedule_exists:
-            unpause_saved_query_schedule(saved_query)
+        view_ids = request.data.get("view_ids", [])
+        if not view_ids:
+            return response.Response({"error": "view_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
+        saved_queries = DataWarehouseSavedQuery.objects.filter(id__in=view_ids, team_id=self.team_id)
+        for saved_query in saved_queries:
+            if saved_query_workflow_exists(saved_query):
+                unpause_saved_query_schedule(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
     @action(methods=["POST"], detail=True)

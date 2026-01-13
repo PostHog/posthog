@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -412,22 +412,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         removeBreakdown: ({ breakdown }) => {
             actions.reportRevenueAnalyticsBreakdownRemoved(breakdown.property, breakdown.type)
         },
-        resumeRevenueViewSchedule: async ({ viewId }) => {
-            try {
-                await api.dataWarehouseSavedQueries.resumeSchedule(viewId)
-                lemonToast.success('Schedule resumed successfully')
-                actions.loadDataWarehouseSavedQueries()
-            } catch {
-                lemonToast.error('Failed to resume schedule')
-            }
-        },
         resumeAllPausedSchedules: async () => {
             const pausedViews = values.pausedRevenueViews
             if (pausedViews.length === 0) {
                 return
             }
             try {
-                await Promise.all(pausedViews.map((view) => api.dataWarehouseSavedQueries.resumeSchedule(view.id)))
+                await api.dataWarehouseSavedQueries.resumeSchedules(pausedViews.map((view) => view.id))
                 lemonToast.success(`Resumed ${pausedViews.length} schedule${pausedViews.length > 1 ? 's' : ''}`)
                 actions.loadDataWarehouseSavedQueries()
             } catch {
@@ -457,7 +448,4 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadDataWarehouseSavedQueries()
-    }),
 ])

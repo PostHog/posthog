@@ -601,16 +601,18 @@ async def materialize_model(
         elif "Timeout exceeded" in error_message:
             error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
+            saved_query.sync_frequency_interval = None
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
-            await mark_job_as_failed(job, error_message, logger)
-            # saving query handled by a_pause_saved_query_schedule -> _clear_sync_interval
+            await database_sync_to_async(saved_query.save)()
             await a_pause_saved_query_schedule(saved_query)
+            await mark_job_as_failed(job, error_message, logger)
             await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
+            saved_query.sync_frequency_interval = None
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
-            # saving query handled by a_pause_saved_query_schedule -> _clear_sync_interval
+            await database_sync_to_async(saved_query.save)()
             await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
             if isinstance(e, NonRetryableException):
