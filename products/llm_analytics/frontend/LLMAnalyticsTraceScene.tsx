@@ -63,6 +63,7 @@ import { EventContentDisplayAsync, EventContentGeneration } from './components/E
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
+import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
@@ -783,6 +784,7 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
         const showClustersTab = !!event && isTraceLevel(event) && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+        const showFeedbackTab = true
 
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
@@ -1051,6 +1053,15 @@ const EventContent = React.memo(
                                                       autoGenerate={initialTab === 'summary'}
                                                   />
                                               ),
+                                          },
+                                      ]
+                                    : []),
+                                ...(showFeedbackTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Feedback,
+                                              label: <>Feedback</>,
+                                              content: <FeedbackViewDisplay />,
                                           },
                                       ]
                                     : []),
