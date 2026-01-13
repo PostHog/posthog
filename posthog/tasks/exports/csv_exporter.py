@@ -429,22 +429,21 @@ def _stream_clickhouse_query(
 
     sql_with_format = f"{prepared_sql.rstrip(';')} FORMAT JSONEachRow"
 
-    response = requests.post(
+    with requests.post(
         url=settings.CLICKHOUSE_HTTP_URL,
         params=params,
         headers=headers,
         data=sql_with_format.encode("utf-8"),
         stream=True,
         timeout=600,
-    )
+    ) as response:
+        if response.status_code != 200:
+            error_message = response.text
+            raise ClickHouseError(f"ClickHouse query failed: {error_message}", query=sql_with_format)
 
-    if response.status_code != 200:
-        error_message = response.text
-        raise ClickHouseError(f"ClickHouse query failed: {error_message}", query=sql_with_format)
-
-    for line in response.iter_lines():
-        if line:
-            yield json.loads(line)
+        for line in response.iter_lines():
+            if line:
+                yield json.loads(line)
 
 
 def _stream_hogql_query_rows(exported_asset: ExportedAsset, limit: int) -> Generator[dict[str, Any], None, None]:
