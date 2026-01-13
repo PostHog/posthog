@@ -175,9 +175,7 @@ function SortableSceneTab({
             style={style}
             {...attributes}
             {...listeners}
-            className={cn(
-                isPinned ? 'w-[var(--button-height-sm)] shrink-0' : 'w-full flex-1 min-w-[100px] max-w-[250px]'
-            )}
+            className={cn(isPinned ? 'shrink-0' : 'w-full flex-1 min-w-[100px] max-w-[250px]')}
             data-tab-id={tab.id}
         >
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
@@ -292,7 +290,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             : 'cursor-pointer hover:text-primary z-20',
                         firstTabActive && 'lg:rounded-bl-none',
                         'focus:outline-none',
-                        isPinned && 'scene-tab--pinned justify-center pl-1 pr-1 gap-0',
+                        isPinned && 'scene-tab--pinned justify-center px-3 gap-0',
                         className
                     )}
                     tooltip={
