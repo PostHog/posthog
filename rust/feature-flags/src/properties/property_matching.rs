@@ -34,7 +34,7 @@ pub fn to_f64_representation(value: &Value) -> Option<f64> {
 }
 
 pub fn to_semver_representation(value: &Value) -> Option<Version> {
-    let version_string = to_string_representation(value);
+    let version_string = to_string_representation(value).trim();
     // Strip 'v' prefix if present (e.g., "v1.2.3" -> "1.2.3")
     let normalized = version_string.strip_prefix('v').unwrap_or(&version_string);
     // TODO: Build metadata (e.g., "1.0.0+build.1") is not currently supported because
