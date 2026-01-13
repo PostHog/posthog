@@ -21,7 +21,9 @@ import {
     ProductTourStep,
     ProductTourStepType,
     ProductTourSurveyQuestion,
+    ScreenPosition,
     StepOrderVersion,
+    SurveyPosition,
 } from '~/types'
 
 import { inferSelector } from './elementInference'
@@ -176,8 +178,9 @@ export const productToursLogic = kea<productToursLogicType>([
             selector?: string,
             survey?: ProductTourSurveyQuestion,
             progressionTrigger?: ProductTourProgressionTriggerType,
-            maxWidth?: number
-        ) => ({ content, selector, survey, progressionTrigger, maxWidth }),
+            maxWidth?: number,
+            modalPosition?: ScreenPosition
+        ) => ({ content, selector, survey, progressionTrigger, maxWidth, modalPosition }),
         cancelEditing: true,
         removeStep: (index: number) => ({ index }),
 
@@ -572,7 +575,14 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
             }
         },
-        confirmStep: async ({ content, selector: selectorOverride, survey, progressionTrigger, maxWidth }) => {
+        confirmStep: async ({
+            content,
+            selector: selectorOverride,
+            survey,
+            progressionTrigger,
+            maxWidth,
+            modalPosition,
+        }) => {
             const { editorState, tourForm, selectedElement, pendingScreenshotPromise } = values
             if (editorState.mode !== 'editing' || !tourForm) {
                 return
@@ -613,6 +623,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 ...(progressionTrigger ? { progressionTrigger } : {}),
                 ...(maxWidth ? { maxWidth } : {}),
                 ...(screenshotMediaId ? { screenshotMediaId } : {}),
+                ...(stepType !== 'element' ? { modalPosition: modalPosition ?? SurveyPosition.MiddleCenter } : {}),
             }
 
             if (stepIndex < steps.length) {
