@@ -13676,7 +13676,8 @@ class CoreEvent(BaseModel):
         extra="forbid",
     )
     category: CoreEventCategory = Field(
-        ..., description="Category (acquisition, activation, retention, referral, revenue)"
+        ...,
+        description="Category (acquisition, activation, monetization, expansion, referral, retention, churn, reactivation)",
     )
     description: str | None = Field(default=None, description="Optional description")
     filter: EventsNode | ActionsNode | DataWarehouseNode = Field(

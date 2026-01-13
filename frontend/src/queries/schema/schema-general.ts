@@ -4598,7 +4598,7 @@ export interface CoreEvent {
     name: string
     /** Optional description */
     description?: string
-    /** Category (acquisition, activation, retention, referral, revenue) */
+    /** Category (acquisition, activation, monetization, expansion, referral, retention, churn, reactivation) */
     category: CoreEventCategory
     /** Filter configuration - event, action, or data warehouse node */
     filter: EventsNode | ActionsNode | DataWarehouseNode

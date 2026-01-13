@@ -8441,7 +8441,7 @@
             "properties": {
                 "category": {
                     "$ref": "#/definitions/CoreEventCategory",
-                    "description": "Category (acquisition, activation, retention, referral, revenue)"
+                    "description": "Category (acquisition, activation, monetization, expansion, referral, retention, churn, reactivation)"
                 },
                 "description": {
                     "description": "Optional description",

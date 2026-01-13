@@ -29,7 +29,7 @@ function actionFilterToNode(filters: FilterType): EventsNode | ActionsNode | Dat
     const action = filters.actions?.[0]
     const dataWarehouse = filters.data_warehouse?.[0]
 
-    if (event?.id) {
+    if (event?.id !== undefined && event?.id !== null) {
         return {
             kind: NodeKind.EventsNode,
             event: String(event.id),
@@ -50,7 +50,7 @@ function actionFilterToNode(filters: FilterType): EventsNode | ActionsNode | Dat
         return {
             kind: NodeKind.DataWarehouseNode,
             id: String(dw.id),
-            table_name: String(dw.id),
+            table_name: dw.table_name || String(dw.id),
             id_field: dw.id_field || '',
             timestamp_field: dw.timestamp_field || '',
             distinct_id_field: dw.distinct_id_field || '',
@@ -98,9 +98,10 @@ function nodeToActionFilter(filter: EventsNode | ActionsNode | DataWarehouseNode
                 actions: [],
                 data_warehouse: [
                     {
-                        id: filter.table_name,
+                        id: filter.id,
                         name: filter.name || filter.table_name,
                         type: 'data_warehouse',
+                        table_name: filter.table_name,
                         id_field: filter.id_field,
                         timestamp_field: filter.timestamp_field,
                         distinct_id_field: filter.distinct_id_field,
@@ -159,6 +160,8 @@ export function CoreEventsSettings(): JSX.Element {
         for (const event of coreEvents) {
             if (event.category && grouped[event.category]) {
                 grouped[event.category].push(event)
+            } else if (!event.category) {
+                console.warn(`CoreEvent "${event.name}" (${event.id}) has no category and will not be displayed`)
             }
         }
         return grouped
@@ -210,13 +213,19 @@ export function CoreEventsSettings(): JSX.Element {
     }
 
     const handleFilterChange = (filters: Partial<FilterType>): void => {
-        const node = actionFilterToNode(filters as FilterType)
+        const filtersWithDefaults: FilterType = {
+            events: filters.events ?? [],
+            actions: filters.actions ?? [],
+            data_warehouse: filters.data_warehouse ?? [],
+            ...filters,
+        }
+        const node = actionFilterToNode(filtersWithDefaults)
         if (node) {
             setFormState((prev) => ({
                 ...prev,
                 filter: node,
                 // Auto-fill name from event/action name if not already set
-                name: prev.name || node.name || (node.kind === NodeKind.EventsNode ? node.event : '') || '',
+                name: prev.name || node.name || (node.kind === NodeKind.EventsNode ? node.event || '' : ''),
             }))
         }
     }
@@ -248,8 +257,7 @@ export function CoreEventsSettings(): JSX.Element {
         }
         const hasValidFilter =
             (formState.filter.kind === NodeKind.EventsNode &&
-                formState.filter.event != defaultFilter.event &&
-                formState.filter.kind === NodeKind.EventsNode &&
+                formState.filter.event !== defaultFilter.event &&
                 formState.filter.event) ||
             (formState.filter.kind === NodeKind.ActionsNode && formState.filter.id !== undefined) ||
             (formState.filter.kind === NodeKind.DataWarehouseNode && formState.filter.table_name)
