@@ -129,8 +129,13 @@ function NewConversationView(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
-                <LemonButton icon={<IconArrowLeft />} size="small" onClick={goBack} />
-                <span className="font-semibold">New conversation</span>
+                <LemonButton
+                    icon={<IconArrowLeft />}
+                    size="small"
+                    onClick={goBack}
+                    data-attr="sidebar-go-back-to-tickets"
+                />
+                <span className="font-semibold">New ticket</span>
             </div>
 
             <p className="text-sm text-muted-alt m-0">
@@ -152,8 +157,9 @@ function NewConversationView(): JSX.Element {
                 onClick={handleSubmit}
                 loading={messageSending}
                 disabled={!messageContent.trim()}
+                data-attr="sidebar-submit-new-ticket"
             >
-                Send message
+                Submit ticket
             </LemonButton>
         </div>
     )
