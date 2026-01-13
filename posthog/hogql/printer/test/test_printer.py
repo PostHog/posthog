@@ -3548,6 +3548,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 "events", "test_prop", is_nullable=is_nullable, create_ngram_lower_index=create_ngram_lower_index
             )
             self.addCleanup(cleanup_materialized_columns)
+        else:
+            mat_col = None
 
         # do multiple test cases per test run, as setup and teardown are a bit slow
         cases: set[str] = {
