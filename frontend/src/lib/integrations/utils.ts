@@ -6,6 +6,7 @@ import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
 import IconDatabricks from 'public/services/databricks.png'
+import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
 import IconGitLab from 'public/services/gitlab.png'
 import IconGoogleAds from 'public/services/google-ads.png'
@@ -50,7 +51,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'bing-ads': IconBingAds,
     vercel: IconVercel,
     'azure-blob': IconAzureBlob,
-    firebase: IconGoogleCloud,
+    firebase: IconFirebase,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
