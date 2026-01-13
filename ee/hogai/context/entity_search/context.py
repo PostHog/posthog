@@ -4,28 +4,17 @@ from typing import Any, Literal
 from django.conf import settings
 from django.db.models import Max
 from django.utils import timezone
+
 from pydantic import ValidationError
 
-from ee.hogai.context.context import AssistantContextManager
+from posthog.schema import InsightVizNode, NotebookArtifactContent, VisualizationArtifactContent
+
 from posthog.api.search import EntityConfig, search_entities
-from posthog.models import (
-    Action,
-    Cohort,
-    Dashboard,
-    Experiment,
-    FeatureFlag,
-    Insight,
-    Survey,
-    Team,
-    User,
-)
+from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.schema import (
-    InsightVizNode,
-    NotebookArtifactContent,
-    VisualizationArtifactContent,
-)
 from posthog.sync import database_sync_to_async
+
+from ee.hogai.context.context import AssistantContextManager
 
 ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
@@ -89,9 +78,7 @@ INSIGHTS_CUTOFF_DAYS = 180
 class EntitySearchContext:
     """Context manager for searching/listing and formatting Django models."""
 
-    def __init__(
-        self, team: Team, user: User, context_manager: AssistantContextManager
-    ):
+    def __init__(self, team: Team, user: User, context_manager: AssistantContextManager):
         self._team = team
         self._user = user
         self._context_manager = context_manager
@@ -99,9 +86,7 @@ class EntitySearchContext:
     @property
     def user_access_control(self) -> UserAccessControl:
         # The `search_entities` function uses this field for access control.
-        return UserAccessControl(
-            user=self._user, team=self._team, organization_id=self._team.organization.id
-        )
+        return UserAccessControl(user=self._user, team=self._team, organization_id=self._team.organization.id)
 
     async def search_entities(
         self,
@@ -121,9 +106,7 @@ class EntitySearchContext:
         if entity_types == "all":
             entity_types = set(ENTITY_MAP.keys())
 
-        results, counts, _ = await database_sync_to_async(
-            search_entities, thread_sensitive=False
-        )(
+        results, counts, _ = await database_sync_to_async(search_entities, thread_sensitive=False)(
             entity_types,
             query,
             self._team.project_id,
@@ -155,9 +138,7 @@ class EntitySearchContext:
             (
                 artifacts,
                 total_count,
-            ) = await self._context_manager.artifacts.aget_conversation_artifacts(
-                limit, offset
-            )
+            ) = await self._context_manager.artifacts.aget_conversation_artifacts(limit, offset)
 
             # Convert artifacts to the same format as database entities
             for artifact in artifacts:
@@ -189,9 +170,7 @@ class EntitySearchContext:
             return await self._list_insights(limit, offset)
         else:
             # Fetch database entities
-            db_results, _, total_count = await database_sync_to_async(
-                search_entities, thread_sensitive=False
-            )(
+            db_results, _, total_count = await database_sync_to_async(search_entities, thread_sensitive=False)(
                 entities={entity_type},
                 query=None,  # No search query, just listing
                 project_id=self._team.project_id,
@@ -258,16 +237,12 @@ class EntitySearchContext:
 
         # Data rows
         for entity in entities:
-            row_values = self._get_entity_row_values(
-                entity, extra_columns_sorted, multiple_types
-            )
+            row_values = self._get_entity_row_values(entity, extra_columns_sorted, multiple_types)
             rows.append("|".join(row_values))
 
         return "\n".join(rows)
 
-    async def _list_insights(
-        self, limit: int = 100, offset: int = 0
-    ) -> tuple[list[dict[str, Any]], int]:
+    async def _list_insights(self, limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
         """
         List insights filtered by recent view time (same queryset as InsightSearchNode).
         Only includes insights viewed within INSIGHTS_CUTOFF_DAYS.
@@ -275,13 +250,9 @@ class EntitySearchContext:
         Returns:
             Tuple of (entities list in format_entities format, total count)
         """
-        return await database_sync_to_async(
-            self._list_insights_sync, thread_sensitive=False
-        )(limit, offset)
+        return await database_sync_to_async(self._list_insights_sync, thread_sensitive=False)(limit, offset)
 
-    def _list_insights_sync(
-        self, limit: int = 100, offset: int = 0
-    ) -> tuple[list[dict[str, Any]], int]:
+    def _list_insights_sync(self, limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
         """Sync implementation of _list_insights for use with database_sync_to_async."""
         cutoff_date = timezone.now() - timedelta(days=INSIGHTS_CUTOFF_DAYS)
         queryset = (
@@ -295,9 +266,7 @@ class EntitySearchContext:
 
         total_count = queryset.count()
         insights = list(
-            queryset[offset : offset + limit].values(
-                "id", "name", "description", "query", "derived_name", "short_id"
-            )
+            queryset[offset : offset + limit].values("id", "name", "description", "query", "derived_name", "short_id")
         )
 
         all_entities: list[dict[str, Any]] = []
@@ -316,9 +285,7 @@ class EntitySearchContext:
 
         return all_entities, total_count
 
-    def _get_entity_row_values(
-        self, result: dict, extra_columns: list[str], include_type: bool
-    ) -> list[str]:
+    def _get_entity_row_values(self, result: dict, extra_columns: list[str], include_type: bool) -> list[str]:
         """
         Get the row values for an entity.
 
