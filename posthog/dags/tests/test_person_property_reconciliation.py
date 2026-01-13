@@ -15,10 +15,16 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.person_property_reconciliation import (
     PersonPropertyDiffs,
     PropertyValue,
+    RawPersonPropertyUpdates,
     SkipReason,
     fetch_person_properties_from_clickhouse,
     filter_event_person_properties,
+    format_ch_timestamp,
     get_person_property_updates_from_clickhouse,
+    get_person_property_updates_windowed,
+    merge_person_property_diffs,
+    merge_raw_person_property_updates,
+    parse_ch_timestamp,
     query_team_ids_from_clickhouse,
     reconcile_person_properties,
     reconcile_with_concurrent_changes,
@@ -1578,6 +1584,598 @@ class TestFilterEventPersonProperties:
         # Person 2: unset wins (newer)
         assert "email" not in result[1].set_updates
         assert "email" in result[1].unset_updates
+
+
+class TestMergePersonPropertyDiffs:
+    """Test the merge_person_property_diffs function for windowed query accumulation."""
+
+    def test_first_person_added_to_empty_accumulator(self):
+        """Test that first person diffs are added directly to empty accumulator."""
+        accumulated: dict[str, PersonPropertyDiffs] = {}
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert "person-1" in accumulated
+        assert accumulated["person-1"].set_updates["email"].value == "test@example.com"
+        assert accumulated["person-1"].person_version == 1
+
+    def test_set_newer_timestamp_replaces_older(self):
+        """Test that $set with newer timestamp replaces older value."""
+        accumulated: dict[str, PersonPropertyDiffs] = {
+            "person-1": PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "old@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        }
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "new@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert accumulated["person-1"].set_updates["email"].value == "new@example.com"
+        assert accumulated["person-1"].set_updates["email"].timestamp == datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC)
+
+    def test_set_older_timestamp_does_not_replace(self):
+        """Test that $set with older timestamp does not replace newer value."""
+        accumulated: dict[str, PersonPropertyDiffs] = {
+            "person-1": PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "new@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        }
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "old@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert accumulated["person-1"].set_updates["email"].value == "new@example.com"
+
+    def test_set_once_earlier_timestamp_wins(self):
+        """Test that $set_once with earlier timestamp replaces later (first-writer-wins)."""
+        accumulated: dict[str, PersonPropertyDiffs] = {
+            "person-1": PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={},
+                set_once_updates={
+                    "signup_source": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "late-source")
+                },
+                unset_updates={},
+            )
+        }
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={},
+                set_once_updates={
+                    "signup_source": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "early-source")
+                },
+                unset_updates={},
+            )
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert accumulated["person-1"].set_once_updates["signup_source"].value == "early-source"
+
+    def test_set_once_later_timestamp_does_not_replace(self):
+        """Test that $set_once with later timestamp does not replace earlier."""
+        accumulated: dict[str, PersonPropertyDiffs] = {
+            "person-1": PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={},
+                set_once_updates={
+                    "signup_source": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "early-source")
+                },
+                unset_updates={},
+            )
+        }
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={},
+                set_once_updates={
+                    "signup_source": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "late-source")
+                },
+                unset_updates={},
+            )
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert accumulated["person-1"].set_once_updates["signup_source"].value == "early-source"
+
+    def test_unset_removes_set_when_newer(self):
+        """Test that $unset removes $set when unset timestamp is newer."""
+        accumulated: dict[str, PersonPropertyDiffs] = {
+            "person-1": PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        }
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={},
+                set_once_updates={},
+                unset_updates={"email": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), None)},
+            )
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert "email" not in accumulated["person-1"].set_updates
+        assert "email" in accumulated["person-1"].unset_updates
+
+    def test_set_removes_unset_when_newer(self):
+        """Test that $set removes $unset when set timestamp is newer."""
+        accumulated: dict[str, PersonPropertyDiffs] = {
+            "person-1": PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={},
+                set_once_updates={},
+                unset_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), None)},
+            )
+        }
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert "email" in accumulated["person-1"].set_updates
+        assert "email" not in accumulated["person-1"].unset_updates
+
+    def test_unset_removes_set_once_when_newer(self):
+        """Test that $unset removes $set_once when unset timestamp is newer."""
+        accumulated: dict[str, PersonPropertyDiffs] = {
+            "person-1": PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={},
+                set_once_updates={
+                    "signup_source": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "source")
+                },
+                unset_updates={},
+            )
+        }
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={},
+                set_once_updates={},
+                unset_updates={"signup_source": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), None)},
+            )
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert "signup_source" not in accumulated["person-1"].set_once_updates
+        assert "signup_source" in accumulated["person-1"].unset_updates
+
+    def test_set_once_removes_unset_when_newer(self):
+        """Test that $set_once removes $unset when set_once timestamp is newer."""
+        accumulated: dict[str, PersonPropertyDiffs] = {
+            "person-1": PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={},
+                set_once_updates={},
+                unset_updates={"signup_source": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), None)},
+            )
+        }
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={},
+                set_once_updates={
+                    "signup_source": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "source")
+                },
+                unset_updates={},
+            )
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert "signup_source" in accumulated["person-1"].set_once_updates
+        assert "signup_source" not in accumulated["person-1"].unset_updates
+
+    def test_person_version_uses_max(self):
+        """Test that person_version is set to max of seen versions."""
+        accumulated: dict[str, PersonPropertyDiffs] = {
+            "person-1": PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=3,
+                set_updates={},
+                set_once_updates={},
+                unset_updates={},
+            )
+        }
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=5,
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert accumulated["person-1"].person_version == 5
+
+    def test_multiple_persons_merged_independently(self):
+        """Test that multiple persons are merged independently."""
+        accumulated: dict[str, PersonPropertyDiffs] = {
+            "person-1": PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={"key1": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "value1")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        }
+        new_diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=2,
+                set_updates={"key1": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "value1-updated")},
+                set_once_updates={},
+                unset_updates={},
+            ),
+            PersonPropertyDiffs(
+                person_id="person-2",
+                person_version=1,
+                set_updates={"key2": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "value2")},
+                set_once_updates={},
+                unset_updates={},
+            ),
+        ]
+
+        merge_person_property_diffs(accumulated, new_diffs)
+
+        assert len(accumulated) == 2
+        assert accumulated["person-1"].set_updates["key1"].value == "value1-updated"
+        assert accumulated["person-1"].person_version == 2
+        assert accumulated["person-2"].set_updates["key2"].value == "value2"
+
+
+class TestMergeRawPersonPropertyUpdates:
+    """Test the merge_raw_person_property_updates function for windowed query accumulation."""
+
+    def test_first_person_added_to_empty_accumulator(self):
+        """Test that first person updates are added directly to empty accumulator."""
+        accumulated: dict[str, RawPersonPropertyUpdates] = {}
+        new_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        merge_raw_person_property_updates(accumulated, new_updates)
+
+        assert "person-1" in accumulated
+        assert accumulated["person-1"].set_updates["email"].value == "test@example.com"
+
+    def test_set_newer_timestamp_replaces_older(self):
+        """Test that $set with newer timestamp replaces older value."""
+        accumulated: dict[str, RawPersonPropertyUpdates] = {
+            "person-1": RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "old@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        }
+        new_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "new@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        merge_raw_person_property_updates(accumulated, new_updates)
+
+        assert accumulated["person-1"].set_updates["email"].value == "new@example.com"
+
+    def test_set_once_earlier_timestamp_wins(self):
+        """Test that $set_once with earlier timestamp wins (first-writer-wins)."""
+        accumulated: dict[str, RawPersonPropertyUpdates] = {
+            "person-1": RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={},
+                set_once_updates={
+                    "signup_source": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "late-source")
+                },
+                unset_updates={},
+            )
+        }
+        new_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={},
+                set_once_updates={
+                    "signup_source": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "early-source")
+                },
+                unset_updates={},
+            )
+        ]
+
+        merge_raw_person_property_updates(accumulated, new_updates)
+
+        assert accumulated["person-1"].set_once_updates["signup_source"].value == "early-source"
+
+    def test_unset_removes_set_when_newer(self):
+        """Test that $unset removes $set when unset timestamp is newer."""
+        accumulated: dict[str, RawPersonPropertyUpdates] = {
+            "person-1": RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        }
+        new_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={},
+                set_once_updates={},
+                unset_updates={"email": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), None)},
+            )
+        ]
+
+        merge_raw_person_property_updates(accumulated, new_updates)
+
+        assert "email" not in accumulated["person-1"].set_updates
+        assert "email" in accumulated["person-1"].unset_updates
+
+    def test_set_removes_unset_when_newer(self):
+        """Test that $set removes $unset when set timestamp is newer."""
+        accumulated: dict[str, RawPersonPropertyUpdates] = {
+            "person-1": RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={},
+                set_once_updates={},
+                unset_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), None)},
+            )
+        }
+        new_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        merge_raw_person_property_updates(accumulated, new_updates)
+
+        assert "email" in accumulated["person-1"].set_updates
+        assert "email" not in accumulated["person-1"].unset_updates
+
+    def test_multiple_persons_merged_independently(self):
+        """Test that multiple persons are merged independently."""
+        accumulated: dict[str, RawPersonPropertyUpdates] = {
+            "person-1": RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"key1": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "value1")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        }
+        new_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"key1": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), "value1-updated")},
+                set_once_updates={},
+                unset_updates={},
+            ),
+            RawPersonPropertyUpdates(
+                person_id="person-2",
+                set_updates={"key2": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "value2")},
+                set_once_updates={},
+                unset_updates={},
+            ),
+        ]
+
+        merge_raw_person_property_updates(accumulated, new_updates)
+
+        assert len(accumulated) == 2
+        assert accumulated["person-1"].set_updates["key1"].value == "value1-updated"
+        assert accumulated["person-2"].set_updates["key2"].value == "value2"
+
+
+class TestGetPersonPropertyUpdatesWindowed:
+    """Test the get_person_property_updates_windowed function."""
+
+    @patch("posthog.dags.person_property_reconciliation.get_person_property_updates_from_clickhouse")
+    def test_window_seconds_zero_calls_original_once(self, mock_get_updates):
+        """Test that window_seconds=0 calls original function once."""
+        mock_get_updates.return_value = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        result = get_person_property_updates_windowed(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            window_seconds=0,
+        )
+
+        mock_get_updates.assert_called_once_with(1, "2024-01-01 00:00:00")
+        assert len(result) == 1
+
+    @patch("posthog.dags.person_property_reconciliation.get_person_property_updates_from_clickhouse")
+    def test_window_seconds_negative_calls_original_once(self, mock_get_updates):
+        """Test that negative window_seconds calls original function once."""
+        mock_get_updates.return_value = []
+
+        get_person_property_updates_windowed(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            window_seconds=-100,
+        )
+
+        mock_get_updates.assert_called_once_with(1, "2024-01-01 00:00:00")
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    def test_window_seconds_positive_creates_windows(self, mock_get_raw, mock_datetime, mock_compare):
+        """Test that positive window_seconds creates multiple query windows."""
+        mock_now = datetime(2024, 1, 1, 2, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+        mock_get_raw.return_value = []
+        mock_compare.return_value = []
+
+        get_person_property_updates_windowed(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            window_seconds=3600,  # 1 hour windows
+        )
+
+        # Should have 2 calls: 00:00-01:00 and 01:00-02:00
+        assert mock_get_raw.call_count == 2
+        calls = mock_get_raw.call_args_list
+        assert calls[0][0] == (1, "2024-01-01 00:00:00", "2024-01-01 01:00:00")
+        assert calls[1][0] == (1, "2024-01-01 01:00:00", "2024-01-01 02:00:00")
+        # compare_raw_updates_with_person_state should be called once at the end
+        mock_compare.assert_called_once()
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    def test_window_merges_results_across_windows(self, mock_get_raw, mock_datetime, mock_compare):
+        """Test that results are properly merged across windows."""
+        mock_now = datetime(2024, 1, 1, 2, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        # First window returns one update, second window returns a newer update for same key
+        mock_get_raw.side_effect = [
+            [
+                RawPersonPropertyUpdates(
+                    person_id="person-1",
+                    set_updates={"email": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "old@example.com")},
+                    set_once_updates={},
+                    unset_updates={},
+                )
+            ],
+            [
+                RawPersonPropertyUpdates(
+                    person_id="person-1",
+                    set_updates={"email": PropertyValue(datetime(2024, 1, 1, 1, 30, 0, tzinfo=UTC), "new@example.com")},
+                    set_once_updates={},
+                    unset_updates={},
+                )
+            ],
+        ]
+
+        # Mock the comparison to return the expected result
+        mock_compare.return_value = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates={"email": PropertyValue(datetime(2024, 1, 1, 1, 30, 0, tzinfo=UTC), "new@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        result = get_person_property_updates_windowed(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            window_seconds=3600,
+        )
+
+        assert len(result) == 1
+        assert result[0].set_updates["email"].value == "new@example.com"
+
+        # Verify compare was called with merged raw updates (newer email value)
+        compare_call_args = mock_compare.call_args[0]
+        assert compare_call_args[0] == 1  # team_id
+        raw_updates_list = compare_call_args[1]
+        assert len(raw_updates_list) == 1
+        assert raw_updates_list[0].set_updates["email"].value == "new@example.com"
+
+
+class TestParseFormatChTimestamp:
+    """Test the parse_ch_timestamp and format_ch_timestamp helper functions."""
+
+    def test_parse_ch_timestamp(self):
+        """Test parsing ClickHouse timestamp string to datetime."""
+        result = parse_ch_timestamp("2024-01-15 12:30:45")
+        assert result == datetime(2024, 1, 15, 12, 30, 45, tzinfo=UTC)
+
+    def test_format_ch_timestamp(self):
+        """Test formatting datetime to ClickHouse timestamp string."""
+        dt = datetime(2024, 1, 15, 12, 30, 45, tzinfo=UTC)
+        result = format_ch_timestamp(dt)
+        assert result == "2024-01-15 12:30:45"
+
+    def test_roundtrip(self):
+        """Test that parse and format are inverse operations."""
+        original = "2024-06-20 08:15:30"
+        parsed = parse_ch_timestamp(original)
+        formatted = format_ch_timestamp(parsed)
+        assert formatted == original
 
 
 class TestPropertyValueDataclass:
@@ -3621,6 +4219,159 @@ class TestClickHouseQueryIntegration:
         assert "$referring_domain" not in set_once_keys, (
             "Filtered property '$referring_domain' should NOT be in results"
         )
+
+    def test_windowed_query_produces_same_result_as_single_query(self, cluster: ClickhouseCluster):
+        """
+        Integration test: windowed queries should produce equivalent results to single query.
+
+        This test inserts events spread across multiple time windows with $set, $set_once,
+        and $unset operations, then verifies that:
+        1. A single query returns the expected merged result
+        2. A windowed query (multiple smaller queries merged) returns the same result
+
+        The CH query behavior:
+        - $set: only returns keys that EXIST in person AND have different values
+        - $set_once: only returns keys that DON'T exist in person
+        - $unset: only returns keys that EXIST in person
+        """
+        team_id = 99930
+        person_id = UUID("11111111-1111-1111-1111-000000000030")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(hours=6)
+
+        # Events spread across 6 hours (will use 2-hour windows = 3 windows)
+        # Window 1: hour 0-2
+        #   - $set email to "first@example.com" at hour 1
+        #   - $set name to "Name1" at hour 1
+        #   - $set_once signup_source to "source1" at hour 1
+        # Window 2: hour 2-4
+        #   - $set email to "second@example.com" at hour 3 (newer, should win)
+        #   - $set_once signup_source to "source2" at hour 3 (older should win - source1)
+        # Window 3: hour 4-6
+        #   - $unset email at hour 5 (newest, should remove email from set)
+        #   - $set name to "Name3" at hour 5 (newest, should win)
+
+        events = [
+            # Window 1 events (hour 1)
+            (
+                team_id,
+                "distinct_id_1",
+                person_id,
+                bug_window_start + timedelta(hours=1),
+                json.dumps(
+                    {
+                        "$set": {"email": "first@example.com", "name": "Name1"},
+                        "$set_once": {"signup_source": "source1"},
+                    }
+                ),
+            ),
+            # Window 2 events (hour 3)
+            (
+                team_id,
+                "distinct_id_1",
+                person_id,
+                bug_window_start + timedelta(hours=3),
+                json.dumps({"$set": {"email": "second@example.com"}, "$set_once": {"signup_source": "source2"}}),
+            ),
+            # Window 3 events (hour 5)
+            (
+                team_id,
+                "distinct_id_1",
+                person_id,
+                bug_window_start + timedelta(hours=5),
+                json.dumps({"$unset": ["email"], "$set": {"name": "Name3"}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person has email and name (so $set/$unset can modify them)
+        # Person does NOT have signup_source (so $set_once will add it)
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps({"email": "old@example.com", "name": "OldName"}),
+                1,
+                now - timedelta(hours=7),
+            )
+        ]
+
+        def insert_person(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        bug_window_start_str = bug_window_start.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Run single query (current behavior)
+        single_results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start_str,
+        )
+
+        # Run windowed query with 2-hour windows
+        windowed_results = get_person_property_updates_windowed(
+            team_id=team_id,
+            bug_window_start=bug_window_start_str,
+            window_seconds=7200,  # 2 hours
+        )
+
+        # Both should return exactly one person
+        assert len(single_results) == 1
+        assert len(windowed_results) == 1
+
+        single_diff = single_results[0]
+        windowed_diff = windowed_results[0]
+
+        # Both should have the same person_id
+        assert single_diff.person_id == windowed_diff.person_id == str(person_id)
+
+        # Core assertion: windowed query should produce equivalent results to single query
+        # The key properties we expect (based on event data):
+        # - name: $set to "Name3" at hour 5 (argMax picks latest)
+        # - email: $unset at hour 5 (person has email, events want to unset)
+
+        # Verify both queries return the same keys in each category
+        assert set(single_diff.set_updates.keys()) == set(windowed_diff.set_updates.keys()), (
+            f"set_updates keys differ: single={set(single_diff.set_updates.keys())}, "
+            f"windowed={set(windowed_diff.set_updates.keys())}"
+        )
+        assert set(single_diff.set_once_updates.keys()) == set(windowed_diff.set_once_updates.keys()), (
+            f"set_once_updates keys differ: single={set(single_diff.set_once_updates.keys())}, "
+            f"windowed={set(windowed_diff.set_once_updates.keys())}"
+        )
+        assert set(single_diff.unset_updates.keys()) == set(windowed_diff.unset_updates.keys()), (
+            f"unset_updates keys differ: single={set(single_diff.unset_updates.keys())}, "
+            f"windowed={set(windowed_diff.unset_updates.keys())}"
+        )
+
+        # Verify values match for keys that exist
+        for key in single_diff.set_updates:
+            assert single_diff.set_updates[key].value == windowed_diff.set_updates[key].value, (
+                f"set_updates[{key}] value differs"
+            )
+
+        for key in single_diff.set_once_updates:
+            assert single_diff.set_once_updates[key].value == windowed_diff.set_once_updates[key].value, (
+                f"set_once_updates[{key}] value differs"
+            )
+
+        # Verify expected properties based on test data
+        assert "name" in single_diff.set_updates, "name should be in set_updates"
+        assert single_diff.set_updates["name"].value == "Name3", "name should be Name3"
+        assert "email" in single_diff.unset_updates, "email should be in unset_updates"
 
 
 @pytest.mark.django_db(transaction=True)

@@ -10,7 +10,7 @@ and applies any missed updates.
 import json
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -43,6 +43,7 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     backup_enabled: bool = True  # Store before/after state in backup table
     batch_size: int = 100  # Commit Postgres transaction every N persons (0 = single commit at end)
     teams_per_chunk: int = 100  # Number of teams to process per task (reduces task overhead)
+    team_ch_props_fetch_window_seconds: int = 0  # 0 = single query; >0 = split into N-second windows
 
 
 @dataclass
@@ -59,6 +60,20 @@ class PersonPropertyDiffs:
 
     person_id: str
     person_version: int  # Version from CH person table (baseline for conflict detection)
+    set_updates: dict[str, PropertyValue]  # key -> PropertyValue
+    set_once_updates: dict[str, PropertyValue]  # key -> PropertyValue
+    unset_updates: dict[str, PropertyValue]  # key -> PropertyValue (value is always None)
+
+
+@dataclass
+class RawPersonPropertyUpdates:
+    """Raw property updates from events, before comparison with person state.
+
+    Used in windowed queries where we aggregate across multiple time windows
+    before doing a single comparison against person properties.
+    """
+
+    person_id: str
     set_updates: dict[str, PropertyValue]  # key -> PropertyValue
     set_once_updates: dict[str, PropertyValue]  # key -> PropertyValue
     unset_updates: dict[str, PropertyValue]  # key -> PropertyValue (value is always None)
@@ -120,8 +135,6 @@ FILTERED_PERSON_UPDATE_PROPERTIES = frozenset(
 
 def ensure_utc_datetime(ts: datetime) -> datetime:
     """Ensure timestamp is a UTC-aware datetime."""
-    from datetime import UTC
-
     if ts.tzinfo is None:
         return ts.replace(tzinfo=UTC)
     return ts
@@ -323,6 +336,509 @@ def get_person_property_updates_from_clickhouse(
             )
 
     return results
+
+
+def get_raw_person_property_updates_from_clickhouse(
+    team_id: int,
+    bug_window_start: str,
+    bug_window_end: str,
+) -> list[RawPersonPropertyUpdates]:
+    """
+    Query ClickHouse to get raw property updates from events WITHOUT comparing to person state.
+
+    This is used for windowed queries where we need to aggregate events across multiple
+    time windows before doing a single comparison against person properties.
+
+    Returns raw aggregated event data:
+    - $set: argMax for latest value per key
+    - $set_once: argMin for first value per key
+    - $unset: max timestamp per key
+
+    Args:
+        team_id: Team ID to query
+        bug_window_start: Start of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+        bug_window_end: End of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+
+    Returns:
+        List of RawPersonPropertyUpdates with aggregated event data (no person comparison)
+    """
+    query = """
+    -- CTE 1: Get all overrides for the team
+    WITH overrides AS (
+        SELECT
+            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+    ),
+    -- CTE 2: Extract and aggregate properties from events
+    event_properties_raw AS (
+        SELECT
+            person_id,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_keys,
+            arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_values,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_timestamps,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_keys,
+            arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_values,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_timestamps,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_keys,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_timestamps
+        FROM (
+            SELECT
+                person_id,
+                groupArray(tuple(key, value, kv_timestamp, prop_type)) AS grouped_props
+            FROM (
+                SELECT
+                    if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id,
+                    kv_tuple.2 AS key,
+                    kv_tuple.1 AS prop_type,
+                    if(kv_tuple.1 = 'set',
+                        argMaxIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != ''),
+                        argMinIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != '')
+                    ) AS value,
+                    if(kv_tuple.1 = 'set_once', min(e.timestamp), max(e.timestamp)) AS kv_timestamp
+                FROM events e
+                LEFT JOIN overrides o ON e.distinct_id = o.distinct_id
+                ARRAY JOIN
+                    arrayConcat(
+                        arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('set', x.1, toString(x.2)),
+                                arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set'))
+                            )
+                        ),
+                        arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('set_once', x.1, toString(x.2)),
+                                arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set_once'))
+                            )
+                        ),
+                        arrayFilter(x -> x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('unset', JSON_VALUE(x, '$'), ''),
+                                JSONExtractArrayRaw(e.properties, '$unset')
+                            )
+                        )
+                    ) AS kv_tuple
+                WHERE e.team_id = %(team_id)s
+                  AND e.timestamp > %(bug_window_start)s
+                  AND e.timestamp < %(bug_window_end)s
+                  AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
+                GROUP BY if(notEmpty(o.distinct_id), o.person_id, e.person_id), kv_tuple.2, kv_tuple.1
+            )
+            GROUP BY person_id
+        )
+    )
+    -- Return raw aggregated event data (no person comparison)
+    SELECT
+        person_id,
+        arrayMap(i -> (set_keys[i], set_values[i], set_timestamps[i]), arrayEnumerate(set_keys)) AS set_data,
+        arrayMap(i -> (set_once_keys[i], set_once_values[i], set_once_timestamps[i]), arrayEnumerate(set_once_keys)) AS set_once_data,
+        arrayMap(i -> (unset_keys[i], unset_timestamps[i]), arrayEnumerate(unset_keys)) AS unset_data
+    FROM event_properties_raw
+    WHERE length(set_keys) > 0 OR length(set_once_keys) > 0 OR length(unset_keys) > 0
+    ORDER BY person_id
+    SETTINGS
+        readonly=2,
+        max_execution_time=600,
+        allow_experimental_object_type=1,
+        format_csv_allow_double_quotes=0,
+        max_ast_elements=4000000,
+        max_expanded_ast_elements=4000000,
+        allow_experimental_analyzer=1,
+        transform_null_in=1,
+        optimize_min_equality_disjunction_chain_length=4294967295,
+        allow_experimental_join_condition=1,
+        use_hive_partitioning=0
+    """
+
+    params = {
+        "team_id": team_id,
+        "bug_window_start": bug_window_start,
+        "bug_window_end": bug_window_end,
+        "filtered_properties": tuple(FILTERED_PERSON_UPDATE_PROPERTIES),
+    }
+
+    rows = sync_execute(query, params)
+
+    results: list[RawPersonPropertyUpdates] = []
+    for row in rows:
+        person_id, set_data, set_once_data, unset_data = row
+
+        set_updates: dict[str, PropertyValue] = {}
+        for key, value, timestamp in set_data:
+            set_updates[str(key)] = PropertyValue(
+                timestamp=ensure_utc_datetime(timestamp),
+                value=json.loads(value),
+            )
+
+        set_once_updates: dict[str, PropertyValue] = {}
+        for key, value, timestamp in set_once_data:
+            set_once_updates[str(key)] = PropertyValue(
+                timestamp=ensure_utc_datetime(timestamp),
+                value=json.loads(value),
+            )
+
+        unset_updates: dict[str, PropertyValue] = {}
+        for key, timestamp in unset_data:
+            unset_updates[str(key)] = PropertyValue(
+                timestamp=ensure_utc_datetime(timestamp),
+                value=None,
+            )
+
+        if set_updates or set_once_updates or unset_updates:
+            results.append(
+                RawPersonPropertyUpdates(
+                    person_id=str(person_id),
+                    set_updates=set_updates,
+                    set_once_updates=set_once_updates,
+                    unset_updates=unset_updates,
+                )
+            )
+
+    return results
+
+
+def merge_raw_person_property_updates(
+    accumulated: dict[str, RawPersonPropertyUpdates],
+    new_updates: list[RawPersonPropertyUpdates],
+) -> None:
+    """
+    Merge new raw updates into accumulated dict, keyed by person_id.
+
+    This is used when iterating through time windows to accumulate raw property updates
+    across multiple query results BEFORE comparing with person state.
+
+    Merge rules:
+    - For $set: newer timestamp replaces older
+    - For $set_once: earlier timestamp wins (first-writer-wins semantics)
+    - For $unset: newer timestamp replaces older
+    - Cross-map conflicts (set/set_once vs unset): newer timestamp wins, loser is removed
+
+    Args:
+        accumulated: Dict of person_id -> RawPersonPropertyUpdates to merge into (mutated in place)
+        new_updates: List of new RawPersonPropertyUpdates from the latest window query
+    """
+    for new_update in new_updates:
+        person_id = new_update.person_id
+
+        if person_id not in accumulated:
+            accumulated[person_id] = RawPersonPropertyUpdates(
+                person_id=person_id,
+                set_updates=dict(new_update.set_updates),
+                set_once_updates=dict(new_update.set_once_updates),
+                unset_updates=dict(new_update.unset_updates),
+            )
+            continue
+
+        existing = accumulated[person_id]
+
+        # Process $set updates - newer timestamp wins
+        for key, new_pv in new_update.set_updates.items():
+            if key in existing.set_updates:
+                if new_pv.timestamp > existing.set_updates[key].timestamp:
+                    existing.set_updates[key] = new_pv
+            else:
+                existing.set_updates[key] = new_pv
+
+            # Cross-map conflict: if this key was in unset, check timestamps
+            if key in existing.unset_updates:
+                if new_pv.timestamp > existing.unset_updates[key].timestamp:
+                    del existing.unset_updates[key]
+                else:
+                    del existing.set_updates[key]
+
+        # Process $set_once updates - earlier timestamp wins
+        for key, new_pv in new_update.set_once_updates.items():
+            if key in existing.set_once_updates:
+                if new_pv.timestamp < existing.set_once_updates[key].timestamp:
+                    existing.set_once_updates[key] = new_pv
+            else:
+                existing.set_once_updates[key] = new_pv
+
+            # Cross-map conflict: if this key was in unset, check timestamps
+            if key in existing.unset_updates:
+                if new_pv.timestamp > existing.unset_updates[key].timestamp:
+                    del existing.unset_updates[key]
+                else:
+                    del existing.set_once_updates[key]
+
+        # Process $unset updates - newer timestamp wins
+        for key, new_pv in new_update.unset_updates.items():
+            if key in existing.unset_updates:
+                if new_pv.timestamp > existing.unset_updates[key].timestamp:
+                    existing.unset_updates[key] = new_pv
+            else:
+                existing.unset_updates[key] = new_pv
+
+            # Cross-map conflict: if this key was in set, check timestamps
+            if key in existing.set_updates:
+                if new_pv.timestamp > existing.set_updates[key].timestamp:
+                    del existing.set_updates[key]
+                else:
+                    del existing.unset_updates[key]
+
+            # Cross-map conflict: if this key was in set_once, check timestamps
+            if key in existing.set_once_updates:
+                if new_pv.timestamp > existing.set_once_updates[key].timestamp:
+                    del existing.set_once_updates[key]
+                else:
+                    del existing.unset_updates[key]
+
+
+def compare_raw_updates_with_person_state(
+    team_id: int,
+    raw_updates: list[RawPersonPropertyUpdates],
+) -> list[PersonPropertyDiffs]:
+    """
+    Compare merged raw event updates against current person state in ClickHouse.
+
+    This is the second step of the windowed query flow:
+    1. get_raw_person_property_updates_from_clickhouse() per window
+    2. merge_raw_person_property_updates() to combine windows
+    3. compare_raw_updates_with_person_state() to filter to actual diffs
+
+    Comparison rules (matching the original single-query behavior):
+    - $set: only include if key EXISTS in person AND value DIFFERS
+    - $set_once: only include if key does NOT exist in person
+    - $unset: only include if key EXISTS in person
+
+    Args:
+        team_id: Team ID
+        raw_updates: Merged raw updates from all time windows
+
+    Returns:
+        List of PersonPropertyDiffs with only actual differences
+    """
+    if not raw_updates:
+        return []
+
+    person_ids = [u.person_id for u in raw_updates]
+
+    # Query person properties and versions
+    query = """
+    SELECT
+        id,
+        argMax(properties, version) as properties,
+        argMax(version, version) as person_version
+    FROM person
+    WHERE team_id = %(team_id)s
+      AND id IN %(person_ids)s
+    GROUP BY id
+    HAVING argMax(is_deleted, version) = 0
+    """
+
+    params = {
+        "team_id": team_id,
+        "person_ids": tuple(person_ids),
+    }
+
+    rows = sync_execute(query, params)
+
+    # Build person lookup
+    person_data: dict[str, tuple[dict, int]] = {}
+    for row in rows:
+        person_id, properties_str, version = row
+        if properties_str:
+            properties = json.loads(properties_str) if isinstance(properties_str, str) else properties_str
+        else:
+            properties = {}
+        person_data[str(person_id)] = (properties, int(version))
+
+    results: list[PersonPropertyDiffs] = []
+
+    for raw_update in raw_updates:
+        if raw_update.person_id not in person_data:
+            continue
+
+        person_properties, person_version = person_data[raw_update.person_id]
+        person_keys = set(person_properties.keys())
+
+        # Filter $set: key must exist in person AND value must differ
+        filtered_set: dict[str, PropertyValue] = {}
+        for key, pv in raw_update.set_updates.items():
+            if key in person_keys:
+                person_val = person_properties[key]
+                if pv.value != person_val:
+                    filtered_set[key] = pv
+
+        # Filter $set_once: key must NOT exist in person
+        filtered_set_once: dict[str, PropertyValue] = {}
+        for key, pv in raw_update.set_once_updates.items():
+            if key not in person_keys:
+                filtered_set_once[key] = pv
+
+        # Filter $unset: key must exist in person
+        filtered_unset: dict[str, PropertyValue] = {}
+        for key, pv in raw_update.unset_updates.items():
+            if key in person_keys:
+                filtered_unset[key] = pv
+
+        if filtered_set or filtered_set_once or filtered_unset:
+            results.append(
+                PersonPropertyDiffs(
+                    person_id=raw_update.person_id,
+                    person_version=person_version,
+                    set_updates=filtered_set,
+                    set_once_updates=filtered_set_once,
+                    unset_updates=filtered_unset,
+                )
+            )
+
+    return results
+
+
+def merge_person_property_diffs(
+    accumulated: dict[str, PersonPropertyDiffs],
+    new_diffs: list[PersonPropertyDiffs],
+) -> None:
+    """
+    Merge new_diffs into accumulated dict, keyed by person_id.
+
+    This is used when iterating through time windows to accumulate property diffs
+    across multiple query results. The merge handles:
+
+    - For $set: newer timestamp replaces older
+    - For $set_once: earlier timestamp wins (first-writer-wins semantics)
+    - Cross-map conflicts (set/set_once vs unset): newer timestamp wins, loser is removed
+    - person_version: use max seen across all windows
+
+    Args:
+        accumulated: Dict of person_id -> PersonPropertyDiffs to merge into (mutated in place)
+        new_diffs: List of new PersonPropertyDiffs from the latest window query
+    """
+    for new_diff in new_diffs:
+        person_id = new_diff.person_id
+
+        if person_id not in accumulated:
+            # First time seeing this person - just copy the diff
+            accumulated[person_id] = PersonPropertyDiffs(
+                person_id=person_id,
+                person_version=new_diff.person_version,
+                set_updates=dict(new_diff.set_updates),
+                set_once_updates=dict(new_diff.set_once_updates),
+                unset_updates=dict(new_diff.unset_updates),
+            )
+            continue
+
+        existing = accumulated[person_id]
+
+        # Update person_version to max seen
+        existing.person_version = max(existing.person_version, new_diff.person_version)
+
+        # Process $set updates - newer timestamp wins
+        for key, new_pv in new_diff.set_updates.items():
+            if key in existing.set_updates:
+                if new_pv.timestamp > existing.set_updates[key].timestamp:
+                    existing.set_updates[key] = new_pv
+            else:
+                existing.set_updates[key] = new_pv
+
+            # Cross-map conflict: if this key was in unset, check timestamps
+            if key in existing.unset_updates:
+                if new_pv.timestamp > existing.unset_updates[key].timestamp:
+                    # set is newer - remove from unset
+                    del existing.unset_updates[key]
+                else:
+                    # unset is newer - remove from set
+                    del existing.set_updates[key]
+
+        # Process $set_once updates - earlier timestamp wins
+        for key, new_pv in new_diff.set_once_updates.items():
+            if key in existing.set_once_updates:
+                if new_pv.timestamp < existing.set_once_updates[key].timestamp:
+                    existing.set_once_updates[key] = new_pv
+            else:
+                existing.set_once_updates[key] = new_pv
+
+            # Cross-map conflict: if this key was in unset, check timestamps
+            if key in existing.unset_updates:
+                if new_pv.timestamp > existing.unset_updates[key].timestamp:
+                    # set_once is newer - remove from unset
+                    del existing.unset_updates[key]
+                else:
+                    # unset is newer - remove from set_once
+                    del existing.set_once_updates[key]
+
+        # Process $unset updates - newer timestamp wins
+        for key, new_pv in new_diff.unset_updates.items():
+            if key in existing.unset_updates:
+                if new_pv.timestamp > existing.unset_updates[key].timestamp:
+                    existing.unset_updates[key] = new_pv
+            else:
+                existing.unset_updates[key] = new_pv
+
+            # Cross-map conflict: if this key was in set, check timestamps
+            if key in existing.set_updates:
+                if new_pv.timestamp > existing.set_updates[key].timestamp:
+                    # unset is newer - remove from set
+                    del existing.set_updates[key]
+                else:
+                    # set is newer - remove from unset
+                    del existing.unset_updates[key]
+
+            # Cross-map conflict: if this key was in set_once, check timestamps
+            if key in existing.set_once_updates:
+                if new_pv.timestamp > existing.set_once_updates[key].timestamp:
+                    # unset is newer - remove from set_once
+                    del existing.set_once_updates[key]
+                else:
+                    # set_once is newer - remove from unset
+                    del existing.unset_updates[key]
+
+
+def parse_ch_timestamp(ts: str) -> datetime:
+    """Parse a ClickHouse timestamp string to a UTC datetime."""
+    return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+
+
+def format_ch_timestamp(dt: datetime) -> str:
+    """Format a datetime to ClickHouse timestamp string."""
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_person_property_updates_windowed(
+    team_id: int,
+    bug_window_start: str,
+    window_seconds: int,
+) -> list[PersonPropertyDiffs]:
+    """
+    Fetch person property updates, optionally in time windows.
+
+    When window_seconds > 0, this function uses a two-step flow:
+    1. Query raw event aggregates per window (no person comparison)
+    2. Merge raw updates across windows with timestamp-based deduplication
+    3. Compare final merged updates against current person state
+
+    When window_seconds <= 0, uses the original single-query approach.
+
+    Args:
+        team_id: Team ID to query
+        bug_window_start: Start of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+        window_seconds: Size of each query window in seconds. If <= 0, single query is used.
+
+    Returns:
+        List of PersonPropertyDiffs with merged results across all windows
+    """
+    if window_seconds <= 0:
+        return get_person_property_updates_from_clickhouse(team_id, bug_window_start)
+
+    # Step 1 & 2: Query raw updates per window and merge
+    accumulated: dict[str, RawPersonPropertyUpdates] = {}
+    current_start = parse_ch_timestamp(bug_window_start)
+    now = datetime.now(UTC)
+
+    while current_start < now:
+        current_end = min(current_start + timedelta(seconds=window_seconds), now)
+        window_updates = get_raw_person_property_updates_from_clickhouse(
+            team_id,
+            format_ch_timestamp(current_start),
+            format_ch_timestamp(current_end),
+        )
+        merge_raw_person_property_updates(accumulated, window_updates)
+        current_start = current_end
+
+    # Step 3: Compare merged raw updates against person state
+    return compare_raw_updates_with_person_state(team_id, list(accumulated.values()))
 
 
 def filter_event_person_properties(
@@ -1106,6 +1622,7 @@ def reconcile_single_team(
     batch_size: int,
     dry_run: bool,
     backup_enabled: bool,
+    team_ch_props_fetch_window_seconds: int,
     persons_database: psycopg2.extensions.connection,
     kafka_producer: _KafkaProducer,
     logger: Any,
@@ -1116,9 +1633,10 @@ def reconcile_single_team(
     This function does not catch exceptions - the caller is responsible for error handling.
     """
     # Query ClickHouse for all persons with property updates in this team
-    person_property_diffs = get_person_property_updates_from_clickhouse(
+    person_property_diffs = get_person_property_updates_windowed(
         team_id=team_id,
         bug_window_start=bug_window_start,
+        window_seconds=team_ch_props_fetch_window_seconds,
     )
 
     # Filter conflicting set/unset operations
@@ -1236,6 +1754,7 @@ def reconcile_team_chunk(
                 batch_size=config.batch_size,
                 dry_run=config.dry_run,
                 backup_enabled=config.backup_enabled,
+                team_ch_props_fetch_window_seconds=config.team_ch_props_fetch_window_seconds,
                 persons_database=persons_database,
                 kafka_producer=kafka_producer,
                 logger=context.log,
@@ -1394,6 +1913,7 @@ class ReconciliationSchedulerConfig(dagster.Config):
     backup_enabled: bool = True
     batch_size: int = 100
     teams_per_chunk: int = 100  # Number of teams to process per task
+    team_ch_props_fetch_window_seconds: int = 0  # 0 = single query; >0 = split into N-second windows
 
     # Resource configuration - the env var name for the PG connection string
     persons_db_env_var: str = "PERSONS_DB_WRITER_URL"  # Env var for Postgres connection URL
@@ -1416,6 +1936,7 @@ def build_reconciliation_run_config(
         "backup_enabled": config.backup_enabled,
         "batch_size": config.batch_size,
         "teams_per_chunk": config.teams_per_chunk,
+        "team_ch_props_fetch_window_seconds": config.team_ch_props_fetch_window_seconds,
     }
 
     if team_ids is not None:
@@ -1561,6 +2082,7 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
         backup_enabled=cursor_data.get("backup_enabled", True),
         batch_size=cursor_data.get("batch_size", 100),
         teams_per_chunk=cursor_data.get("teams_per_chunk", 100),
+        team_ch_props_fetch_window_seconds=cursor_data.get("team_ch_props_fetch_window_seconds", 0),
         persons_db_env_var=cursor_data.get("persons_db_env_var", "PERSONS_DB_WRITER_URL"),
     )
 
