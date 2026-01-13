@@ -142,7 +142,8 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
     # See: https://github.com/aio-libs/aiohttp/issues/1907
     data_reader.close = lambda: None  # type: ignore
 
-    async with session.post(url, data=data_reader, headers=headers) as response:
+    # Disable redirects to prevent SSRF via redirect bypass
+    async with session.post(url, data=data_reader, headers=headers, allow_redirects=False) as response:
         await raise_for_status(response)
 
     data_reader.detach()
