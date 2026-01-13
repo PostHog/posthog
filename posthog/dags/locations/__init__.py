@@ -8,8 +8,8 @@ from dagster_aws.s3.resources import S3Resource
 from posthog.dags.common.resources import (
     ClickhouseClusterResource,
     PostgresResource,
-    PostHogAnalyticsResource,
     PostgresURLResource,
+    PostHogAnalyticsResource,
     RedisResource,
     kafka_producer_resource,
 )

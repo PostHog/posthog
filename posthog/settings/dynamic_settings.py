@@ -180,6 +180,11 @@ CONSTANCE_CONFIG = {
         "Minimum query count threshold for web analytics cache warming",
         int,
     ),
+    "WEB_ANALYTICS_WARMING_TEAMS_TO_WARM": (
+        get_from_env("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", default=[2], type_cast=list[int]()),
+        "Teams that will have web analytics cache warming enabled",
+        list[int],
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (

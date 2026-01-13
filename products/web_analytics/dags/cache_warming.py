@@ -1,19 +1,20 @@
 import json
 
+from django.utils.dateparse import parse_datetime
+
 import dagster
-import posthoganalytics
 from dagster import Backoff, Jitter, RetryPolicy
 from prometheus_client import Counter, Gauge
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import PostHogAnalyticsResource
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
 
@@ -38,44 +39,23 @@ cache_warming_retry_policy = RetryPolicy(
 )
 
 
-def teams_enabled_for_web_analytics_cache_warming() -> list[int]:
-    enabled_team_ids = []
+def increment_counter(team_id: int, normalized_query_hash: str, is_cached: bool):
+    PRIORITY_WEB_QUERIES_COUNTER.labels(
+        team_id=team_id,
+        normalized_query_hash=normalized_query_hash,
+        is_cached=is_cached,
+    ).inc()
 
-    for team_id, organization_id, uuid in Team.objects.values_list(
-        "id",
-        "organization_id",
-        "uuid",
-    ).iterator(chunk_size=1000):
-        enabled = posthoganalytics.feature_enabled(
-            "web-analytics-cache-warming",
-            str(uuid),
-            groups={
-                "organization": str(organization_id),
-                "project": str(team_id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(organization_id),
-                },
-                "project": {
-                    "id": str(team_id),
-                },
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
 
-        if enabled:
-            enabled_team_ids.append(team_id)
-
-    return enabled_team_ids
+def get_teams_enabled_for_web_analytics_cache_warming() -> list[int]:
+    return get_instance_setting("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM")
 
 
 def queries_to_keep_fresh(
     context: dagster.OpExecutionContext, team_id: int, days: int = 7, minimum_query_count: int = 10
 ) -> list[dict]:
     context.log.info(
-        f"Searching the last {days} for team {team_id}'s queries with at least {minimum_query_count} runs."
+        f"Searching the last {days} days for team {team_id}'s queries with at least {minimum_query_count} runs."
     )
 
     results = sync_execute(
@@ -89,7 +69,8 @@ def queries_to_keep_fresh(
             SELECT
                 team_id,
                 JSONExtractRaw(log_comment, 'query') AS query_json_raw,
-                query
+                query,
+                exception_code
             FROM metrics_query_log_mv
             WHERE
                 timestamp >= now() - INTERVAL %(days)s DAY
@@ -101,6 +82,8 @@ def queries_to_keep_fresh(
                     'web_overview_query',
                     'web_vitals_path_breakdown_query'
                 )
+                AND query_json_raw != ''
+                AND exception_code = 0
         ) AS sub
         GROUP BY
             team_id,
@@ -128,7 +111,7 @@ def queries_to_keep_fresh(
 def get_teams_for_warming_op(
     context: dagster.OpExecutionContext, posthoganalytics: PostHogAnalyticsResource
 ) -> list[int]:
-    team_ids = teams_enabled_for_web_analytics_cache_warming()
+    team_ids = get_teams_enabled_for_web_analytics_cache_warming()
 
     context.log.info(f"Found {len(team_ids)} teams for cache warming")
     context.add_output_metadata({"team_count": len(team_ids), "team_ids": str(team_ids)})
@@ -139,81 +122,82 @@ def get_teams_for_warming_op(
 def get_queries_for_teams_op(
     context: dagster.OpExecutionContext,
     team_ids: list[int],
-) -> list[dict]:
+) -> dict:
     days = get_instance_setting("WEB_ANALYTICS_WARMING_DAYS")
     minimum_query_count = get_instance_setting("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT")
 
-    all_queries = []
+    all_queries = {}
+    query_count = 0
     for team_id in team_ids:
         queries = queries_to_keep_fresh(context, team_id, days=days, minimum_query_count=minimum_query_count)
 
         context.log.info(f"Loading {len(queries)} frequent web analytics queries for team {team_id}")
 
         STALE_WEB_QUERIES_GAUGE.labels(team_id=team_id).set(len(queries))
-        all_queries.extend(queries)
+        all_queries[team_id] = queries
+        query_count += len(queries)
 
-    context.log.info(f"Found {len(all_queries)} total queries to warm")
-    context.add_output_metadata({"query_count": len(all_queries), "team_count": len(team_ids)})
+    context.log.info(f"Found {query_count} total queries to warm")
+    context.add_output_metadata({"query_count": query_count, "team_count": len(team_ids)})
     return all_queries
 
 
 @dagster.op(retry_policy=cache_warming_retry_policy)
-def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) -> None:
-    warmed_count = 0
-    cached_count = 0
+def warm_queries_op(context: dagster.OpExecutionContext, queries: dict) -> None:
+    queries_warmed = 0
+    queries_skipped = 0
 
-    for query_info in queries:
-        team_id = query_info["team_id"]
-        query_json = query_info["query_json"]
-        normalized_query_hash = query_info["normalized_query_hash"]
-
+    for team_id, query_infos in queries.items():
         try:
             team = Team.objects.get(pk=team_id)
         except Team.DoesNotExist:
             context.log.warning(f"Team {team_id} not found, skipping")
             continue
 
-        tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
+        for query_info in query_infos:
+            team_id = query_info["team_id"]
+            query_json = query_info["query_json"]
+            normalized_query_hash = query_info["normalized_query_hash"]
 
-        try:
-            results = process_query_dict(
-                team,
-                query_json,
+            runner = get_query_runner(
+                query=query_json,
+                team=team,
                 limit_context=LimitContext.QUERY_ASYNC,
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             )
 
-            is_cached = getattr(results, "is_cached", False)
-            if is_cached:
-                cached_count += 1
+            cache_manager = DjangoCacheQueryCacheManager(team_id=team.pk, cache_key=runner.get_cache_key())
 
-            PRIORITY_WEB_QUERIES_COUNTER.labels(
-                team_id=team_id,
-                normalized_query_hash=normalized_query_hash,
-                is_cached=is_cached,
-            ).inc()
+            try:
+                cached_data = cache_manager.get_cache_data()
 
-            warmed_count += 1
+                if cached_data is not None:
+                    last_refresh = parse_datetime(cached_data["last_refresh"])
+                    is_stale = runner._is_stale(last_refresh)
 
-        except Exception as e:
-            context.log.exception(f"Error warming query for team {team_id}")
-            capture_exception(e)
+                    if not is_stale:
+                        context.log.info(f"Query hash {normalized_query_hash} already cached, skipping warmup.")
+                        increment_counter(team_id, normalized_query_hash, is_cached=True)
+                        queries_skipped += 1
+                        continue
 
-    context.log.info(f"Warmed {warmed_count} queries ({cached_count} were already cached)")
-    context.add_output_metadata(
-        {
-            "warmed_count": warmed_count,
-            "cached_count": cached_count,
-            "skipped_count": len(queries) - warmed_count,
-        }
-    )
+                tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
+                runner.run()
+                increment_counter(team_id, normalized_query_hash, is_cached=False)
+                queries_warmed += 1
+
+            except Exception as e:
+                context.log.exception(f"Error warming query for team {team_id}")
+                capture_exception(e)
+
+    context.log.info(f"Warmed {queries_warmed} queries ({queries_skipped} were already cached)")
+    context.add_output_metadata({"queries_warmed": queries_warmed, "queries_skipped": queries_skipped})
 
 
 @dagster.job(
     description="Warms web analytics query cache for frequently-run queries",
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        "dagster/concurrency_key": "web_analytics_cache_warming",
+        "dagster/web_analytics_cache_warming": "web_analytics_cache_warming",
     },
 )
 def web_analytics_cache_warming_job():

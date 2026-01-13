@@ -105,7 +105,8 @@ class PostHogAnalyticsResource(dagster.ConfigurableResource):
         posthoganalytics.personal_api_key = self.personal_api_key
 
         return None
-        
+
+
 class PostgresURLResource(dagster.ConfigurableResource):
     """
     Postgres connection that parses a connection URL.
