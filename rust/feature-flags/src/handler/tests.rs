@@ -1376,10 +1376,12 @@ fn test_disable_flags_request_parsing() {
 fn test_logs_config_serialization_enabled() {
     use crate::api::types::{ConfigResponse, LogsConfig};
 
-    let mut config = ConfigResponse::default();
-    config.logs = Some(LogsConfig {
-        capture_console_logs: Some(true),
-    });
+    let config = ConfigResponse {
+        logs: Some(LogsConfig {
+            capture_console_logs: Some(true),
+        }),
+        ..Default::default()
+    };
 
     let serialized = serde_json::to_string(&config).expect("Failed to serialize");
     assert!(serialized.contains("\"logs\""));
