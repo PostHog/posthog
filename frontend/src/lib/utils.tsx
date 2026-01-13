@@ -420,6 +420,7 @@ export function isOperatorRegex(operator: PropertyOperator): boolean {
 export function isOperatorSemver(operator: PropertyOperator): boolean {
     return [
         PropertyOperator.SemverEq,
+        PropertyOperator.SemverNeq,
         PropertyOperator.SemverGt,
         PropertyOperator.SemverGte,
         PropertyOperator.SemverLt,
