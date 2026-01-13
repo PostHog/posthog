@@ -153,7 +153,7 @@ async def check_certificate_status(inputs: CheckActivityInput) -> CheckActivityO
     )
 
     # Branch based on whether to use Cloudflare or legacy proxy provisioner
-    if use_cloudflare_proxy():
+    if use_cloudflare_proxy(proxy_record.organization_id):
         return await _check_cloudflare_certificate_status(proxy_record, logger)
     else:
         return await _check_legacy_certificate_status(proxy_record, logger)

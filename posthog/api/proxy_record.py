@@ -18,13 +18,19 @@ from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManag
 
 
 def generate_target_cname(organization_id, domain) -> str:
+    from posthog.temporal.proxy_service.common import use_cloudflare_proxy
+
     m = hashlib.sha256()
     m.update(f"{organization_id}".encode())
     m.update(domain.encode())
     digest = m.hexdigest()[:20]
-    base_cname = (
-        settings.CLOUDFLARE_PROXY_BASE_CNAME if settings.CLOUDFLARE_PROXY_ENABLED else settings.PROXY_BASE_CNAME
-    )
+
+    # Check if this specific org should use Cloudflare
+    if use_cloudflare_proxy(organization_id):
+        base_cname = settings.CLOUDFLARE_PROXY_BASE_CNAME
+    else:
+        base_cname = settings.PROXY_BASE_CNAME
+
     return f"{digest}.{base_cname}"
 
 

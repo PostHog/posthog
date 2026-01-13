@@ -31,9 +31,29 @@ def use_gateway_api() -> bool:
     return settings.PROXY_USE_GATEWAY_API
 
 
-def use_cloudflare_proxy() -> bool:
-    """Returns whether to use Cloudflare for SaaS for proxy provisioning."""
-    return settings.CLOUDFLARE_PROXY_ENABLED
+def use_cloudflare_proxy(organization_id: uuid.UUID | None = None) -> bool:
+    """Returns whether to use Cloudflare for SaaS for proxy provisioning.
+
+    If organization_id is provided, checks the feature flag for that org.
+    Otherwise falls back to the global CLOUDFLARE_PROXY_ENABLED setting.
+    """
+    # Global kill switch - if not enabled at instance level, never use Cloudflare
+    if not settings.CLOUDFLARE_PROXY_ENABLED:
+        return False
+
+    # If no org_id provided, use global setting (legacy behavior)
+    if organization_id is None:
+        return True
+
+    # Check feature flag for this specific organization
+    return posthoganalytics.feature_enabled(
+        "managed-proxy-use-cloudflare",
+        f"org-{organization_id}",
+        groups={"organization": str(organization_id)},
+        group_properties={"organization": {"id": str(organization_id)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
 
 
 class NonRetriableException(Exception):

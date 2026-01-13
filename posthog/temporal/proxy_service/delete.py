@@ -182,7 +182,7 @@ class DeleteManagedProxyWorkflow(PostHogWorkflow):
 
         try:
             # Branch based on whether to use Cloudflare or the legacy proxy provisioner
-            if use_cloudflare_proxy():
+            if use_cloudflare_proxy(inputs.organization_id):
                 # Delete Cloudflare Custom Hostname and Worker Route
                 await temporalio.workflow.execute_activity(
                     delete_cloudflare_proxy,

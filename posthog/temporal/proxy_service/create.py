@@ -492,7 +492,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
             )
 
             # Branch based on whether to use Cloudflare or the legacy proxy provisioner
-            if use_cloudflare_proxy():
+            if use_cloudflare_proxy(inputs.organization_id):
                 # Cloudflare for SaaS path: Create Custom Hostname and Worker Route
                 cloudflare_inputs = CreateCloudflareProxyInputs(
                     organization_id=inputs.organization_id,
