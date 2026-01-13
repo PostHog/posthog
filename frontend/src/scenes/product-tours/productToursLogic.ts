@@ -242,7 +242,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     content: createDefaultAnnouncementContent(),
                 })
                 actions.loadProductTours()
-                router.actions.push(urls.productTour(announcement.id))
+                router.actions.push(urls.productTour(announcement.id, 'edit=true&tab=steps'))
             } catch {
                 lemonToast.error('Failed to create announcement')
             }
@@ -254,7 +254,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     content: createDefaultBannerContent(),
                 })
                 actions.loadProductTours()
-                router.actions.push(urls.productTour(banner.id))
+                router.actions.push(urls.productTour(banner.id, 'edit=true&tab=steps'))
             } catch {
                 lemonToast.error('Failed to create banner')
             }

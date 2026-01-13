@@ -237,7 +237,7 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
     return (
         <div className="space-y-4">
             <div>
-                <h5 className="font-semibold mb-2">URL targeting</h5>
+                <h5 className="font-semibold mb-2">Where to show</h5>
                 <div className="flex gap-2 items-center">
                     <span className="text-sm whitespace-nowrap">URL</span>
                     <LemonSelect
