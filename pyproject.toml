@@ -129,7 +129,7 @@ dependencies = [
     "django-scim2==0.19.0",
     "sqlalchemy==2.0.38",
     "sqlalchemy-bigquery[bqstorage]==1.12.1",
-    "sqlparse==0.4.4",
+    "sqlparse==0.5.0",
     "sshtunnel==0.4.0",
     "statshog==1.0.6",
     "stripe==12.2.0",
