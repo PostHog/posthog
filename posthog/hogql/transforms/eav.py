@@ -74,7 +74,8 @@ class EAVResolver(TraversingVisitor):
             return
 
         # Create JoinExpr nodes and add them to the select_from chain
-        for events_alias, property_name, _eav_column in eav_properties:
+        # Sort for deterministic output
+        for events_alias, property_name, _eav_column in sorted(eav_properties):
             eav_alias = f"eav_{events_alias}_{property_name}"
             join_expr = self._create_eav_join(
                 eav_alias=eav_alias,
