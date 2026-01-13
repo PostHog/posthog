@@ -390,6 +390,9 @@ class OAuthTokenView(TokenView):
         # Get request details for logging (don't log secrets)
         client_id = request.POST.get("client_id", "unknown")
         grant_type = request.POST.get("grant_type", "unknown")
+        code_verifier = request.POST.get("code_verifier")
+        redirect_uri = request.POST.get("redirect_uri")
+        authorization_code = request.POST.get("code")
 
         if request.content_type == "application/json" and request.body:
             try:
@@ -400,6 +403,9 @@ class OAuthTokenView(TokenView):
                 # Update from JSON body
                 client_id = json_data.get("client_id", client_id)
                 grant_type = json_data.get("grant_type", grant_type)
+                code_verifier = json_data.get("code_verifier", code_verifier)
+                redirect_uri = json_data.get("redirect_uri", redirect_uri)
+                authorization_code = json_data.get("code", authorization_code)
             except (json.JSONDecodeError, ValueError):
                 logger.warning("oauth_token_invalid_json", client_id=client_id)
                 return JsonResponse(
@@ -407,20 +413,54 @@ class OAuthTokenView(TokenView):
                     status=400,
                 )
 
-        logger.info("oauth_token_request", client_id=client_id, grant_type=grant_type)
+        logger.info(
+            "oauth_token_request",
+            client_id=client_id,
+            grant_type=grant_type,
+            has_code_verifier=code_verifier is not None,
+            code_verifier_length=len(code_verifier) if code_verifier else 0,
+            has_redirect_uri=redirect_uri is not None,
+            has_authorization_code=authorization_code is not None,
+        )
 
         response = super().post(request, *args, **kwargs)
 
         if response.status_code != 200:
             try:
                 error_data = json.loads(response.content)
+                error_code = error_data.get("error")
+                error_description = error_data.get("error_description", "")
+
+                # Classify error type for easier filtering
+                error_type = "unknown"
+                if error_code == "invalid_grant":
+                    if "expired" in error_description.lower():
+                        error_type = "code_expired"
+                    elif "code" in error_description.lower():
+                        error_type = "code_invalid"
+                    else:
+                        error_type = "grant_invalid"
+                elif error_code == "invalid_request":
+                    if "code_verifier" in error_description.lower() or "pkce" in error_description.lower():
+                        error_type = "pkce_invalid"
+                    elif "redirect" in error_description.lower():
+                        error_type = "redirect_uri_mismatch"
+                    else:
+                        error_type = "request_invalid"
+                elif error_code == "invalid_client":
+                    error_type = "client_invalid"
+
                 logger.warning(
                     "oauth_token_error",
                     client_id=client_id,
                     grant_type=grant_type,
                     status_code=response.status_code,
-                    error=error_data.get("error"),
-                    error_description=error_data.get("error_description"),
+                    error=error_code,
+                    error_type=error_type,
+                    error_description=error_description,
+                    has_code_verifier=code_verifier is not None,
+                    code_verifier_length=len(code_verifier) if code_verifier else 0,
+                    has_redirect_uri=redirect_uri is not None,
                 )
             except (json.JSONDecodeError, ValueError):
                 logger.warning(
@@ -443,7 +483,12 @@ class OAuthTokenView(TokenView):
                     response_data["scoped_organizations"] = access_token.scoped_organizations or []
                     return JsonResponse(response_data)
             except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
-                logger.warning(f"Error adding scoped fields to token response: {e}")
+                logger.warning(
+                    "oauth_token_scoped_fields_error",
+                    client_id=client_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
 
         return response
 
