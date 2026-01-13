@@ -1,11 +1,15 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+
 import type { ChatMessage, ConversationMessage, ConversationTicket, SidePanelViewState } from '../../types'
 import type { sidePanelConversationsLogicType } from './sidePanelConversationsLogicType'
+
+const TICKETS_POLL_INTERVAL = 30000 // 30 seconds
 
 export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>([
     path([
@@ -131,6 +135,10 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
                 actions.setView('chat')
                 actions.loadMessages(ticketId)
                 actions.markAsRead(ticketId)
+                // Immediately update local state to clear unread count
+                if (ticket.unread_count && ticket.unread_count > 0) {
+                    actions.setTickets(values.tickets.map((t) => (t.id === ticketId ? { ...t, unread_count: 0 } : t)))
+                }
             }
         },
         loadMessages: async ({ ticketId }) => {
@@ -193,7 +201,7 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
         // Check if conversations are ready and load tickets
         const initConversations = async (): Promise<void> => {
             try {
@@ -216,5 +224,22 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
             }
         }
         void initConversations()
+
+        // Start polling interval - checks conditions inside
+        cache.pollingInterval = setInterval(() => {
+            const { sidePanelOpen } = sidePanelStateLogic.values
+            if (sidePanelOpen && values.conversationsReady && values.tickets.length > 0) {
+                actions.loadTickets()
+                // Also reload messages if viewing a chat
+                if (values.view === 'chat' && values.currentTicket) {
+                    actions.loadMessages(values.currentTicket.id)
+                }
+            }
+        }, TICKETS_POLL_INTERVAL)
+    }),
+    beforeUnmount(({ cache }) => {
+        if (cache.pollingInterval) {
+            clearInterval(cache.pollingInterval)
+        }
     }),
 ])

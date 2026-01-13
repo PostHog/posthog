@@ -44,7 +44,9 @@ function TicketListView(): JSX.Element {
                     {tickets.map((ticket: ConversationTicket) => (
                         <div
                             key={ticket.id}
-                            className="flex items-center justify-between p-3 rounded border cursor-pointer hover:bg-surface-light transition-colors bg-surface-primary"
+                            className={`flex items-center justify-between p-3 rounded border cursor-pointer hover:bg-surface-light transition-colors ${
+                                (ticket.unread_count ?? 0) > 0 ? 'bg-primary-alt-highlight' : 'bg-white'
+                            }`}
                             onClick={() => selectTicket(ticket.id)}
                         >
                             <div className="flex-1 min-w-0">
