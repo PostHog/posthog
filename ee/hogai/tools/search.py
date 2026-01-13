@@ -12,36 +12,9 @@ from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
 
 SEARCH_TOOL_PROMPT = """
-Use this tool to search or list docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys, and error tracking issues in PostHog.
+Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog.
 
-# Modes
-
-## Search mode (default)
-Use mode="search" to find entities by query using full-text search.
 If the user's question mentions multiple topics, search for each topic separately and combine the results.
-
-## List mode
-Use mode="list" to browse entities with pagination, sorted by most recently updated first.
-
-### Use list mode when:
-- The user wants to browse their saved work
-- You need to find entities but don't have the ID
-- The user asks "what insights do I have?" or similar
-- After searching, to discover additional relevant entities that search may have missed due to different naming
-
-### Parameters:
-- kind: Type to list (e.g., "insights", "dashboards")
-- limit: Results per page (1-100, default 100)
-- offset: Number to skip for pagination (default 0)
-
-### Pagination workflow:
-1. First call: offset=0, limit=100 (gets first 100)
-2. If has_more indicated, next call: offset=100, limit=100 (gets next 100)
-3. Continue incrementing offset by limit
-
-### Examples:
-- "Show me my recent insights" → mode="list", kind="insights"
-- "List all dashboards" → mode="list", kind="dashboards"
 
 # Documentation search
 
@@ -82,7 +55,7 @@ Important:
 5. Never suggest emailing support@posthog.com or say you’ll create a support ticket. Tell paying users to use Help → "Email our support engineers" in the right sidebar. Free users can ask for help in Community Questions.
 6. Never use Community Questions as a source or cite them; they’re often outdated or incorrect.
 
-# Entity search
+# Other entity kinds
 
 Use this tool to find PostHog entities using full-text search.
 Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
@@ -90,7 +63,6 @@ So the query used in this tool should be a natural language query that is optimi
 If you want to search for all entities, you should use kind="all".
 
 **Note**: To browse entities with pagination, use the list_data tool instead.
-
 """.strip()
 
 INVALID_ENTITY_KIND_PROMPT = """

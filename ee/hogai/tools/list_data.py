@@ -11,33 +11,23 @@ from ee.hogai.utils.prompt import format_prompt_string
 LIST_DATA_TOOL_PROMPT = """
 Use this tool to browse PostHog entities with pagination, sorted by most recently updated first.
 
-Available entity types:
-- insights: Saved insights and visualizations
-- dashboards: Dashboard collections
-- cohorts: User cohorts
-- actions: Defined actions
-- experiments: A/B tests and experiments
-- feature_flags: Feature flag configurations
-- notebooks: Analysis notebooks
-- surveys: User surveys
-
-## Use this when:
+# Use this when:
 - The user wants to browse their saved work
 - You need to find entities but don't have the ID
 - The user asks "what insights do I have?" or similar
 - After searching, to discover additional relevant entities that search may have missed due to different naming
 
-## Parameters:
+# Parameters:
 - kind: Type to list (e.g., "insights", "dashboards")
 - limit: Results per page (1-100, default 100)
 - offset: Number to skip for pagination (default 0)
 
-## Pagination workflow:
+# Pagination workflow:
 1. First call: offset=0, limit=100 (gets first 100)
 2. If has_more indicated, next call: offset=100, limit=100 (gets next 100)
 3. Continue incrementing offset by limit
 
-## Examples:
+# Examples:
 - "Show me my recent insights" → kind="insights"
 - "List all dashboards" → kind="dashboards"
 
