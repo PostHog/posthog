@@ -1,4 +1,3 @@
-import json
 from typing import cast
 
 from django.db.models import Q, QuerySet
@@ -77,11 +76,6 @@ class SCIMBaseView(APIView):
 
         if request.method in ("POST", "PUT", "PATCH"):
             payload = getattr(request, "data", None)
-            if not payload:
-                try:
-                    payload = json.loads(request.body) if request.body else None
-                except (json.JSONDecodeError, ValueError):
-                    payload = None
             if payload:
                 log_data["payload"] = mask_scim_payload(payload)
         if request.GET.get("filter"):
