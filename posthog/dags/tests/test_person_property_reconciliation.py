@@ -16,9 +16,12 @@ from posthog.dags.person_property_reconciliation import (
     PersonPropertyDiffs,
     PropertyValue,
     SkipReason,
+    fetch_person_properties_from_clickhouse,
     filter_event_person_properties,
     get_person_property_updates_from_clickhouse,
+    query_team_ids_from_clickhouse,
     reconcile_person_properties,
+    reconcile_with_concurrent_changes,
     update_person_with_version_check,
 )
 
@@ -28,14 +31,17 @@ class TestClickHouseResultParsing:
 
     def test_parses_set_diff_tuples(self):
         """Test that set_diff array of tuples is correctly parsed."""
-        # Simulate ClickHouse returning: (person_id, set_diff, set_once_diff, unset_diff)
+        # Simulate ClickHouse returning: (person_id, person_version, set_diff, set_once_diff, unset_diff)
         # set_diff is an array of (key, value, timestamp) tuples
         # Values are raw JSON strings that get parsed via json.loads()
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000001",  # person_id (UUID as string)
+                1,  # person_version
                 [  # set_diff - array of (key, raw_json_value, timestamp) tuples
                     ("email", '"new@example.com"', datetime(2024, 1, 15, 12, 0, 0)),
                     ("name", '"John Doe"', datetime(2024, 1, 15, 12, 30, 0)),
@@ -54,6 +60,7 @@ class TestClickHouseResultParsing:
         assert len(results) == 1
         person_diffs = results[0]
         assert person_diffs.person_id == "018d1234-5678-0000-0000-000000000001"
+        assert person_diffs.person_version == 1
         assert len(person_diffs.set_updates) == 2
         assert len(person_diffs.set_once_updates) == 0
         assert len(person_diffs.unset_updates) == 0
@@ -71,10 +78,13 @@ class TestClickHouseResultParsing:
         """Test that set_once_diff array of tuples is correctly parsed."""
         # Values are raw JSON strings that get parsed via json.loads()
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000002",
+                1,  # person_version
                 [],  # set_diff - empty
                 [  # set_once_diff - array of (key, raw_json_value, timestamp) tuples
                     ("initial_referrer", '"google.com"', datetime(2024, 1, 10, 8, 0, 0)),
@@ -109,10 +119,13 @@ class TestClickHouseResultParsing:
         """Test parsing when both set_diff and set_once_diff have values."""
         # Values are raw JSON strings that get parsed via json.loads()
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000003",
+                1,  # person_version
                 [("email", '"updated@example.com"', datetime(2024, 1, 15, 12, 0, 0))],  # set_diff
                 [("initial_source", '"organic"', datetime(2024, 1, 10, 8, 0, 0))],  # set_once_diff
                 [],  # unset_diff - empty
@@ -143,22 +156,27 @@ class TestClickHouseResultParsing:
         """Test parsing results for multiple persons."""
         # Values are raw JSON strings that get parsed via json.loads()
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-0000-0000-0000-000000000001",
+                1,  # person_version
                 [("prop1", '"val1"', datetime(2024, 1, 15, 12, 0, 0))],
                 [],
                 [],  # unset_diff
             ),
             (
                 "018d1234-0000-0000-0000-000000000002",
+                2,  # person_version
                 [("prop2", '"val2"', datetime(2024, 1, 15, 13, 0, 0))],
                 [],
                 [],  # unset_diff
             ),
             (
                 "018d1234-0000-0000-0000-000000000003",
+                3,  # person_version
                 [],
                 [("prop3", '"val3"', datetime(2024, 1, 10, 8, 0, 0))],
                 [],  # unset_diff
@@ -188,10 +206,13 @@ class TestClickHouseResultParsing:
     def test_skips_persons_with_no_updates(self):
         """Test that persons with empty set_diff, set_once_diff, and unset_diff are skipped."""
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-0000-0000-0000-000000000001",
+                1,  # person_version
                 [],  # empty set_diff
                 [],  # empty set_once_diff
                 [],  # empty unset_diff
@@ -225,10 +246,13 @@ class TestClickHouseResultParsing:
         # - booleans: true, false -> True, False
         # - null -> None
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000001",
+                1,  # person_version
                 [
                     ("string_prop", '"hello"', datetime(2024, 1, 15, 12, 0, 0)),
                     ("int_prop", "123", datetime(2024, 1, 15, 12, 0, 0)),
@@ -278,10 +302,13 @@ class TestClickHouseResultParsing:
         # unset_diff is an array of (key, timestamp) tuples
         # Keys are already parsed in the query with JSON_VALUE (consistent with $set/$set_once)
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000001",
+                1,  # person_version
                 [],  # set_diff - empty
                 [],  # set_once_diff - empty
                 [  # unset_diff - array of (key, timestamp) tuples
@@ -316,10 +343,13 @@ class TestClickHouseResultParsing:
     def test_parses_mixed_set_set_once_and_unset(self):
         """Test parsing when all three operation types have values."""
         mock_rows: list[
-            tuple[str, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]]
+            tuple[
+                str, int, list[tuple[str, Any, datetime]], list[tuple[str, Any, datetime]], list[tuple[str, datetime]]
+            ]
         ] = [
             (
                 "018d1234-5678-0000-0000-000000000004",
+                1,  # person_version
                 [("email", '"updated@example.com"', datetime(2024, 1, 15, 12, 0, 0))],  # set_diff
                 [("initial_source", '"organic"', datetime(2024, 1, 10, 8, 0, 0))],  # set_once_diff
                 [("old_field", datetime(2024, 1, 14, 10, 0, 0))],  # unset_diff - keys are already parsed
@@ -386,6 +416,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -408,6 +439,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={
                 "email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="new@example.com")
             },
@@ -430,6 +462,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={
                 "initial_referrer": PropertyValue(timestamp=datetime(2024, 1, 10, 8, 0, 0), value="google.com")
@@ -453,6 +486,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={
                 "initial_referrer": PropertyValue(timestamp=datetime(2024, 1, 10, 8, 0, 0), value="google.com")
@@ -475,6 +509,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={
                 "prop1": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="val1"),
                 "prop2": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="val2"),
@@ -504,6 +539,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -524,6 +560,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={},
             unset_updates={},
@@ -542,6 +579,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={},
             unset_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=None)},
@@ -566,6 +604,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={},
             unset_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=None)},
@@ -586,6 +625,7 @@ class TestReconcilePersonProperties:
         }
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={},
             set_once_updates={},
             unset_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=None)},
@@ -628,6 +668,7 @@ class TestUpdatePersonWithVersionCheck:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=5,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -690,6 +731,7 @@ class TestUpdatePersonWithVersionCheck:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -725,6 +767,7 @@ class TestUpdatePersonWithVersionCheck:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-nonexistent",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -742,8 +785,15 @@ class TestUpdatePersonWithVersionCheck:
         assert result_data is None
         assert skip_reason == SkipReason.NOT_FOUND
 
-    def test_version_mismatch_retry(self):
-        """Test retry on version mismatch (concurrent modification)."""
+    @patch("posthog.dags.person_property_reconciliation.fetch_person_properties_from_clickhouse")
+    def test_version_mismatch_retry(self, mock_fetch_ch_properties):
+        """Test retry on version mismatch (concurrent modification).
+
+        When the first UPDATE fails due to version mismatch:
+        1. On retry, if Postgres version differs from CH version (person_version in diffs)
+        2. We fetch CH properties for 3-way merge
+        3. Apply changes and retry UPDATE with new target version
+        """
         person_data_v1 = {
             "id": 123,
             "uuid": "018d1234-5678-0000-0000-000000000001",
@@ -757,13 +807,16 @@ class TestUpdatePersonWithVersionCheck:
         person_data_v2 = {
             "id": 123,
             "uuid": "018d1234-5678-0000-0000-000000000001",
-            "properties": {},
-            "properties_last_updated_at": {},
-            "properties_last_operation": {},
+            "properties": {"other": "concurrent_change"},  # Concurrent change to Postgres
+            "properties_last_updated_at": {"other": "2024-01-14T00:00:00"},
+            "properties_last_operation": {"other": "set"},
             "version": 2,  # Version changed by concurrent update
             "is_identified": False,
             "created_at": datetime(2024, 1, 1, 0, 0, 0),
         }
+
+        # CH properties at version 1 (baseline for 3-way merge)
+        mock_fetch_ch_properties.return_value = {}
 
         cursor = MagicMock()
         # First fetch returns v1, second fetch returns v2
@@ -783,6 +836,7 @@ class TestUpdatePersonWithVersionCheck:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -800,6 +854,9 @@ class TestUpdatePersonWithVersionCheck:
         assert success is True
         assert result_data is not None
         assert result_data["version"] == 3  # v2 + 1
+        # Concurrent change should be preserved, our change should be applied
+        assert result_data["properties"]["other"] == "concurrent_change"
+        assert result_data["properties"]["email"] == "test@example.com"
 
     def test_exhausted_retries(self):
         """Test failure after exhausting all retries."""
@@ -820,6 +877,7 @@ class TestUpdatePersonWithVersionCheck:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -879,6 +937,7 @@ class TestBatchCommits:
             person_diffs_list.append(
                 PersonPropertyDiffs(
                     person_id=f"person-uuid-{i}",
+                    person_version=1,
                     set_updates={
                         "prop": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=f"value_{i}")
                     },
@@ -958,6 +1017,7 @@ class TestBatchCommits:
         person_diffs_list = [
             PersonPropertyDiffs(
                 person_id=uuid,
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value=f"user{i}@example.com"
@@ -1048,6 +1108,7 @@ class TestBatchCommits:
         person_diffs_list = [
             PersonPropertyDiffs(
                 person_id="person-uuid-0",
+                person_version=1,
                 set_updates={
                     "prop": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="value_0")
                 },
@@ -1106,6 +1167,7 @@ class TestBackupFunctionality:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=5,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={"name": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="Test User")},
             unset_updates={},
@@ -1163,6 +1225,7 @@ class TestBackupFunctionality:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000002",
+            person_version=3,
             set_updates={"name": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="New Name")},
             set_once_updates={},
             unset_updates={},
@@ -1221,6 +1284,7 @@ class TestBackupFunctionality:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=5,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -1271,6 +1335,7 @@ class TestBackupFunctionality:
 
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
             set_once_updates={},
             unset_updates={},
@@ -1289,6 +1354,64 @@ class TestBackupFunctionality:
         assert success is True
         assert backup_created is True
 
+    def test_backup_created_false_when_conflict(self):
+        """
+        Regression test: backup_created should be False when ON CONFLICT DO NOTHING
+        means no row was actually inserted (duplicate backup for same person/job).
+        """
+        person_data = {
+            "id": 123,
+            "uuid": "018d1234-5678-0000-0000-000000000001",
+            "properties": {},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+            "version": 1,
+            "is_identified": False,
+            "created_at": datetime(2024, 1, 1, 0, 0, 0),
+        }
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = person_data
+
+        # Track which query is being executed to return different rowcounts
+        call_count = [0]
+        original_execute = cursor.execute
+
+        def execute_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            query = args[0] if args else ""
+            if "INSERT INTO posthog_person_reconciliation_backup" in query:
+                # Simulate ON CONFLICT DO NOTHING - no row inserted
+                cursor.rowcount = 0
+            else:
+                # Person SELECT/UPDATE succeeds
+                cursor.rowcount = 1
+            return original_execute(*args, **kwargs)
+
+        cursor.execute = MagicMock(side_effect=execute_side_effect)
+
+        person_diffs = PersonPropertyDiffs(
+            person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
+            set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="test@example.com")},
+            set_once_updates={},
+            unset_updates={},
+        )
+
+        success, _result_data, backup_created, _skip_reason = update_person_with_version_check(
+            cursor=cursor,
+            job_id="test-job-id",
+            team_id=1,
+            person_uuid="018d1234-5678-0000-0000-000000000001",
+            person_property_diffs=person_diffs,
+            dry_run=False,
+            backup_enabled=True,
+        )
+
+        assert success is True
+        # Key assertion: backup_created should be False because rowcount was 0
+        assert backup_created is False
+
 
 class TestFilterEventPersonProperties:
     """Test the filter_event_person_properties function for conflict resolution."""
@@ -1298,6 +1421,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="018d1234-5678-0000-0000-000000000001",
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="test@example.com"
@@ -1322,6 +1446,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="018d1234-5678-0000-0000-000000000001",
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 10, 12, 0, 0, tzinfo=UTC), value="test@example.com"
@@ -1346,6 +1471,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="018d1234-5678-0000-0000-000000000001",
+                person_version=1,
                 set_updates={},
                 set_once_updates={
                     "referrer": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="google.com")
@@ -1368,6 +1494,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="018d1234-5678-0000-0000-000000000001",
+                person_version=1,
                 set_updates={},
                 set_once_updates={
                     "referrer": PropertyValue(timestamp=datetime(2024, 1, 10, 12, 0, 0, tzinfo=UTC), value="google.com")
@@ -1390,6 +1517,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="018d1234-5678-0000-0000-000000000001",
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="test@example.com"
@@ -1416,6 +1544,7 @@ class TestFilterEventPersonProperties:
         person_diffs = [
             PersonPropertyDiffs(
                 person_id="person1",
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), value="p1@example.com"
@@ -1428,6 +1557,7 @@ class TestFilterEventPersonProperties:
             ),
             PersonPropertyDiffs(
                 person_id="person2",
+                person_version=1,
                 set_updates={
                     "email": PropertyValue(
                         timestamp=datetime(2024, 1, 10, 12, 0, 0, tzinfo=UTC), value="p2@example.com"
@@ -1490,12 +1620,14 @@ class TestPersonPropertyDiffsDataclass:
         """Test that PersonPropertyDiffs has expected fields."""
         person_diffs = PersonPropertyDiffs(
             person_id="018d1234-5678-0000-0000-000000000001",
+            person_version=1,
             set_updates={"email": PropertyValue(timestamp=datetime.now(), value="test@example.com")},
             set_once_updates={"referrer": PropertyValue(timestamp=datetime.now(), value="google.com")},
             unset_updates={"old_field": PropertyValue(timestamp=datetime.now(), value=None)},
         )
 
         assert person_diffs.person_id == "018d1234-5678-0000-0000-000000000001"
+        assert person_diffs.person_version == 1
         assert len(person_diffs.set_updates) == 1
         assert len(person_diffs.set_once_updates) == 1
         assert len(person_diffs.unset_updates) == 1
@@ -3388,6 +3520,109 @@ class TestClickHouseQueryIntegration:
         assert updates["key_with_underscores"] == "value4"
         assert updates["キー"] == "unicode value"
 
+    def test_filtered_properties_are_excluded(self, cluster: ClickhouseCluster):
+        """Properties in FILTERED_PERSON_UPDATE_PROPERTIES should be excluded from results.
+
+        These are high-frequency properties like $current_url that change often
+        but aren't valuable enough to trigger person updates.
+        """
+        team_id = 99926
+        person_id = UUID("77770000-0000-0000-0000-000000000001")
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+
+        event_ts = now - timedelta(days=3)
+
+        # Event with both filtered and non-filtered properties
+        events = [
+            (
+                team_id,
+                "distinct_1",
+                person_id,
+                event_ts,
+                json.dumps(
+                    {
+                        "$set": {
+                            # Filtered properties - should NOT appear in results
+                            "$current_url": "https://example.com/page",
+                            "$pathname": "/page",
+                            "$browser": "Chrome",
+                            "$os": "Mac OS X",
+                            # Non-filtered properties - SHOULD appear in results
+                            "email": "test@example.com",
+                            "name": "Test User",
+                        },
+                        "$set_once": {
+                            # Filtered
+                            "$referring_domain": "google.com",
+                            # Non-filtered
+                            "initial_campaign": "summer_sale",
+                        },
+                    }
+                ),
+            ),
+        ]
+
+        def insert_events(client):
+            client.execute(
+                """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties)
+                VALUES""",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Person with different values so diffs are detected
+        person_data = [
+            (
+                team_id,
+                person_id,
+                json.dumps(
+                    {
+                        "$current_url": "https://example.com/old",
+                        "email": "old@example.com",
+                        "name": "Old Name",
+                    }
+                ),
+                1,
+                now - timedelta(days=8),
+            )
+        ]
+
+        def insert_person(client):
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        results = get_person_property_updates_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        assert len(results) == 1
+        person_diffs = results[0]
+
+        # Non-filtered properties should be present
+        set_keys = set(person_diffs.set_updates.keys())
+        set_once_keys = set(person_diffs.set_once_updates.keys())
+
+        assert "email" in set_keys, "Non-filtered property 'email' should be in results"
+        assert "name" in set_keys, "Non-filtered property 'name' should be in results"
+        assert "initial_campaign" in set_once_keys, "Non-filtered property 'initial_campaign' should be in results"
+
+        # Filtered properties should NOT be present
+        assert "$current_url" not in set_keys, "Filtered property '$current_url' should NOT be in results"
+        assert "$pathname" not in set_keys, "Filtered property '$pathname' should NOT be in results"
+        assert "$browser" not in set_keys, "Filtered property '$browser' should NOT be in results"
+        assert "$os" not in set_keys, "Filtered property '$os' should NOT be in results"
+        assert (
+            "$referring_domain" not in set_once_keys
+        ), "Filtered property '$referring_domain' should NOT be in results"
+
 
 @pytest.mark.django_db(transaction=True)
 class TestBatchCommitsEndToEnd:
@@ -4416,3 +4651,1453 @@ class TestKafkaClickHouseRoundTrip:
         assert not_reconciled_team1 == 3, f"Expected 3 not reconciled in team 1, got {not_reconciled_team1}"
         assert reconciled_team2 == 2, f"Expected 2 reconciled in team 2, got {reconciled_team2}"
         assert not_reconciled_team2 == 1, f"Expected 1 not reconciled in team 2, got {not_reconciled_team2}"
+
+
+@pytest.mark.django_db
+class TestFetchPersonPropertiesFromClickHouse:
+    """Integration tests for fetch_person_properties_from_clickhouse against real ClickHouse."""
+
+    def test_fetches_oldest_version_gte_min_version(self, cluster: ClickhouseCluster):
+        """Test that we fetch the oldest available version >= min_version.
+
+        The function uses argMin to get the oldest version that's at least as new as
+        the requested min_version. This handles cases where the exact version may have
+        been merged away by ReplacingMergeTree.
+        """
+        team_id = 99801
+        person_id = UUID("aaaaaaaa-aaaa-aaaa-aaaa-000000000001")
+        now = datetime.now().replace(microsecond=0)
+
+        # Insert each version in separate INSERT statements to create separate parts
+        def insert_v1(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                [(team_id, person_id, json.dumps({"email": "v1@example.com"}), 1, now - timedelta(days=5))],
+            )
+
+        def insert_v3(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                [(team_id, person_id, json.dumps({"email": "v3@example.com"}), 3, now - timedelta(days=3))],
+            )
+
+        def insert_v5(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                [(team_id, person_id, json.dumps({"email": "v5@example.com"}), 5, now - timedelta(days=1))],
+            )
+
+        cluster.any_host(insert_v1).result()
+        cluster.any_host(insert_v3).result()
+        cluster.any_host(insert_v5).result()
+
+        # min_version=1 should get v1 (oldest >= 1)
+        props = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=1)
+        assert props is not None
+        assert props["email"] == "v1@example.com"
+
+        # min_version=2 should get v3 (oldest >= 2, since v2 doesn't exist)
+        props = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=2)
+        assert props is not None
+        assert props["email"] == "v3@example.com"
+
+        # min_version=3 should get v3 (oldest >= 3)
+        props = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=3)
+        assert props is not None
+        assert props["email"] == "v3@example.com"
+
+        # min_version=4 should get v5 (oldest >= 4, since v4 doesn't exist)
+        props = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=4)
+        assert props is not None
+        assert props["email"] == "v5@example.com"
+
+        # min_version=5 should get v5
+        props = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=5)
+        assert props is not None
+        assert props["email"] == "v5@example.com"
+
+    def test_returns_none_when_no_version_gte_min(self, cluster: ClickhouseCluster):
+        """Test that None is returned when no version >= min_version exists."""
+        team_id = 99802
+        person_id = UUID("bbbbbbbb-bbbb-bbbb-bbbb-000000000002")
+        now = datetime.now().replace(microsecond=0)
+
+        # Insert person with only version 5
+        def insert_person(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                [(team_id, person_id, json.dumps({"email": "test@example.com"}), 5, now)],
+            )
+
+        cluster.any_host(insert_person).result()
+
+        # min_version=5 exists
+        result = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=5)
+        assert result is not None
+
+        # min_version=6 - no version >= 6 exists
+        assert fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=6) is None
+
+        # min_version=99 - no version >= 99 exists
+        assert fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=99) is None
+
+    def test_returns_none_for_nonexistent_person(self, cluster: ClickhouseCluster):
+        """Test that None is returned when the person doesn't exist."""
+        team_id = 99803
+        nonexistent_person_id = "cccccccc-cccc-cccc-cccc-000000000003"
+
+        result = fetch_person_properties_from_clickhouse(team_id, nonexistent_person_id, min_version=1)
+        assert result is None
+
+    def test_returns_empty_dict_for_empty_properties(self, cluster: ClickhouseCluster):
+        """Test that empty dict is returned when properties are empty."""
+        team_id = 99804
+        person_id = UUID("dddddddd-dddd-dddd-dddd-000000000004")
+        now = datetime.now().replace(microsecond=0)
+
+        # Insert person with empty properties
+        person_data = [(team_id, person_id, json.dumps({}), 1, now)]
+
+        def insert_person(client: Client) -> None:
+            client.execute(
+                """INSERT INTO person (team_id, id, properties, version, _timestamp)
+                VALUES""",
+                person_data,
+            )
+
+        cluster.any_host(insert_person).result()
+
+        result = fetch_person_properties_from_clickhouse(team_id, str(person_id), min_version=1)
+        assert result == {}
+
+
+class TestReconcileWithConcurrentChanges:
+    """Unit tests for reconcile_with_concurrent_changes 3-way merge logic."""
+
+    def test_applies_event_changes_when_no_concurrent_postgres_changes(self):
+        """When Postgres hasn't changed from CH baseline, all event changes apply."""
+        ch_properties = {"email": "original@example.com", "name": "Original"}
+        postgres_person = {
+            "properties": {"email": "original@example.com", "name": "Original"},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="new@example.com")},
+            set_once_updates={},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        assert result["properties"]["email"] == "new@example.com"
+        assert result["properties"]["name"] == "Original"  # unchanged
+
+    def test_postgres_wins_on_conflict(self):
+        """When Postgres has changed a key that events also change, Postgres wins."""
+        ch_properties = {"email": "original@example.com"}
+        postgres_person = {
+            "properties": {"email": "postgres_changed@example.com"},  # Postgres changed this
+            "properties_last_updated_at": {"email": "2024-01-16T00:00:00"},
+            "properties_last_operation": {"email": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={
+                "email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="event_changed@example.com")
+            },
+            set_once_updates={},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        # No changes - Postgres already has a different value, so our change is skipped
+        assert result is None
+
+    def test_applies_event_change_to_unconflicted_key(self):
+        """Event changes apply to keys that Postgres hasn't concurrently modified."""
+        ch_properties = {"email": "original@example.com", "name": "Original"}
+        postgres_person = {
+            "properties": {"email": "postgres_changed@example.com", "name": "Original"},  # Only email changed
+            "properties_last_updated_at": {"email": "2024-01-16T00:00:00"},
+            "properties_last_operation": {"email": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={
+                "email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="event_email@example.com"),
+                "name": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="Event Name"),
+            },
+            set_once_updates={},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        # email: Postgres wins (concurrent change)
+        assert result["properties"]["email"] == "postgres_changed@example.com"
+        # name: event wins (no concurrent change)
+        assert result["properties"]["name"] == "Event Name"
+
+    def test_set_once_applies_for_new_key(self):
+        """set_once applies when key doesn't exist in Postgres."""
+        ch_properties: dict[str, Any] = {}
+        postgres_person: dict[str, Any] = {
+            "properties": {},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={},
+            set_once_updates={"referrer": PropertyValue(timestamp=datetime(2024, 1, 10, 8, 0, 0), value="google.com")},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        assert result["properties"]["referrer"] == "google.com"
+
+    def test_set_once_skipped_when_key_exists_in_postgres(self):
+        """set_once is skipped when key already exists in Postgres (even if added concurrently)."""
+        ch_properties: dict[str, Any] = {}  # Key didn't exist at CH version
+        postgres_person: dict[str, Any] = {
+            "properties": {"referrer": "facebook.com"},  # But now exists in Postgres
+            "properties_last_updated_at": {"referrer": "2024-01-12T00:00:00"},
+            "properties_last_operation": {"referrer": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={},
+            set_once_updates={"referrer": PropertyValue(timestamp=datetime(2024, 1, 10, 8, 0, 0), value="google.com")},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        # No change - key exists in Postgres
+        assert result is None
+
+    def test_unset_applies_when_key_not_concurrently_changed(self):
+        """$unset removes key when Postgres hasn't concurrently modified it."""
+        ch_properties = {"email": "original@example.com", "name": "Original"}
+        postgres_person = {
+            "properties": {"email": "original@example.com", "name": "Original"},
+            "properties_last_updated_at": {},
+            "properties_last_operation": {},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={},
+            set_once_updates={},
+            unset_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value=None)},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        assert "email" not in result["properties"]
+        assert result["properties"]["name"] == "Original"
+
+    def test_unset_skipped_when_key_concurrently_changed(self):
+        """$unset is skipped when Postgres has concurrently modified the key."""
+        ch_properties = {"email": "original@example.com"}
+        postgres_person = {
+            "properties": {"email": "postgres_updated@example.com"},  # Postgres changed this
+            "properties_last_updated_at": {"email": "2024-01-16T00:00:00"},
+            "properties_last_operation": {"email": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={},
+            set_once_updates={},
+            unset_updates={"email": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value=None)},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        # No change - Postgres has concurrent modification
+        assert result is None
+
+    def test_preserves_postgres_additions(self):
+        """Keys added to Postgres concurrently should be preserved."""
+        ch_properties = {"email": "original@example.com"}
+        postgres_person = {
+            "properties": {"email": "original@example.com", "new_key": "postgres_added"},
+            "properties_last_updated_at": {"new_key": "2024-01-16T00:00:00"},
+            "properties_last_operation": {"new_key": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={"name": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="Event Name")},
+            set_once_updates={},
+            unset_updates={},
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        assert result["properties"]["email"] == "original@example.com"
+        assert result["properties"]["new_key"] == "postgres_added"  # Preserved
+        assert result["properties"]["name"] == "Event Name"  # Event change applied
+
+    def test_mixed_operations_with_conflicts(self):
+        """Test complex scenario with multiple operations and partial conflicts."""
+        ch_properties = {"a": "ch_a", "b": "ch_b", "c": "ch_c"}
+        postgres_person = {
+            "properties": {"a": "pg_a", "b": "ch_b", "c": "ch_c", "d": "pg_d"},  # a changed, d added
+            "properties_last_updated_at": {"a": "2024-01-16T00:00:00", "d": "2024-01-16T00:00:00"},
+            "properties_last_operation": {"a": "set", "d": "set"},
+        }
+        person_diffs = PersonPropertyDiffs(
+            person_id="test-person",
+            person_version=1,
+            set_updates={
+                "a": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="event_a"),  # Conflict
+                "b": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value="event_b"),  # No conflict
+            },
+            set_once_updates={
+                "e": PropertyValue(timestamp=datetime(2024, 1, 10, 8, 0, 0), value="event_e"),  # New key
+            },
+            unset_updates={
+                "c": PropertyValue(timestamp=datetime(2024, 1, 15, 12, 0, 0), value=None),  # No conflict
+            },
+        )
+
+        result = reconcile_with_concurrent_changes(ch_properties, postgres_person, person_diffs)
+
+        assert result is not None
+        assert result["properties"]["a"] == "pg_a"  # Postgres wins (conflict)
+        assert result["properties"]["b"] == "event_b"  # Event wins (no conflict)
+        assert "c" not in result["properties"]  # Unset applied (no conflict)
+        assert result["properties"]["d"] == "pg_d"  # Postgres addition preserved
+        assert result["properties"]["e"] == "event_e"  # set_once applied (new key)
+
+
+@pytest.mark.django_db
+class TestQueryTeamIdsFromClickHouse:
+    """Integration tests for query_team_ids_from_clickhouse with team_id filters."""
+
+    def test_returns_teams_with_property_events(self, cluster: ClickhouseCluster):
+        """Basic test that teams with $set/$set_once/$unset events are returned."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        # Use unique team_ids unlikely to conflict with other tests (88001-88005)
+        events = [
+            (
+                88001,
+                "d1",
+                UUID("11111111-1111-1111-1111-880000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                88002,
+                "d2",
+                UUID("11111111-1111-1111-1111-880000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set_once": {"b": 2}}),
+            ),
+            (
+                88003,
+                "d3",
+                UUID("11111111-1111-1111-1111-880000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$unset": ["c"]}),
+            ),
+            (
+                88004,
+                "d4",
+                UUID("11111111-1111-1111-1111-880000000004"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"d": 4}}),
+            ),
+            (
+                88005,
+                "d5",
+                UUID("11111111-1111-1111-1111-880000000005"),
+                now - timedelta(days=5),
+                json.dumps({"other": "no_props"}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=88001,
+            max_team_id=88005,
+        )
+
+        # 88005 has no $set/$set_once/$unset so should not be included
+        assert result == [88001, 88002, 88003, 88004]
+
+    def test_min_team_id_filter(self, cluster: ClickhouseCluster):
+        """Test that min_team_id filters out teams below the threshold."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                89001,
+                "d1",
+                UUID("11111111-1111-1111-1111-890000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                89002,
+                "d2",
+                UUID("11111111-1111-1111-1111-890000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                89003,
+                "d3",
+                UUID("11111111-1111-1111-1111-890000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=89002,
+            max_team_id=89003,
+        )
+
+        assert result == [89002, 89003]
+
+    def test_max_team_id_filter(self, cluster: ClickhouseCluster):
+        """Test that max_team_id filters out teams above the threshold."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                90001,
+                "d1",
+                UUID("11111111-1111-1111-1111-900000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                90002,
+                "d2",
+                UUID("11111111-1111-1111-1111-900000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                90003,
+                "d3",
+                UUID("11111111-1111-1111-1111-900000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=90001,
+            max_team_id=90002,
+        )
+
+        assert result == [90001, 90002]
+
+    def test_both_min_and_max_team_id_filters(self, cluster: ClickhouseCluster):
+        """Test that both min and max filters work together."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                91001,
+                "d1",
+                UUID("11111111-1111-1111-1111-910000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                91002,
+                "d2",
+                UUID("11111111-1111-1111-1111-910000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                91003,
+                "d3",
+                UUID("11111111-1111-1111-1111-910000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                91004,
+                "d4",
+                UUID("11111111-1111-1111-1111-910000000004"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"d": 4}}),
+            ),
+            (
+                91005,
+                "d5",
+                UUID("11111111-1111-1111-1111-910000000005"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"e": 5}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=91002,
+            max_team_id=91004,
+        )
+
+        assert result == [91002, 91003, 91004]
+
+    def test_team_range_returns_all_matching_teams(self, cluster: ClickhouseCluster):
+        """Test that team range filter returns all teams with property events within range."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                92001,
+                "d1",
+                UUID("11111111-1111-1111-1111-920000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                92002,
+                "d2",
+                UUID("11111111-1111-1111-1111-920000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=92001,
+            max_team_id=92002,
+        )
+
+        assert 92001 in result
+        assert 92002 in result
+
+    def test_exclude_team_ids_filters_out_specified_teams(self, cluster: ClickhouseCluster):
+        """Test that exclude_team_ids filters out specified teams from results."""
+        now = datetime.now().replace(microsecond=0)
+        bug_window_start = now - timedelta(days=10)
+        bug_window_end = now + timedelta(days=1)
+
+        events = [
+            (
+                93001,
+                "d1",
+                UUID("11111111-1111-1111-1111-930000000001"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                93002,
+                "d2",
+                UUID("11111111-1111-1111-1111-930000000002"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                93003,
+                "d3",
+                UUID("11111111-1111-1111-1111-930000000003"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                93004,
+                "d4",
+                UUID("11111111-1111-1111-1111-930000000004"),
+                now - timedelta(days=5),
+                json.dumps({"$set": {"d": 4}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            min_team_id=93001,
+            max_team_id=93004,
+            exclude_team_ids=[93002, 93004],
+        )
+
+        assert result == [93001, 93003]
+
+    def test_include_team_ids_filters_to_specified_teams(self, cluster: ClickhouseCluster):
+        """Test that include_team_ids only returns teams in the specified list."""
+        bug_window_start = datetime.now(UTC) - timedelta(hours=2)
+        bug_window_end = datetime.now(UTC) + timedelta(hours=1)
+        event_time = datetime.now(UTC) - timedelta(hours=1)
+
+        # Create events for teams 94001-94005
+        events = [
+            (
+                94001,
+                "user_a",
+                "00000000-0000-0000-0000-000000094001",
+                event_time,
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                94002,
+                "user_b",
+                "00000000-0000-0000-0000-000000094002",
+                event_time,
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                94003,
+                "user_c",
+                "00000000-0000-0000-0000-000000094003",
+                event_time,
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                94004,
+                "user_d",
+                "00000000-0000-0000-0000-000000094004",
+                event_time,
+                json.dumps({"$set": {"d": 4}}),
+            ),
+            (
+                94005,
+                "user_e",
+                "00000000-0000-0000-0000-000000094005",
+                event_time,
+                json.dumps({"$set": {"e": 5}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # Only include teams 94002 and 94004 - should not return 94001, 94003, 94005
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            include_team_ids=[94002, 94004],
+        )
+
+        assert result == [94002, 94004]
+
+    def test_include_team_ids_combined_with_other_filters(self, cluster: ClickhouseCluster):
+        """Test that include_team_ids works as AND with other filters."""
+        bug_window_start = datetime.now(UTC) - timedelta(hours=2)
+        bug_window_end = datetime.now(UTC) + timedelta(hours=1)
+        event_time = datetime.now(UTC) - timedelta(hours=1)
+
+        # Create events for teams 95001-95004
+        events = [
+            (
+                95001,
+                "user_a",
+                "00000000-0000-0000-0000-000000095001",
+                event_time,
+                json.dumps({"$set": {"a": 1}}),
+            ),
+            (
+                95002,
+                "user_b",
+                "00000000-0000-0000-0000-000000095002",
+                event_time,
+                json.dumps({"$set": {"b": 2}}),
+            ),
+            (
+                95003,
+                "user_c",
+                "00000000-0000-0000-0000-000000095003",
+                event_time,
+                json.dumps({"$set": {"c": 3}}),
+            ),
+            (
+                95004,
+                "user_d",
+                "00000000-0000-0000-0000-000000095004",
+                event_time,
+                json.dumps({"$set": {"d": 4}}),
+            ),
+        ]
+
+        def insert_events(client: Client) -> None:
+            client.execute(
+                "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp, properties) VALUES",
+                events,
+            )
+
+        cluster.any_host(insert_events).result()
+
+        # include_team_ids=[95001, 95002, 95003] AND exclude_team_ids=[95002] -> only 95001, 95003
+        result = query_team_ids_from_clickhouse(
+            bug_window_start=bug_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            bug_window_end=bug_window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            include_team_ids=[95001, 95002, 95003],
+            exclude_team_ids=[95002],
+        )
+
+        assert result == [95001, 95003]
+
+    def test_invalid_range_raises_error(self):
+        """Test that min_team_id > max_team_id raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            query_team_ids_from_clickhouse(
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-02 00:00:00",
+                min_team_id=100,
+                max_team_id=50,
+            )
+
+        assert "min_team_id (100) cannot be greater than max_team_id (50)" in str(exc_info.value)
+
+
+class TestReconcileSingleTeamErrorHandling:
+    """Tests for error handling in reconcile_single_team and reconcile_team_chunk."""
+
+    def test_team_failure_does_not_crash_chunk(self):
+        """Test that if one team fails, the chunk continues processing other teams."""
+        from posthog.dags.person_property_reconciliation import (
+            PersonPropertyReconciliationConfig,
+            TeamReconciliationResult,
+        )
+
+        # Mock reconcile_single_team to fail for team 2 but succeed for teams 1 and 3
+        call_count = {"value": 0}
+        original_results = {
+            1: TeamReconciliationResult(team_id=1, persons_processed=10, persons_updated=5, persons_skipped=5),
+            3: TeamReconciliationResult(team_id=3, persons_processed=20, persons_updated=15, persons_skipped=5),
+        }
+
+        def mock_reconcile_single_team(team_id, **kwargs):
+            call_count["value"] += 1
+            if team_id == 2:
+                raise Exception("Simulated failure for team 2")
+            return original_results[team_id]
+
+        with patch(
+            "posthog.dags.person_property_reconciliation.reconcile_single_team",
+            side_effect=mock_reconcile_single_team,
+        ):
+            # Create mock context with run info
+            mock_context = MagicMock()
+            mock_context.run.job_name = "test_job"
+            mock_context.run.run_id = "test_run_123"
+
+            # Create real config
+            config = PersonPropertyReconciliationConfig(
+                bug_window_start="2024-01-01 00:00:00",
+                batch_size=100,
+                dry_run=False,
+                backup_enabled=False,
+            )
+
+            # Create mock resources
+            mock_db = MagicMock()
+            mock_cluster = MagicMock()
+            mock_kafka = MagicMock()
+
+            # Import the underlying function (not the op wrapper)
+            from posthog.dags.person_property_reconciliation import reconcile_team_chunk
+
+            # Call the op's underlying function directly via __wrapped__
+            result = reconcile_team_chunk.__wrapped__(  # type: ignore[attr-defined]
+                context=mock_context,
+                config=config,
+                chunk=[1, 2, 3],
+                persons_database=mock_db,
+                cluster=mock_cluster,
+                kafka_producer=mock_kafka,
+            )
+
+            # All 3 teams should have been attempted
+            assert call_count["value"] == 3
+
+            # Check overall results
+            assert result["teams_count"] == 3
+            assert result["teams_succeeded"] == 2
+            assert result["teams_failed"] == 1
+            assert result["persons_processed"] == 30  # 10 + 0 + 20
+            assert result["persons_updated"] == 20  # 5 + 0 + 15
+
+            # Check individual team results
+            teams_results = result["teams_results"]
+            assert len(teams_results) == 3
+
+            team1_result = next(r for r in teams_results if r["team_id"] == 1)
+            assert team1_result["status"] == "success"
+            assert team1_result["persons_processed"] == 10
+
+            team2_result = next(r for r in teams_results if r["team_id"] == 2)
+            assert team2_result["status"] == "failed"
+            assert "Simulated failure" in team2_result["error"]
+
+            team3_result = next(r for r in teams_results if r["team_id"] == 3)
+            assert team3_result["status"] == "success"
+            assert team3_result["persons_processed"] == 20
+
+
+class TestReconciliationSchedulerSensor:
+    """Tests for the person_property_reconciliation_scheduler sensor."""
+
+    def test_build_reconciliation_run_config(self):
+        """Test that run config is built correctly from scheduler config."""
+        from posthog.dags.person_property_reconciliation import (
+            ReconciliationSchedulerConfig,
+            build_reconciliation_run_config,
+        )
+
+        config = ReconciliationSchedulerConfig(
+            range_start=1,
+            range_end=10000,
+            chunk_size=1000,
+            max_concurrent_jobs=5,
+            max_concurrent_tasks=10,
+            bug_window_start="2024-01-06 20:01:00",
+            bug_window_end="2024-01-07 14:52:00",
+            dry_run=False,
+            backup_enabled=True,
+            batch_size=100,
+        )
+
+        run_config = build_reconciliation_run_config(config, min_team_id=1, max_team_id=1000)
+
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["min_team_id"] == 1
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["max_team_id"] == 1000
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["bug_window_start"] == "2024-01-06 20:01:00"
+        assert run_config["ops"]["get_team_ids_to_reconcile"]["config"]["dry_run"] is False
+        assert run_config["ops"]["reconcile_team_chunk"]["config"]["backup_enabled"] is True
+        assert run_config["execution"]["config"]["max_concurrent"] == 10  # max_concurrent_tasks
+
+    def test_sensor_no_cursor_returns_skip_reason(self):
+        """Test that sensor returns SkipReason when no cursor is set."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        context = build_sensor_context(cursor=None)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "No cursor set" in result.skip_message
+
+    def test_sensor_invalid_cursor_json_returns_skip_reason(self):
+        """Test that sensor returns SkipReason for invalid JSON cursor."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        context = build_sensor_context(cursor="not valid json {")
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "Invalid cursor JSON" in result.skip_message
+
+    def test_sensor_completed_range_returns_skip_reason(self):
+        """Test that sensor returns SkipReason when range is completed."""
+        from dagster import DagsterInstance, SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "next_chunk_start": 1001,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "complete" in result.skip_message.lower()
+
+    def test_sensor_at_max_concurrency_returns_skip_reason(self):
+        """Test that sensor returns SkipReason when at max concurrency."""
+        from dagster import DagsterInstance, SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 10000,
+                "chunk_size": 1000,
+                "max_concurrent_jobs": 2,
+                "next_chunk_start": 1,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = [MagicMock(), MagicMock()]
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "max concurrency" in result.skip_message.lower()
+
+    def test_sensor_yields_runs_up_to_available_slots(self):
+        """Test that sensor yields correct number of runs based on available slots."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 5000,
+                "chunk_size": 1000,
+                "max_concurrent_jobs": 3,
+                "next_chunk_start": 1,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = [MagicMock()]
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 2
+        assert result.run_requests[0].run_key == "reconcile_teams_1_1000"
+        assert result.run_requests[1].run_key == "reconcile_teams_1001_2000"
+
+        assert result.cursor is not None
+        new_cursor = json.loads(result.cursor)
+        assert new_cursor["next_chunk_start"] == 2001
+
+    def test_sensor_handles_partial_final_chunk(self):
+        """Test that sensor correctly handles a final chunk smaller than chunk_size."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1500,
+                "chunk_size": 1000,
+                "max_concurrent_jobs": 5,
+                "next_chunk_start": 1001,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 1
+        assert result.run_requests[0].run_key == "reconcile_teams_1001_1500"
+
+        assert result.cursor is not None
+        new_cursor = json.loads(result.cursor)
+        assert new_cursor["next_chunk_start"] == 1501
+
+    def test_sensor_run_request_has_correct_tags(self):
+        """Test that run requests include expected tags."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 2000,
+                "chunk_size": 1000,
+                "max_concurrent_jobs": 5,
+                "next_chunk_start": 1,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 2
+        assert result.run_requests[0].tags["reconciliation_range"] == "1-1000"
+        assert result.run_requests[0].tags["owner"] == "team-ingestion"
+
+    def test_sensor_validates_range_start_less_than_range_end(self):
+        """Test that sensor rejects range_start > range_end."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1000,
+                "range_end": 500,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "range_start" in result.skip_message
+        assert "range_end" in result.skip_message
+
+    def test_sensor_validates_chunk_size_positive(self):
+        """Test that sensor rejects chunk_size <= 0."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "chunk_size": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "chunk_size" in result.skip_message
+
+    def test_sensor_validates_max_concurrent_jobs_positive(self):
+        """Test that sensor rejects max_concurrent_jobs <= 0."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent_jobs": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "max_concurrent_jobs" in result.skip_message
+
+    def test_sensor_validates_max_concurrent_jobs_cap(self):
+        """Test that sensor rejects max_concurrent_jobs exceeding the cap."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent_jobs": 100,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "exceeds cap" in result.skip_message.lower()
+
+    def test_sensor_validates_max_concurrent_tasks_positive(self):
+        """Test that sensor rejects max_concurrent_tasks <= 0."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent_tasks": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "max_concurrent_tasks" in result.skip_message
+
+    def test_sensor_validates_max_concurrent_tasks_cap(self):
+        """Test that sensor rejects max_concurrent_tasks exceeding the cap."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "max_concurrent_tasks": 200,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "exceeds cap" in result.skip_message.lower()
+
+    def test_sensor_validates_bug_window_start_required(self):
+        """Test that sensor rejects missing bug_window_start."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "bug_window_start" in result.skip_message
+
+    def test_sensor_validates_bug_window_end_required(self):
+        """Test that sensor rejects missing bug_window_end."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "range_start": 1,
+                "range_end": 1000,
+                "bug_window_start": "2024-01-06 20:01:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "bug_window_end" in result.skip_message
+
+    def test_build_reconciliation_run_config_with_team_ids(self):
+        """Test that run config passes team_ids to op config when provided."""
+        from posthog.dags.person_property_reconciliation import (
+            ReconciliationSchedulerConfig,
+            build_reconciliation_run_config,
+        )
+
+        config = ReconciliationSchedulerConfig(
+            team_ids=[1, 5, 10, 20],
+            chunk_size=100,
+            max_concurrent_jobs=5,
+            max_concurrent_tasks=10,
+            bug_window_start="2024-01-06 20:01:00",
+            bug_window_end="2024-01-07 14:52:00",
+            dry_run=True,
+            backup_enabled=False,
+            batch_size=50,
+        )
+
+        run_config = build_reconciliation_run_config(config, team_ids=[1, 5, 10])
+
+        op_config = run_config["ops"]["get_team_ids_to_reconcile"]["config"]
+        assert op_config["team_ids"] == [1, 5, 10]
+        assert "min_team_id" not in op_config
+        assert "max_team_id" not in op_config
+        assert op_config["bug_window_start"] == "2024-01-06 20:01:00"
+        assert op_config["dry_run"] is True
+        assert run_config["ops"]["reconcile_team_chunk"]["config"]["backup_enabled"] is False
+
+    def test_sensor_with_team_ids_yields_chunked_runs(self):
+        """Test that sensor chunks team_ids list correctly."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "team_ids": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                "chunk_size": 3,
+                "max_concurrent_jobs": 5,
+                "next_team_index": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 4  # 10 teams / 3 per chunk = 4 chunks (3+3+3+1)
+        assert result.run_requests[0].run_key == "reconcile_team_ids_0_2"
+        assert result.run_requests[1].run_key == "reconcile_team_ids_3_5"
+        assert result.run_requests[2].run_key == "reconcile_team_ids_6_8"
+        assert result.run_requests[3].run_key == "reconcile_team_ids_9_9"
+
+        # Verify first run config has correct team_ids chunk
+        first_run_config = result.run_requests[0].run_config
+        assert first_run_config["ops"]["get_team_ids_to_reconcile"]["config"]["team_ids"] == [1, 2, 3]
+
+    def test_sensor_team_ids_mode_updates_cursor(self):
+        """Test that sensor updates next_team_index in cursor."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "team_ids": [100, 200, 300, 400, 500],
+                "chunk_size": 2,
+                "max_concurrent_jobs": 2,  # Limit to 2 runs
+                "next_team_index": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 2  # Limited by max_concurrent_jobs
+
+        # Cursor should track progress
+        assert result.cursor is not None
+        new_cursor = json.loads(result.cursor)
+        assert new_cursor["next_team_index"] == 4  # Processed 2 chunks of 2 = 4 teams
+
+    def test_sensor_team_ids_completes_when_list_exhausted(self):
+        """Test that sensor returns SkipReason when all team_ids are processed."""
+        from dagster import DagsterInstance, SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "team_ids": [1, 2, 3],
+                "chunk_size": 10,
+                "next_team_index": 3,  # Already processed all 3
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "complete" in result.skip_message.lower()
+        assert "3" in result.skip_message  # Should mention number of teams
+
+    def test_sensor_validates_either_team_ids_or_range_required(self):
+        """Test that sensor rejects cursor with neither team_ids nor range."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "chunk_size": 100,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "team_ids" in result.skip_message
+        assert "range_start" in result.skip_message
+
+    def test_sensor_validates_team_ids_and_range_mutually_exclusive(self):
+        """Test that sensor rejects cursor with both team_ids and range."""
+        from dagster import SkipReason, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "team_ids": [1, 2, 3],
+                "range_start": 1,
+                "range_end": 100,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+        context = build_sensor_context(cursor=cursor)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SkipReason)
+        assert result.skip_message is not None
+        assert "both" in result.skip_message.lower()
+
+    def test_sensor_team_ids_run_request_has_correct_tags(self):
+        """Test that team_ids mode run requests include expected tags."""
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        from posthog.dags.person_property_reconciliation import person_property_reconciliation_scheduler
+
+        cursor = json.dumps(
+            {
+                "team_ids": [10, 20, 30],
+                "chunk_size": 2,
+                "max_concurrent_jobs": 5,
+                "next_team_index": 0,
+                "bug_window_start": "2024-01-06 20:01:00",
+                "bug_window_end": "2024-01-07 14:52:00",
+            }
+        )
+
+        mock_instance = MagicMock(spec=DagsterInstance)
+        mock_instance.get_run_records.return_value = []
+
+        context = build_sensor_context(cursor=cursor, instance=mock_instance)
+        result = person_property_reconciliation_scheduler(context)
+
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+        assert len(result.run_requests) == 2
+        assert result.run_requests[0].tags["reconciliation_team_ids_range"] == "0-1"
+        assert result.run_requests[0].tags["reconciliation_team_count"] == "2"
+        assert result.run_requests[0].tags["owner"] == "team-ingestion"

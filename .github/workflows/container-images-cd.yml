@@ -122,8 +122,8 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
-            - name: Check for changes in plugins directory
-              id: check_changes_plugins
+            - name: Check for changes in nodejs directory
+              id: check_changes_nodejs
               run: |
                   echo "changed=$((git diff --name-only HEAD^ HEAD | grep -q '^nodejs/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 

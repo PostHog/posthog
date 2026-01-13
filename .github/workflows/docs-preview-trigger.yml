@@ -26,10 +26,11 @@ jobs:
             - name: Trigger Vercel build
               id: trigger-build
               env:
+                  BRANCH_NAME: ${{ github.event.pull_request.head.ref || github.ref_name }}
                   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
                   VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
                   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-              run: .github/scripts/trigger-vercel-preview.sh "${{ github.event.pull_request.head.ref || github.ref_name }}"
+              run: .github/scripts/trigger-vercel-preview.sh "$BRANCH_NAME"
 
             - name: Comment on PR
               if: github.event_name == 'pull_request'

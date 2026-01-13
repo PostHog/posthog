@@ -519,3 +519,47 @@ class TestUserTwoFactorSessionIntegration(TestCase):
         """Test that schema generation works without session middleware errors"""
         response = self.client.get("/api/schema/")
         self.assertEqual(response.status_code, 200)
+
+    def test_two_factor_viewset_invalid_session_returns_error(self):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        response = client.post("/api/login/token/", {"token": "123456"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data.get("code"), "invalid_2fa_session")
+
+    def test_two_factor_viewset_user_not_found_returns_error(self):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        session = client.session
+        session["user_authenticated_but_no_2fa"] = 99999
+        session["user_authenticated_time"] = time.time()
+        session.save()
+
+        response = client.post("/api/login/token/", {"token": "123456"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data.get("code"), "invalid_2fa_session")
+
+    @patch("posthog.rate_limit.TwoFactorThrottle.rate", new="3/minute")
+    def test_two_factor_viewset_rate_limiting(self):
+        from django.core.cache import cache
+
+        from rest_framework.test import APIClient
+
+        cache.clear()
+
+        client = APIClient()
+        session = client.session
+        session["user_authenticated_but_no_2fa"] = self.user.pk
+        session["user_authenticated_time"] = time.time()
+        session.save()
+
+        for i in range(3):
+            response = client.post("/api/login/token/", {"token": "123456"})
+            self.assertEqual(response.status_code, 400, f"Request {i+1} should not be throttled")
+
+        response = client.post("/api/login/token/", {"token": "123456"})
+        self.assertEqual(response.status_code, 429)

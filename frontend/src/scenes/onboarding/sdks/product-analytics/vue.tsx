@@ -1,11 +1,12 @@
-import { SDKInstallVueInstructions } from '../sdk-install-instructions/vue'
-import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
+import { JSEventCapture } from '@posthog/shared-onboarding/product-analytics/_snippets/js-event-capture'
+import { VueInstallation } from '@posthog/shared-onboarding/product-analytics/vue'
+
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export function ProductAnalyticsVueInstructions(): JSX.Element {
     return (
-        <>
-            <SDKInstallVueInstructions />
-            <ProductAnalyticsAllJSFinalSteps />
-        </>
+        <OnboardingDocsContentWrapper snippets={{ JSEventCapture }}>
+            <VueInstallation />
+        </OnboardingDocsContentWrapper>
     )
 }

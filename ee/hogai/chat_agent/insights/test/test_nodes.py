@@ -794,7 +794,7 @@ class TestInsightSearchNode(BaseTest):
         # Test insight1 visualization message creation
         viz_message = await self.node._create_artifact_ref_message_for_insight(self._insight_to_dict(self.insight1))
         assert isinstance(viz_message, ArtifactRefMessage), "Should create artifact ref message for insight1"
-        viz_message = await self.artifact_manager.aget_enriched_message(viz_message)
+        viz_message = await self.artifact_manager.aenrich_message(viz_message)
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
@@ -817,7 +817,7 @@ class TestInsightSearchNode(BaseTest):
         # Test insight2 visualization message creation
         viz_message2 = await self.node._create_artifact_ref_message_for_insight(self._insight_to_dict(self.insight2))
         assert isinstance(viz_message2, ArtifactRefMessage), "Should create artifact ref message for insight2"
-        viz_message2 = await self.artifact_manager.aget_enriched_message(viz_message2)
+        viz_message2 = await self.artifact_manager.aenrich_message(viz_message2)
         assert viz_message2 is not None
 
         # Verify the answer contains the correct query type
@@ -867,7 +867,7 @@ class TestInsightSearchNode(BaseTest):
         # Test insight visualization message creation
         viz_message = await self.node._create_artifact_ref_message_for_insight(insight_dict)
         assert isinstance(viz_message, ArtifactRefMessage), "Should create artifact ref message for insight"
-        viz_message = await self.artifact_manager.aget_enriched_message(viz_message)
+        viz_message = await self.artifact_manager.aenrich_message(viz_message)
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
@@ -905,7 +905,7 @@ class TestInsightSearchNode(BaseTest):
         # Test insight visualization message creation
         viz_message = await self.node._create_artifact_ref_message_for_insight(insight_dict)
         assert isinstance(viz_message, ArtifactRefMessage), "Should create artifact ref message for insight"
-        viz_message = await self.artifact_manager.aget_enriched_message(viz_message)
+        viz_message = await self.artifact_manager.aenrich_message(viz_message)
         assert viz_message is not None
 
         # Verify the answer contains the correct query type

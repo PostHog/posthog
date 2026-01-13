@@ -70,6 +70,13 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class ApprovalDecisionStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    AUTO_REJECTED = "auto_rejected"
+
+
 class ArtifactContentType(StrEnum):
     VISUALIZATION = "visualization"
     NOTEBOOK = "notebook"
@@ -137,6 +144,7 @@ class AssistantEventType(StrEnum):
     CONVERSATION = "conversation"
     NOTEBOOK = "notebook"
     UPDATE = "update"
+    APPROVAL = "approval"
 
 
 class AssistantFormOption(BaseModel):
@@ -324,6 +332,7 @@ class AssistantTool(StrEnum):
     CREATE_FORM = "create_form"
     TASK = "task"
     UPSERT_DASHBOARD = "upsert_dashboard"
+    MANAGE_MEMORIES = "manage_memories"
 
 
 class AssistantToolCall(BaseModel):
@@ -908,6 +917,17 @@ class CustomEventConversionGoal(BaseModel):
         extra="forbid",
     )
     customEventName: str
+
+
+class DangerousOperationResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    payload: dict[str, Any]
+    preview: str
+    proposalId: str
+    status: Literal["pending_approval"] = "pending_approval"
+    toolName: str
 
 
 class DataColorToken(StrEnum):
@@ -1646,7 +1666,6 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
-    FEED = "feed"
     HOME = "home"
     APPS = "apps"
     LIVE = "live"
@@ -1987,6 +2006,7 @@ class IntegrationKind(StrEnum):
     DATABRICKS = "databricks"
     TIKTOK_ADS = "tiktok-ads"
     BING_ADS = "bing-ads"
+    VERCEL = "vercel"
 
 
 class IntervalType(StrEnum):
@@ -3194,6 +3214,7 @@ class SessionRecordingExternalReference(BaseModel):
     id: str
     integration: Integration
     issue_id: str
+    metadata: dict[str, str] | None = None
     title: str
 
 
@@ -3869,6 +3890,10 @@ class AlertCondition(BaseModel):
         extra="forbid",
     )
     type: AlertConditionType
+
+
+class ApprovalCardUIStatus(RootModel[ApprovalDecisionStatus | str]):
+    root: ApprovalDecisionStatus | str
 
 
 class AssistantArrayPropertyFilter(BaseModel):

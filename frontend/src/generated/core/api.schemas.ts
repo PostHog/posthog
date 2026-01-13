@@ -481,11 +481,12 @@ export interface CreateGroupApi {
  * `clickup` - Clickup
  * `vercel` - Vercel
  * `databricks` - Databricks
+ * `azure-blob` - Azure Blob
  */
-export type KindEnumApi = (typeof KindEnumApi)[keyof typeof KindEnumApi]
+export type Kind7b5EnumApi = (typeof Kind7b5EnumApi)[keyof typeof Kind7b5EnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const KindEnumApi = {
+export const Kind7b5EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -508,6 +509,7 @@ export const KindEnumApi = {
     clickup: 'clickup',
     vercel: 'vercel',
     databricks: 'databricks',
+    'azure-blob': 'azure-blob',
 } as const
 
 /**
@@ -515,7 +517,7 @@ export const KindEnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindEnumApi
+    kind: Kind7b5EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -3922,7 +3924,7 @@ export type GroupsUpdatePropertyCreateParams = {
     group_type_index: number
 }
 
-export type IntegrationsListParams = {
+export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.
      */

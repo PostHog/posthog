@@ -145,6 +145,17 @@ pub enum CacheSource {
     Fallback,
 }
 
+impl CacheSource {
+    /// Returns a consistent string representation for canonical logging.
+    pub fn as_log_str(&self) -> &'static str {
+        match self {
+            CacheSource::Redis => "redis",
+            CacheSource::S3 => "s3",
+            CacheSource::Fallback => "fallback",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct HyperCacheConfig {
     pub s3_bucket: String,

@@ -157,6 +157,7 @@ dependencies = [
     "langchain-perplexity>=0.1.1",
     "azure-ai-projects>=1.0.0b11",
     "azure-ai-inference>=1.0.0b9",
+    "azure-storage-blob~=12.27.0",
     "opentelemetry-sdk==1.33.1",
     "opentelemetry-instrumentation-django==0.54b1",
     "opentelemetry-instrumentation-asgi==0.54b1",
@@ -178,7 +179,6 @@ dependencies = [
     "modal>=1.2.1",
     "databricks-sql-connector~=4.1.3",
     "databricks-sdk~=0.67.0",
-    "litellm==1.80.0",
     "free-email-domains>=1.0.1",
     "disposable-email-domains>=0.0.140",
     "pymediainfo>=7.0.1",
@@ -188,6 +188,7 @@ dependencies = [
     "duckdb>=1.3.0",
     "bingads~=13.0.26",
     "markdown-to-mrkdwn>=0.2.0",
+    "webauthn>=2.1.0,<2.3.0",
     "botocore[crt]>=1.40.49",
     "defusedxml>=0.7.1",
 ]
@@ -212,7 +213,7 @@ dev = [
     "pytest-rerunfailures~=16.1",
     "freezegun==1.2.2",
     "ipython>=9.3.0",
-    "mypy~=1.18.2",
+    "mypy~=1.19.1",
     "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
     "ty==0.0.4",
@@ -358,6 +359,39 @@ section-order = [
 
 [tool.dagster]
 python_version = "3.12"
+
+[tool.mypy]
+python_version = "3.12"
+plugins = [
+    "mypy_django_plugin.main",
+    "mypy_drf_plugin.main",
+    "pydantic.mypy",
+]
+strict_optional = true
+no_implicit_optional = true
+warn_unused_ignores = true
+check_untyped_defs = true
+warn_unreachable = true
+strict_equality = true
+ignore_missing_imports = true
+exclude_gitignore = true
+exclude = ["^(bin/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+
+[[tool.mypy.overrides]]
+module = "bin.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "posthog.hogql.grammar.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "posthog.tasks.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.django-stubs]
+django_settings_module = "posthog.settings"
 
 [tool.mypy-baseline]
 sort_baseline = true
