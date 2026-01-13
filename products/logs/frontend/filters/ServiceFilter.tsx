@@ -52,6 +52,7 @@ export const ServiceFilter = (): JSX.Element => {
                             }}
                             placeholder="Search services..."
                             preloadValues
+                            autoFocus
                         />
                     </div>
                 }
