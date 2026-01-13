@@ -4,6 +4,7 @@ This workflow discovers teams with the feature flag enabled and spawns
 child workflows to cluster video segments for each team.
 """
 
+import asyncio
 import dataclasses
 from typing import Any
 
@@ -11,6 +12,7 @@ import structlog
 import temporalio
 from temporalio.workflow import ChildWorkflowHandle
 
+from posthog.models.feature_flag import FeatureFlag
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs, WorkflowResult
 from posthog.temporal.ai.video_segment_clustering.workflow import VideoSegmentClusteringWorkflow
@@ -36,8 +38,6 @@ def get_enabled_team_ids() -> list[int]:
     Returns:
         List of team IDs with the feature flag enabled
     """
-    from posthog.models.feature_flag import FeatureFlag
-
     try:
         # Find all teams where the feature flag is enabled
         # This queries flags that match our key and are active
@@ -201,6 +201,4 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
 @temporalio.activity.defn(name="discover_enabled_teams")
 async def discover_enabled_teams_activity() -> list[int]:
     """Activity to discover teams with the feature flag enabled."""
-    import asyncio
-
     return await asyncio.to_thread(get_enabled_team_ids)

@@ -3,22 +3,27 @@
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
+    from posthog.temporal.ai.video_segment_clustering import constants
     from posthog.temporal.ai.video_segment_clustering.activities import (
         cluster_segments_activity,
         create_update_tasks_activity,
+        fetch_recent_sessions_activity,
         fetch_segments_activity,
         generate_labels_activity,
         link_segments_activity,
         match_clusters_activity,
+        summarize_sessions_activity,
     )
     from posthog.temporal.ai.video_segment_clustering.clustering import create_single_segment_clusters
     from posthog.temporal.ai.video_segment_clustering.models import (
         ClusteringWorkflowInputs,
         CreateUpdateTasksActivityInputs,
+        FetchRecentSessionsActivityInputs,
         FetchSegmentsActivityInputs,
         GenerateLabelsActivityInputs,
         LinkSegmentsActivityInputs,
         MatchClustersActivityInputs,
+        SummarizeSessionsActivityInputs,
         WorkflowResult,
     )
     from posthog.temporal.ai.video_segment_clustering.priority import enrich_segments_with_impact
@@ -29,6 +34,7 @@ class VideoSegmentClusteringWorkflow:
     """Per-team workflow to cluster video segments and create Tasks.
 
     This workflow orchestrates activities to:
+    0. Prime: Run session summarization on recently-ended sessions to populate embeddings
     1. Fetch: Query unprocessed video segments from ClickHouse
     2. Cluster: HDBSCAN clustering with PCA dimensionality reduction
     3. Handle high-impact noise: Create single-segment clusters for impactful unclustered segments
@@ -48,10 +54,50 @@ class VideoSegmentClusteringWorkflow:
         Returns:
             WorkflowResult with processing metrics
         """
-        from posthog.temporal.ai.video_segment_clustering import constants
-
         try:
-            # Activity 1: Fetch unprocessed segments
+            # Step 0: Prime the document_embeddings table by running session summarization
+            # on all recordings that finished in the timeframe
+            workflow.logger.info(f"Fetching recent sessions for summarization priming (team {inputs.team_id})")
+
+            recent_sessions_result = await workflow.execute_activity(
+                fetch_recent_sessions_activity,
+                args=[
+                    FetchRecentSessionsActivityInputs(
+                        team_id=inputs.team_id,
+                        lookback_hours=inputs.lookback_hours,
+                    )
+                ],
+                start_to_close_timeout=constants.FETCH_SESSIONS_ACTIVITY_TIMEOUT,
+                retry_policy=constants.COMPUTE_ACTIVITY_RETRY_POLICY,
+            )
+
+            if recent_sessions_result.session_ids:
+                workflow.logger.info(
+                    f"Running summarization for {len(recent_sessions_result.session_ids)} sessions "
+                    f"to prime document_embeddings"
+                )
+
+                summarization_result = await workflow.execute_activity(
+                    summarize_sessions_activity,
+                    args=[
+                        SummarizeSessionsActivityInputs(
+                            team_id=inputs.team_id,
+                            session_ids=recent_sessions_result.session_ids,
+                        )
+                    ],
+                    start_to_close_timeout=constants.SUMMARIZE_SESSIONS_ACTIVITY_TIMEOUT,
+                    heartbeat_timeout=constants.SUMMARIZE_SESSIONS_ACTIVITY_TIMEOUT,
+                    retry_policy=constants.SESSION_PRIMING_RETRY_POLICY,
+                )
+
+                workflow.logger.info(
+                    f"Summarization priming complete: {summarization_result.sessions_summarized} summarized, "
+                    f"{summarization_result.sessions_skipped} skipped, {summarization_result.sessions_failed} failed"
+                )
+            else:
+                workflow.logger.info("No recent sessions found for summarization priming")
+
+            # Activity 1: Fetch unprocessed segments (now includes newly summarized sessions)
             fetch_result = await workflow.execute_activity(
                 fetch_segments_activity,
                 args=[

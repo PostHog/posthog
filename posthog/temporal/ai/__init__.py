@@ -56,10 +56,12 @@ from .sync_vectors import (
 from .video_segment_clustering.activities import (
     cluster_segments_activity,
     create_update_tasks_activity,
+    fetch_recent_sessions_activity,
     fetch_segments_activity,
     generate_labels_activity,
     link_segments_activity,
     match_clusters_activity,
+    summarize_sessions_activity,
 )
 from .video_segment_clustering.coordinator import (
     VideoSegmentClusteringCoordinatorWorkflow,
@@ -106,12 +108,14 @@ ACTIVITIES = [
     store_video_session_summary_activity,
     consolidate_video_segments_activity,
     # Video segment clustering activities
+    fetch_recent_sessions_activity,
     fetch_segments_activity,
     cluster_segments_activity,
     match_clusters_activity,
     generate_labels_activity,
     create_update_tasks_activity,
     link_segments_activity,
+    summarize_sessions_activity,
     discover_enabled_teams_activity,
 ]
 

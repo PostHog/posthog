@@ -12,11 +12,17 @@ Activities:
 import asyncio
 from datetime import datetime
 
+from django.conf import settings
+from django.utils import timezone as django_timezone
+
 import numpy as np
 import structlog
 from temporalio import activity
 
 from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.temporal.ai.session_summary.summarize_session import SummarizeSingleSessionWorkflow
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.clustering import (
     calculate_cosine_distance,
@@ -24,11 +30,18 @@ from posthog.temporal.ai.video_segment_clustering.clustering import (
     perform_hdbscan_clustering,
     update_task_centroid,
 )
-from posthog.temporal.ai.video_segment_clustering.data import fetch_existing_task_centroids, fetch_video_segments
+from posthog.temporal.ai.video_segment_clustering.data import (
+    fetch_existing_task_centroids,
+    fetch_recent_session_ids,
+    fetch_video_segments,
+)
+from posthog.temporal.ai.video_segment_clustering.labeling import generate_cluster_labels_llm
 from posthog.temporal.ai.video_segment_clustering.models import (
     ClusteringResult,
     ClusterLabel,
     CreateUpdateTasksActivityInputs,
+    FetchRecentSessionsActivityInputs,
+    FetchRecentSessionsResult,
     FetchSegmentsActivityInputs,
     FetchSegmentsResult,
     GenerateLabelsActivityInputs,
@@ -37,10 +50,17 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     LinkSegmentsActivityInputs,
     MatchClustersActivityInputs,
     MatchingResult,
+    SummarizeSessionsActivityInputs,
+    SummarizeSessionsResult,
     TaskCreationResult,
     VideoSegment,
 )
 from posthog.temporal.ai.video_segment_clustering.priority import calculate_priority_score, calculate_task_metrics
+from posthog.temporal.common.client import async_connect
+
+from products.tasks.backend.models import Task, TaskSegmentLink, VideoSegmentClusteringState
+
+from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
 
 logger = structlog.get_logger(__name__)
 
@@ -112,8 +132,6 @@ async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> Matchi
 # Activity 4: Generate labels
 async def _generate_labels(inputs: GenerateLabelsActivityInputs) -> LabelingResult:
     """Generate LLM labels for clusters."""
-    from posthog.temporal.ai.video_segment_clustering.labeling import generate_cluster_labels_llm
-
     # Build segment lookup
     segment_lookup = {s.document_id: s for s in inputs.segments}
 
@@ -162,10 +180,6 @@ async def generate_labels_activity(inputs: GenerateLabelsActivityInputs) -> Labe
 # Activity 5: Create/update tasks
 def _create_update_tasks(inputs: CreateUpdateTasksActivityInputs) -> TaskCreationResult:
     """Create new Tasks and update existing ones."""
-    from django.utils import timezone as django_timezone
-
-    from products.tasks.backend.models import Task
-
     team = Team.objects.get(id=inputs.team_id)
 
     # Build segment lookup by document_id
@@ -312,9 +326,6 @@ async def create_update_tasks_activity(inputs: CreateUpdateTasksActivityInputs) 
 # Activity 6: Link segments to tasks
 def _link_segments(inputs: LinkSegmentsActivityInputs) -> LinkingResult:
     """Create TaskSegmentLink records and update clustering state."""
-
-    from products.tasks.backend.models import Task, TaskSegmentLink, VideoSegmentClusteringState
-
     team = Team.objects.get(id=inputs.team_id)
 
     links_created = 0
@@ -399,3 +410,111 @@ async def link_segments_activity(inputs: LinkSegmentsActivityInputs) -> LinkingR
     Updates VideoSegmentClusteringState with the latest processed timestamp.
     """
     return await asyncio.to_thread(_link_segments, inputs)
+
+
+# Session priming activities (run summarization before clustering)
+
+
+def _fetch_recent_sessions(inputs: FetchRecentSessionsActivityInputs) -> FetchRecentSessionsResult:
+    """Fetch sessions that ended recently and may need summarization."""
+    team = Team.objects.get(id=inputs.team_id)
+
+    session_ids = fetch_recent_session_ids(
+        team=team,
+        lookback_hours=inputs.lookback_hours,
+    )
+
+    return FetchRecentSessionsResult(session_ids=session_ids)
+
+
+@activity.defn
+async def fetch_recent_sessions_activity(inputs: FetchRecentSessionsActivityInputs) -> FetchRecentSessionsResult:
+    """Fetch session IDs that ended within the lookback period.
+
+    These sessions may need summarization to populate the document_embeddings table
+    before clustering can find them.
+    """
+    return await asyncio.to_thread(_fetch_recent_sessions, inputs)
+
+
+async def _summarize_sessions(inputs: SummarizeSessionsActivityInputs) -> SummarizeSessionsResult:
+    """Run session summarization workflows for the given sessions in parallel."""
+    team = await Team.objects.aget(id=inputs.team_id)
+
+    # Get system user or first superuser for running summarization
+    system_user = await User.objects.filter(is_active=True, is_staff=True).afirst()
+    if not system_user:
+        system_user = await User.objects.filter(is_active=True).afirst()
+
+    if not system_user:
+        logger.warning("No user found to run summarization", team_id=inputs.team_id)
+        return SummarizeSessionsResult(
+            sessions_summarized=0, sessions_failed=0, sessions_skipped=len(inputs.session_ids)
+        )
+
+    client = await async_connect()
+
+    sessions_summarized = 0
+    sessions_failed = 0
+    sessions_skipped = 0
+
+    # Start all workflows concurrently
+    handles = []
+    for session_id in inputs.session_ids:
+        try:
+            redis_key_base = f"session-summary:clustering:{team.id}:{session_id}"
+            workflow_input = SingleSessionSummaryInputs(
+                session_id=session_id,
+                user_id=system_user.id,
+                user_distinct_id_to_log=system_user.distinct_id,
+                team_id=team.id,
+                redis_key_base=redis_key_base,
+                model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+                video_validation_enabled="full",  # Full video-based summarization to populate embeddings
+            )
+
+            handle = await client.start_workflow(
+                SummarizeSingleSessionWorkflow.run,
+                workflow_input,
+                id=f"session-summary-clustering-{team.id}-{session_id}",
+                task_queue=settings.MAX_AI_TASK_QUEUE,
+                execution_timeout=constants.SUMMARIZE_SESSIONS_ACTIVITY_TIMEOUT,
+            )
+            handles.append((session_id, handle))
+        except Exception as e:
+            # Workflow may already be running or completed
+            if "already started" in str(e).lower() or "already exists" in str(e).lower():
+                sessions_skipped += 1
+                logger.info("Session summarization already running", session_id=session_id)
+            else:
+                sessions_failed += 1
+                logger.warning("Failed to start summarization workflow", session_id=session_id, error=str(e))
+
+    # Wait for all workflows to complete
+    for session_id, handle in handles:
+        try:
+            await handle.result()
+            sessions_summarized += 1
+            logger.info("Session summarization completed", session_id=session_id)
+        except Exception as e:
+            if "already started" in str(e).lower():
+                sessions_skipped += 1
+            else:
+                sessions_failed += 1
+                logger.warning("Session summarization failed", session_id=session_id, error=str(e))
+
+    return SummarizeSessionsResult(
+        sessions_summarized=sessions_summarized,
+        sessions_failed=sessions_failed,
+        sessions_skipped=sessions_skipped,
+    )
+
+
+@activity.defn
+async def summarize_sessions_activity(inputs: SummarizeSessionsActivityInputs) -> SummarizeSessionsResult:
+    """Run video-based session summarization for recent sessions.
+
+    This primes the document_embeddings table with video segments
+    so they can be clustered by the main workflow.
+    """
+    return await _summarize_sessions(inputs)

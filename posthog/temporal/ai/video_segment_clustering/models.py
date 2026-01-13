@@ -203,3 +203,35 @@ class LinkSegmentsActivityInputs:
     segment_to_cluster: dict[str, int]
     cluster_to_task: dict[int, str]  # cluster_id -> task_id
     latest_timestamp: str | None
+
+
+@dataclass
+class FetchRecentSessionsActivityInputs:
+    """Input for fetching recent sessions for summarization priming."""
+
+    team_id: int
+    lookback_hours: int
+
+
+@dataclass
+class FetchRecentSessionsResult:
+    """Result from fetching recent sessions."""
+
+    session_ids: list[str]
+
+
+@dataclass
+class SummarizeSessionsActivityInputs:
+    """Input for summarizing sessions activity."""
+
+    team_id: int
+    session_ids: list[str]
+
+
+@dataclass
+class SummarizeSessionsResult:
+    """Result from summarizing sessions."""
+
+    sessions_summarized: int
+    sessions_failed: int
+    sessions_skipped: int

@@ -55,6 +55,10 @@ LLM_ACTIVITY_TIMEOUT = timedelta(seconds=300)
 TASK_ACTIVITY_TIMEOUT = timedelta(seconds=120)
 LINK_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 
+# Session priming (summarization) settings
+FETCH_SESSIONS_ACTIVITY_TIMEOUT = timedelta(seconds=60)
+SUMMARIZE_SESSIONS_ACTIVITY_TIMEOUT = timedelta(minutes=30)
+
 # Retry policies
 COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -78,6 +82,13 @@ DB_ACTIVITY_RETRY_POLICY = RetryPolicy(
 )
 
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
+
+SESSION_PRIMING_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=2,
+    initial_interval=timedelta(seconds=5),
+    maximum_interval=timedelta(seconds=30),
+    backoff_coefficient=2.0,
+)
 
 # Cluster labeling configuration
 DEFAULT_SEGMENTS_PER_CLUSTER_FOR_LABELING = 5

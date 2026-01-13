@@ -16,6 +16,8 @@ from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.models import FetchSegmentsResult, VideoSegment
 
+from products.tasks.backend.models import Task
+
 
 def fetch_video_segments(
     team: Team,
@@ -133,6 +135,48 @@ def fetch_video_segments(
     )
 
 
+def fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
+    """Fetch session IDs that ended within the lookback period.
+
+    These are sessions that may need summarization to populate document_embeddings.
+    Only returns finished sessions (last event > 5 minutes ago), matching the
+    session recording API's definition of "ongoing" vs "finished".
+
+    Args:
+        team: Team object to query for
+        lookback_hours: How far back to look for ended sessions
+
+    Returns:
+        List of session IDs that ended in the timeframe
+    """
+    query = parse_select(
+        """
+        SELECT session_id
+        FROM raw_session_replay_events
+        WHERE team_id = {team_id}
+        GROUP BY session_id
+        HAVING max(max_last_timestamp) >= now() - INTERVAL {hours} HOUR
+            AND max(max_last_timestamp) <= now() - INTERVAL 5 MINUTE
+        ORDER BY max(max_last_timestamp) DESC
+        """
+    )
+
+    placeholders = {
+        "team_id": ast.Constant(value=team.id),
+        "hours": ast.Constant(value=lookback_hours),
+    }
+
+    with tags_context(product=Product.REPLAY):
+        result = execute_hogql_query(
+            query_type="FetchRecentSessionsForClustering",
+            query=query,
+            placeholders=placeholders,
+            team=team,
+        )
+
+    return [row[0] for row in (result.results or [])]
+
+
 def fetch_existing_task_centroids(team: Team) -> dict[str, list[float]]:
     """Fetch cluster centroids from existing Tasks for deduplication.
 
@@ -142,8 +186,6 @@ def fetch_existing_task_centroids(team: Team) -> dict[str, list[float]]:
     Returns:
         Dictionary mapping task_id -> centroid embedding
     """
-    from products.tasks.backend.models import Task
-
     tasks = Task.objects.filter(
         team=team,
         origin_product=Task.OriginProduct.SESSION_SUMMARIES,
