@@ -4,6 +4,7 @@ export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
+export type SidePanelViewState = 'list' | 'chat' | 'new'
 
 export interface ChatMessage {
     id: string
@@ -11,6 +12,26 @@ export interface ChatMessage {
     authorType: MessageAuthorType
     authorName: string
     createdAt: string
+}
+
+// Types for customer-facing widget/side panel (from posthog-js conversations API)
+export interface ConversationTicket {
+    id: string
+    status: TicketStatus
+    last_message?: string
+    last_message_at?: string
+    message_count: number
+    created_at: string
+    unread_count?: number
+}
+
+export interface ConversationMessage {
+    id: string
+    content: string
+    author_type: MessageAuthorType
+    author_name?: string
+    created_at: string
+    is_private: boolean
 }
 
 export interface UserBasic {

@@ -4,29 +4,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
-import type { ChatMessage } from '../../types'
+import type { ChatMessage, ConversationMessage, ConversationTicket, SidePanelViewState } from '../../types'
 import type { sidePanelConversationsLogicType } from './sidePanelConversationsLogicType'
-
-export interface ConversationTicket {
-    id: string
-    status: 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
-    last_message?: string
-    last_message_at?: string
-    message_count: number
-    created_at: string
-    unread_count?: number
-}
-
-export interface ConversationMessage {
-    id: string
-    content: string
-    author_type: 'customer' | 'AI' | 'human'
-    author_name?: string
-    created_at: string
-    is_private: boolean
-}
-
-type ViewState = 'list' | 'chat' | 'new'
 
 export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>([
     path([
@@ -38,7 +17,7 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
         'sidePanelConversationsLogic',
     ]),
     actions({
-        setView: (view: ViewState) => ({ view }),
+        setView: (view: SidePanelViewState) => ({ view }),
         setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
         setCurrentTicket: (ticket: ConversationTicket | null) => ({ ticket }),
@@ -57,7 +36,7 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
     }),
     reducers({
         view: [
-            'list' as ViewState,
+            'list' as SidePanelViewState,
             {
                 setView: (_, { view }) => view,
                 goBack: () => 'list',

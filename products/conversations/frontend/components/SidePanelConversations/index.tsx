@@ -6,8 +6,9 @@ import { LemonBadge, LemonButton, LemonDivider, LemonTag, LemonTextArea, Spinner
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import type { ConversationTicket } from '../../types'
 import { MessageInput, MessageList } from '../Chat'
-import { ConversationTicket, sidePanelConversationsLogic } from './sidePanelConversationsLogic'
+import { sidePanelConversationsLogic } from './sidePanelConversationsLogic'
 
 function TicketListView(): JSX.Element {
     const { tickets, ticketsLoading, conversationsReady } = useValues(sidePanelConversationsLogic)
