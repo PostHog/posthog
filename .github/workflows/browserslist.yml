@@ -38,6 +38,19 @@ jobs:
                   node-version: 22.17.1
                   cache: 'pnpm'
 
+            - name: Reset stale browserslist branch
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  if git ls-remote --heads origin browserslist-update | grep browserslist-update; then
+                    echo "Resetting stale browserslist-update branch to master to avoid rebase conflicts"
+                    git fetch origin browserslist-update
+                    git checkout -b browserslist-update origin/browserslist-update
+                    git reset --hard origin/master
+                    git push origin browserslist-update --force
+                    git checkout master
+                  fi
+
             - name: Update Browserslist database and create PR if applies
               id: update-browserlist
               uses: c2corg/browserslist-update-action@a76abb476199caea5399f9e28ff3f16e491ec566 # v2.5.0

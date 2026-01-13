@@ -1,6 +1,8 @@
 from enum import StrEnum
 from uuid import UUID
 
+from posthog.hogql.escape_sql import escape_clickhouse_string
+
 from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 
 
@@ -35,21 +37,21 @@ def get_survey_response_clickhouse_query(
     Returns:
         The survey response or empty string if not found
     """
-    id_based_key = _build_id_based_key(question_index, question_id)
+    _DANGEROUS_id_based_key = _build_id_based_key(question_index, question_id)
     index_based_key = _build_index_based_key(question_index)
 
     if is_multiple_choice is True:
-        return _build_multiple_choice_query(id_based_key, index_based_key)
+        return _build_multiple_choice_query(_DANGEROUS_id_based_key, index_based_key)
 
-    return _build_coalesce_query(id_based_key, index_based_key)
+    return _build_coalesce_query(_DANGEROUS_id_based_key, index_based_key)
 
 
 def _build_id_based_key(question_index: int, question_id: str | None = None) -> str:
     if question_id:
-        return f"'{SurveyEventProperties.SURVEY_RESPONSE}_{question_id}'"
+        return escape_clickhouse_string(f"{SurveyEventProperties.SURVEY_RESPONSE}_{question_id}")
 
     # Extract the ID from the question at the given index in the questions array
-    return f"CONCAT('{SurveyEventProperties.SURVEY_RESPONSE}_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[{question_index + 1}], 'id'))"
+    return f"CONCAT({escape_clickhouse_string(SurveyEventProperties.SURVEY_RESPONSE + '_')}, JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[{int(question_index) + 1}], 'id'))"
 
 
 def _build_index_based_key(question_index: int) -> str:
@@ -58,18 +60,18 @@ def _build_index_based_key(question_index: int) -> str:
     return f"{SurveyEventProperties.SURVEY_RESPONSE}_{question_index}"
 
 
-def _build_coalesce_query(id_based_key: str, index_based_key: str) -> str:
+def _build_coalesce_query(_DANGEROUS_id_based_key: str, index_based_key: str) -> str:
     return f"""COALESCE(
-        NULLIF(JSONExtractString(properties, {id_based_key}), ''),
-        NULLIF(JSONExtractString(properties, '{index_based_key}'), '')
+        NULLIF(JSONExtractString(properties, {_DANGEROUS_id_based_key}), ''),
+        NULLIF(JSONExtractString(properties, {escape_clickhouse_string(index_based_key)}), '')
     )"""
 
 
-def _build_multiple_choice_query(id_based_key: str, index_based_key: str) -> str:
+def _build_multiple_choice_query(_DANGEROUS_id_based_key: str, index_based_key: str) -> str:
     return f"""if(
-        JSONHas(properties, {id_based_key}) AND length(JSONExtractArrayRaw(properties, {id_based_key})) > 0,
-        JSONExtractArrayRaw(properties, {id_based_key}),
-        JSONExtractArrayRaw(properties, '{index_based_key}')
+        JSONHas(properties, {_DANGEROUS_id_based_key}) AND length(JSONExtractArrayRaw(properties, {_DANGEROUS_id_based_key})) > 0,
+        JSONExtractArrayRaw(properties, {_DANGEROUS_id_based_key}),
+        JSONExtractArrayRaw(properties, {escape_clickhouse_string(index_based_key)}')
     )"""
 
 
@@ -110,7 +112,7 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str, team_id: int 
             argMax(uuid, timestamp) -- Selects the UUID of the event with the latest timestamp within each group
         FROM events
         WHERE event = '{SurveyEventName.SENT}' -- Filter for 'survey sent' events
-          AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = '{survey_id}' -- Filter for the specific survey
+          AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = {escape_clickhouse_string(survey_id)} -- Filter for the specific survey
           {extra_filters}
           -- Date range filters from the outer query are intentionally NOT included here.
           -- This ensures we find the globally latest unique submission, which is then

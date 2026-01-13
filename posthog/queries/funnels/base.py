@@ -342,7 +342,7 @@ class ClickhouseFunnelBase(ABC):
         conditions: list[str] = []
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
+                f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i - 1} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
                 f"dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
             )
 
@@ -509,7 +509,7 @@ class ClickhouseFunnelBase(ABC):
             # so just select that. Except for the empty case, where select the default
 
             if self._query_has_array_breakdown():
-                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(self._filter.breakdown or []))])}]"""
+                default_breakdown_value = f"""[{",".join(["''" for _ in range(len(self._filter.breakdown or []))])}]"""
                 # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
                 breakdown_selector = (
                     f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
@@ -528,7 +528,7 @@ class ClickhouseFunnelBase(ABC):
             SELECT *, prop
             FROM ({inner_query})
             ARRAY JOIN prop_vals as prop
-            {"WHERE prop != []" if self._query_has_array_breakdown() else ''}
+            {"WHERE prop != []" if self._query_has_array_breakdown() else ""}
         """
 
     def _get_steps_conditions(self, length: int) -> str:
@@ -667,11 +667,11 @@ class ClickhouseFunnelBase(ABC):
         statement = None
         for i in range(max_steps - 1, -1, -1):
             if i == max_steps - 1:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,step_{i}_matching_event)"
             elif i == 0:
                 statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
             else:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,{statement})"
         return f",{statement} as final_matching_event" if statement else ""
 
     def _get_matching_events(self, max_steps: int):

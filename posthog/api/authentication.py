@@ -59,7 +59,7 @@ from posthog.helpers.two_factor_session import (
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
-from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, UserPasswordResetThrottle
+from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, TwoFactorThrottle, UserPasswordResetThrottle
 from posthog.tasks.email import (
     login_from_new_device_notification,
     send_password_reset,
@@ -394,6 +394,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = TwoFactorSerializer
     queryset = User.objects.none()
     permission_classes = (permissions.AllowAny,)
+    throttle_classes = [TwoFactorThrottle]
 
     def _token_is_valid(self, request, user: User, device) -> Response:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -401,6 +402,10 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         set_two_factor_verified_in_session(request)
         report_user_logged_in(user, social_provider="")
         device.throttle_reset()
+
+        # Clean up pre-2FA session keys to prevent reuse
+        request.session.pop("user_authenticated_but_no_2fa", None)
+        request.session.pop("user_authenticated_time", None)
 
         cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
         cookie_value = get_remember_device_cookie(user=user, otp_device_id=device.persistent_id)
@@ -530,10 +535,25 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         raise serializers.ValidationError(detail="Invalid authentication code", code="2fa_invalid")
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Any:
-        user = User.objects.get(pk=request.session["user_authenticated_but_no_2fa"])
-        expiration_time = request.session["user_authenticated_time"] + getattr(
-            settings, "TWO_FACTOR_LOGIN_TIMEOUT", 600
-        )
+        # Validate session state - keys must exist from login flow
+        user_id = request.session.get("user_authenticated_but_no_2fa")
+        auth_time = request.session.get("user_authenticated_time")
+
+        if not user_id or auth_time is None:
+            raise serializers.ValidationError(
+                detail="Invalid 2FA session. Please log in again.",
+                code="invalid_2fa_session",
+            )
+
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            raise serializers.ValidationError(
+                detail="Invalid 2FA session. Please log in again.",
+                code="invalid_2fa_session",
+            )
+
+        expiration_time = auth_time + getattr(settings, "TWO_FACTOR_LOGIN_TIMEOUT", 600)
         if int(time.time()) > expiration_time:
             raise serializers.ValidationError(
                 detail="Login attempt has expired. Re-enter username/password.",

@@ -106,6 +106,7 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
