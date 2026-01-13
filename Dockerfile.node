@@ -29,8 +29,8 @@ RUN apt-get update && \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "librdkafka-dev=2.10.1-1.cflt~deb12" \
-    "libssl-dev=3.0.17-1~deb12u2" \
-    "libssl3=3.0.17-1~deb12u2" \
+    "libssl-dev=3.0.18-1~deb12u1" \
+    "libssl3=3.0.18-1~deb12u1" \
     "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -91,7 +91,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
-    "libssl3=3.0.17-1~deb12u2" \
+    "libssl3=3.0.18-1~deb12u1" \
     "curl" \
     "gettext-base" \
     && \
