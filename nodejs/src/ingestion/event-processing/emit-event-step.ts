@@ -76,11 +76,38 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
         // Produce EAV properties to the EAV Kafka topic
         if (eavPropertiesToEmit && eavPropertiesToEmit.length > 0) {
             for (const eavProperty of eavPropertiesToEmit) {
-                const eavEmitPromise = kafkaProducer.produce({
-                    topic: KAFKA_CLICKHOUSE_EVENT_PROPERTIES,
-                    key: `${eavProperty.uuid}-${eavProperty.key}`,
-                    value: Buffer.from(JSON.stringify(eavProperty)),
-                })
+                const eavEmitPromise = kafkaProducer
+                    .produce({
+                        topic: KAFKA_CLICKHOUSE_EVENT_PROPERTIES,
+                        key: `${eavProperty.uuid}-${eavProperty.key}`,
+                        value: Buffer.from(JSON.stringify(eavProperty)),
+                    })
+                    .catch(async (error) => {
+                        // Handle EAV property emission errors gracefully - don't fail the main event
+                        if (error instanceof MessageSizeTooLarge) {
+                            await captureIngestionWarning(
+                                kafkaProducer,
+                                eavProperty.team_id,
+                                'eav_property_message_size_too_large',
+                                {
+                                    eventUuid: eavProperty.uuid,
+                                    propertyKey: eavProperty.key,
+                                }
+                            )
+                        } else {
+                            // Log but don't rethrow - EAV property failures shouldn't fail the main event
+                            await captureIngestionWarning(
+                                kafkaProducer,
+                                eavProperty.team_id,
+                                'eav_property_emission_failed',
+                                {
+                                    eventUuid: eavProperty.uuid,
+                                    propertyKey: eavProperty.key,
+                                    error: String(error),
+                                }
+                            )
+                        }
+                    })
                 sideEffects.push(eavEmitPromise)
             }
         }
