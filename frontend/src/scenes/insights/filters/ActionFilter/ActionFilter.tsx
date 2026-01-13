@@ -197,7 +197,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         renderRow,
         hideRename,
         hideDuplicate,
-        showCombine: canAccessEventsCombination && isTrendsFilter(filters),
+        showCombine: canAccessEventsCombination && filters.insight === InsightType.TRENDS,
         onRenameClick: showModal,
         sortable,
         showNumericalPropsOnly,
