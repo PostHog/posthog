@@ -1,3 +1,4 @@
+import json
 import time
 import asyncio
 import datetime as dt
@@ -160,7 +161,17 @@ async def backfill_precalculated_person_properties_activity(
                     async for row in client.stream_query_as_jsonl(persons_query, query_parameters=query_params):
                         batch_count += 1
                         person_id = str(row["person_id"])
-                        person_properties = row.get("properties") or {}
+
+                        properties_raw = row.get("properties")
+                        if isinstance(properties_raw, str):
+                            try:
+                                person_properties = json.loads(properties_raw) if properties_raw else {}
+                            except json.JSONDecodeError:
+                                logger.warning(f"Failed to parse properties for person {person_id}: {properties_raw}")
+                                person_properties = {}
+                        else:
+                            person_properties = properties_raw or {}
+
                         distinct_ids = row["distinct_ids"]
 
                         for filter_info in inputs.filters:

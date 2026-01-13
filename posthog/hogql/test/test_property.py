@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Union, cast
 
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
@@ -42,10 +42,9 @@ class TestProperty(BaseTest):
     def _property_to_expr(
         self,
         property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
-        team: Optional[Team] = None,
-        scope: Optional[
-            Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
-        ] = None,
+        team: Team | None = None,
+        scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
+        | None = None,
         strict: bool = True,
     ):
         return clear_locations(
@@ -55,7 +54,7 @@ class TestProperty(BaseTest):
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
 
-    def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
+    def _parse_expr(self, expr: str, placeholders: dict[str, Any] | None = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_has_aggregation(self):
@@ -120,7 +119,7 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
             ),
-            self._parse_expr("properties.arr > 100"),
+            self._parse_expr("if(properties.arr != null, properties.arr > 100, false)"),
         )
 
     def test_property_to_expr_group_booleans(self):
@@ -163,19 +162,19 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            self._parse_expr("properties.a > '3'"),
+            self._parse_expr("if(properties.a != null, properties.a > '3', false)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            self._parse_expr("properties.a < '3'"),
+            self._parse_expr("if(properties.a != null, properties.a < '3', false)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gte"}),
-            self._parse_expr("properties.a >= '3'"),
+            self._parse_expr("if(properties.a != null, properties.a >= '3', false)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lte"}),
-            self._parse_expr("properties.a <= '3'"),
+            self._parse_expr("if(properties.a != null, properties.a <= '3', false)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
@@ -1011,17 +1010,19 @@ class TestProperty(BaseTest):
     def test_property_to_expr_between_operator(self):
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
-            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
+            self._parse_expr("if(properties.age != null, (properties.age >= 18 AND properties.age <= 65), false)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
-            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
+            self._parse_expr(
+                "if(person.properties.age != null, (person.properties.age >= 25 AND person.properties.age <= 50), false)"
+            ),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
-            self._parse_expr("(properties.score < 0 OR properties.score > 100)"),
+            self._parse_expr("if(properties.score = null, true, (properties.score < 0 OR properties.score > 100))"),
         )
 
     def test_property_to_expr_between_operator_validation(self):
@@ -1060,25 +1061,25 @@ class TestProperty(BaseTest):
         # Test MIN operator (alias for GTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
-            self._parse_expr("properties.age >= 18"),
+            self._parse_expr("if(properties.age != null, properties.age >= 18, false)"),
         )
 
         # Test MAX operator (alias for LTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
-            self._parse_expr("properties.age <= 65"),
+            self._parse_expr("if(properties.age != null, properties.age <= 65, false)"),
         )
 
         # Test MIN with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
-            self._parse_expr("person.properties.age >= 25"),
+            self._parse_expr("if(person.properties.age != null, person.properties.age >= 25, false)"),
         )
 
         # Test MAX with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
-            self._parse_expr("person.properties.score <= 100"),
+            self._parse_expr("if(person.properties.score != null, person.properties.score <= 100, false)"),
         )
 
 
