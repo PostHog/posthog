@@ -2855,6 +2855,7 @@ class PropertyOperator(StrEnum):
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
     SEMVER_EQ = "semver_eq"
+    SEMVER_NEQ = "semver_neq"
     SEMVER_GT = "semver_gt"
     SEMVER_GTE = "semver_gte"
     SEMVER_LT = "semver_lt"
