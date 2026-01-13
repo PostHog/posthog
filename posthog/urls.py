@@ -18,6 +18,7 @@ from posthog.api import (
     authentication,
     decide,
     github,
+    hog_flow_template,
     hog_function_template,
     playwright_setup,
     remote_config,
@@ -201,6 +202,10 @@ urlpatterns = [
     opt_slash_path(
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
+    ),
+    opt_slash_path(
+        "api/public_hog_flow_templates",
+        hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list", "head": "list"}),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
