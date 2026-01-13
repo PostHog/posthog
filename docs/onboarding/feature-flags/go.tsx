@@ -1,65 +1,19 @@
+import { getGoSteps as getGoStepsPA } from '../product-analytics/go'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from './js-web'
+import { StepDefinition } from '../product-analytics/android'
 
-export const getGoSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    Tab: any
-): StepDefinition[] => {
+export const GoInstallation = (): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, dedent, snippets, Tab } = useMDXComponents()
+
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
     const OverrideProperties = snippets?.OverridePropertiesSnippet
 
-    return [
-        {
-            title: 'Install PostHog',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Install the PostHog Go SDK:
-                        `}
-                    </Markdown>
-                    <CodeBlock
-                        language="bash"
-                        code={dedent`
-                            go get github.com/posthog/posthog-go
-                        `}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Initialize PostHog',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project):
-                        `}
-                    </Markdown>
-                    <CodeBlock
-                        language="go"
-                        code={dedent`
-                            import (
-                                "github.com/posthog/posthog-go"
-                            )
+    // Get installation steps from product-analytics
+    const installationSteps = getGoStepsPA(CodeBlock, Markdown, dedent)
 
-                            client, _ := posthog.NewWithConfig(
-                                "<ph_project_api_key>",
-                                posthog.Config{
-                                    Endpoint: "<ph_client_api_host>",
-                                },
-                            )
-                        `}
-                    />
-                </>
-            ),
-        },
+    // Add flag-specific steps
+    const flagSteps: StepDefinition[] = [
         {
             title: 'Evaluate boolean feature flags',
             badge: 'required',
@@ -113,14 +67,19 @@ export const getGoSteps = (
                                     `}
                                 </Markdown>
                                 <CodeBlock
-                                    language="go"
-                                    code={dedent`
-                                        client.Enqueue(posthog.Capture{
-                                            DistinctId: "distinct_id_of_your_user",
-                                            Event:      "event_name",
-                                            SendFeatureFlags: true,
-                                        })
-                                    `}
+                                    blocks={[
+                                        {
+                                            language: 'go',
+                                            file: 'Go',
+                                            code: dedent`
+                                                client.Enqueue(posthog.Capture{
+                                                    DistinctId: "distinct_id_of_your_user",
+                                                    Event:      "event_name",
+                                                    SendFeatureFlags: true,
+                                                })
+                                            `,
+                                        },
+                                    ]}
                                 />
                             </Tab.Panel>
                             <Tab.Panel>
@@ -130,15 +89,20 @@ export const getGoSteps = (
                                     `}
                                 </Markdown>
                                 <CodeBlock
-                                    language="go"
-                                    code={dedent`
-                                        client.Enqueue(posthog.Capture{
-                                            DistinctId: "distinct_id_of_your_user",
-                                            Event:      "event_name",
-                                            Properties: posthog.NewProperties().
-                                                Set("$feature/feature-flag-key", "variant-key"), // replace feature-flag-key with your flag key. Replace 'variant-key' with the key of your variant
-                                        })
-                                    `}
+                                    blocks={[
+                                        {
+                                            language: 'go',
+                                            file: 'Go',
+                                            code: dedent`
+                                                client.Enqueue(posthog.Capture{
+                                                    DistinctId: "distinct_id_of_your_user",
+                                                    Event:      "event_name",
+                                                    Properties: posthog.NewProperties().
+                                                        Set("$feature/feature-flag-key", "variant-key"), // replace feature-flag-key with your flag key. Replace 'variant-key' with the key of your variant
+                                                })
+                                            `,
+                                        },
+                                    ]}
                                 />
                             </Tab.Panel>
                         </Tab.Panels>
@@ -163,16 +127,12 @@ export const getGoSteps = (
             ),
         },
     ]
-}
 
-export const GoInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets, Tab } = useMDXComponents()
-
-    const steps = getGoSteps(CodeBlock, Markdown, dedent, snippets, Tab)
+    const allSteps = [...installationSteps, ...flagSteps]
 
     return (
         <Steps>
-            {steps.map((step, index) => (
+            {allSteps.map((step, index) => (
                 <Step key={index} title={step.title} badge={step.badge}>
                     {step.content}
                 </Step>

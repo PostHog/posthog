@@ -1,88 +1,19 @@
+import { getReactSteps as getReactStepsPA } from '../product-analytics/react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from './js-web'
+import { StepDefinition } from '../product-analytics/android'
 
-export const getReactSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    Tab: any
-): StepDefinition[] => {
+export const ReactInstallation = (): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets, Tab } = useMDXComponents()
+
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
     const FlagPayload = snippets?.FlagPayloadSnippet
 
-    return [
-        {
-            title: 'Install PostHog',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Install PostHog using your preferred package manager:
-                        `}
-                    </Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'bash',
-                                file: 'npm',
-                                code: dedent`
-                                    npm install posthog-js
-                                `,
-                            },
-                            {
-                                language: 'bash',
-                                file: 'yarn',
-                                code: dedent`
-                                    yarn add posthog-js
-                                `,
-                            },
-                            {
-                                language: 'bash',
-                                file: 'pnpm',
-                                code: dedent`
-                                    pnpm add posthog-js
-                                `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Initialize PostHog',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Initialize PostHog at the root of your app (such as \`main.tsx\` or \`App.tsx\`):
-                        `}
-                    </Markdown>
-                    <CodeBlock
-                        language="jsx"
-                        code={dedent`
-                            import { PostHogProvider } from 'posthog-js/react'
+    // Get installation steps from product-analytics
+    const installationSteps = getReactStepsPA(CodeBlock, Markdown, CalloutBox, dedent, snippets)
 
-                            function App() {
-                                return (
-                                    <PostHogProvider
-                                        apiKey="<ph_project_api_key>"
-                                        options={{
-                                            api_host: '<ph_client_api_host>'
-                                        }}
-                                    >
-                                        {/* Your app */}
-                                    </PostHogProvider>
-                                )
-                            }
-                        `}
-                    />
-                </>
-            ),
-        },
+    // Add flag-specific steps
+    const flagSteps: StepDefinition[] = [
         {
             title: 'Use feature flags',
             badge: 'required',
@@ -124,21 +55,26 @@ export const getReactSteps = (
                                 `}
                             </Markdown>
                             <CodeBlock
-                                language="jsx"
-                                code={dedent`
-                                    import { PostHogFeature } from '@posthog/react'
+                                blocks={[
+                                    {
+                                        language: 'jsx',
+                                        file: 'App.tsx',
+                                        code: dedent`
+                                            import { PostHogFeature } from '@posthog/react'
 
-                                    function App() {
-                                        return (
-                                            <PostHogFeature flag='show-welcome-message' match={true}>
-                                                <div>
-                                                    <h1>Hello</h1>
-                                                    <p>Thanks for trying out our feature flags.</p>
-                                                </div>
-                                            </PostHogFeature>
-                                        )
-                                    }
-                                `}
+                                            function App() {
+                                                return (
+                                                    <PostHogFeature flag='show-welcome-message' match={true}>
+                                                        <div>
+                                                            <h1>Hello</h1>
+                                                            <p>Thanks for trying out our feature flags.</p>
+                                                        </div>
+                                                    </PostHogFeature>
+                                                )
+                                            }
+                                        `,
+                                    },
+                                ]}
                             />
                             <Markdown>
                                 {dedent`
@@ -148,19 +84,24 @@ export const getReactSteps = (
                                 `}
                             </Markdown>
                             <CodeBlock
-                                language="jsx"
-                                code={dedent`
-                                    <PostHogFeature flag='show-welcome-message' match={true}>
-                                        {(payload) => {
-                                            return (
-                                                <div>
-                                                    <h1>{payload.welcomeMessage}</h1>
-                                                    <p>Thanks for trying out our feature flags.</p>
-                                                </div>
-                                            )
-                                        }}
-                                    </PostHogFeature>
-                                `}
+                                blocks={[
+                                    {
+                                        language: 'jsx',
+                                        file: 'App.tsx',
+                                        code: dedent`
+                                            <PostHogFeature flag='show-welcome-message' match={true}>
+                                                {(payload) => {
+                                                    return (
+                                                        <div>
+                                                            <h1>{payload.welcomeMessage}</h1>
+                                                            <p>Thanks for trying out our feature flags.</p>
+                                                        </div>
+                                                    )
+                                                }}
+                                            </PostHogFeature>
+                                        `,
+                                    },
+                                ]}
                             />
                         </Tab.Panel>
                     </Tab.Panels>
@@ -179,16 +120,12 @@ export const getReactSteps = (
             ),
         },
     ]
-}
 
-export const ReactInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets, Tab } = useMDXComponents()
-
-    const steps = getReactSteps(CodeBlock, Markdown, dedent, snippets, Tab)
+    const allSteps = [...installationSteps, ...flagSteps]
 
     return (
         <Steps>
-            {steps.map((step, index) => (
+            {allSteps.map((step, index) => (
                 <Step key={index} title={step.title} badge={step.badge}>
                     {step.content}
                 </Step>
@@ -196,5 +133,3 @@ export const ReactInstallation = (): JSX.Element => {
         </Steps>
     )
 }
-
-

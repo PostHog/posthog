@@ -1,63 +1,19 @@
+import { getPHPSteps as getPHPStepsPA } from '../product-analytics/php'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from './js-web'
+import { StepDefinition } from '../product-analytics/android'
 
-export const getPHPSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    Tab: any
-): StepDefinition[] => {
+export const PHPInstallation = (): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, dedent, snippets, Tab } = useMDXComponents()
+
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
     const OverrideProperties = snippets?.OverridePropertiesSnippet
 
-    return [
-        {
-            title: 'Install PostHog',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Install the PostHog PHP SDK using Composer:
-                        `}
-                    </Markdown>
-                    <CodeBlock
-                        language="bash"
-                        code={dedent`
-                            composer require posthog/posthog-php
-                        `}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Initialize PostHog',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project):
-                        `}
-                    </Markdown>
-                    <CodeBlock
-                        language="php"
-                        code={dedent`
-                            require __DIR__ . '/vendor/autoload.php';
-                            use PostHog\PostHog;
+    // Get installation steps from product-analytics
+    const installationSteps = getPHPStepsPA(CodeBlock, Markdown, dedent)
 
-                            PostHog::init("<ph_project_api_key>",
-                                array(
-                                    'host' => '<ph_client_api_host>'
-                                )
-                            );
-                        `}
-                    />
-                </>
-            ),
-        },
+    // Add flag-specific steps
+    const flagSteps: StepDefinition[] = [
         {
             title: 'Evaluate boolean feature flags',
             badge: 'required',
@@ -111,14 +67,19 @@ export const getPHPSteps = (
                                     `}
                                 </Markdown>
                                 <CodeBlock
-                                    language="php"
-                                    code={dedent`
-                                        PostHog::capture(array(
-                                            'distinctId' => 'distinct_id_of_your_user',
-                                            'event' => 'event_name',
-                                            'send_feature_flags' => true
-                                        ));
-                                    `}
+                                    blocks={[
+                                        {
+                                            language: 'php',
+                                            file: 'PHP',
+                                            code: dedent`
+                                                PostHog::capture(array(
+                                                    'distinctId' => 'distinct_id_of_your_user',
+                                                    'event' => 'event_name',
+                                                    'send_feature_flags' => true
+                                                ));
+                                            `,
+                                        },
+                                    ]}
                                 />
                             </Tab.Panel>
                             <Tab.Panel>
@@ -128,16 +89,21 @@ export const getPHPSteps = (
                                     `}
                                 </Markdown>
                                 <CodeBlock
-                                    language="php"
-                                    code={dedent`
-                                        PostHog::capture(array(
-                                            'distinctId' => 'distinct_id_of_your_user',
-                                            'event' => 'event_name',
-                                            'properties' => array(
-                                                '$feature/feature-flag-key' => 'variant-key' // replace feature-flag-key with your flag key. Replace 'variant-key' with the key of your variant
-                                            )
-                                        ));
-                                    `}
+                                    blocks={[
+                                        {
+                                            language: 'php',
+                                            file: 'PHP',
+                                            code: dedent`
+                                                PostHog::capture(array(
+                                                    'distinctId' => 'distinct_id_of_your_user',
+                                                    'event' => 'event_name',
+                                                    'properties' => array(
+                                                        '$feature/feature-flag-key' => 'variant-key' // replace feature-flag-key with your flag key. Replace 'variant-key' with the key of your variant
+                                                    )
+                                                ));
+                                            `,
+                                        },
+                                    ]}
                                 />
                             </Tab.Panel>
                         </Tab.Panels>
@@ -162,16 +128,12 @@ export const getPHPSteps = (
             ),
         },
     ]
-}
 
-export const PHPInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets, Tab } = useMDXComponents()
-
-    const steps = getPHPSteps(CodeBlock, Markdown, dedent, snippets, Tab)
+    const allSteps = [...installationSteps, ...flagSteps]
 
     return (
         <Steps>
-            {steps.map((step, index) => (
+            {allSteps.map((step, index) => (
                 <Step key={index} title={step.title} badge={step.badge}>
                     {step.content}
                 </Step>

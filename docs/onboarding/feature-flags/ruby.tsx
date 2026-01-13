@@ -1,61 +1,19 @@
+import { getRubySteps as getRubyStepsPA } from '../product-analytics/ruby'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition } from './js-web'
+import { StepDefinition } from '../product-analytics/android'
 
-export const getRubySteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    Tab: any
-): StepDefinition[] => {
+export const RubyInstallation = (): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, dedent, snippets, Tab } = useMDXComponents()
+
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
     const OverrideProperties = snippets?.OverridePropertiesSnippet
 
-    return [
-        {
-            title: 'Install PostHog',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Install the PostHog Ruby SDK:
-                        `}
-                    </Markdown>
-                    <CodeBlock
-                        language="bash"
-                        code={dedent`
-                            gem install posthog-ruby
-                        `}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Initialize PostHog',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project):
-                        `}
-                    </Markdown>
-                    <CodeBlock
-                        language="ruby"
-                        code={dedent`
-                            require 'posthog-ruby'
+    // Get installation steps from product-analytics
+    const installationSteps = getRubyStepsPA(CodeBlock, Markdown, dedent)
 
-                            posthog = PostHog::Client.new(
-                                api_key: '<ph_project_api_key>',
-                                host: '<ph_client_api_host>'
-                            )
-                        `}
-                    />
-                </>
-            ),
-        },
+    // Add flag-specific steps
+    const flagSteps: StepDefinition[] = [
         {
             title: 'Evaluate boolean feature flags',
             badge: 'required',
@@ -109,14 +67,19 @@ export const getRubySteps = (
                                     `}
                                 </Markdown>
                                 <CodeBlock
-                                    language="ruby"
-                                    code={dedent`
-                                        posthog.capture({
-                                            distinct_id: 'distinct_id_of_your_user',
-                                            event: 'event_name',
-                                            send_feature_flags: true,
-                                        })
-                                    `}
+                                    blocks={[
+                                        {
+                                            language: 'ruby',
+                                            file: 'Ruby',
+                                            code: dedent`
+                                                posthog.capture({
+                                                    distinct_id: 'distinct_id_of_your_user',
+                                                    event: 'event_name',
+                                                    send_feature_flags: true,
+                                                })
+                                            `,
+                                        },
+                                    ]}
                                 />
                             </Tab.Panel>
                             <Tab.Panel>
@@ -126,16 +89,21 @@ export const getRubySteps = (
                                     `}
                                 </Markdown>
                                 <CodeBlock
-                                    language="ruby"
-                                    code={dedent`
-                                        posthog.capture({
-                                            distinct_id: 'distinct_id_of_your_user',
-                                            event: 'event_name',
-                                            properties: {
-                                                '$feature/feature-flag-key': 'variant-key', # replace feature-flag-key with your flag key. Replace 'variant-key' with the key of your variant
-                                            }
-                                        })
-                                    `}
+                                    blocks={[
+                                        {
+                                            language: 'ruby',
+                                            file: 'Ruby',
+                                            code: dedent`
+                                                posthog.capture({
+                                                    distinct_id: 'distinct_id_of_your_user',
+                                                    event: 'event_name',
+                                                    properties: {
+                                                        '$feature/feature-flag-key': 'variant-key', # replace feature-flag-key with your flag key. Replace 'variant-key' with the key of your variant
+                                                    }
+                                                })
+                                            `,
+                                        },
+                                    ]}
                                 />
                             </Tab.Panel>
                         </Tab.Panels>
@@ -160,16 +128,12 @@ export const getRubySteps = (
             ),
         },
     ]
-}
 
-export const RubyInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets, Tab } = useMDXComponents()
-
-    const steps = getRubySteps(CodeBlock, Markdown, dedent, snippets, Tab)
+    const allSteps = [...installationSteps, ...flagSteps]
 
     return (
         <Steps>
-            {steps.map((step, index) => (
+            {allSteps.map((step, index) => (
                 <Step key={index} title={step.title} badge={step.badge}>
                     {step.content}
                 </Step>

@@ -1,18 +1,15 @@
-import { getJSWebSteps as getJSWebStepsPA } from '../product-analytics/js-web'
+import { getWebflowSteps as getWebflowStepsPA } from '../product-analytics/webflow'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { StepDefinition } from '../product-analytics/android'
 
-export const JSWebInstallation = (): JSX.Element => {
+export const WebflowInstallation = (): JSX.Element => {
     const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
 
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
-    const FlagPayload = snippets?.FlagPayloadSnippet
-    const OnFeatureFlagsCallback = snippets?.OnFeatureFlagsCallbackSnippet
-    const ReloadFlags = snippets?.ReloadFlagsSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getJSWebStepsPA(CodeBlock, Markdown, dedent, snippets)
+    const installationSteps = getWebflowStepsPA(CodeBlock, Markdown, dedent, snippets)
 
     // Add flag-specific steps
     const flagSteps: StepDefinition[] = [
@@ -41,39 +38,6 @@ export const JSWebInstallation = (): JSX.Element => {
                         `}
                     </Markdown>
                     {MultivariateFlag && <MultivariateFlag language="javascript" />}
-                </>
-            ),
-        },
-        {
-            title: 'Use feature flag payloads',
-            badge: 'optional',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Feature flags can include payloads with additional data. Fetch the payload like this:
-                        `}
-                    </Markdown>
-                    {FlagPayload && <FlagPayload language="javascript" />}
-                </>
-            ),
-        },
-        {
-            title: 'Ensure flags are loaded',
-            badge: 'optional',
-            content: <>{OnFeatureFlagsCallback && <OnFeatureFlagsCallback />}</>,
-        },
-        {
-            title: 'Reload feature flags',
-            badge: 'optional',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Feature flag values are cached. If something has changed with your user and you'd like to refetch their flag values:
-                        `}
-                    </Markdown>
-                    {ReloadFlags && <ReloadFlags language="javascript" />}
                 </>
             ),
         },
