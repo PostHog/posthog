@@ -29,7 +29,7 @@ class SessionRecordingExternalReferenceIntegrationSerializer(serializers.ModelSe
 class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     """
     Serializer for linking session recordings to external issue trackers.
-    Reuses error tracking's integration infrastructure (LinearIntegration)
+    Reuses error tracking's integration infrastructure
     """
 
     config = serializers.JSONField(write_only=True)
@@ -71,7 +71,8 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             return f"https://github.com/{org}/{repository}/issues/{issue_number}"
         elif reference.integration.kind == Integration.IntegrationKind.GITLAB:
             gitlab = GitLabIntegration(reference.integration)
-            return f"{gitlab.hostname}/{gitlab.project_path}/-/issues/{external_context['issue_id']}"
+            issue_id = external_context.get("issue_id", "")
+            return f"{gitlab.hostname}/{gitlab.project_path}/-/issues/{issue_id}" if issue_id else ""
         else:
             return ""
 
@@ -157,6 +158,8 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             title = config.get("title", "")
             config["body"] = f"{config.get('body', '')}\n\n**PostHog recording:** {recording_url}"
             response = GitLabIntegration(integration).create_issue(config)
+            if not response.get("issue_id"):
+                raise ValidationError("Failed to create GitLab issue")
             external_context = {
                 "id": f"#{response.get('issue_id', '')}",
                 "title": title,
@@ -187,7 +190,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
 class SessionRecordingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     ViewSet for managing external references to session recordings.
-    Supports creating issues in Linear and GitHub from session replays.
+    Supports creating issues in Linear, GitHub, and Gitlab from session replays.
     """
 
     scope_object = "INTERNAL"
