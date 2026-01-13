@@ -51,6 +51,35 @@ export interface Task {
         first_name: string
         email: string
     } | null
+    // Video segment clustering fields
+    distinct_user_count: number
+    occurrence_count: number
+    avg_impact_score: number
+    last_occurrence_at: string | null
+    segment_link_count: number
+}
+
+export interface TaskSegmentLink {
+    id: string
+    session_id: string
+    segment_start_time: string
+    segment_end_time: string
+    distinct_id: string
+    content: string
+    impact_score: number
+    failure_detected: boolean
+    confusion_detected: boolean
+    abandonment_detected: boolean
+    distance_to_centroid: number | null
+    segment_timestamp: string | null
+    created_at: string
+}
+
+export interface TaskSegmentLinksResponse {
+    results: TaskSegmentLink[]
+    count: number
+    limit: number
+    offset: number
 }
 
 export type TaskUpsertProps = Optional<

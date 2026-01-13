@@ -21,7 +21,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.storage import object_storage
 
-from .models import Task, TaskRun
+from .models import Task, TaskRun, TaskSegmentLink
 from .serializers import (
     ErrorResponseSerializer,
     TaskListQuerySerializer,
@@ -32,6 +32,7 @@ from .serializers import (
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunDetailSerializer,
     TaskRunUpdateSerializer,
+    TaskSegmentLinkSerializer,
     TaskSerializer,
 )
 from .temporal.client import execute_task_processing_workflow, execute_video_segment_clustering_workflow
@@ -60,6 +61,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "destroy",
             "run",
             "cluster_video_segments",
+            "segment_links",
         ]
     }
 
@@ -223,6 +225,44 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @validated_request(
+        request_serializer=None,
+        responses={
+            200: OpenApiResponse(description="Paginated list of segment links"),
+            404: OpenApiResponse(description="Task not found"),
+        },
+        summary="List task segment links",
+        description="Get paginated list of video segment links for a task, sorted by impact score.",
+    )
+    @action(detail=True, methods=["get"], url_path="segment_links", required_scopes=["task:read"])
+    def segment_links(self, request, pk=None, **kwargs):
+        """Get video segment links for a task.
+
+        Returns segments sorted by impact_score (descending), with pagination.
+        Query params:
+        - limit: Max items to return (default 10)
+        - offset: Number of items to skip (default 0)
+        """
+        task = cast(Task, self.get_object())
+
+        limit = int(request.query_params.get("limit", 10))
+        offset = int(request.query_params.get("offset", 0))
+
+        segment_links = TaskSegmentLink.objects.filter(task=task).order_by("-impact_score", "-created_at")
+
+        total_count = segment_links.count()
+        segment_links = segment_links[offset : offset + limit]
+
+        serializer = TaskSegmentLinkSerializer(segment_links, many=True)
+        return Response(
+            {
+                "results": serializer.data,
+                "count": total_count,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
 
 
 @extend_schema(tags=["task-runs"])
