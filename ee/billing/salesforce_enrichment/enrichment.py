@@ -206,27 +206,41 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
     primary_tag = None
 
     if tags:
-        # First try to find a tag marked as primary
+        # First try to find a tag marked as primary with non-empty displayValue
         for tag in tags:
             if isinstance(tag, dict) and tag.get("isPrimaryTag"):
-                primary_tag = tag.get("displayValue")
-                break
+                value = tag.get("displayValue")
+                if value:  # Skip empty strings
+                    primary_tag = value
+                    break
 
-        # If no primary tag found, use the first valid tag
-        if not primary_tag and len(tags) > 0 and isinstance(tags[0], dict):
-            primary_tag = tags[0].get("displayValue")
+        # If no primary tag found, use the first tag with non-empty displayValue
+        if not primary_tag:
+            for tag in tags:
+                if isinstance(tag, dict):
+                    value = tag.get("displayValue")
+                    if value:
+                        primary_tag = value
+                        break
 
     # If tags is empty or no valid tag found, fallback to tagsV2 with MARKET_VERTICAL type
     if not primary_tag and tags_v2:
-        # Look for MARKET_VERTICAL type first
+        # Look for MARKET_VERTICAL type first with non-empty displayValue
         for tag in tags_v2:
             if isinstance(tag, dict) and tag.get("type") == "MARKET_VERTICAL":
-                primary_tag = tag.get("displayValue")
-                break
+                value = tag.get("displayValue")
+                if value:
+                    primary_tag = value
+                    break
 
-        # If no MARKET_VERTICAL found, use first valid tag
-        if not primary_tag and len(tags_v2) > 0 and isinstance(tags_v2[0], dict):
-            primary_tag = tags_v2[0].get("displayValue")
+        # If no MARKET_VERTICAL found, use first tag with non-empty displayValue
+        if not primary_tag:
+            for tag in tags_v2:
+                if isinstance(tag, dict):
+                    value = tag.get("displayValue")
+                    if value:
+                        primary_tag = value
+                        break
 
     update_data = {
         "Id": account_id,
@@ -278,7 +292,7 @@ def bulk_update_salesforce_accounts(sf, update_records):
         sf: simple_salesforce.Salesforce client
         update_records: List of dicts with Id + field updates
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="bulk_update_salesforce_accounts")
 
     if not update_records:
         return
@@ -350,7 +364,7 @@ def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
     Returns:
         List of account record dicts with Id, Name, Website (empty list if none found)
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="get_salesforce_accounts_by_domain", domain=domain)
 
     try:
         sf = get_salesforce_client()
@@ -402,7 +416,7 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
         offset: Starting index for pagination
         limit: Number of accounts to retrieve
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="query_salesforce_accounts_chunk_async", offset=offset, limit=limit)
 
     # Try Redis cache first
     cache_start = time.time()
@@ -487,7 +501,7 @@ def _fetch_updated_account_fields(
     Returns:
         List of dicts containing the updated fields for each account
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="_fetch_updated_account_fields")
 
     if not accounts or not update_records:
         return []
@@ -580,7 +594,7 @@ def _compare_update_with_fetched(
     Returns:
         Dict with comparison results including any mismatches found
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="_compare_update_with_fetched")
 
     # Build lookup by account ID
     fetched_by_id = {acc["Id"]: acc for acc in fetched_accounts}
@@ -636,7 +650,7 @@ def _compare_update_with_fetched(
         logger.warning(
             "Field mismatches detected between sent and fetched Salesforce data",
             mismatch_count=len(mismatches),
-            mismatches=mismatches,
+            mismatches=mismatches[:5],
         )
 
     if missing_accounts:
@@ -813,7 +827,7 @@ async def enrich_accounts_chunked_async(
     Returns:
         Dict with total_accounts_in_chunk, records_processed, records_enriched, etc.
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="enrich_accounts_chunked_async", chunk_number=chunk_number)
     offset = chunk_number * chunk_size
 
     log_context = {"chunk_number": chunk_number, "chunk_size": chunk_size}
