@@ -1183,10 +1183,10 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [django, async-migrations]
+        needs: [django_tests, async-migrations]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            needs.changes.outputs.backend == 'true' && (
+            always() && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
@@ -1195,9 +1195,9 @@ jobs:
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
-                  capture-workflow-duration: 'true'
+                  capture-workflow-duration: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
-                  status-job: 'django'
+                  status-job: 'Django Tests Pass'
                   runner: 'depot'
 
     llm-gateway:
