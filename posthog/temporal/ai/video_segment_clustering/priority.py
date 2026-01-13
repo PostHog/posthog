@@ -10,7 +10,7 @@ import math
 from datetime import UTC, datetime
 
 from posthog.temporal.ai.video_segment_clustering import constants
-from posthog.temporal.ai.video_segment_clustering.models import ImpactFlags, SegmentWithImpact, VideoSegment
+from posthog.temporal.ai.video_segment_clustering.models import ImpactFlags, SegmentWithImpact, VideoSegmentMetadata
 
 
 def calculate_impact_score(impact_flags: ImpactFlags) -> float:
@@ -104,11 +104,11 @@ def derive_impact_from_content(content: str) -> ImpactFlags:
     )
 
 
-def enrich_segments_with_impact(segments: list[VideoSegment]) -> list[SegmentWithImpact]:
+def enrich_segments_with_impact(segments: list[VideoSegmentMetadata]) -> list[SegmentWithImpact]:
     """Add impact scores to segments by deriving from content.
 
     Args:
-        segments: List of video segments
+        segments: List of video segment metadata
 
     Returns:
         List of segments with impact data

@@ -25,8 +25,21 @@ class ClusteringWorkflowInputs:
 
 
 @dataclass
+class VideoSegmentMetadata:
+    """Lightweight video segment metadata (no embedding)."""
+
+    document_id: str  # Format: "{session_id}:{start_time}:{end_time}"
+    session_id: str
+    start_time: str
+    end_time: str
+    distinct_id: str
+    content: str
+    timestamp: str  # ISO format
+
+
+@dataclass
 class VideoSegment:
-    """A video segment from document_embeddings."""
+    """A video segment from document_embeddings (with embedding for clustering)."""
 
     document_id: str  # Format: "{session_id}:{start_time}:{end_time}"
     session_id: str
@@ -40,9 +53,9 @@ class VideoSegment:
 
 @dataclass
 class FetchSegmentsResult:
-    """Result from fetching segments."""
+    """Result from fetching segments (lightweight, no embeddings)."""
 
-    segments: list[VideoSegment]
+    segments: list[VideoSegmentMetadata]
     latest_timestamp: str | None  # ISO format, for updating watermark
 
 
@@ -56,11 +69,35 @@ class ImpactFlags(TypedDict):
 
 @dataclass
 class SegmentWithImpact:
-    """A segment with computed impact data."""
+    """A segment with computed impact data (no embedding)."""
 
-    segment: VideoSegment
+    segment: VideoSegmentMetadata
     impact_score: float
     impact_flags: ImpactFlags
+
+
+@dataclass
+class SegmentImpactData:
+    """Lightweight segment impact data for labeling (no embeddings)."""
+
+    document_id: str
+    content: str
+    distinct_id: str
+    timestamp: str | None
+    impact_score: float
+    impact_flags: ImpactFlags
+
+
+@dataclass
+class ClusterContext:
+    """Context data for a cluster passed to LLM for labeling/actionability."""
+
+    segment_contents: list[str]
+    segment_impact_flags: list[ImpactFlags]
+    aggregate_impact_score: float
+    distinct_user_count: int
+    occurrence_count: int
+    last_occurrence_iso: str | None
 
 
 @dataclass
@@ -103,8 +140,9 @@ class MatchingResult:
 class ClusterLabel(BaseModel):
     """LLM-generated label for a cluster."""
 
-    title: str
-    description: str
+    actionable: bool
+    title: str = ""
+    description: str = ""
 
 
 @dataclass
@@ -162,7 +200,16 @@ class ClusterSegmentsActivityInputs:
     """Input for cluster segments activity."""
 
     team_id: int
-    segments: list[VideoSegment]
+    document_ids: list[str]
+
+
+@dataclass
+class CreateHighImpactClustersActivityInputs:
+    """Input for creating single-segment clusters for high-impact noise segments."""
+
+    team_id: int
+    document_ids: list[str]
+    starting_cluster_id: int
 
 
 @dataclass
@@ -174,12 +221,20 @@ class MatchClustersActivityInputs:
 
 
 @dataclass
+class ClusterForLabeling:
+    """Lightweight cluster for labeling (no centroid embedding)."""
+
+    cluster_id: int
+    segment_ids: list[str]
+
+
+@dataclass
 class GenerateLabelsActivityInputs:
     """Input for generate labels activity."""
 
     team_id: int
-    clusters: list[Cluster]
-    segments: list[VideoSegment]
+    clusters: list[ClusterForLabeling]
+    segment_impact_data: list[SegmentImpactData]
 
 
 @dataclass

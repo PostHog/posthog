@@ -15,30 +15,33 @@ from datetime import datetime
 from django.conf import settings
 from django.utils import timezone as django_timezone
 
-import numpy as np
 import structlog
 from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import SummarizeSingleSessionWorkflow
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.clustering import (
-    calculate_cosine_distance,
     match_clusters_to_existing_tasks,
     perform_hdbscan_clustering,
-    update_task_centroid,
 )
 from posthog.temporal.ai.video_segment_clustering.data import (
+    fetch_embeddings_by_document_ids,
     fetch_existing_task_centroids,
     fetch_recent_session_ids,
     fetch_video_segments,
 )
 from posthog.temporal.ai.video_segment_clustering.labeling import generate_cluster_labels_llm
 from posthog.temporal.ai.video_segment_clustering.models import (
+    Cluster,
+    ClusterContext,
     ClusteringResult,
     ClusterLabel,
+    ClusterSegmentsActivityInputs,
+    CreateHighImpactClustersActivityInputs,
     CreateUpdateTasksActivityInputs,
     FetchRecentSessionsActivityInputs,
     FetchRecentSessionsResult,
@@ -50,10 +53,10 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     LinkSegmentsActivityInputs,
     MatchClustersActivityInputs,
     MatchingResult,
+    SegmentImpactData,
     SummarizeSessionsActivityInputs,
     SummarizeSessionsResult,
     TaskCreationResult,
-    VideoSegment,
 )
 from posthog.temporal.ai.video_segment_clustering.priority import calculate_priority_score, calculate_task_metrics
 from posthog.temporal.common.client import async_connect
@@ -61,6 +64,7 @@ from posthog.temporal.common.client import async_connect
 from products.tasks.backend.models import Task, TaskSegmentLink, VideoSegmentClusteringState
 
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
+from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -92,19 +96,60 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
 
 
 # Activity 2: Cluster segments
-def _cluster_segments(segments: list[VideoSegment]) -> ClusteringResult:
-    """Run HDBSCAN clustering on segments."""
+def _cluster_segments(inputs: ClusterSegmentsActivityInputs) -> ClusteringResult:
+    """Fetch embeddings from DB and run HDBSCAN clustering."""
+    team = Team.objects.get(id=inputs.team_id)
+
+    # Fetch embeddings directly from ClickHouse (not passed through Temporal due to their total size)
+    segments = fetch_embeddings_by_document_ids(team, inputs.document_ids)
+
     return perform_hdbscan_clustering(segments)
 
 
 @activity.defn
-async def cluster_segments_activity(segments: list[VideoSegment]) -> ClusteringResult:
+async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> ClusteringResult:
     """Activity 2: Cluster video segments using HDBSCAN.
 
-    Applies PCA dimensionality reduction then HDBSCAN clustering.
-    Returns clusters with centroids computed from original embeddings.
+    Fetches embeddings from ClickHouse, then applies PCA dimensionality reduction
+    and HDBSCAN clustering. Returns clusters with centroids computed from original embeddings.
     """
-    return await asyncio.to_thread(_cluster_segments, segments)
+    return await asyncio.to_thread(_cluster_segments, inputs)
+
+
+# Activity 2b: Create single-segment clusters for high-impact noise
+def _create_high_impact_clusters(inputs: CreateHighImpactClustersActivityInputs) -> list[Cluster]:
+    """Create single-segment clusters for high-impact noise segments."""
+    team = Team.objects.get(id=inputs.team_id)
+
+    # Fetch embeddings for these specific documents
+    segments = fetch_embeddings_by_document_ids(team, inputs.document_ids)
+    segment_lookup = {s.document_id: s for s in segments}
+
+    clusters: list[Cluster] = []
+    for i, doc_id in enumerate(inputs.document_ids):
+        segment = segment_lookup.get(doc_id)
+        if not segment:
+            continue
+
+        cluster = Cluster(
+            cluster_id=inputs.starting_cluster_id + i,
+            segment_ids=[doc_id],
+            centroid=segment.embedding,
+            size=1,
+        )
+        clusters.append(cluster)
+
+    return clusters
+
+
+@activity.defn
+async def create_high_impact_clusters_activity(inputs: CreateHighImpactClustersActivityInputs) -> list[Cluster]:
+    """Activity 2b: Create single-segment clusters for high-impact noise segments.
+
+    For noise segments that have high impact (errors, confusion, etc.),
+    create individual clusters so they become Tasks.
+    """
+    return await asyncio.to_thread(_create_high_impact_clusters, inputs)
 
 
 # Activity 3: Match clusters to existing tasks
@@ -131,44 +176,102 @@ async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> Matchi
 
 # Activity 4: Generate labels
 async def _generate_labels(inputs: GenerateLabelsActivityInputs) -> LabelingResult:
-    """Generate LLM labels for clusters."""
-    # Build segment lookup
-    segment_lookup = {s.document_id: s for s in inputs.segments}
+    """Generate LLM labels for clusters with actionability filtering."""
+    # Build segment impact lookup
+    impact_lookup = {s.document_id: s for s in inputs.segment_impact_data}
 
-    labels: dict[int, ClusterLabel] = {}
+    async def generate_label_for_cluster(cluster):
+        """Generate label for a single cluster."""
+        # Get segment impact data for this cluster
+        cluster_impacts = [impact_lookup[sid] for sid in cluster.segment_ids if sid in impact_lookup]
 
-    for cluster in inputs.clusters:
-        # Get segment contents for this cluster
-        cluster_segments = [segment_lookup[sid] for sid in cluster.segment_ids if sid in segment_lookup]
-
-        if not cluster_segments:
-            # Fallback label
-            labels[cluster.cluster_id] = ClusterLabel(
-                title=f"Issue Cluster {cluster.cluster_id}",
-                description="A group of similar video segment issues.",
+        if not cluster_impacts:
+            # No segments = not actionable
+            return cluster.cluster_id, ClusterLabel(
+                actionable=False,
+                title="",
+                description="",
             )
-            continue
 
-        # Generate label using LLM
+        # Calculate metrics for this cluster
+        metrics = _calculate_metrics_from_impact_data(cluster_impacts)
+
+        # Build context for LLM
+        sample_impacts = cluster_impacts[: constants.DEFAULT_SEGMENTS_PER_CLUSTER_FOR_LABELING]
+
+        context = ClusterContext(
+            segment_contents=[s.content for s in sample_impacts],
+            segment_impact_flags=[s.impact_flags for s in sample_impacts],
+            aggregate_impact_score=metrics["avg_impact_score"],
+            distinct_user_count=metrics["distinct_user_count"],
+            occurrence_count=metrics["occurrence_count"],
+            last_occurrence_iso=metrics["last_occurrence_at"].isoformat() if metrics["last_occurrence_at"] else None,
+        )
+
+        # Generate label with actionability check
         try:
             label = await generate_cluster_labels_llm(
                 team_id=inputs.team_id,
-                segments=cluster_segments[: constants.DEFAULT_SEGMENTS_PER_CLUSTER_FOR_LABELING],
+                context=context,
             )
-            labels[cluster.cluster_id] = label
+            return cluster.cluster_id, label
         except Exception as e:
             logger.warning(
-                "Failed to generate LLM label for cluster",
+                "Failed to generate LLM label for cluster, marking not actionable",
                 cluster_id=cluster.cluster_id,
                 error=str(e),
             )
-            # Fallback
-            labels[cluster.cluster_id] = ClusterLabel(
-                title=f"Issue: {cluster_segments[0].content[:50]}...",
-                description=cluster_segments[0].content[:200],
+            return cluster.cluster_id, ClusterLabel(
+                actionable=False,
+                title="",
+                description="",
             )
 
+    # Generate labels in parallel for all clusters
+    results = await asyncio.gather(*[generate_label_for_cluster(cluster) for cluster in inputs.clusters])
+    labels = dict(results)
+
     return LabelingResult(labels=labels)
+
+
+def _calculate_metrics_from_impact_data(impacts: list[SegmentImpactData]) -> dict:
+    """Calculate aggregate metrics from lightweight segment impact data."""
+    from datetime import datetime
+
+    if not impacts:
+        return {
+            "distinct_user_count": 0,
+            "occurrence_count": 0,
+            "avg_impact_score": 0.0,
+            "last_occurrence_at": None,
+        }
+
+    # Count unique users
+    distinct_ids = {s.distinct_id for s in impacts}
+    distinct_user_count = len(distinct_ids)
+
+    # Calculate average impact
+    total_impact = sum(s.impact_score for s in impacts)
+    avg_impact_score = total_impact / len(impacts)
+
+    # Find most recent occurrence
+    timestamps = []
+    for s in impacts:
+        if s.timestamp:
+            try:
+                ts = datetime.fromisoformat(s.timestamp.replace("Z", "+00:00"))
+                timestamps.append(ts)
+            except ValueError:
+                pass
+
+    last_occurrence_at = max(timestamps) if timestamps else None
+
+    return {
+        "distinct_user_count": distinct_user_count,
+        "occurrence_count": len(impacts),
+        "avg_impact_score": avg_impact_score,
+        "last_occurrence_at": last_occurrence_at,
+    }
 
 
 @activity.defn
@@ -257,13 +360,9 @@ def _create_update_tasks(inputs: CreateUpdateTasksActivityInputs) -> TaskCreatio
         # Get segments for this cluster
         cluster_segments = [segment_lookup[sid] for sid in matched_cluster.segment_ids if sid in segment_lookup]
 
-        # Update centroid
-        new_embeddings = np.array([swi.segment.embedding for swi in cluster_segments])
-        updated_centroid = update_task_centroid(
-            existing_centroid=task.cluster_centroid,
-            existing_count=task.occurrence_count,
-            new_embeddings=new_embeddings,
-        )
+        # Note: We skip centroid updates here because embeddings are no longer passed
+        # through Temporal (they're too large). The existing centroid remains valid
+        # as it was computed from the initial batch of segments.
 
         # Recalculate metrics including new segments
         new_metrics = calculate_task_metrics(cluster_segments)
@@ -283,10 +382,6 @@ def _create_update_tasks(inputs: CreateUpdateTasksActivityInputs) -> TaskCreatio
         if new_metrics["last_occurrence_at"]:
             if task.last_occurrence_at is None or new_metrics["last_occurrence_at"] > task.last_occurrence_at:
                 task.last_occurrence_at = new_metrics["last_occurrence_at"]
-
-        # Update centroid
-        task.cluster_centroid = updated_centroid
-        task.cluster_centroid_updated_at = django_timezone.now()
 
         # Recalculate priority
         task.priority_score = calculate_priority_score(
@@ -347,10 +442,9 @@ def _link_segments(inputs: LinkSegmentsActivityInputs) -> LinkingResult:
         except Task.DoesNotExist:
             continue
 
-        # Calculate distance to centroid
+        # Note: distance_to_centroid is skipped because embeddings are no longer
+        # passed through Temporal (they're too large). This is an optional metric.
         distance = None
-        if task.cluster_centroid:
-            distance = calculate_cosine_distance(segment.embedding, task.cluster_centroid)
 
         # Parse timestamp
         segment_timestamp = None
@@ -452,15 +546,28 @@ async def _summarize_sessions(inputs: SummarizeSessionsActivityInputs) -> Summar
             sessions_summarized=0, sessions_failed=0, sessions_skipped=len(inputs.session_ids)
         )
 
+    # Check which sessions already have summaries (no extra_summary_context for clustering)
+    existing_summaries = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+        team_id=inputs.team_id,
+        session_ids=inputs.session_ids,
+        extra_summary_context=None,
+    )
+
     client = await async_connect()
 
     sessions_summarized = 0
     sessions_failed = 0
     sessions_skipped = 0
 
-    # Start all workflows concurrently
+    # Start workflows only for sessions that don't already have summaries
     handles = []
     for session_id in inputs.session_ids:
+        # Skip if summary already exists
+        if existing_summaries.get(session_id):
+            sessions_skipped += 1
+            logger.info("Session summary already exists, skipping", session_id=session_id)
+            continue
+
         try:
             redis_key_base = f"session-summary:clustering:{team.id}:{session_id}"
             workflow_input = SingleSessionSummaryInputs(

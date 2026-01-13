@@ -36,7 +36,10 @@ export function TasksList(): JSX.Element {
             render: (_: any, task: Task) => (
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
-                        <span className="font-semibold text-link cursor-pointer" onClick={() => openTask(task.id)}>
+                        <span
+                            className="font-semibold text-link cursor-pointer whitespace-nowrap"
+                            onClick={() => openTask(task.id)}
+                        >
                             {task.slug}
                         </span>
                         <span className="text-default">{task.title}</span>
