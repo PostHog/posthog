@@ -61,12 +61,11 @@ class TestDocumentArtifactContent(BaseTest):
         self.assertEqual(content.blocks, [])
 
     def test_mixed_blocks(self):
-        query = AssistantTrendsQuery(series=[])
         blocks = [
-            {"type": "markdown", "content": "# Introduction"},
-            {"type": "visualization", "query": query.model_dump()},
-            {"type": "session_replay", "session_id": "sess456", "timestamp_ms": 1000, "title": "Example"},
-            {"type": "markdown", "content": "## Summary"},
+            MarkdownBlock(content="# Introduction"),
+            VisualizationBlock(query=AssistantTrendsQuery(series=[])),
+            SessionReplayBlock(session_id="sess456", timestamp_ms=1000, title="Example"),
+            MarkdownBlock(content="## Summary"),
         ]
         content = DocumentArtifactContent(blocks=blocks)
 

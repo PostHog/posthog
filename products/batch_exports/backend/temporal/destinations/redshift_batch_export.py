@@ -119,6 +119,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "NoSuchBucket",
     # S3 parameter validation failed.
     "ParamValidationError",
+    # Invalid S3 credentials when using `copy_into_redshift_activity_from_stage`.
+    "InvalidCredentialsError",
 )
 
 
@@ -824,7 +826,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
                 table_fields = [field for field in table_fields if field[0] in columns]
 
-            except psycopg.errors.UndefinedTable:
+            except (psycopg.errors.UndefinedTable, psycopg.errors.InternalError_):
                 pass
 
             async with (
@@ -1166,7 +1168,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                     )
 
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
-            except psycopg.errors.UndefinedTable:
+            except (psycopg.errors.UndefinedTable, psycopg.errors.InternalError_):
                 table_fields = list(table_schemas.table_schema)
 
             primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None
@@ -1515,7 +1517,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
 
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
 
-            except psycopg.errors.UndefinedTable:
+            except (psycopg.errors.UndefinedTable, psycopg.errors.InternalError_):
                 table_fields = list(table_schemas.table_schema)
 
             primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None

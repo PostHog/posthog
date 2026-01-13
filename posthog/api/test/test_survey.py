@@ -284,9 +284,9 @@ class TestSurvey(APIBaseTest):
 
         assert survey.internal_targeting_flag is not None
         survey.internal_targeting_flag.refresh_from_db()
-        assert (
-            survey.internal_targeting_flag.filters == expected_filters_with_iteration
-        ), f"Expected iteration-aware filters but got: {survey.internal_targeting_flag.filters}"
+        assert survey.internal_targeting_flag.filters == expected_filters_with_iteration, (
+            f"Expected iteration-aware filters but got: {survey.internal_targeting_flag.filters}"
+        )
 
     def test_can_create_survey_with_linked_flag_and_targeting(self):
         notebooks_flag = FeatureFlag.objects.create(team=self.team, key="notebooks", created_by=self.user)
@@ -2026,9 +2026,9 @@ class TestSurvey(APIBaseTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(survey_id), type="survey").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Survey."
-        assert (
-            "Special Folder/Surveys" in fs_entry.path
-        ), f"Expected path to include 'Special Folder/Surveys', got '{fs_entry.path}'."
+        assert "Special Folder/Surveys" in fs_entry.path, (
+            f"Expected path to include 'Special Folder/Surveys', got '{fs_entry.path}'."
+        )
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
@@ -2774,7 +2774,7 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
 
 
 class TestSurveyWithActions(APIBaseTest):
-    def test_cannot_use_actions_with_properties(self):
+    def test_can_use_actions_with_properties(self):
         action = Action.objects.create(
             team=self.team,
             name="person subscribed",
@@ -2783,7 +2783,7 @@ class TestSurveyWithActions(APIBaseTest):
                     "event": "$pageview",
                     "url": "docs",
                     "url_matching": "contains",
-                    "properties": {"type": "person", "key": "val"},
+                    "properties": [{"key": "plan", "value": "pro", "operator": "exact"}],
                 }
             ],
         )
@@ -2808,10 +2808,11 @@ class TestSurveyWithActions(APIBaseTest):
             format="json",
         )
         response_data = response.json()
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert (
-            response.json()["detail"] == "Survey cannot be activated by an Action with property filters defined on it."
-        )
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["conditions"]["actions"]["values"][0]["name"] == "person subscribed"
+        assert response_data["conditions"]["actions"]["values"][0]["steps"][0]["properties"] == [
+            {"key": "plan", "value": "pro", "operator": "exact"}
+        ]
 
     def test_can_set_associated_actions(self):
         user_subscribed_action = Action.objects.create(

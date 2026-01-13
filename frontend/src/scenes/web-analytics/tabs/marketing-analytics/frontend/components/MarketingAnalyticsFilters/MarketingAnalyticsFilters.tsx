@@ -14,7 +14,8 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import { AddIntegrationButton } from './AddIntegrationButton'
-import { ExploreCoreEventDropdown } from './ExploreCoreEventDropdown'
+import { ConversionGoalFilterButton } from './ConversionGoalFilterButton'
+import { ConversionGoalModal } from './ConversionGoalModal'
 import { IntegrationFilter } from './IntegrationFilter'
 
 export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
@@ -36,7 +37,7 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                         >
                             <ReloadAll />
                         </AppShortcut>
-                        <ExploreCoreEventDropdown />
+                        <ConversionGoalFilterButton />
                     </div>
                 }
                 right={
@@ -61,6 +62,7 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                     </>
                 }
             />
+            <ConversionGoalModal />
         </BindLogic>
     )
 }

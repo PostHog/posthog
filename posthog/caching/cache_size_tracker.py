@@ -33,7 +33,15 @@ CACHE_SIZE_HISTOGRAM = Histogram(
         100_000_000,  # 100MB
         250_000_000,  # 250MB
         500_000_000,  # 500MB
+        750_000_000,  # 750MB
         1_000_000_000,  # 1GB
+        1_500_000_000,
+        2_000_000_000,
+        2_500_000_000,
+        3_000_000_000,
+        3_500_000_000,
+        4_000_000_000,
+        5_000_000_000,
         float("inf"),
     ],
 )
@@ -123,14 +131,19 @@ class TeamCacheSizeTracker:
     def set(self, cache_key: str, data: bytes, data_size: int, ttl: int) -> list[str]:
         """
         Set cache data with size limit enforcement.
-        Handles eviction, cache write, and tracking atomically.
         Returns list of evicted keys.
+
+        Note: There's a race condition where concurrent sets for the same team can
+        temporarily exceed the limit. This is acceptable because the next write will
+        trigger eviction and bring the size back under limit.
         """
         limit = get_team_cache_limit(self.team_id)
         evicted: list[str] = []
         size_before = self.get_total_size()
         count_before = self.redis_client.zcard(self.entries_key)
 
+        # Race condition: between this check and the write below, other requests may write,
+        # causing the total to exceed the limit. This is corrected on subsequent writes.
         if size_before + data_size > limit:
             evicted = self.evict_until_under_limit(limit, data_size)
 

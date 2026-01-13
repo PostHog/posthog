@@ -1095,37 +1095,33 @@ def _get_credentials():
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
             settings.BUCKET_URL,
-            settings.AIRBYTE_BUCKET_KEY,
-            settings.AIRBYTE_BUCKET_SECRET,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             settings.OBJECT_STORAGE_ENDPOINT,
         )
 
         return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
     if TEST:
         return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
     return {
-        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-        "region_name": settings.AIRBYTE_BUCKET_REGION,
-        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 

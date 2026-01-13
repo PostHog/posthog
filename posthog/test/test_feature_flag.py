@@ -5225,7 +5225,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                                 "key": "number",
                                 "value": "3.1x00b2c",
                                 "operator": "gte",
-                                "type": "person",
                                 "group_type_index": 0,
                                 "type": "group",
                             },

@@ -7,7 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-
 /**
  * * `events` - Events
  * `persons` - Persons
@@ -33,6 +32,63 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
+
+/**
+ * * `S3` - S3
+ * `Snowflake` - Snowflake
+ * `Postgres` - Postgres
+ * `Redshift` - Redshift
+ * `BigQuery` - Bigquery
+ * `Databricks` - Databricks
+ * `AzureBlob` - Azure Blob
+ * `Workflows` - Workflows
+ * `HTTP` - Http
+ * `NoOp` - Noop
+ */
+export type BatchExportDestinationTypeEnumApi =
+    (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const BatchExportDestinationTypeEnumApi = {
+    S3: 'S3',
+    Snowflake: 'Snowflake',
+    Postgres: 'Postgres',
+    Redshift: 'Redshift',
+    BigQuery: 'BigQuery',
+    Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
+    Workflows: 'Workflows',
+    HTTP: 'HTTP',
+    NoOp: 'NoOp',
+} as const
+
+/**
+ * Serializer for an BatchExportDestination model.
+ */
+export interface BatchExportDestinationApi {
+    /** A choice of supported BatchExportDestination types.
+
+* `S3` - S3
+* `Snowflake` - Snowflake
+* `Postgres` - Postgres
+* `Redshift` - Redshift
+* `BigQuery` - Bigquery
+* `Databricks` - Databricks
+* `AzureBlob` - Azure Blob
+* `Workflows` - Workflows
+* `HTTP` - Http
+* `NoOp` - Noop */
+    type: BatchExportDestinationTypeEnumApi
+    /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
+    config?: unknown
+    /**
+     * The integration for this destination.
+     * @nullable
+     */
+    integration?: number | null
+    /** @nullable */
+    integration_id?: number | null
+}
 
 /**
  * * `hour` - hour
@@ -77,123 +133,6 @@ export const BatchExportRunStatusEnumApi = {
     Running: 'Running',
     Starting: 'Starting',
 } as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BatchExportDestinationTypeEnumApi = {
-    S3: 'S3',
-    Snowflake: 'Snowflake',
-    Postgres: 'Postgres',
-    Redshift: 'Redshift',
-    BigQuery: 'BigQuery',
-    Databricks: 'Databricks',
-    HTTP: 'HTTP',
-    NoOp: 'NoOp',
-} as const
-
-/**
- * * `S3` - S3
- * `Snowflake` - Snowflake
- * `Postgres` - Postgres
- * `Redshift` - Redshift
- * `BigQuery` - Bigquery
- * `Databricks` - Databricks
- * `HTTP` - Http
- * `NoOp` - Noop
- */
-export type BatchExportDestinationTypeEnumApi =
-    (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
-
-export interface PaginatedBatchExportListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: BatchExportApi[]
-}
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BatchExportApiModel = { ...ModelEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
-/**
- * Which model this BatchExport is exporting.
-
-* `events` - Events
-* `persons` - Persons
-* `sessions` - Sessions
- * @nullable
- */
-export type BatchExportApiModel = (typeof BatchExportApiModel)[keyof typeof BatchExportApiModel] | null
-
-/**
- * A schema of custom fields to select when exporting data.
- * @nullable
- */
-export type BatchExportApiSchema = unknown | null
-
-/**
- * @nullable
- */
-export type BatchExportApiFilters = unknown | null
-
-/**
- * Serializer for a BatchExport model.
- */
-export interface BatchExportApi {
-    readonly id: string
-    /** The team this belongs to. */
-    readonly team_id: number
-    /** A human-readable name for this BatchExport. */
-    name: string
-    /**
-   * Which model this BatchExport is exporting.
-
-* `events` - Events
-* `persons` - Persons
-* `sessions` - Sessions
-   * @nullable
-   */
-    model?: BatchExportApiModel
-    destination: BatchExportDestinationApi
-    interval: IntervalEnumApi
-    /** Whether this BatchExport is paused or not. */
-    paused?: boolean
-    /** The timestamp at which this BatchExport was created. */
-    readonly created_at: string
-    /** The timestamp at which this BatchExport was last updated. */
-    readonly last_updated_at: string
-    /**
-     * The timestamp at which this BatchExport was last paused.
-     * @nullable
-     */
-    last_paused_at?: string | null
-    /**
-     * Time before which any Batch Export runs won't be triggered.
-     * @nullable
-     */
-    start_at?: string | null
-    /**
-     * Time after which any Batch Export runs won't be triggered.
-     * @nullable
-     */
-    end_at?: string | null
-    readonly latest_runs: readonly BatchExportRunApi[]
-    hogql_query?: string
-    /**
-     * A schema of custom fields to select when exporting data.
-     * @nullable
-     */
-    readonly schema: BatchExportApiSchema
-    /** @nullable */
-    filters?: BatchExportApiFilters
-}
-
-export interface PaginatedBatchExportRunListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: BatchExportRunApi[]
-}
 
 /**
  * Serializer for a BatchExportRun model.
@@ -269,30 +208,67 @@ export interface BatchExportRunApi {
     backfill?: string | null
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedBatchExportApiModel = { ...ModelEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
- * Which model this BatchExport is exporting.
+ * Serializer for a BatchExport model.
+ */
+export interface BatchExportApi {
+    readonly id: string
+    /** The team this belongs to. */
+    readonly team_id: number
+    /** A human-readable name for this BatchExport. */
+    name: string
+    /** Which model this BatchExport is exporting.
 
 * `events` - Events
 * `persons` - Persons
-* `sessions` - Sessions
- * @nullable
- */
-export type PatchedBatchExportApiModel =
-    | (typeof PatchedBatchExportApiModel)[keyof typeof PatchedBatchExportApiModel]
-    | null
+* `sessions` - Sessions */
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi
+    destination: BatchExportDestinationApi
+    interval: IntervalEnumApi
+    /** Whether this BatchExport is paused or not. */
+    paused?: boolean
+    /** The timestamp at which this BatchExport was created. */
+    readonly created_at: string
+    /** The timestamp at which this BatchExport was last updated. */
+    readonly last_updated_at: string
+    /**
+     * The timestamp at which this BatchExport was last paused.
+     * @nullable
+     */
+    last_paused_at?: string | null
+    /**
+     * Time before which any Batch Export runs won't be triggered.
+     * @nullable
+     */
+    start_at?: string | null
+    /**
+     * Time after which any Batch Export runs won't be triggered.
+     * @nullable
+     */
+    end_at?: string | null
+    readonly latest_runs: readonly BatchExportRunApi[]
+    hogql_query?: string
+    /** A schema of custom fields to select when exporting data. */
+    readonly schema: unknown
+    filters?: unknown
+}
 
-/**
- * A schema of custom fields to select when exporting data.
- * @nullable
- */
-export type PatchedBatchExportApiSchema = unknown | null
+export interface PaginatedBatchExportListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExportApi[]
+}
 
-/**
- * @nullable
- */
-export type PatchedBatchExportApiFilters = unknown | null
+export interface PaginatedBatchExportRunListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExportRunApi[]
+}
 
 /**
  * Serializer for a BatchExport model.
@@ -303,15 +279,12 @@ export interface PatchedBatchExportApi {
     readonly team_id?: number
     /** A human-readable name for this BatchExport. */
     name?: string
-    /**
-   * Which model this BatchExport is exporting.
+    /** Which model this BatchExport is exporting.
 
 * `events` - Events
 * `persons` - Persons
-* `sessions` - Sessions
-   * @nullable
-   */
-    model?: PatchedBatchExportApiModel
+* `sessions` - Sessions */
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi
     destination?: BatchExportDestinationApi
     interval?: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */
@@ -337,39 +310,9 @@ export interface PatchedBatchExportApi {
     end_at?: string | null
     readonly latest_runs?: readonly BatchExportRunApi[]
     hogql_query?: string
-    /**
-     * A schema of custom fields to select when exporting data.
-     * @nullable
-     */
-    readonly schema?: PatchedBatchExportApiSchema
-    /** @nullable */
-    filters?: PatchedBatchExportApiFilters
-}
-
-/**
- * Serializer for an BatchExportDestination model.
- */
-export interface BatchExportDestinationApi {
-    /** A choice of supported BatchExportDestination types.
-
-* `S3` - S3
-* `Snowflake` - Snowflake
-* `Postgres` - Postgres
-* `Redshift` - Redshift
-* `BigQuery` - Bigquery
-* `Databricks` - Databricks
-* `HTTP` - Http
-* `NoOp` - Noop */
-    type: BatchExportDestinationTypeEnumApi
-    /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
-    config?: unknown
-    /**
-     * The integration for this destination.
-     * @nullable
-     */
-    integration?: number | null
-    /** @nullable */
-    integration_id?: number | null
+    /** A schema of custom fields to select when exporting data. */
+    readonly schema?: unknown
+    filters?: unknown
 }
 
 export type EnvironmentsBatchExportsListParams = {

@@ -45,8 +45,11 @@ jobs:
                   semgrep \
                     --config "p/python" \
                     --config "p/owasp-top-ten" \
+                    --config "p/security-audit" \
                     --config "p/trailofbits" \
                     --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                    --exclude-rule "python.django.security.audit.csrf-exempt.no-csrf-exempt" \
+                    --exclude-rule "generic.html-templates.security.var-in-href.var-in-href" \
                     --error \
                     --metrics=off \
                     --verbose \
@@ -112,6 +115,7 @@ jobs:
             - name: Run Semgrep
               run: |
                   semgrep \
+                    --config ".semgrep/rules/" \
                     --config "p/javascript" \
                     --config "p/owasp-top-ten" \
                     --config "p/security-audit" \

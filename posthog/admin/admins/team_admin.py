@@ -223,6 +223,7 @@ class TeamAdmin(admin.ModelAdmin):
     def export_individual_replay(self, team: Team):
         if not team.pk:
             return "-"
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/posthog/team/export_individual_replay.html",
@@ -239,6 +240,7 @@ class TeamAdmin(admin.ModelAdmin):
     def import_individual_replay(self, team: Team):
         if not team.pk:
             return "-"
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/posthog/team/import_individual_replay.html",
@@ -255,6 +257,7 @@ class TeamAdmin(admin.ModelAdmin):
         if not team.pk:
             return "-"
 
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/posthog/team/remote_config_cache_actions.html",

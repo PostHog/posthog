@@ -63,7 +63,7 @@ import type {
     GroupsRelatedRetrieveParams,
     GroupsUpdatePropertyCreateParams,
     IntegrationApi,
-    IntegrationsListParams,
+    IntegrationsList2Params,
     InvitesListParams,
     List2Params,
     MembersListParams,
@@ -3403,6 +3403,41 @@ export const deleteSecretTokenBackupPartialUpdate = async (
 /**
  * Projects for the current organization.
  */
+export type generateConversationsPublicTokenCreateResponse200 = {
+    data: ProjectBackwardCompatApi
+    status: 200
+}
+
+export type generateConversationsPublicTokenCreateResponseSuccess =
+    generateConversationsPublicTokenCreateResponse200 & {
+        headers: Headers
+    }
+export type generateConversationsPublicTokenCreateResponse = generateConversationsPublicTokenCreateResponseSuccess
+
+export const getGenerateConversationsPublicTokenCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/generate_conversations_public_token/`
+}
+
+export const generateConversationsPublicTokenCreate = async (
+    organizationId: string,
+    id: number,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<generateConversationsPublicTokenCreateResponse> => {
+    return apiMutator<generateConversationsPublicTokenCreateResponse>(
+        getGenerateConversationsPublicTokenCreateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(projectBackwardCompatApi),
+        }
+    )
+}
+
+/**
+ * Projects for the current organization.
+ */
 export type isGeneratingDemoDataRetrieveResponse200 = {
     data: ProjectBackwardCompatApi
     status: 200
@@ -6359,17 +6394,17 @@ export const insightsSharingRefreshCreate = async (
     })
 }
 
-export type integrationsListResponse200 = {
+export type integrationsList2Response200 = {
     data: PaginatedIntegrationListApi
     status: 200
 }
 
-export type integrationsListResponseSuccess = integrationsListResponse200 & {
+export type integrationsList2ResponseSuccess = integrationsList2Response200 & {
     headers: Headers
 }
-export type integrationsListResponse = integrationsListResponseSuccess
+export type integrationsList2Response = integrationsList2ResponseSuccess
 
-export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsListParams) => {
+export const getIntegrationsList2Url = (projectId: string, params?: IntegrationsList2Params) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -6385,12 +6420,12 @@ export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsL
         : `/api/projects/${projectId}/integrations/`
 }
 
-export const integrationsList = async (
+export const integrationsList2 = async (
     projectId: string,
-    params?: IntegrationsListParams,
+    params?: IntegrationsList2Params,
     options?: RequestInit
-): Promise<integrationsListResponse> => {
-    return apiMutator<integrationsListResponse>(getIntegrationsListUrl(projectId, params), {
+): Promise<integrationsList2Response> => {
+    return apiMutator<integrationsList2Response>(getIntegrationsList2Url(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -6423,26 +6458,26 @@ export const integrationsCreate = async (
     })
 }
 
-export type integrationsRetrieveResponse200 = {
+export type integrationsRetrieve2Response200 = {
     data: IntegrationApi
     status: 200
 }
 
-export type integrationsRetrieveResponseSuccess = integrationsRetrieveResponse200 & {
+export type integrationsRetrieve2ResponseSuccess = integrationsRetrieve2Response200 & {
     headers: Headers
 }
-export type integrationsRetrieveResponse = integrationsRetrieveResponseSuccess
+export type integrationsRetrieve2Response = integrationsRetrieve2ResponseSuccess
 
-export const getIntegrationsRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsRetrieve2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-export const integrationsRetrieve = async (
+export const integrationsRetrieve2 = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<integrationsRetrieveResponse> => {
-    return apiMutator<integrationsRetrieveResponse>(getIntegrationsRetrieveUrl(projectId, id), {
+): Promise<integrationsRetrieve2Response> => {
+    return apiMutator<integrationsRetrieve2Response>(getIntegrationsRetrieve2Url(projectId, id), {
         ...options,
         method: 'GET',
     })
