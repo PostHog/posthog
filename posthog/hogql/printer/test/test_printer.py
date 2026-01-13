@@ -3565,9 +3565,10 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             "None",  # Store None (i.e. actual NULL value) as a string, because we can't have a NULL distinct_id and it makes things easier
         }
 
-        # map of patterns to (ilike_expected, ilike_expected_if_non_nullable) - can use ilike_expected_if_non_nullable=None to fallback to ilike_expected.
-        # Note that non-nullable mat columns treat the '' and 'null' values as NULL, this is not a bug in our optimization, and in this case we have bailed out of our optimization and fallen back to default handling.
-        # It'd be a good thing to fix this! And remove these special-cases from the tests! but my top priority was making sure that I didn't change any behaviour.
+        # Map of patterns to (ilike_expected, ilike_expected_if_non_nullable) - can use ilike_expected_if_non_nullable=None to fall back to ilike_expected.
+        # Note that non-nullable mat columns treat the '' and 'null' values as NULL, this is a bug/"feature" in non-nullable mat columns, not in our optimization.
+        # In this case we bail out of our optimization and fall back to default NULL handling/wrapping.
+        # It'd be a good thing to fix this! And remove these special-cases from the tests! but my top priority was making sure that I didn't change any behavior.
         patterns_and_expected = {
             "%@posthog.com": ({"hello@posthog.com", "Hello@PostHog.com", "null@posthog.com"}, None),
             "hello@posthog.com": ({"hello@posthog.com", "Hello@PostHog.com"}, None),
@@ -3598,7 +3599,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 },
             ),
             "": ({""}, set()),
-            "None": (set(), None),  # in hogql, ilike('foo', NULL) == True, and notILike('foo', NULL) == False
+            "None": ({"None"}, {"None", "", "null"}),
         }
 
         for case in cases:
@@ -3612,19 +3613,22 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         for pattern, (ilike_expected, ilike_expected_if_non_nullable) in patterns_and_expected.items():
             if ilike_expected_if_non_nullable is not None and (is_nullable is False):
                 ilike_expected = ilike_expected_if_non_nullable
+            pattern_expr = ast.Constant(value=pattern if pattern != "None" else None)
             ilike_result = execute_hogql_query(
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE ilike(properties.test_prop, {pattern}) ORDER BY distinct_id",
-                placeholders={"pattern": pattern},
+                placeholders={"pattern": pattern_expr},
             )
             ilike_matches = {d for (d,) in ilike_result.results}
             assert ilike_matches == ilike_expected, "like " + str(pattern)
 
             if mat_col:
                 assert ilike_result.clickhouse
-                # if mat_col is nullable, always use the index if it exists, otherwise don't use the index if we needed to bail out
-                should_use_index = create_ngram_lower_index and (
-                    is_nullable or (ilike_expected_if_non_nullable is None)
+                # we can only ever use the index if it exists, pattern was not NULL, and we didn't need to bail out of the optimisation
+                should_use_index = (
+                    create_ngram_lower_index
+                    and pattern != "None"
+                    and (is_nullable or (ilike_expected_if_non_nullable is None))
                 )
                 did_use_index = bool(
                     get_index_from_explain(ilike_result.clickhouse, get_ngram_lower_index_name(mat_col.name))
@@ -3635,7 +3639,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             not_ilike_result = execute_hogql_query(
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE notILike(properties.test_prop, {pattern}) ORDER BY distinct_id",
-                placeholders={"pattern": pattern},
+                placeholders={"pattern": pattern_expr},
             )
             not_ilike_matches = {d for (d,) in not_ilike_result.results}
             assert not_ilike_matches == not_ilike_expected, "ilike " + str(pattern)
