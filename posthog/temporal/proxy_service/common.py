@@ -41,9 +41,9 @@ def use_cloudflare_proxy(organization_id: uuid.UUID | None = None) -> bool:
     if not settings.CLOUDFLARE_PROXY_ENABLED:
         return False
 
-    # If no org_id provided, use global setting (legacy behavior)
+    # If no org_id provided, cannot determine org-specific flag, return False for safety
     if organization_id is None:
-        return True
+        return False
 
     # Check feature flag for this specific organization
     return posthoganalytics.feature_enabled(
@@ -54,6 +54,15 @@ def use_cloudflare_proxy(organization_id: uuid.UUID | None = None) -> bool:
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
+
+
+def is_cloudflare_proxy_record(target_cname: str) -> bool:
+    """Check if a proxy record was created with Cloudflare based on its target_cname.
+
+    This is used by delete/monitor operations to determine which backend to use,
+    rather than re-evaluating the feature flag which may have changed since creation.
+    """
+    return settings.CLOUDFLARE_PROXY_BASE_CNAME and settings.CLOUDFLARE_PROXY_BASE_CNAME in target_cname
 
 
 class NonRetriableException(Exception):

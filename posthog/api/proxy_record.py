@@ -120,6 +120,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 organization_id=record.organization_id,
                 proxy_record_id=record.id,
                 domain=record.domain,
+                target_cname=record.target_cname,
             )
             workflow_id = f"proxy-delete-{inputs.proxy_record_id}"
             asyncio.run(

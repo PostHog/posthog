@@ -28,7 +28,7 @@ from posthog.temporal.proxy_service.common import (
     UpdateProxyRecordInputs,
     activity_update_proxy_record,
     get_grpc_client,
-    use_cloudflare_proxy,
+    is_cloudflare_proxy_record,
     use_gateway_api,
 )
 from posthog.temporal.proxy_service.proto import DeleteRequest
@@ -56,6 +56,7 @@ class DeleteManagedProxyInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
     domain: str
+    target_cname: str
 
     @property
     def properties_to_log(self) -> dict[str, t.Any]:
@@ -63,6 +64,7 @@ class DeleteManagedProxyInputs:
             "organization_id": self.organization_id,
             "proxy_record_id": self.proxy_record_id,
             "domain": self.domain,
+            "target_cname": self.target_cname,
         }
 
 
@@ -181,8 +183,8 @@ class DeleteManagedProxyWorkflow(PostHogWorkflow):
         """Workflow implementation to delete a Managed reverse Proxy."""
 
         try:
-            # Branch based on whether to use Cloudflare or the legacy proxy provisioner
-            if use_cloudflare_proxy(inputs.organization_id):
+            # Use target_cname to determine which backend was used at creation
+            if is_cloudflare_proxy_record(inputs.target_cname):
                 # Delete Cloudflare Custom Hostname and Worker Route
                 await temporalio.workflow.execute_activity(
                     delete_cloudflare_proxy,

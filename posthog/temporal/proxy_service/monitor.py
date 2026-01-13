@@ -35,7 +35,7 @@ from posthog.temporal.proxy_service.common import (
     activity_update_proxy_record,
     get_grpc_client,
     get_record,
-    use_cloudflare_proxy,
+    is_cloudflare_proxy_record,
 )
 from posthog.temporal.proxy_service.proto import CertificateState_READY, StatusRequest
 
@@ -152,8 +152,8 @@ async def check_certificate_status(inputs: CheckActivityInput) -> CheckActivityO
         proxy_record.domain,
     )
 
-    # Branch based on whether to use Cloudflare or legacy proxy provisioner
-    if use_cloudflare_proxy(proxy_record.organization_id):
+    # Use target_cname to determine which backend was used at creation
+    if is_cloudflare_proxy_record(proxy_record.target_cname):
         return await _check_cloudflare_certificate_status(proxy_record, logger)
     else:
         return await _check_legacy_certificate_status(proxy_record, logger)
