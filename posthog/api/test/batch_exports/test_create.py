@@ -698,6 +698,40 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
         assert response.json()["detail"] == expected_error_message
 
 
+def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, temporal, organization, team, user):
+    """Test creating a BatchExport with S3 destination validates that expected inputs are not empty."""
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "events/",
+            "aws_access_key_id": "",
+            "aws_secret_access_key": "",
+            "file_format": "JSONLines",
+            "compression": "gzip",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-s3-bucket",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "The following inputs are empty: ['aws_access_key_id', 'aws_secret_access_key']"
+
+
 @pytest.mark.parametrize(
     "type,config,expected_error_message",
     [
@@ -1185,7 +1219,7 @@ def test_creating_http_batch_export_only_allows_events_model(
     destination_data = {
         "type": "HTTP",
         "config": {
-            "url": "https://test.i.posthog.com/batch/",
+            "url": "https://us.i.posthog.com/batch/",
             "token": "secret-token",
         },
     }

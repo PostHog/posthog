@@ -403,32 +403,17 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         return response
 
     def to_query(self) -> ast.SelectQuery:
-        # utilize a hack to fix read_in_order_optimization not working correctly
-        # from: https://github.com/ClickHouse/ClickHouse/pull/82478/
-        query = self.paginator.paginate(
-            parse_select("""
-                SELECT _part_starting_offset+_part_offset from logs
-            """)
-        )
-        assert isinstance(query, ast.SelectQuery)
-
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
 
-        query.where = ast.And(exprs=[self.where()])
-        query.order_by = [
-            parse_order_expr("team_id"),
-            parse_order_expr(f"time_bucket {order_dir}"),
-            parse_order_expr(f"timestamp {order_dir}"),
-            parse_order_expr(f"uuid {order_dir}"),
-        ]
-        final_query = parse_select(
-            """
+        query = self.paginator.paginate(
+            parse_select(
+                """
             SELECT
                 uuid,
                 hex(trace_id),
                 hex(span_id),
                 body,
-                mapFilter((k, v) -> not(has(resource_attributes, k)), attributes),
+                attributes,
                 timestamp,
                 observed_timestamp,
                 severity_text,
@@ -438,16 +423,20 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 instrumentation_scope,
                 event_name,
                 (select min(max_observed_timestamp) from logs_kafka_metrics) as live_logs_checkpoint
-            FROM logs where (_part_starting_offset+_part_offset) in ({query})
+            FROM logs
+            WHERE {where}
         """,
-            placeholders={"query": query},
+                placeholders={
+                    "where": self.where(),
+                },
+            )
         )
-        assert isinstance(final_query, ast.SelectQuery)
-        final_query.order_by = [
+        assert isinstance(query, ast.SelectQuery)
+        query.order_by = [
             parse_order_expr(f"timestamp {order_dir}"),
             parse_order_expr(f"uuid {order_dir}"),
         ]
-        return final_query
+        return query
 
     @cached_property
     def properties(self):

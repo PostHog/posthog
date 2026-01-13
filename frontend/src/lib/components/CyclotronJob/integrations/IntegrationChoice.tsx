@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
+import { AzureBlobSetupModal } from 'scenes/integrations/azure-blob/AzureBlobSetupModal'
 import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
@@ -64,6 +65,13 @@ export function IntegrationChoice({
     }
 
     const handleNewDatabricksIntegration = (integrationId: number | undefined): void => {
+        if (integrationId) {
+            onChange?.(integrationId)
+        }
+        closeNewIntegrationModal()
+    }
+
+    const handleNewAzureBlobIntegration = (integrationId: number | undefined): void => {
         if (integrationId) {
             onChange?.(integrationId)
         }
@@ -130,21 +138,30 @@ export function IntegrationChoice({
                                       },
                                   ],
                               }
-                            : {
-                                  items: [
-                                      {
-                                          to: api.integrations.authorizeUrl({
-                                              kind,
-                                              next: redirectUrl,
-                                          }),
-                                          disableClientSideRouting: true,
-                                          onClick: beforeRedirect,
-                                          label: integrationsOfKind?.length
-                                              ? `Connect to a different integration for ${kindName}`
-                                              : `Connect to ${kindName}`,
-                                      },
-                                  ],
-                              },
+                            : ['azure-blob'].includes(kind)
+                              ? {
+                                    items: [
+                                        {
+                                            label: 'Configure new Azure Blob Storage connection',
+                                            onClick: () => openNewIntegrationModal('azure-blob'),
+                                        },
+                                    ],
+                                }
+                              : {
+                                    items: [
+                                        {
+                                            to: api.integrations.authorizeUrl({
+                                                kind,
+                                                next: redirectUrl,
+                                            }),
+                                            disableClientSideRouting: true,
+                                            onClick: beforeRedirect,
+                                            label: integrationsOfKind?.length
+                                                ? `Connect to a different integration for ${kindName}`
+                                                : `Connect to ${kindName}`,
+                                        },
+                                    ],
+                                },
                 {
                     items: [
                         {
@@ -191,6 +208,11 @@ export function IntegrationChoice({
                 onComplete={handleNewDatabricksIntegration}
             />
             <GitLabSetupModal isOpen={newIntegrationModalKind === 'gitlab'} onComplete={closeNewIntegrationModal} />
+            <AzureBlobSetupModal
+                isOpen={newIntegrationModalKind === 'azure-blob'}
+                integration={integrationKind || undefined}
+                onComplete={handleNewAzureBlobIntegration}
+            />
         </>
     )
 }

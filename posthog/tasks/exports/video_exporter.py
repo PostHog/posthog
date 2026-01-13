@@ -10,15 +10,14 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import structlog
 import posthoganalytics
-
-from posthog.exceptions_capture import capture_exception
-
 from playwright.sync_api import (
     Browser,
     Page,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
+
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 

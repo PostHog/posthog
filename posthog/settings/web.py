@@ -54,6 +54,7 @@ PRODUCTS_APPS = [
     "products.slack_app.backend.apps.SlackAppConfig",
     "products.product_tours.backend.apps.ProductToursConfig",
     "products.workflows.backend.apps.WorkflowsConfig",
+    "products.posthog_ai.backend.apps.PosthogAiConfig",
 ]
 
 INSTALLED_APPS = [
