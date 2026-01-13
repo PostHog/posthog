@@ -11,7 +11,6 @@ import {
     IconFolderOpen,
     IconGear,
     IconHome,
-    IconNewspaper,
     IconPeople,
     IconSearch,
     IconShortcut,
@@ -138,9 +137,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Home' && currentPath === '/') {
             return true
         }
-        if (itemIdentifier === 'Feed' && currentPath === '/feed') {
-            return true
-        }
         if (itemIdentifier === 'Activity' && currentPath.startsWith('/activity/')) {
             return true
         }
@@ -208,18 +204,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
             collapsedTooltip: 'Search',
         },
-        ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
-            ? [
-                  {
-                      identifier: 'ProjectFeed',
-                      label: 'Feed',
-                      icon: <IconNewspaper />,
-                      to: urls.feed(),
-                      onClick: () => handleStaticNavbarItemClick(urls.feed(), true),
-                      collapsedTooltip: 'Feed',
-                  },
-              ]
-            : []),
         {
             identifier: 'Activity',
             label: 'Activity',
