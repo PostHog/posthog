@@ -66,6 +66,8 @@ class TestUserActivityLoggingConfiguration(BaseTest):
         [
             ("last_login", True),
             ("date_joined", True),
+            ("current_organization_id", True),
+            ("current_team_id", True),
             ("first_name", False),
             ("email", False),
         ]

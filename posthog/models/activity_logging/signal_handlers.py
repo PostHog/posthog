@@ -197,43 +197,36 @@ def log_user_logout_activity(sender, user, request: HttpRequest, **kwargs):  # n
 
 @mutable_receiver(model_activity_signal, sender=User)
 def log_user_change_activity(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
+    sender: type[User],
+    scope: str,
+    before_update: User | None,
+    after_update: User | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
     """
     Handle User model activity signals for create and update events.
 
     Unlike other models that log to a single organization, User activity is logged to ALL
     organizations the user belongs to.
     """
-    MAX_ORG_MEMBERSHIPS_FOR_ACTIVITY_LOG = 20
-
     try:
         target_user = after_update or before_update
 
         if not target_user:
             return
 
-        memberships_qs = target_user.organization_memberships.all()
-        membership_count = memberships_qs.count()
+        memberships = list(target_user.organization_memberships.all())
 
-        if membership_count == 0:
+        if not memberships:
             logger.info(
                 "Skipping user activity log - user has no organization memberships",
                 user_id=target_user.id,
                 activity=activity,
             )
             return
-
-        if membership_count > MAX_ORG_MEMBERSHIPS_FOR_ACTIVITY_LOG:
-            memberships = list(memberships_qs.order_by("joined_at")[:MAX_ORG_MEMBERSHIPS_FOR_ACTIVITY_LOG])
-            logger.info(
-                "User has many organization memberships - limiting activity logs",
-                user_id=target_user.id,
-                total_memberships=membership_count,
-                logged_memberships=len(memberships),
-            )
-        else:
-            memberships = list(memberships_qs)
 
         changes = changes_between(scope, previous=before_update, current=after_update)
         user_name = f"{target_user.first_name} {target_user.last_name}".strip() or target_user.email
