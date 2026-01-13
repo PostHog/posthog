@@ -36,9 +36,13 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     bug_window_start: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS" (assumed UTC)
     team_ids: list[int] | None = None  # Optional: filter to specific teams
     bug_window_end: str | None = None  # Optional: required if team_ids not supplied
+    min_team_id: int | None = None  # Optional: only process teams with id >= this value
+    max_team_id: int | None = None  # Optional: only process teams with id <= this value
+    exclude_team_ids: list[int] | None = None  # Optional: exclude specific team_ids
     dry_run: bool = False  # Log changes without applying
     backup_enabled: bool = True  # Store before/after state in backup table
     batch_size: int = 100  # Commit Postgres transaction every N persons (0 = single commit at end)
+    teams_per_chunk: int = 100  # Number of teams to process per task (reduces task overhead)
 
 
 @dataclass
@@ -54,6 +58,7 @@ class PersonPropertyDiffs:
     """Property diffs for a single person, organized by operation type."""
 
     person_id: str
+    person_version: int  # Version from CH person table (baseline for conflict detection)
     set_updates: dict[str, PropertyValue]  # key -> PropertyValue
     set_once_updates: dict[str, PropertyValue]  # key -> PropertyValue
     unset_updates: dict[str, PropertyValue]  # key -> PropertyValue (value is always None)
@@ -214,11 +219,12 @@ def get_person_property_updates_from_clickhouse(
         FROM event_properties_raw
         WHERE length(set_keys) > 0 OR length(set_once_keys) > 0 OR length(unset_keys) > 0
     ),
-    -- CTE 4: Get person properties only for affected persons
+    -- CTE 4: Get person properties and version only for affected persons
     person_props AS (
         SELECT
             id,
-            argMax(properties, version) as person_properties
+            argMax(properties, version) as person_properties,
+            argMax(version, version) as person_version
         FROM person
         WHERE team_id = %(team_id)s
           AND id IN (SELECT person_id FROM event_properties_flat)
@@ -227,6 +233,7 @@ def get_person_property_updates_from_clickhouse(
     )
     SELECT
         ep.person_id,
+        p.person_version,
         -- For $set: only include properties where the key exists in person properties AND the value differs
         arrayMap(i -> (ep.set_keys[i], ep.set_values[i], ep.set_timestamps[i]), arrayFilter(
             i -> (
@@ -249,6 +256,7 @@ def get_person_property_updates_from_clickhouse(
     INNER JOIN (
         SELECT
             id,
+            person_version,
             person_properties,
             arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(person_properties)) AS keys2,
             arrayMap(x -> toString(x.2), JSONExtractKeysAndValuesRaw(person_properties)) AS vals2
@@ -280,7 +288,7 @@ def get_person_property_updates_from_clickhouse(
 
     results: list[PersonPropertyDiffs] = []
     for row in rows:
-        person_id, set_diff, set_once_diff, unset_diff = row
+        person_id, person_version, set_diff, set_once_diff, unset_diff = row
 
         set_updates: dict[str, PropertyValue] = {}
         for key, value, timestamp in set_diff:
@@ -307,6 +315,7 @@ def get_person_property_updates_from_clickhouse(
             results.append(
                 PersonPropertyDiffs(
                     person_id=str(person_id),
+                    person_version=int(person_version),
                     set_updates=set_updates,
                     set_once_updates=set_once_updates,
                     unset_updates=unset_updates,
@@ -368,6 +377,7 @@ def filter_event_person_properties(
         results.append(
             PersonPropertyDiffs(
                 person_id=diffs.person_id,
+                person_version=diffs.person_version,
                 set_updates=set_updates,
                 set_once_updates=set_once_updates,
                 unset_updates=unset_updates,
@@ -430,6 +440,96 @@ def reconcile_person_properties(
     if changed:
         return {
             "properties": properties,
+            "properties_last_updated_at": properties_last_updated_at,
+            "properties_last_operation": properties_last_operation,
+        }
+    return None
+
+
+def fetch_person_properties_from_clickhouse(team_id: int, person_uuid: str, min_version: int) -> dict | None:
+    """
+    Fetch person properties from ClickHouse for conflict resolution.
+
+    Fetches the oldest available version >= min_version. This handles the case where
+    the exact version we computed diffs against may have been merged away by
+    ReplacingMergeTree background merges.
+
+    Returns the properties at the oldest available version >= min_version, or None if not found.
+    """
+    query = """
+    SELECT argMin(properties, version) as properties
+    FROM person
+    WHERE team_id = %(team_id)s AND id = %(person_id)s AND version >= %(min_version)s
+    GROUP BY id
+    """
+    rows = sync_execute(query, {"team_id": team_id, "person_id": person_uuid, "min_version": min_version})
+    if not rows:
+        return None
+    properties_str = rows[0][0]
+    if not properties_str:
+        return {}
+    return json.loads(properties_str) if isinstance(properties_str, str) else properties_str
+
+
+def reconcile_with_concurrent_changes(
+    ch_properties: dict,
+    postgres_person: dict,
+    person_property_diffs: PersonPropertyDiffs,
+) -> dict | None:
+    """
+    3-way merge: apply event changes while respecting concurrent Postgres changes.
+
+    - Base: ch_properties (the state when event diffs were computed)
+    - Theirs: postgres_person properties (current state, may have concurrent changes)
+    - Ours: event_diffs (changes from events)
+
+    Conflict resolution: Postgres wins (concurrent changes take precedence).
+    This is conservative - we don't overwrite changes made by other processes.
+    """
+    postgres_properties = dict(postgres_person["properties"] or {})
+    properties_last_updated_at = dict(postgres_person["properties_last_updated_at"] or {})
+    properties_last_operation = dict(postgres_person["properties_last_operation"] or {})
+
+    # Identify what changed in Postgres since CH (concurrent changes)
+    concurrent_changed_keys: set[str] = set()
+    all_keys = set(ch_properties.keys()) | set(postgres_properties.keys())
+    for key in all_keys:
+        ch_val = ch_properties.get(key)
+        pg_val = postgres_properties.get(key)
+        if ch_val != pg_val:
+            concurrent_changed_keys.add(key)
+
+    changed = False
+
+    # 1. set_once: only update if key not in properties AND not concurrently changed
+    for key, pv in person_property_diffs.set_once_updates.items():
+        if key not in postgres_properties and key not in concurrent_changed_keys:
+            postgres_properties[key] = pv.value
+            properties_last_updated_at[key] = pv.timestamp.isoformat()
+            properties_last_operation[key] = "set_once"
+            changed = True
+
+    # 2. set: only update if not concurrently changed
+    for key, pv in person_property_diffs.set_updates.items():
+        if key not in concurrent_changed_keys:
+            postgres_properties[key] = pv.value
+            properties_last_updated_at[key] = pv.timestamp.isoformat()
+            properties_last_operation[key] = "set"
+            changed = True
+
+    # 3. unset: only delete if not concurrently changed
+    for key in person_property_diffs.unset_updates.keys():
+        if key in postgres_properties and key not in concurrent_changed_keys:
+            del postgres_properties[key]
+            if key in properties_last_updated_at:
+                del properties_last_updated_at[key]
+            if key in properties_last_operation:
+                del properties_last_operation[key]
+            changed = True
+
+    if changed:
+        return {
+            "properties": postgres_properties,
             "properties_last_updated_at": properties_last_updated_at,
             "properties_last_operation": properties_last_operation,
         }
@@ -582,7 +682,7 @@ def backup_person_with_computed_state(
             new_version,
         ),
     )
-    return True
+    return cursor.rowcount > 0
 
 
 def update_person_with_version_check(
@@ -596,18 +696,20 @@ def update_person_with_version_check(
     max_retries: int = 3,
 ) -> tuple[bool, dict | None, bool, str]:
     """
-    Update a person's properties with optimistic locking.
+    Update a person's properties with optimistic locking and conflict resolution.
 
-    Fetches the person, computes updates, and writes with version check.
-    If version changed (concurrent modification), re-fetches and retries.
-    Optionally backs up the before/after state for audit purposes.
+    Flow:
+    1. Fetch person from Postgres
+    2. If Postgres version == CH version: apply diffs normally, UPDATE WHERE version = ch_version
+    3. If versions differ (conflict): fetch CH properties, do 3-way merge, UPDATE WHERE version = postgres_version
+    4. On UPDATE failure, retry
 
     Args:
         cursor: Database cursor
         job_id: Dagster run ID for backup tracking
         team_id: Team ID
         person_uuid: Person UUID
-        person_property_diffs: Property diffs from ClickHouse
+        person_property_diffs: Property diffs from ClickHouse (includes person_version)
         dry_run: If True, don't actually write the UPDATE
         backup_enabled: If True, store before/after state in backup table
         max_retries: Maximum retry attempts on version mismatch
@@ -618,27 +720,43 @@ def update_person_with_version_check(
         backup_created indicates if a backup row was inserted
         skip_reason indicates why the person was skipped (see SkipReason class)
     """
+    ch_version = person_property_diffs.person_version
+
     for _attempt in range(max_retries):
-        # Fetch current person state
+        # Fetch current person state from Postgres
         person = fetch_person_from_postgres(cursor, team_id, person_uuid)
         if not person:
             return False, None, False, SkipReason.NOT_FOUND
 
-        current_version = person.get("version") or 0
+        postgres_version = person.get("version") or 0
 
-        # Compute updates
-        update = reconcile_person_properties(person, person_property_diffs)
+        # Check if Postgres and CH are in sync
+        if postgres_version == ch_version:
+            # Simple case: no concurrent changes, apply diffs directly
+            update = reconcile_person_properties(person, person_property_diffs)
+            target_version = ch_version
+        else:
+            # Conflict: Postgres has different version than CH
+            # Fetch CH properties at the version we computed diffs against for 3-way merge
+            ch_properties = fetch_person_properties_from_clickhouse(team_id, person_uuid, ch_version)
+            if ch_properties is None:
+                # Person version doesn't exist in CH anymore, skip
+                return False, None, False, SkipReason.NOT_FOUND
+
+            # 3-way merge: apply our changes while respecting concurrent Postgres changes
+            update = reconcile_with_concurrent_changes(ch_properties, person, person_property_diffs)
+            target_version = postgres_version
+
         if not update:
-            # No changes needed
+            # No changes needed (either no diffs or all conflicts resolved to Postgres values)
             return True, None, False, SkipReason.NO_CHANGES
 
         # Backup before and after state for audit/rollback
         backup_created = False
         if backup_enabled:
-            backup_person_with_computed_state(
-                cursor, job_id, team_id, person, person_property_diffs, update, current_version + 1
+            backup_created = backup_person_with_computed_state(
+                cursor, job_id, team_id, person, person_property_diffs, update, target_version + 1
             )
-            backup_created = True
 
         if dry_run:
             return True, None, backup_created, SkipReason.SUCCESS
@@ -658,10 +776,10 @@ def update_person_with_version_check(
                 json.dumps(update["properties"]),
                 json.dumps(update["properties_last_updated_at"]),
                 json.dumps(update["properties_last_operation"]),
-                current_version + 1,
+                target_version + 1,
                 team_id,
                 person_uuid,
-                current_version,
+                target_version,
             ),
         )
 
@@ -676,13 +794,13 @@ def update_person_with_version_check(
                     "is_identified": person.get("is_identified", False),
                     "is_deleted": 0,
                     "created_at": person.get("created_at"),
-                    "version": current_version + 1,
+                    "version": target_version + 1,
                 },
                 backup_created,
                 SkipReason.SUCCESS,
             )
 
-        # Version mismatch - retry with fresh data
+        # Version mismatch during UPDATE - retry with fresh data
         # (loop will re-fetch person)
 
     # Exhausted retries
@@ -820,6 +938,77 @@ def process_persons_in_batches(
     )
 
 
+def query_team_ids_from_clickhouse(
+    bug_window_start: str,
+    bug_window_end: str,
+    min_team_id: int | None = None,
+    max_team_id: int | None = None,
+    exclude_team_ids: list[int] | None = None,
+    include_team_ids: list[int] | None = None,
+) -> list[int]:
+    """
+    Query ClickHouse for distinct team_ids with property-setting events in the bug window.
+
+    Args:
+        bug_window_start: Start of bug window (CH format: "YYYY-MM-DD HH:MM:SS")
+        bug_window_end: End of bug window (CH format: "YYYY-MM-DD HH:MM:SS")
+        min_team_id: Optional minimum team_id (inclusive)
+        max_team_id: Optional maximum team_id (inclusive)
+        exclude_team_ids: Optional list of team_ids to exclude
+        include_team_ids: Optional list of team_ids to include (only these teams will be queried)
+
+    Returns:
+        List of team_ids sorted ascending
+
+    Raises:
+        ValueError: If min_team_id > max_team_id
+    """
+    if min_team_id is not None and max_team_id is not None and min_team_id > max_team_id:
+        raise ValueError(
+            f"Invalid team_id range: min_team_id ({min_team_id}) cannot be greater than max_team_id ({max_team_id})"
+        )
+
+    team_id_filters = []
+    params: dict[str, Any] = {
+        "bug_window_start": bug_window_start,
+        "bug_window_end": bug_window_end,
+    }
+
+    if include_team_ids:
+        team_id_filters.append("team_id IN %(include_team_ids)s")
+        params["include_team_ids"] = tuple(include_team_ids)
+
+    if min_team_id is not None:
+        team_id_filters.append("team_id >= %(min_team_id)s")
+        params["min_team_id"] = min_team_id
+
+    if max_team_id is not None:
+        team_id_filters.append("team_id <= %(max_team_id)s")
+        params["max_team_id"] = max_team_id
+
+    if exclude_team_ids:
+        team_id_filters.append("team_id NOT IN %(exclude_team_ids)s")
+        params["exclude_team_ids"] = tuple(exclude_team_ids)
+
+    team_id_filter_clause = (" AND " + " AND ".join(team_id_filters)) if team_id_filters else ""
+
+    query = f"""
+        SELECT DISTINCT team_id
+        FROM events
+        WHERE timestamp >= %(bug_window_start)s
+          AND timestamp < %(bug_window_end)s
+          AND (
+            JSONHas(properties, '$set') = 1
+            OR JSONHas(properties, '$set_once') = 1
+            OR JSONHas(properties, '$unset') = 1
+          ){team_id_filter_clause}
+        ORDER BY team_id
+    """
+
+    results = sync_execute(query, params)
+    return [int(row[0]) for row in results]
+
+
 @dagster.op
 def get_team_ids_to_reconcile(
     context: dagster.OpExecutionContext,
@@ -829,44 +1018,35 @@ def get_team_ids_to_reconcile(
     """
     Query ClickHouse for distinct team_ids with property-setting events in the bug window.
     """
-    if config.team_ids:
-        context.log.info(f"Using configured team_ids: {config.team_ids}")
-        return config.team_ids
-
     if not config.bug_window_end:
         raise dagster.Failure(
-            description="Either team_ids or bug_window_end must be provided",
+            description="bug_window_end must be provided",
             metadata={
                 "bug_window_start": dagster.MetadataValue.text(config.bug_window_start),
             },
         )
 
-    query = """
-        SELECT DISTINCT team_id
-        FROM events
-        WHERE timestamp >= %(bug_window_start)s
-          AND timestamp < %(bug_window_end)s
-          AND (
-            JSONHas(properties, '$set') = 1
-            OR JSONHas(properties, '$set_once') = 1
-            OR JSONHas(properties, '$unset') = 1
-          )
-        ORDER BY team_id
-    """
+    filter_info_parts = []
+    if config.team_ids:
+        filter_info_parts.append(f"team_ids: {config.team_ids}")
+    if config.min_team_id is not None or config.max_team_id is not None:
+        filter_info_parts.append(f"range: {config.min_team_id or 'any'} to {config.max_team_id or 'any'}")
+    if config.exclude_team_ids:
+        filter_info_parts.append(f"excluding: {config.exclude_team_ids}")
+    filter_info = f" ({', '.join(filter_info_parts)})" if filter_info_parts else ""
 
     context.log.info(
-        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}"
+        f"Querying for team_ids with property events between {config.bug_window_start} and {config.bug_window_end}{filter_info}"
     )
 
-    results = sync_execute(
-        query,
-        {
-            "bug_window_start": config.bug_window_start,
-            "bug_window_end": config.bug_window_end,
-        },
+    team_ids = query_team_ids_from_clickhouse(
+        bug_window_start=config.bug_window_start,
+        bug_window_end=config.bug_window_end,
+        min_team_id=config.min_team_id,
+        max_team_id=config.max_team_id,
+        exclude_team_ids=config.exclude_team_ids,
+        include_team_ids=config.team_ids,
     )
-
-    team_ids = [int(row[0]) for row in results]
 
     if not team_ids:
         context.log.info("No team IDs found with property events in bug window")
@@ -879,51 +1059,153 @@ def get_team_ids_to_reconcile(
     return team_ids
 
 
-@dagster.op(out=dagster.DynamicOut(int))
+@dagster.op(out=dagster.DynamicOut(list[int]))
 def create_team_chunks(
     context: dagster.OpExecutionContext,
+    config: PersonPropertyReconciliationConfig,
     team_ids: list[int],
 ):
     """
-    Create a chunk for each team_id.
-    Yields DynamicOutput for each team.
+    Create chunks of team_ids based on teams_per_chunk config.
+    Yields DynamicOutput for each chunk containing one or more teams.
     """
     if not team_ids:
         context.log.info("No teams to process")
         return
 
-    context.log.info(f"Creating {len(team_ids)} team chunks")
+    teams_per_chunk = max(1, config.teams_per_chunk)
+    num_chunks = (len(team_ids) + teams_per_chunk - 1) // teams_per_chunk
+    context.log.info(f"Creating {num_chunks} chunks for {len(team_ids)} teams (teams_per_chunk={teams_per_chunk})")
 
-    for team_id in team_ids:
-        chunk_key = f"team_{team_id}"
-        context.log.info(f"Yielding chunk for team_id: {team_id}")
+    for i in range(0, len(team_ids), teams_per_chunk):
+        chunk = team_ids[i : i + teams_per_chunk]
+        chunk_key = f"teams_{chunk[0]}_{chunk[-1]}" if len(chunk) > 1 else f"team_{chunk[0]}"
+        context.log.info(
+            f"Yielding chunk with {len(chunk)} teams: {chunk[0]}-{chunk[-1] if len(chunk) > 1 else chunk[0]}"
+        )
         yield dagster.DynamicOutput(
-            value=team_id,
+            value=chunk,
             mapping_key=chunk_key,
         )
+
+
+@dataclass
+class TeamReconciliationResult:
+    """Result of reconciling a single team."""
+
+    team_id: int
+    persons_processed: int
+    persons_updated: int
+    persons_skipped: int
+
+
+def reconcile_single_team(
+    team_id: int,
+    bug_window_start: str,
+    run_id: str,
+    batch_size: int,
+    dry_run: bool,
+    backup_enabled: bool,
+    persons_database: psycopg2.extensions.connection,
+    kafka_producer: _KafkaProducer,
+    logger: Any,
+) -> TeamReconciliationResult:
+    """
+    Reconcile person properties for all affected persons in a single team.
+
+    This function does not catch exceptions - the caller is responsible for error handling.
+    """
+    # Query ClickHouse for all persons with property updates in this team
+    person_property_diffs = get_person_property_updates_from_clickhouse(
+        team_id=team_id,
+        bug_window_start=bug_window_start,
+    )
+
+    # Filter conflicting set/unset operations
+    person_property_diffs = filter_event_person_properties(person_property_diffs)
+
+    if not person_property_diffs:
+        logger.info(f"No persons to reconcile for team_id={team_id}")
+        return TeamReconciliationResult(
+            team_id=team_id,
+            persons_processed=0,
+            persons_updated=0,
+            persons_skipped=0,
+        )
+
+    logger.info(f"Processing {len(person_property_diffs)} persons for team_id={team_id}")
+
+    # Callback for batch commits - handles Kafka publishing after each batch
+    def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
+        if batch_persons and not dry_run:
+            for person_data in batch_persons:
+                try:
+                    publish_person_to_kafka(person_data, kafka_producer)
+                except Exception as kafka_error:
+                    logger.warning(f"Failed to publish person to Kafka: {person_data['id']}, error: {kafka_error}")
+            try:
+                kafka_producer.flush()
+            except Exception as flush_error:
+                logger.warning(f"Failed to flush Kafka producer: {flush_error}")
+
+            logger.info(f"Batch {batch_num}: committed {len(batch_persons)} updates for team_id={team_id}")
+        elif batch_persons and dry_run:
+            logger.info(f"[DRY RUN] Batch {batch_num}: would apply {len(batch_persons)} updates for team_id={team_id}")
+
+    with persons_database.cursor() as cursor:
+        cursor.execute("SET application_name = 'person_property_reconciliation'")
+        cursor.execute("SET lock_timeout = '5s'")
+        cursor.execute("SET statement_timeout = '30min'")
+        cursor.execute("SET synchronous_commit = off")
+
+        # Process persons in batches using the helper function
+        result = process_persons_in_batches(
+            person_property_diffs=person_property_diffs,
+            cursor=cursor,
+            job_id=run_id,
+            team_id=team_id,
+            batch_size=batch_size,
+            dry_run=dry_run,
+            backup_enabled=backup_enabled,
+            commit_fn=persons_database.commit,
+            on_batch_committed=on_batch_committed,
+            logger=logger,
+        )
+
+    logger.info(
+        f"Completed team_id={team_id}: processed={result.total_processed}, "
+        f"updated={result.total_updated}, skipped={result.total_skipped}"
+    )
+
+    return TeamReconciliationResult(
+        team_id=team_id,
+        persons_processed=result.total_processed,
+        persons_updated=result.total_updated,
+        persons_skipped=result.total_skipped,
+    )
 
 
 @dagster.op
 def reconcile_team_chunk(
     context: dagster.OpExecutionContext,
     config: PersonPropertyReconciliationConfig,
-    chunk: int,
+    chunk: list[int],
     persons_database: dagster.ResourceParam[psycopg2.extensions.connection],
     cluster: dagster.ResourceParam[ClickhouseCluster],
     kafka_producer: dagster.ResourceParam[_KafkaProducer],
 ) -> dict[str, Any]:
     """
-    Reconcile person properties for all affected persons in a team.
+    Reconcile person properties for all affected persons in a chunk of teams.
     """
-    team_id = chunk
-    chunk_id = f"team_{team_id}"
+    team_ids = chunk
+    chunk_id = f"teams_{team_ids[0]}_{team_ids[-1]}" if len(team_ids) > 1 else f"team_{team_ids[0]}"
     job_name = context.run.job_name
     run_id = context.run.run_id
 
     metrics_client = MetricsClient(cluster)
 
     context.log.info(
-        f"Starting reconciliation for team_id: {team_id}, "
+        f"Starting reconciliation for {len(team_ids)} teams: {team_ids}, "
         f"bug_window_start: {config.bug_window_start}, "
         f"dry_run: {config.dry_run}"
     )
@@ -931,118 +1213,72 @@ def reconcile_team_chunk(
     total_persons_processed = 0
     total_persons_updated = 0
     total_persons_skipped = 0
+    total_teams_succeeded = 0
+    total_teams_failed = 0
+    teams_results: list[dict[str, Any]] = []
 
-    try:
-        start_time = time.time()
+    start_time = time.time()
 
-        # Query ClickHouse for all persons with property updates in this team
-        person_property_diffs = get_person_property_updates_from_clickhouse(
-            team_id=team_id,
-            bug_window_start=config.bug_window_start,
-        )
+    for team_id in team_ids:
+        team_result: dict[str, Any] = {
+            "team_id": team_id,
+            "status": "success",
+            "persons_processed": 0,
+            "persons_updated": 0,
+            "persons_skipped": 0,
+        }
 
-        # Filter conflicting set/unset operations
-        person_property_diffs = filter_event_person_properties(person_property_diffs)
-
-        if not person_property_diffs:
-            context.log.info(f"No persons to reconcile for team_id={team_id}")
-            return {
-                "team_id": team_id,
-                "persons_processed": 0,
-                "persons_updated": 0,
-                "persons_skipped": 0,
-            }
-
-        context.log.info(f"Processing {len(person_property_diffs)} persons for team_id={team_id}")
-
-        # Callback for batch commits - handles Kafka publishing after each batch
-        def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
-            if batch_persons and not config.dry_run:
-                for person_data in batch_persons:
-                    try:
-                        publish_person_to_kafka(person_data, kafka_producer)
-                    except Exception as kafka_error:
-                        context.log.warning(
-                            f"Failed to publish person to Kafka: {person_data['id']}, error: {kafka_error}"
-                        )
-                try:
-                    kafka_producer.flush()
-                except Exception as flush_error:
-                    context.log.warning(f"Failed to flush Kafka producer: {flush_error}")
-
-                context.log.info(f"Batch {batch_num}: committed {len(batch_persons)} updates for team_id={team_id}")
-            elif batch_persons and config.dry_run:
-                context.log.info(
-                    f"[DRY RUN] Batch {batch_num}: would apply {len(batch_persons)} updates for team_id={team_id}"
-                )
-
-        with persons_database.cursor() as cursor:
-            cursor.execute("SET application_name = 'person_property_reconciliation'")
-            cursor.execute("SET lock_timeout = '5s'")
-            cursor.execute("SET statement_timeout = '30min'")
-            cursor.execute("SET synchronous_commit = off")
-
-            # Process persons in batches using the helper function
-            result = process_persons_in_batches(
-                person_property_diffs=person_property_diffs,
-                cursor=cursor,
-                job_id=run_id,
+        try:
+            result = reconcile_single_team(
                 team_id=team_id,
+                bug_window_start=config.bug_window_start,
+                run_id=run_id,
                 batch_size=config.batch_size,
                 dry_run=config.dry_run,
                 backup_enabled=config.backup_enabled,
-                commit_fn=persons_database.commit,
-                on_batch_committed=on_batch_committed,
+                persons_database=persons_database,
+                kafka_producer=kafka_producer,
                 logger=context.log,
             )
+            team_result["persons_processed"] = result.persons_processed
+            team_result["persons_updated"] = result.persons_updated
+            team_result["persons_skipped"] = result.persons_skipped
+            total_teams_succeeded += 1
 
-            total_persons_processed = result.total_processed
-            total_persons_updated = result.total_updated
-            total_persons_skipped = result.total_skipped
+        except Exception as e:
+            team_result["status"] = "failed"
+            team_result["error"] = str(e)
+            total_teams_failed += 1
 
-        # Track metrics
-        duration = time.time() - start_time
-        try:
-            metrics_client.increment(
-                "person_property_reconciliation_persons_processed_total",
-                labels={"job_name": job_name, "chunk_id": chunk_id},
-                value=float(total_persons_processed),
-            ).result()
-            metrics_client.increment(
-                "person_property_reconciliation_duration_seconds_total",
-                labels={"job_name": job_name, "chunk_id": chunk_id},
-                value=duration,
-            ).result()
-        except Exception:
-            pass
+            context.log.exception(f"Failed team_id={team_id}: {e}")
 
-    except Exception as e:
-        error_msg = f"Error for team_id={team_id}: {e}"
-        context.log.exception(error_msg)
+            try:
+                metrics_client.increment(
+                    "person_property_reconciliation_error",
+                    labels={"job_name": job_name, "chunk_id": chunk_id, "team_id": str(team_id), "reason": "error"},
+                    value=1.0,
+                ).result()
+            except Exception:
+                pass
 
-        try:
-            metrics_client.increment(
-                "person_property_reconciliation_error",
-                labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "error"},
-                value=1.0,
-            ).result()
-        except Exception:
-            pass
+        total_persons_processed += team_result["persons_processed"]
+        total_persons_updated += team_result["persons_updated"]
+        total_persons_skipped += team_result["persons_skipped"]
+        teams_results.append(team_result)
 
-        raise dagster.Failure(
-            description=error_msg,
-            metadata={
-                "team_id": dagster.MetadataValue.int(team_id),
-                "error_message": dagster.MetadataValue.text(str(e)),
-                "persons_processed_before_failure": dagster.MetadataValue.int(total_persons_processed),
-            },
-        ) from e
-
-    context.log.info(
-        f"Completed team_id={team_id}: processed={total_persons_processed}, updated={total_persons_updated}, skipped={total_persons_skipped}"
-    )
-
+    # Track metrics for the entire chunk
+    duration = time.time() - start_time
     try:
+        metrics_client.increment(
+            "person_property_reconciliation_persons_processed_total",
+            labels={"job_name": job_name, "chunk_id": chunk_id},
+            value=float(total_persons_processed),
+        ).result()
+        metrics_client.increment(
+            "person_property_reconciliation_duration_seconds_total",
+            labels={"job_name": job_name, "chunk_id": chunk_id},
+            value=duration,
+        ).result()
         metrics_client.increment(
             "person_property_reconciliation_persons_updated_total",
             labels={"job_name": job_name, "chunk_id": chunk_id},
@@ -1053,23 +1289,53 @@ def reconcile_team_chunk(
             labels={"job_name": job_name, "chunk_id": chunk_id},
             value=float(total_persons_skipped),
         ).result()
+        metrics_client.increment(
+            "person_property_reconciliation_teams_succeeded_total",
+            labels={"job_name": job_name, "chunk_id": chunk_id},
+            value=float(total_teams_succeeded),
+        ).result()
+        metrics_client.increment(
+            "person_property_reconciliation_teams_failed_total",
+            labels={"job_name": job_name, "chunk_id": chunk_id},
+            value=float(total_teams_failed),
+        ).result()
     except Exception:
         pass
 
+    # Log failed teams for easy searching
+    failed_teams = [r for r in teams_results if r["status"] == "failed"]
+    if failed_teams:
+        failed_team_ids = [r["team_id"] for r in failed_teams]
+        context.log.warning(f"Failed teams in chunk {chunk_id}: {failed_team_ids}")
+
+    context.log.info(
+        f"Completed chunk {chunk_id}: teams={len(team_ids)} (succeeded={total_teams_succeeded}, failed={total_teams_failed}), "
+        f"persons: processed={total_persons_processed}, updated={total_persons_updated}, skipped={total_persons_skipped}"
+    )
+
     context.add_output_metadata(
         {
-            "team_id": dagster.MetadataValue.int(team_id),
+            "team_ids": dagster.MetadataValue.text(str(team_ids)),
+            "teams_count": dagster.MetadataValue.int(len(team_ids)),
+            "teams_succeeded": dagster.MetadataValue.int(total_teams_succeeded),
+            "teams_failed": dagster.MetadataValue.int(total_teams_failed),
+            "failed_team_ids": dagster.MetadataValue.text(str([r["team_id"] for r in failed_teams])),
             "persons_processed": dagster.MetadataValue.int(total_persons_processed),
             "persons_updated": dagster.MetadataValue.int(total_persons_updated),
             "persons_skipped": dagster.MetadataValue.int(total_persons_skipped),
+            "teams_results": dagster.MetadataValue.json(teams_results),
         }
     )
 
     return {
-        "team_id": team_id,
+        "team_ids": team_ids,
+        "teams_count": len(team_ids),
+        "teams_succeeded": total_teams_succeeded,
+        "teams_failed": total_teams_failed,
         "persons_processed": total_persons_processed,
         "persons_updated": total_persons_updated,
         "persons_skipped": total_persons_skipped,
+        "teams_results": teams_results,
     }
 
 
@@ -1094,3 +1360,310 @@ def person_property_reconciliation_job():
     team_ids = get_team_ids_to_reconcile()
     chunks = create_team_chunks(team_ids)
     chunks.map(reconcile_team_chunk)
+
+
+# --- Sensor-based scheduler for automated batch reconciliation ---
+
+
+class ReconciliationSchedulerConfig(dagster.Config):
+    """Configuration for the reconciliation scheduler sensor.
+
+    This sensor automates launching multiple reconciliation jobs across a range
+    of team IDs while respecting concurrency limits.
+
+    You must provide EITHER:
+    - team_ids: explicit list of team IDs to process
+    - OR both range_start and range_end: to scan a team ID range
+    """
+
+    # Option 1: Explicit list of team IDs
+    team_ids: list[int] | None = None
+
+    # Option 2: Range-based scanning
+    range_start: int | None = None  # First team_id (inclusive)
+    range_end: int | None = None  # Last team_id (inclusive)
+
+    chunk_size: int = 1000  # Teams per job run (for range mode) or list chunk size (for team_ids mode)
+    max_concurrent_jobs: int = 5  # Max reconciliation jobs the sensor can schedule at once
+    max_concurrent_tasks: int = 10  # Max k8s pods per job (executor concurrency)
+
+    # Base job configuration (applied to all runs)
+    bug_window_start: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS"
+    bug_window_end: str  # ClickHouse format: "YYYY-MM-DD HH:MM:SS"
+    dry_run: bool = False
+    backup_enabled: bool = True
+    batch_size: int = 100
+    teams_per_chunk: int = 100  # Number of teams to process per task
+
+    # Resource configuration - the env var name for the PG connection string
+    persons_db_env_var: str = "PERSONS_DB_WRITER_URL"  # Env var for Postgres connection URL
+
+
+def build_reconciliation_run_config(
+    config: ReconciliationSchedulerConfig,
+    min_team_id: int | None = None,
+    max_team_id: int | None = None,
+    team_ids: list[int] | None = None,
+) -> dict[str, Any]:
+    """Build run config for a single reconciliation job.
+
+    Either provide team_ids (explicit list) OR min_team_id/max_team_id (range scan).
+    """
+    op_config: dict[str, Any] = {
+        "bug_window_start": config.bug_window_start,
+        "bug_window_end": config.bug_window_end,
+        "dry_run": config.dry_run,
+        "backup_enabled": config.backup_enabled,
+        "batch_size": config.batch_size,
+        "teams_per_chunk": config.teams_per_chunk,
+    }
+
+    if team_ids is not None:
+        op_config["team_ids"] = team_ids
+    else:
+        op_config["min_team_id"] = min_team_id
+        op_config["max_team_id"] = max_team_id
+
+    return {
+        "execution": {"config": {"max_concurrent": config.max_concurrent_tasks}},
+        "ops": {
+            "get_team_ids_to_reconcile": {"config": op_config},
+            "create_team_chunks": {"config": op_config},
+            "reconcile_team_chunk": {"config": op_config},
+        },
+        "resources": {
+            "cluster": {
+                "config": {
+                    "client_settings": {
+                        "lightweight_deletes_sync": "0",
+                        "max_execution_time": "0",
+                        "max_memory_usage": "0",
+                        "mutations_sync": "0",
+                        "receive_timeout": "900",
+                    }
+                }
+            },
+            "persons_database": {"config": {"connection_url": {"env": config.persons_db_env_var}}},
+        },
+    }
+
+
+@dagster.sensor(
+    job=person_property_reconciliation_job,
+    minimum_interval_seconds=30,
+    default_status=dagster.DefaultSensorStatus.STOPPED,
+)
+def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationContext):
+    """
+    Sensor that automatically schedules person property reconciliation jobs.
+
+    Supports two modes:
+    1. team_ids mode: Process an explicit list of team IDs
+    2. range mode: Scan a team_id range (range_start to range_end)
+
+    Splits work into chunks and launches jobs up to max_concurrent_jobs,
+    tracking progress via cursor. Enable via Dagster UI after configuring.
+
+    Cursor format (team_ids mode):
+        {"team_ids": [1, 2, 3, ...], "next_team_index": 0, ...}
+    Cursor format (range mode):
+        {"range_start": 1, "range_end": 10000, "next_chunk_start": 1, ...}
+
+    Configuration (set via Dagster UI or launchpad):
+    - team_ids: Explicit list of team IDs (mutually exclusive with range_start/range_end)
+    - range_start/range_end: Team ID range to process (inclusive)
+    - chunk_size: Number of teams per job (default 1000)
+    - max_concurrent_jobs: Max reconciliation jobs sensor can schedule at once (default 5, cap 50)
+    - max_concurrent_tasks: Max k8s pods per job / executor concurrency (default 10, cap 100)
+    - bug_window_start/end: Time window for the reconciliation
+    - dry_run, backup_enabled, batch_size: Passed to each job
+    """
+    sensor_config_raw = context.cursor
+
+    if not sensor_config_raw:
+        return dagster.SkipReason(
+            "No cursor set. Initialize by setting cursor to JSON. "
+            'For team_ids mode: {"team_ids": [1, 2, 3], "chunk_size": 100, ...}. '
+            'For range mode: {"range_start": 1, "range_end": 10000, "chunk_size": 1000, ...}. '
+            'Common fields: "max_concurrent_jobs", "max_concurrent_tasks", "bug_window_start", "bug_window_end", '
+            '"dry_run", "backup_enabled", "batch_size"'
+        )
+
+    try:
+        cursor_data = json.loads(sensor_config_raw)
+    except json.JSONDecodeError:
+        return dagster.SkipReason(f"Invalid cursor JSON: {sensor_config_raw[:100]}...")
+
+    # Extract common config
+    chunk_size = cursor_data.get("chunk_size", 1000)
+    max_concurrent_jobs = cursor_data.get("max_concurrent_jobs", 5)
+    max_concurrent_tasks = cursor_data.get("max_concurrent_tasks", 10)
+    bug_window_start = cursor_data.get("bug_window_start", "")
+    bug_window_end = cursor_data.get("bug_window_end", "")
+
+    # Determine mode: team_ids vs range
+    team_ids = cursor_data.get("team_ids")
+    range_start = cursor_data.get("range_start")
+    range_end = cursor_data.get("range_end")
+
+    has_team_ids = team_ids is not None and len(team_ids) > 0
+    has_range = range_start is not None and range_end is not None
+
+    # Validate: must have exactly one mode
+    if has_team_ids and has_range:
+        return dagster.SkipReason(
+            "Invalid config: cannot specify both team_ids and range_start/range_end. Choose one mode."
+        )
+    if not has_team_ids and not has_range:
+        return dagster.SkipReason(
+            "Invalid config: must specify either team_ids (list) OR both range_start and range_end"
+        )
+
+    # Validate common config
+    MAX_CONCURRENT_JOBS_CAP = 50
+    MAX_CONCURRENT_TASKS_CAP = 100
+    if chunk_size <= 0:
+        return dagster.SkipReason(f"Invalid config: chunk_size must be > 0, got {chunk_size}")
+    if max_concurrent_jobs <= 0:
+        return dagster.SkipReason(f"Invalid config: max_concurrent_jobs must be > 0, got {max_concurrent_jobs}")
+    if max_concurrent_jobs > MAX_CONCURRENT_JOBS_CAP:
+        return dagster.SkipReason(
+            f"Invalid config: max_concurrent_jobs ({max_concurrent_jobs}) exceeds cap of {MAX_CONCURRENT_JOBS_CAP}"
+        )
+    if max_concurrent_tasks <= 0:
+        return dagster.SkipReason(f"Invalid config: max_concurrent_tasks must be > 0, got {max_concurrent_tasks}")
+    if max_concurrent_tasks > MAX_CONCURRENT_TASKS_CAP:
+        return dagster.SkipReason(
+            f"Invalid config: max_concurrent_tasks ({max_concurrent_tasks}) exceeds cap of {MAX_CONCURRENT_TASKS_CAP}"
+        )
+    if not bug_window_start:
+        return dagster.SkipReason("Invalid config: bug_window_start is required")
+    if not bug_window_end:
+        return dagster.SkipReason("Invalid config: bug_window_end is required")
+
+    # Mode-specific validation
+    if has_range and range_start > range_end:
+        return dagster.SkipReason(
+            f"Invalid config: range_start ({range_start}) cannot be greater than range_end ({range_end})"
+        )
+
+    # Build config object for run config generation
+    config = ReconciliationSchedulerConfig(
+        team_ids=team_ids if has_team_ids else None,
+        range_start=range_start if has_range else None,
+        range_end=range_end if has_range else None,
+        chunk_size=chunk_size,
+        max_concurrent_jobs=max_concurrent_jobs,
+        max_concurrent_tasks=max_concurrent_tasks,
+        bug_window_start=bug_window_start,
+        bug_window_end=bug_window_end,
+        dry_run=cursor_data.get("dry_run", False),
+        backup_enabled=cursor_data.get("backup_enabled", True),
+        batch_size=cursor_data.get("batch_size", 100),
+        teams_per_chunk=cursor_data.get("teams_per_chunk", 100),
+        persons_db_env_var=cursor_data.get("persons_db_env_var", "PERSONS_DB_WRITER_URL"),
+    )
+
+    # Count active runs for this job
+    active_runs = context.instance.get_run_records(
+        dagster.RunsFilter(
+            job_name="person_property_reconciliation_job",
+            statuses=[
+                dagster.DagsterRunStatus.QUEUED,
+                dagster.DagsterRunStatus.NOT_STARTED,
+                dagster.DagsterRunStatus.STARTING,
+                dagster.DagsterRunStatus.STARTED,
+            ],
+        )
+    )
+    active_count = len(active_runs)
+
+    available_slots = max(0, max_concurrent_jobs - active_count)
+    if available_slots == 0:
+        return dagster.SkipReason(f"At max concurrency ({active_count}/{max_concurrent_jobs} jobs), waiting for slots")
+
+    context.log.info(f"Active runs: {active_count}/{max_concurrent_jobs}, available slots: {available_slots}")
+
+    # Generate run requests based on mode
+    run_requests: list[dagster.RunRequest] = []
+
+    if has_team_ids:
+        # Team IDs mode: chunk the list
+        next_team_index = cursor_data.get("next_team_index", 0)
+
+        if next_team_index >= len(team_ids):
+            return dagster.SkipReason(f"Reconciliation complete: processed all {len(team_ids)} teams")
+
+        while len(run_requests) < available_slots and next_team_index < len(team_ids):
+            chunk_end_index = min(next_team_index + chunk_size, len(team_ids))
+            chunk_team_ids = team_ids[next_team_index:chunk_end_index]
+
+            run_config = build_reconciliation_run_config(
+                config=config,
+                team_ids=chunk_team_ids,
+            )
+
+            run_key = f"reconcile_team_ids_{next_team_index}_{chunk_end_index - 1}"
+            context.log.info(
+                f"Scheduling run for team_ids[{next_team_index}:{chunk_end_index}] ({len(chunk_team_ids)} teams)"
+            )
+
+            run_requests.append(
+                dagster.RunRequest(
+                    run_key=run_key,
+                    run_config=run_config,
+                    tags={
+                        "reconciliation_team_ids_range": f"{next_team_index}-{chunk_end_index - 1}",
+                        "reconciliation_team_count": str(len(chunk_team_ids)),
+                        "owner": JobOwners.TEAM_INGESTION.value,
+                    },
+                )
+            )
+
+            next_team_index = chunk_end_index
+
+        # Update cursor
+        cursor_data["next_team_index"] = next_team_index
+        new_cursor = json.dumps(cursor_data)
+        context.log.info(f"Scheduled {len(run_requests)} runs, next_team_index: {next_team_index}")
+
+    else:
+        # Range mode: existing behavior
+        next_chunk_start = cursor_data.get("next_chunk_start", range_start)
+
+        if next_chunk_start > range_end:
+            return dagster.SkipReason(f"Reconciliation complete: processed all teams up to {range_end}")
+
+        current_start = next_chunk_start
+
+        while len(run_requests) < available_slots and current_start <= range_end:
+            chunk_end = min(current_start + chunk_size - 1, range_end)
+
+            run_config = build_reconciliation_run_config(
+                config=config,
+                min_team_id=current_start,
+                max_team_id=chunk_end,
+            )
+
+            run_key = f"reconcile_teams_{current_start}_{chunk_end}"
+            context.log.info(f"Scheduling run for teams {current_start}-{chunk_end}")
+
+            run_requests.append(
+                dagster.RunRequest(
+                    run_key=run_key,
+                    run_config=run_config,
+                    tags={
+                        "reconciliation_range": f"{current_start}-{chunk_end}",
+                        "owner": JobOwners.TEAM_INGESTION.value,
+                    },
+                )
+            )
+
+            current_start = chunk_end + 1
+
+        # Update cursor
+        cursor_data["next_chunk_start"] = current_start
+        new_cursor = json.dumps(cursor_data)
+        context.log.info(f"Scheduled {len(run_requests)} runs, next_chunk_start: {current_start}")
+
+    return dagster.SensorResult(run_requests=run_requests, cursor=new_cursor)

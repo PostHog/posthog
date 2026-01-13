@@ -3,7 +3,7 @@ use tracing::error;
 
 use crate::{
     error::CapturedError,
-    experimental::{query::command::QueryCommand, tasks::TaskCommand},
+    experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
     proguard::ProguardSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
@@ -67,6 +67,12 @@ pub enum ExpCommand {
     Query {
         #[command(subcommand)]
         cmd: QueryCommand,
+    },
+
+    /// Manage PostHog endpoints as YAML files. Pull endpoints from PostHog, or push changes from your YAML files.
+    Endpoints {
+        #[command(subcommand)]
+        cmd: EndpointCommand,
     },
 
     #[command(about = "Upload hermes sourcemaps to PostHog")]
@@ -157,6 +163,9 @@ impl Cli {
                 }
                 ExpCommand::Query { cmd } => {
                     crate::experimental::query::command::query_command(&cmd)?
+                }
+                ExpCommand::Endpoints { cmd } => {
+                    cmd.run()?;
                 }
                 ExpCommand::Hermes { cmd } => match cmd {
                     HermesSubcommand::Inject(args) => {

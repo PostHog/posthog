@@ -26,7 +26,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting

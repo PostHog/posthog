@@ -301,7 +301,7 @@ class InsightBasicSerializer(
 
         return representation
 
-    @lru_cache(maxsize=1)
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
     def _dashboard_tiles(self, instance):
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
@@ -793,7 +793,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         return representation
 
-    @lru_cache(maxsize=1)
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
     def insight_result(self, insight: Insight) -> InsightResult:
         from posthog.caching.calculate_results import calculate_for_query_based_insight
 
@@ -884,7 +884,7 @@ class InsightSerializer(InsightBasicSerializer):
                     timezone=self.context["get_team"]().timezone,
                 )
 
-    @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer, one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Dashboard | None) -> DashboardTile | None:
         dashboard_tile: DashboardTile | None = self.context.get("dashboard_tile", None)
 

@@ -240,6 +240,9 @@ class Command(DjangoMigrateCommand):
                                 self.stdout.write("")
                                 self.stdout.write(self.style.MIGRATE_HEADING("Rolling back orphaned migrations…"))
 
+                                # Sort in reverse order so dependent migrations are rolled back first
+                                # (e.g., 0004 must be rolled back before 0003)
+                                cached_orphans.sort(key=lambda x: x[1], reverse=True)
                                 for app_label, migration_name in cached_orphans:
                                     previous = get_previous_migration(app_label, migration_name, connection)
                                     self.stdout.write(f"  Rolling back {app_label}.{migration_name}…")

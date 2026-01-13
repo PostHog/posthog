@@ -8,3 +8,5 @@ export type { StepContentEditorProps } from './StepContentEditor'
 
 export { ProductTourStepsEditor } from './ProductTourStepsEditor'
 export type { ProductTourStepsEditorProps } from './ProductTourStepsEditor'
+
+export { generateStepHtml } from './generateStepHtml'

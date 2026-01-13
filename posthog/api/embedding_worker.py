@@ -112,6 +112,7 @@ def emit_embedding_request(
         "document_id": document_id,
         "timestamp": timestamp.isoformat(),
         "content": content,
+        "metadata": metadata or {},
         "models": models,
     }
     if metadata:

@@ -1,18 +1,17 @@
 import structlog
 import posthoganalytics
 from celery import shared_task
+from playwright.sync_api import (
+    Page,
+    TimeoutError as PlaywrightTimeoutError,
+    sync_playwright,
+)
 
 from posthog.exceptions_capture import capture_exception
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS, is_url_allowed, should_block_url
 from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
-
-from playwright.sync_api import (
-    Page,
-    TimeoutError as PlaywrightTimeoutError,
-    sync_playwright,
-)
 
 logger = structlog.get_logger(__name__)
 

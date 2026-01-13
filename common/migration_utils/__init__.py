@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -208,7 +209,11 @@ def temporary_migration_file(cache_path: Path, target_path: Path) -> Iterator[No
 
 @contextmanager
 def temporary_max_migration(migrations_dir: Path, migration_name: str) -> Iterator[None]:
-    """Context manager that temporarily updates max_migration.txt and restores it after."""
+    """Context manager that temporarily updates max_migration.txt and restores it after.
+
+    Only modifies the file if it already exists - creating it when absent could
+    confuse Django into thinking the app uses squashed migrations.
+    """
     max_migration_path = migrations_dir / "max_migration.txt"
     original_value = None
 
@@ -246,4 +251,11 @@ def hidden_conflicting_migrations(migrations_dir: Path, migration_name: str) -> 
     finally:
         for original, hidden_path in hidden:
             if hidden_path.exists():
-                hidden_path.rename(original)
+                if original.exists():
+                    # Another process created a file at the original path - don't overwrite
+                    warnings.warn(
+                        f"Cannot restore {hidden_path} - {original} already exists",
+                        stacklevel=2,
+                    )
+                else:
+                    hidden_path.rename(original)
