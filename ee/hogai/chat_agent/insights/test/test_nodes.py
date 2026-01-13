@@ -640,7 +640,7 @@ class TestInsightSearchNode(BaseTest):
         assert insight_dict is not None
         summary = await self.node._create_enhanced_insight_summary(insight_dict)
 
-        self.assertIn(f"ID: {self.insight1.id}", summary)
+        self.assertIn(f"ID: {self.insight1.short_id}", summary)
         self.assertIn("Daily Pageviews", summary)
         self.assertIn("Type: TrendsQuery", summary)  # Should detect TrendsQuery type from query
         # Check that query result is not an error (would contain "Query type not supported")

@@ -402,11 +402,14 @@ def mock_email_mfa_verifier(request, mocker):
     Mock the EmailMFAVerifier.should_send_email_mfa_verification method to return False for all tests.
     Can be disabled by using @pytest.mark.disable_mock_email_mfa_verifier decorator.
     """
+    from posthog.helpers.two_factor_session import EmailMFACheckResult
+
     if "disable_mock_email_mfa_verifier" in request.keywords:
         return
 
     mocker.patch(
-        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification", return_value=False
+        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification",
+        return_value=EmailMFACheckResult(should_send=False),
     )
 
 

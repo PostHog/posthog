@@ -1,6 +1,13 @@
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { autoCaptureEventToDescription, clamp } from 'lib/utils'
+import {
+    autoCaptureEventToDescription,
+    capitalizeFirstLetter,
+    clamp,
+    humanFriendlyDuration,
+    percentage,
+    pluralize,
+} from 'lib/utils'
 import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -583,4 +590,57 @@ export function aggregationLabelForHogQL(funnelAggregateByHogQL: string): Noun {
         return { singular: 'session', plural: 'sessions' }
     }
     return { singular: 'result', plural: 'results' }
+}
+
+export function formatConvertedCount(step: FunnelStepWithConversionMetrics, aggregationTargetLabel: Noun): string {
+    return pluralize(step.count ?? 0, aggregationTargetLabel.singular, aggregationTargetLabel.plural)
+}
+
+export function formatDroppedOffCount(step: FunnelStepWithConversionMetrics, aggregationTargetLabel: Noun): string {
+    return pluralize(step.droppedOffFromPrevious ?? 0, aggregationTargetLabel.singular, aggregationTargetLabel.plural)
+}
+
+export function formatConvertedPercentage(step: FunnelStepWithConversionMetrics): string {
+    return percentage(step.conversionRates.fromBasisStep, 2)
+}
+
+export function formatDroppedOffPercentage(step: FunnelStepWithConversionMetrics): string {
+    return percentage(1 - step.conversionRates.fromBasisStep, 2)
+}
+
+export function formatMedianConversionTime(step: FunnelStepWithConversionMetrics): string {
+    return humanFriendlyDuration(step.median_conversion_time, { maxUnits: 3 }) || '-'
+}
+
+export function getTooltipTitleForConverted(
+    funnelsFilter: FunnelsFilter | null | undefined,
+    aggregationTargetLabel: Noun,
+    stepIndex: number
+): JSX.Element {
+    return (
+        <>
+            {capitalizeFirstLetter(aggregationTargetLabel.plural)} who completed this step
+            {stepIndex > 0 && (
+                <>
+                    ,<br />
+                    with conversion rate relative to the{' '}
+                    {funnelsFilter?.funnelStepReference === FunnelStepReference.previous ? 'previous' : 'first'} step
+                </>
+            )}
+        </>
+    )
+}
+
+export function getTooltipTitleForDroppedOff(
+    funnelsFilter: FunnelsFilter | null | undefined,
+    aggregationTargetLabel: Noun
+): JSX.Element {
+    return (
+        <>
+            {capitalizeFirstLetter(aggregationTargetLabel.plural)} who didn't complete this step,
+            <br />
+            with drop-off rate relative to the{' '}
+            {funnelsFilter?.funnelStepReference === FunnelStepReference.previous ? 'previous' : 'first'} step
+        </>
+    )
 }
