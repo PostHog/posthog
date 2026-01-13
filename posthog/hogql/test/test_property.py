@@ -1082,6 +1082,83 @@ class TestProperty(BaseTest):
             self._parse_expr("if(person.properties.score != null, person.properties.score <= 100, false)"),
         )
 
+    def test_ordering_comparisons_wrapped_with_null_checks(self):
+        """Test that all ordering comparison operators are wrapped with if() to check for null values.
+
+        This prevents incorrect null comparison behavior in HogVM bytecode evaluation,
+        where expressions like `null < 18` can evaluate to true instead of false.
+        """
+        # Test LT operator
+        expr = self._property_to_expr({"type": "event", "key": "age", "operator": "lt", "value": 18})
+        self.assertIsInstance(expr, ast.Call)
+        self.assertEqual(expr.name, "if")
+        self.assertEqual(len(expr.args), 3)
+        self.assertIsInstance(expr.args[0], ast.CompareOperation)
+        self.assertEqual(expr.args[0].op, ast.CompareOperationOp.NotEq)
+        self.assertEqual(expr.args[2], ast.Constant(value=False))
+
+        # Test GT operator
+        expr = self._property_to_expr({"type": "event", "key": "age", "operator": "gt", "value": 65})
+        self.assertIsInstance(expr, ast.Call)
+        self.assertEqual(expr.name, "if")
+        self.assertEqual(expr.args[2], ast.Constant(value=False))
+
+        # Test LTE operator
+        expr = self._property_to_expr({"type": "event", "key": "age", "operator": "lte", "value": 100})
+        self.assertIsInstance(expr, ast.Call)
+        self.assertEqual(expr.name, "if")
+        self.assertEqual(expr.args[2], ast.Constant(value=False))
+
+        # Test GTE operator
+        expr = self._property_to_expr({"type": "event", "key": "age", "operator": "gte", "value": 0})
+        self.assertIsInstance(expr, ast.Call)
+        self.assertEqual(expr.name, "if")
+        self.assertEqual(expr.args[2], ast.Constant(value=False))
+
+        # Test BETWEEN operator
+        expr = self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]})
+        self.assertIsInstance(expr, ast.Call)
+        self.assertEqual(expr.name, "if")
+        self.assertEqual(len(expr.args), 3)
+        self.assertIsInstance(expr.args[0], ast.CompareOperation)
+        self.assertEqual(expr.args[0].op, ast.CompareOperationOp.NotEq)
+        self.assertIsInstance(expr.args[1], ast.And)
+        self.assertEqual(expr.args[2], ast.Constant(value=False))
+
+        # Test NOT_BETWEEN operator (null values should return true)
+        expr = self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": [18, 65]})
+        self.assertIsInstance(expr, ast.Call)
+        self.assertEqual(expr.name, "if")
+        self.assertEqual(len(expr.args), 3)
+        self.assertIsInstance(expr.args[0], ast.CompareOperation)
+        self.assertEqual(expr.args[0].op, ast.CompareOperationOp.Eq)
+        self.assertEqual(expr.args[1], ast.Constant(value=True))
+        self.assertIsInstance(expr.args[2], ast.Or)
+
+        # Test IS_DATE_BEFORE operator (alias for LT)
+        expr = self._property_to_expr({"type": "event", "key": "created", "operator": "is_date_before", "value": "2024-01-01"})
+        self.assertIsInstance(expr, ast.Call)
+        self.assertEqual(expr.name, "if")
+        self.assertEqual(expr.args[2], ast.Constant(value=False))
+
+        # Test IS_DATE_AFTER operator (alias for GT)
+        expr = self._property_to_expr({"type": "event", "key": "created", "operator": "is_date_after", "value": "2024-01-01"})
+        self.assertIsInstance(expr, ast.Call)
+        self.assertEqual(expr.name, "if")
+        self.assertEqual(expr.args[2], ast.Constant(value=False))
+
+        # Test MIN operator (alias for GTE)
+        expr = self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18})
+        self.assertIsInstance(expr, ast.Call)
+        self.assertEqual(expr.name, "if")
+        self.assertEqual(expr.args[2], ast.Constant(value=False))
+
+        # Test MAX operator (alias for LTE)
+        expr = self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65})
+        self.assertIsInstance(expr, ast.Call)
+        self.assertEqual(expr.name, "if")
+        self.assertEqual(expr.args[2], ast.Constant(value=False))
+
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     # Sentinel to indicate a property should not be included in the event
