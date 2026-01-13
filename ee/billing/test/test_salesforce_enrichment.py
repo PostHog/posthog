@@ -343,6 +343,95 @@ class TestHarmonicDataTransformation(BaseTest):
         assert result["metrics"]["headcount"]["current_value"] == 5015
         assert result["metrics"]["headcount"]["historical"] == {}
 
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_transform_harmonic_data_missing_tags(self):
+        """Test transform_harmonic_data handles missing tags."""
+        harmonic_data = load_harmonic_fixture()
+        del harmonic_data["tags"]
+        del harmonic_data["tagsV2"]
+
+        result = transform_harmonic_data(harmonic_data)
+
+        assert result is not None
+        assert result["tags"] == []
+        assert result["tagsV2"] == []
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_no_primary_tag_uses_first(self):
+        """Test Salesforce update falls back to first tag when there's no primary tag."""
+        harmonic_data = load_harmonic_fixture()
+        # Remove isPrimaryTag from all tags
+        for tag in harmonic_data.get("tags", []):
+            tag["isPrimaryTag"] = False
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # Should use first tag as fallback
+        assert salesforce_data is not None
+        assert salesforce_data["harmonic_industry__c"] == "Enterprise Software"
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_empty_tags(self):
+        """Test Salesforce update when both tags and tagsV2 arrays are empty."""
+        harmonic_data = load_harmonic_fixture()
+        harmonic_data["tags"] = []
+        harmonic_data["tagsV2"] = []
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # harmonic_industry__c should not be in the data (filtered out as None)
+        assert salesforce_data is not None
+        assert "harmonic_industry__c" not in salesforce_data
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_with_primary_tag(self):
+        """Test Salesforce update correctly extracts primary tag."""
+        harmonic_data = load_harmonic_fixture()
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # Primary tag should be extracted
+        assert salesforce_data is not None
+        assert salesforce_data["harmonic_industry__c"] == "Enterprise Software"
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_fallback_to_tagsv2_market_vertical(self):
+        """Test Salesforce update falls back to tagsV2 MARKET_VERTICAL when tags is empty."""
+        harmonic_data = load_harmonic_fixture()
+        harmonic_data["tags"] = []  # Empty tags array
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # Should use MARKET_VERTICAL from tagsV2
+        assert salesforce_data is not None
+        assert salesforce_data["harmonic_industry__c"] == "Business Intelligence"
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_fallback_to_tagsv2_first_tag(self):
+        """Test Salesforce update falls back to first tagsV2 tag when no MARKET_VERTICAL."""
+        harmonic_data = load_harmonic_fixture()
+        harmonic_data["tags"] = []  # Empty tags array
+        # Remove MARKET_VERTICAL from tagsV2
+        harmonic_data["tagsV2"] = [
+            {"type": "INDUSTRY", "displayValue": "Software", "dateAdded": "2024-01-15T00:00:00Z"},
+            {"type": "CATEGORY", "displayValue": "B2B", "dateAdded": "2024-01-15T00:00:00Z"},
+        ]
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # Should use first tag from tagsV2
+        assert salesforce_data is not None
+        assert salesforce_data["harmonic_industry__c"] == "Software"
+
 
 class TestSalesforceAccountQuery(BaseTest):
     def test_get_salesforce_accounts_by_domain_escapes_quotes(self):
