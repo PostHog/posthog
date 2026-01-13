@@ -14,12 +14,19 @@ export interface EndpointSceneHeaderProps {
 }
 
 export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
-    const { endpoint, endpointLoading, localQuery, cacheAge, syncFrequency, isMaterialized } = useValues(
-        endpointSceneLogic({ tabId })
-    )
+    const {
+        endpoint,
+        endpointLoading,
+        localQuery,
+        cacheAge,
+        syncFrequency,
+        isMaterialized,
+        isViewingOldVersion,
+        viewingVersion,
+    } = useValues(endpointSceneLogic({ tabId }))
     const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
     const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
-    const { setLocalQuery, setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(
+    const { setLocalQuery, setCacheAge, setSyncFrequency, setIsMaterialized, returnToCurrentVersion } = useActions(
         endpointSceneLogic({ tabId })
     )
 
@@ -72,36 +79,54 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
 
     return (
         <>
+            {isViewingOldVersion && (
+                <div className="bg-warning-highlight border-warning border rounded p-3 mb-4 flex items-center justify-between">
+                    <div>
+                        <strong>Viewing historical version v{viewingVersion}</strong> (Read-only)
+                        <br />
+                        <span className="text-muted">
+                            This is a previous version of the endpoint. All editing is disabled.
+                        </span>
+                    </div>
+                    <LemonButton type="primary" onClick={returnToCurrentVersion}>
+                        Return to current version (v{endpoint?.current_version})
+                    </LemonButton>
+                </div>
+            )}
             <SceneTitleSection
                 name={endpointName || endpoint?.name}
                 description={endpointDescription || endpoint?.description}
                 resourceType={{ type: 'endpoints' }}
-                canEdit
+                canEdit={!isViewingOldVersion}
                 // onNameChange={} - we explicitly disallow this
-                onDescriptionChange={(description) => setEndpointDescription(description)}
+                onDescriptionChange={
+                    isViewingOldVersion ? undefined : (description) => setEndpointDescription(description)
+                }
                 isLoading={endpointLoading}
                 renameDebounceMs={200}
                 actions={
-                    <>
-                        {endpoint && (
+                    !isViewingOldVersion ? (
+                        <>
+                            {endpoint && (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={handleDiscardChanges}
+                                    disabledReason={!hasChanges && 'No changes to discard'}
+                                >
+                                    Discard changes
+                                </LemonButton>
+                            )}
                             <LemonButton
-                                type="secondary"
-                                onClick={handleDiscardChanges}
-                                disabledReason={!hasChanges && 'No changes to discard'}
+                                type="primary"
+                                onClick={handleSave}
+                                disabledReason={
+                                    !endpoint ? 'Endpoint not loaded' : !hasChanges ? 'No changes to save' : undefined
+                                }
                             >
-                                Discard changes
+                                Update
                             </LemonButton>
-                        )}
-                        <LemonButton
-                            type="primary"
-                            onClick={handleSave}
-                            disabledReason={
-                                !endpoint ? 'Endpoint not loaded' : !hasChanges ? 'No changes to save' : undefined
-                            }
-                        >
-                            Update
-                        </LemonButton>
-                    </>
+                        </>
+                    ) : undefined
                 }
             />
         </>
