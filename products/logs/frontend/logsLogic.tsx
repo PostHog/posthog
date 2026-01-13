@@ -367,10 +367,10 @@ export const logsLogic = kea<logsLogicType>([
             {
                 fetchLogs: () => true,
                 fetchLogsSuccess: () => false,
-                fetchLogsFailure: () => true,
+                fetchLogsFailure: () => false,
                 fetchNextLogsPage: () => true,
                 fetchNextLogsPageSuccess: () => false,
-                fetchNextLogsPageFailure: () => true,
+                fetchNextLogsPageFailure: () => false,
             },
         ],
 
