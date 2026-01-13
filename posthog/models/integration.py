@@ -2103,8 +2103,8 @@ class AzureBlobIntegration:
 
         try:
             self.connection_string = self.integration.sensitive_config["connection_string"]
-        except KeyError as e:
-            raise AzureBlobIntegrationError(f"Azure Blob integration is missing required field: {e}")
+        except KeyError:
+            raise AzureBlobIntegrationError("Azure Blob integration is missing required field: 'connection_string'")
 
     @classmethod
     def integration_from_config(

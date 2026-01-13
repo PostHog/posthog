@@ -52,8 +52,9 @@ PERMISSIONS = [
     "rak_application_fee_read",
     "rak_transfer_read",
     "rak_connected_account_read",
+    "rak_payment_method_read",
 ]
-STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{"&".join( [f"permissions[{i}]={permission}" for i, permission in enumerate(PERMISSIONS)] )}"
+STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
 
 
 @SourceRegistry.register

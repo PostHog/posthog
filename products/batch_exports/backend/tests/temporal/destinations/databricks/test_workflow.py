@@ -135,9 +135,9 @@ class DatabricksDestinationTest(BaseDestinationTest):
         config = self.get_destination_config(team_id)
 
         with self.cursor(team_id, integration) as cursor:
-            cursor.execute(f'USE CATALOG `{config["catalog"]}`')
-            cursor.execute(f'USE SCHEMA `{config["schema"]}`')
-            cursor.execute(f'SELECT * FROM `{config["table_name"]}`')
+            cursor.execute(f"USE CATALOG `{config['catalog']}`")
+            cursor.execute(f"USE SCHEMA `{config['schema']}`")
+            cursor.execute(f"SELECT * FROM `{config['table_name']}`")
             rows = cursor.fetchall()
             assert cursor.description is not None
             columns = {index: metadata[0] for index, metadata in enumerate(cursor.description)}
@@ -240,13 +240,13 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         destination_test = DatabricksDestinationTest()
         destination_config = destination_test.get_destination_config(ateam.pk)
         with destination_test.cursor(ateam.pk, integration) as cursor:
-            cursor.execute(f'USE CATALOG `{destination_config["catalog"]}`')
-            cursor.execute(f'CREATE SCHEMA IF NOT EXISTS `{destination_config["schema"]}`')
-            cursor.execute(f'USE SCHEMA `{destination_config["schema"]}`')
+            cursor.execute(f"USE CATALOG `{destination_config['catalog']}`")
+            cursor.execute(f"CREATE SCHEMA IF NOT EXISTS `{destination_config['schema']}`")
+            cursor.execute(f"USE SCHEMA `{destination_config['schema']}`")
 
             yield
 
-            cursor.execute(f'DROP SCHEMA IF EXISTS `{destination_config["schema"]}` CASCADE')
+            cursor.execute(f"DROP SCHEMA IF EXISTS `{destination_config['schema']}` CASCADE")
 
     @pytest.fixture
     def simulate_unexpected_error(self):
@@ -508,21 +508,21 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         expected_stage_table_name = f"stage_{destination_config['table_name']}_{data_interval_end_str}_{ateam.pk}_1"
 
         with destination_test.cursor(ateam.pk, integration) as cursor:
-            cursor.execute(f'USE CATALOG `{destination_config["catalog"]}`')
-            cursor.execute(f'USE SCHEMA `{destination_config["schema"]}`')
+            cursor.execute(f"USE CATALOG `{destination_config['catalog']}`")
+            cursor.execute(f"USE SCHEMA `{destination_config['schema']}`")
 
             # Check that the volume does not exist
             cursor.execute("SHOW VOLUMES")
             volumes = cursor.fetchall()
             volume_names = [row["volume_name"] for row in volumes] if volumes else []
-            assert (
-                expected_volume_name not in volume_names
-            ), f"Expected volume '{expected_volume_name}' to be cleaned up, but it still exists"
+            assert expected_volume_name not in volume_names, (
+                f"Expected volume '{expected_volume_name}' to be cleaned up, but it still exists"
+            )
 
             # Check that the stage table does not exist
             cursor.execute("SHOW TABLES")
             tables = cursor.fetchall()
             table_names = [row["tableName"] for row in tables] if tables else []
-            assert (
-                expected_stage_table_name not in table_names
-            ), f"Expected stage table '{expected_stage_table_name}' to be cleaned up, but it still exists"
+            assert expected_stage_table_name not in table_names, (
+                f"Expected stage table '{expected_stage_table_name}' to be cleaned up, but it still exists"
+            )
