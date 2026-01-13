@@ -121,9 +121,9 @@ export function SceneTabs(): JSX.Element {
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}
                                 buttonProps={{
+                                    iconOnly: true,
                                     size: 'sm',
-                                    className:
-                                        'p-1 flex flex-1 items-center gap-1 cursor-pointer rounded border-b z-20',
+                                    className: 'p-1 flex items-center gap-1 cursor-pointer rounded border-b z-20',
                                 }}
                             >
                                 <IconPlus className="!ml-0" fontSize={14} />
