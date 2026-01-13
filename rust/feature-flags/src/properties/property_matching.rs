@@ -1884,6 +1884,30 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
+        // Test minimal version 0.0.0
+        let property_minimal = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("0.0.0")),
+            operator: Some(OperatorType::SemverGte),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_minimal,
+            &HashMap::from([("version".to_string(), json!("0.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_minimal,
+            &HashMap::from([("version".to_string(), json!("0.0.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
         // Test SemverGte
         let property_gte = PropertyFilter {
             key: "version".to_string(),
@@ -2150,6 +2174,69 @@ mod test_match_properties {
         assert!(!match_property(
             &property,
             &HashMap::from([("version".to_string(), json!("1.2.abc"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading/trailing whitespace should not be accepted
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!(" 1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3 "))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading zeros are not valid semver
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("01.02.03"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Too many version components (common in .NET)
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3.4"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Empty component
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1..2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Trailing dot
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3."))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading dot
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!(".1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Negative version part
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.-2.3"))]),
             true
         )
         .expect("expected match to exist"));
