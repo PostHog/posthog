@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
     calculateBackoffDelay,
-    formatErrorMessage,
     formatRateLimitError,
     parseRetryAfter,
     RETRY_CONFIG,
@@ -109,21 +108,6 @@ describe('retry-utils', () => {
             
             expect(result.json).toBeNull()
             expect(result.text).toBe('')
-        })
-    })
-
-    describe('formatErrorMessage', () => {
-        it('should format error with JSON data', () => {
-            const message = formatErrorMessage(404, 'Not Found', { detail: 'Resource not found' }, '{"detail":"Resource not found"}')
-            expect(message).toContain('404')
-            expect(message).toContain('Not Found')
-            expect(message).toContain('Resource not found')
-        })
-
-        it('should format error without JSON data', () => {
-            const message = formatErrorMessage(500, 'Internal Server Error', null, 'Server error occurred')
-            expect(message).toContain('[500]')
-            expect(message).toContain('Server error occurred')
         })
     })
 

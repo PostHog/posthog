@@ -90,16 +90,6 @@ export async function safeJsonParse(response: Response): Promise<{ json: any; te
 }
 
 /**
- * Format error message for failed requests
- */
-export function formatErrorMessage(status: number, statusText: string, errorData: any, errorText: string): string {
-    if (errorData) {
-        return `Failed request:\nStatus Code: ${status} (${statusText})\nError Message: ${errorText}`
-    }
-    return `Failed request: [${status}] ${errorText}`
-}
-
-/**
  * Format rate limit exceeded error message
  */
 export function formatRateLimitError(maxRetries: number, status: number, errorText: string): string {
