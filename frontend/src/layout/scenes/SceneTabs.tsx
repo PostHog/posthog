@@ -36,19 +36,6 @@ export function SceneTabs(): JSX.Element {
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
-    const scrollRef = useRef<HTMLDivElement | null>(null)
-
-    const activeTabId = tabs.find((tab) => tab.active)?.id
-
-    useEffect(() => {
-        if (!scrollRef.current || !activeTabId) {
-            return
-        }
-        const activeTabElement = scrollRef.current.querySelector(`[data-tab-id="${activeTabId}"]`)
-        if (activeTabElement) {
-            activeTabElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
-        }
-    }, [activeTabId])
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
