@@ -2921,10 +2921,6 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012
             },
-            "gmicloud-fp8": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000012
-            },
             "minimax-fp8": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012,
