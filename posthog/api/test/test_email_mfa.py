@@ -16,8 +16,9 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
     def test_login_without_totp_triggers_email_mfa(
-        self, mock_is_email_available, mock_send_email, mock_feature_enabled
+        self, mock_is_http_email_available, mock_is_email_available, mock_send_email, mock_feature_enabled
     ):
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -39,8 +40,9 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
     def test_email_mfa_verification_success_and_always_remembers_device(
-        self, mock_is_email_available, mock_send_email, mock_feature_enabled
+        self, mock_is_http_email_available, mock_is_email_available, mock_send_email, mock_feature_enabled
     ):
         # Trigger email MFA
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -80,8 +82,9 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
     def test_email_mfa_verification_with_invalid_token(
-        self, mock_is_email_available, mock_send_email, mock_feature_enabled
+        self, mock_is_http_email_available, mock_is_email_available, mock_send_email, mock_feature_enabled
     ):
         # Trigger email MFA
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -106,8 +109,9 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
     def test_email_mfa_token_expires_after_10_minutes(
-        self, mock_is_email_available, mock_send_email, mock_feature_enabled
+        self, mock_is_http_email_available, mock_is_email_available, mock_send_email, mock_feature_enabled
     ):
         with freeze_time("2023-01-01T10:00:00"):
             # Trigger email MFA
@@ -132,8 +136,9 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
     def test_email_mfa_token_invalidated_after_use(
-        self, mock_is_email_available, mock_send_email, mock_feature_enabled
+        self, mock_is_http_email_available, mock_is_email_available, mock_send_email, mock_feature_enabled
     ):
         # Trigger email MFA
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -182,8 +187,9 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
     def test_login_with_totp_does_not_trigger_email_mfa(
-        self, mock_is_email_available, mock_send_email, mock_feature_enabled
+        self, mock_is_http_email_available, mock_is_email_available, mock_send_email, mock_feature_enabled
     ):
         # Create TOTP device for user
         TOTPDevice.objects.create(user=self.user, name="default")
@@ -201,8 +207,10 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
     def test_email_mfa_resend_success(
         self,
+        mock_is_http_email_available,
         mock_is_email_available,
         mock_send_email,
         mock_feature_enabled,
@@ -225,7 +233,10 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    def test_email_mfa_resend_throttle(self, mock_is_email_available, mock_send_email, mock_feature_enabled):
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
+    def test_email_mfa_resend_throttle(
+        self, mock_is_http_email_available, mock_is_email_available, mock_send_email, mock_feature_enabled
+    ):
         with freeze_time("2023-01-01T10:00:00"):
             # Trigger email MFA - this counts towards the resend throttle
             self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -260,7 +271,10 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    def test_email_mfa_skipped_during_reauth(self, mock_is_email_available, mock_send_email, mock_feature_enabled):
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
+    def test_email_mfa_skipped_during_reauth(
+        self, mock_is_http_email_available, mock_is_email_available, mock_send_email, mock_feature_enabled
+    ):
         # First, log in normally (triggers email MFA)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

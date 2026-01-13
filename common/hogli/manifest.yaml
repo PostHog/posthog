@@ -222,6 +222,10 @@ start:
         bin_script: start-rust-service
         description: Build and run live Rust microservice with auto-restart on crash
         hidden: true
+    start:go:service:
+        bin_script: start-go-service
+        description: Build and run Go microservices with auto-restart on crash
+        hidden: true
 deploy:
     deploy:hobby:
         bin_script: deploy-hobby
@@ -568,8 +572,8 @@ tools:
         bin_script: posthog-node
         description: Start the posthog-node service (old plugin-server)
         hidden: true
-    posthog:hobby-installer:
-        bin_script: hobby-installer
+    posthog:hobby-installer-linux:
+        bin_script: hobby-installer-linux
         description: Run the hobby-installer installation script for Linux, don't use
             it on your MacOS development environment
         hidden: true

@@ -8,7 +8,7 @@ import { EventPipelineRunner, EventPipelineRunnerOptions } from '../../worker/in
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { PipelineResult, isOkResult } from '../pipelines/results'
+import { PipelineResult, drop, isOkResult } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerHeatmapStepInput {
@@ -35,6 +35,11 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
         input: TInput
     ): Promise<PipelineResult<EventPipelineRunnerHeatmapStepResult<TInput>>> {
         const { normalizedEvent, timestamp, team, headers, groupStoreForBatch } = input
+
+        // Skip heatmap processing if team has explicitly opted out
+        if (team.heatmaps_opt_in === false) {
+            return drop('heatmap_opt_in_disabled')
+        }
 
         const runner = new EventPipelineRunner(
             config,
