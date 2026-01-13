@@ -1954,7 +1954,8 @@
                 "task",
                 "upsert_dashboard",
                 "manage_memories",
-                "create_notebook"
+                "create_notebook",
+                "list_data"
             ],
             "type": "string"
         },
