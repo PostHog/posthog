@@ -128,9 +128,14 @@ const NEW_VARIANT = {
 const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     variants: [
         {
-            key: '',
+            key: 'control',
             name: '',
-            rollout_percentage: 100,
+            rollout_percentage: 50,
+        },
+        {
+            key: 'test',
+            name: '',
+            rollout_percentage: 50,
         },
     ],
 }

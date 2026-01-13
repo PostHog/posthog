@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import {
+    IconCheckCircle,
     IconCollapse,
     IconCopy,
     IconExpand,
@@ -16,6 +17,7 @@ import {
     IconRewind,
     IconServer,
     IconTrash,
+    IconWarning,
 } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
@@ -68,6 +70,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { AdvancedSettingsPanel } from './panels/AdvancedSettingsPanel'
+import { BasicsPanel } from './panels/BasicsPanel'
+import { TargetingPanel } from './panels/TargetingPanel'
+import { FeatureFlagTemplates } from './FeatureFlagTemplates'
+
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -112,10 +119,6 @@ import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVari
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
-import { AdvancedSettingsPanel } from './panels/AdvancedSettingsPanel'
-import { FlagDetailsPanel } from './panels/FlagDetailsPanel'
-import { TargetingPanel } from './panels/TargetingPanel'
-import { WhatUsersGetPanel } from './panels/WhatUsersGetPanel'
 
 const RESOURCE_TYPE = 'feature_flag'
 
@@ -138,6 +141,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         activeTab,
         accessDeniedToFeatureFlag,
         experiment,
+        multivariateEnabled,
+        nonEmptyVariants,
+        variantErrors,
+        propertySelectErrors,
+        aggregationTargetName,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -167,6 +175,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const [quickSurveyVariantKey, setQuickSurveyVariantKey] = useState<string | null>(null)
 
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
+    const [activeCollapseKeys, setActiveCollapseKeys] = useState<string[]>(['basics'])
 
     const handleGetFeedback = (variantKey?: string): void => {
         const hasVariantSurvey = variantKey
@@ -192,7 +201,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
-    const useNewUI = featureFlags[FEATURE_FLAGS.FEATURE_FLAG_UI_REDESIGN]
+    const useNewUI = true // TODO: Gate with feature flag once we're ready
 
     useFileSystemLogView({
         type: 'feature_flag',
@@ -379,44 +388,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
                             {useNewUI ? (
                                 <>
-                                    {/* New collapsible UI */}
-                                    <LemonCollapse
-                                        defaultActiveKey="details"
-                                        className="bg-surface-primary"
-                                        panels={[
-                                            {
-                                                key: 'details',
-                                                header: 'Flag details',
-                                                content: <FlagDetailsPanel />,
-                                            },
-                                            {
-                                                key: 'what-users-get',
-                                                header: 'What users get',
-                                                content: <WhatUsersGetPanel />,
-                                            },
-                                            ...(!featureFlag.is_remote_configuration
-                                                ? [
-                                                      {
-                                                          key: 'targeting',
-                                                          header: 'Who sees it - Targeting',
-                                                          content: <TargetingPanel />,
-                                                      },
-                                                  ]
-                                                : []),
-                                            {
-                                                key: 'implementation',
-                                                header: 'How to implement',
-                                                content: <FeatureFlagCodeExample featureFlag={featureFlag} />,
-                                            },
-                                            {
-                                                key: 'advanced',
-                                                header: 'Advanced settings',
-                                                content: <AdvancedSettingsPanel />,
-                                            },
-                                        ]}
-                                    />
+                                    {/* Templates - only show for new flags */}
+                                    {isNewFeatureFlag && (
+                                        <FeatureFlagTemplates
+                                            onTemplateApplied={(sectionsToOpen) => {
+                                                setActiveCollapseKeys(sectionsToOpen)
+                                            }}
+                                        />
+                                    )}
 
-                                    <div className="mt-6 space-y-4">
+                                    {/* Enable flag toggle - prominent at top */}
+                                    <div className="mb-4">
                                         <LemonField name="active">
                                             {({ value, onChange }) => {
                                                 const requiresApprovalToEnable =
@@ -428,7 +410,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 }
 
                                                 return (
-                                                    <div className="border rounded p-4">
+                                                    <div className="border rounded p-4 bg-bg-light">
                                                         <LemonCheckbox
                                                             id="flag-enabled-checkbox"
                                                             label="Enable feature flag"
@@ -450,27 +432,145 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 )
                                             }}
                                         </LemonField>
-                                        {isNewFeatureFlag && (
-                                            <LemonField name="_should_create_usage_dashboard">
-                                                {({ value, onChange }) => (
-                                                    <div className="border rounded p-4">
-                                                        <LemonCheckbox
-                                                            id="create-usage-dashboard-checkbox"
-                                                            label="Create usage dashboard"
-                                                            onChange={() => onChange(!value)}
-                                                            checked={value}
-                                                            data-attr="create-usage-dashboard-checkbox"
-                                                        />
-                                                        <div className="text-secondary text-sm pl-7">
-                                                            Automatically track how often this flag is called and what
-                                                            values are returned. Creates a dashboard with call volume
-                                                            trends and variant distribution insights.
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </LemonField>
-                                        )}
                                     </div>
+
+                                    {/* New collapsible UI */}
+                                    <LemonCollapse
+                                        multiple
+                                        activeKeys={activeCollapseKeys}
+                                        className="bg-surface-primary"
+                                        onChange={setActiveCollapseKeys}
+                                        panels={[
+                                            {
+                                                key: 'basics',
+                                                header: {
+                                                    children: (
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="font-semibold">Basics</span>
+                                                            {!activeCollapseKeys.includes('basics') && (
+                                                                <div className="flex items-center gap-2 text-sm text-muted">
+                                                                    {(() => {
+                                                                        const parts: string[] = []
+                                                                        if (featureFlag.key) {
+                                                                            parts.push(featureFlag.key)
+                                                                        }
+                                                                        if (multivariateEnabled && nonEmptyVariants.length > 0) {
+                                                                            parts.push(`${nonEmptyVariants.length} variants`)
+                                                                        } else {
+                                                                            parts.push('Boolean')
+                                                                        }
+                                                                        return parts.length > 0 ? (
+                                                                            <span>{parts.join(' · ')}</span>
+                                                                        ) : null
+                                                                    })()}
+                                                                    {(() => {
+                                                                        const hasKeyError = !featureFlag.key
+                                                                        const hasVariantErrors = multivariateEnabled && variantErrors?.some(e => e.key)
+                                                                        if (hasKeyError || hasVariantErrors) {
+                                                                            return <IconWarning className="text-warning" />
+                                                                        }
+                                                                        return <IconCheckCircle className="text-success" />
+                                                                    })()}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ),
+                                                },
+                                                content: <BasicsPanel />,
+                                            },
+                                            ...(!featureFlag.is_remote_configuration
+                                                ? [
+                                                      {
+                                                          key: 'targeting',
+                                                          header: {
+                                                              children: (
+                                                                  <div className="flex items-center gap-3">
+                                                                      <span className="font-semibold">Targeting</span>
+                                                                      {!activeCollapseKeys.includes('targeting') && (
+                                                                          <div className="flex items-center gap-2 text-sm text-muted">
+                                                                              {(() => {
+                                                                                  const groups = featureFlag?.filters?.groups || []
+                                                                                  if (groups.length === 0) {
+                                                                                      return <span>No release conditions</span>
+                                                                                  }
+                                                                                  const parts: string[] = []
+                                                                                  const ruleCount = groups.length
+                                                                                  parts.push(`${ruleCount} ${ruleCount === 1 ? 'rule' : 'rules'}`)
+                                                                                  return <span>{parts.join(' · ')}</span>
+                                                                              })()}
+                                                                              {(() => {
+                                                                                  const hasErrors = propertySelectErrors?.some((group: any) =>
+                                                                                      group?.properties?.some((p: any) => p?.value) ||
+                                                                                      group?.rollout_percentage
+                                                                                  )
+                                                                                  if (hasErrors) {
+                                                                                      return <IconWarning className="text-warning" />
+                                                                                  }
+                                                                                  return <IconCheckCircle className="text-success" />
+                                                                              })()}
+                                                                          </div>
+                                                                      )}
+                                                                  </div>
+                                                              ),
+                                                          },
+                                                          content: <TargetingPanel />,
+                                                      },
+                                                  ]
+                                                : []),
+                                            {
+                                                key: 'advanced',
+                                                header: {
+                                                    children: (
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="font-semibold">Advanced</span>
+                                                            {!activeCollapseKeys.includes('advanced') && (
+                                                                <div className="flex items-center gap-2 text-sm text-muted">
+                                                                    {(() => {
+                                                                        const parts: string[] = []
+                                                                        if (featureFlag.filters?.payloads?.['true']) {
+                                                                            parts.push('Has payload')
+                                                                        }
+                                                                        if (featureFlag.evaluation_runtime && featureFlag.evaluation_runtime !== FeatureFlagEvaluationRuntime.ALL) {
+                                                                            const runtimeLabels = {
+                                                                                [FeatureFlagEvaluationRuntime.CLIENT]: 'Client-side only',
+                                                                                [FeatureFlagEvaluationRuntime.SERVER]: 'Server-side only',
+                                                                            }
+                                                                            parts.push(runtimeLabels[featureFlag.evaluation_runtime] || '')
+                                                                        }
+                                                                        if (featureFlag.ensure_experience_continuity) {
+                                                                            parts.push('Persists across auth')
+                                                                        }
+                                                                        return parts.length > 0 ? (
+                                                                            <span>{parts.join(' · ')}</span>
+                                                                        ) : (
+                                                                            <span>Optional settings</span>
+                                                                        )
+                                                                    })()}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ),
+                                                },
+                                                content: <AdvancedSettingsPanel />,
+                                            },
+                                            {
+                                                key: 'implementation',
+                                                header: {
+                                                    children: (
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="font-semibold">Implementation</span>
+                                                            {!activeCollapseKeys.includes('implementation') && (
+                                                                <div className="flex items-center gap-2 text-sm text-muted">
+                                                                    <span>Code examples</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ),
+                                                },
+                                                content: <FeatureFlagCodeExample featureFlag={featureFlag} />,
+                                            },
+                                        ]}
+                                    />
 
                                     <div className="flex items-center gap-2 justify-end mt-6">
                                         <LemonButton

@@ -270,6 +270,31 @@ export function FeatureFlagVariantsForm({
                                 suffix={<span>%</span>}
                                 data-attr="feature-flag-variant-rollout-percentage-input"
                             />
+                            {(() => {
+                                // Show effective percentage calculation when there are release conditions with rollout
+                                const releaseConditionsWithRollout = filterGroups.filter(
+                                    (group) => !group.variant && (group.rollout_percentage ?? 100) < 100
+                                )
+
+                                if (releaseConditionsWithRollout.length > 0) {
+                                    const minRollout = Math.min(
+                                        ...releaseConditionsWithRollout.map((g) => g.rollout_percentage ?? 100)
+                                    )
+                                    const variantRollout = variant.rollout_percentage || 0
+                                    const effectiveRollout = (minRollout * variantRollout) / 100
+
+                                    return (
+                                        <div className="text-xs mt-1 text-secondary">
+                                            Effective: ~{effectiveRollout.toFixed(1)}% of all users
+                                            <div className="text-muted">
+                                                ({variantRollout}% of {minRollout}% eligible users)
+                                            </div>
+                                        </div>
+                                    )
+                                }
+
+                                return null
+                            })()}
                             {filterGroups.filter((group) => group.variant === variant.key).length > 0 && (
                                 <span className="text-secondary text-xs">
                                     Overridden by{' '}
