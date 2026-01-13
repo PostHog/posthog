@@ -71,7 +71,7 @@ def _build_multiple_choice_query(_DANGEROUS_id_based_key: str, index_based_key: 
     return f"""if(
         JSONHas(properties, {_DANGEROUS_id_based_key}) AND length(JSONExtractArrayRaw(properties, {_DANGEROUS_id_based_key})) > 0,
         JSONExtractArrayRaw(properties, {_DANGEROUS_id_based_key}),
-        JSONExtractArrayRaw(properties, {escape_clickhouse_string(index_based_key)}')
+        JSONExtractArrayRaw(properties, {escape_clickhouse_string(index_based_key)})
     )"""
 
 
