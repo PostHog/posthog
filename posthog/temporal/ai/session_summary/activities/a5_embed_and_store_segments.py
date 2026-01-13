@@ -28,6 +28,7 @@ async def embed_and_store_segments_activity(
     distinct_id, and timestamps.
     """
     try:
+        processed_count = 0
         for segment in segments:
             # Use the description directly as the content to embed
             content = segment.description
@@ -58,6 +59,8 @@ async def embed_and_store_segments_activity(
                 metadata=metadata,
             )
 
+            processed_count += 1
+
             logger.debug(
                 f"Produced embedding for segment {document_id}",
                 session_id=inputs.session_id,
@@ -65,9 +68,10 @@ async def embed_and_store_segments_activity(
             )
 
         logger.debug(
-            f"Successfully produced {len(segments)} embeddings for session {inputs.session_id}",
+            f"Successfully produced {processed_count} embeddings for session {inputs.session_id}",
             session_id=inputs.session_id,
             segment_count=len(segments),
+            processed_count=processed_count,
         )
 
     except Exception as e:
