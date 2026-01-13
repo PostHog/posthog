@@ -387,19 +387,50 @@ class OAuthTokenView(TokenView):
     """
 
     def post(self, request, *args, **kwargs):
+        # Get request details for logging (don't log secrets)
+        client_id = request.POST.get("client_id", "unknown")
+        grant_type = request.POST.get("grant_type", "unknown")
+
         if request.content_type == "application/json" and request.body:
             try:
                 json_data = json.loads(request.body)
                 request.POST = request.POST.copy()
                 for key, value in json_data.items():
                     request.POST[key] = value
+                # Update from JSON body
+                client_id = json_data.get("client_id", client_id)
+                grant_type = json_data.get("grant_type", grant_type)
             except (json.JSONDecodeError, ValueError):
+                logger.warning("oauth_token_invalid_json", client_id=client_id)
                 return JsonResponse(
                     {"error": "invalid_request", "error_description": "Invalid JSON payload"},
                     status=400,
                 )
 
+        logger.info("oauth_token_request", client_id=client_id, grant_type=grant_type)
+
         response = super().post(request, *args, **kwargs)
+
+        if response.status_code != 200:
+            try:
+                error_data = json.loads(response.content)
+                logger.warning(
+                    "oauth_token_error",
+                    client_id=client_id,
+                    grant_type=grant_type,
+                    status_code=response.status_code,
+                    error=error_data.get("error"),
+                    error_description=error_data.get("error_description"),
+                )
+            except (json.JSONDecodeError, ValueError):
+                logger.warning(
+                    "oauth_token_error",
+                    client_id=client_id,
+                    grant_type=grant_type,
+                    status_code=response.status_code,
+                )
+        else:
+            logger.info("oauth_token_success", client_id=client_id, grant_type=grant_type)
 
         if response.status_code == 200:
             try:
