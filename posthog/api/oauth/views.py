@@ -413,7 +413,7 @@ class OAuthTokenView(TokenView):
                     status=400,
                 )
 
-        logger.info(
+        logger.debug(
             "oauth_token_request",
             client_id=client_id,
             grant_type=grant_type,
@@ -469,8 +469,6 @@ class OAuthTokenView(TokenView):
                     grant_type=grant_type,
                     status_code=response.status_code,
                 )
-        else:
-            logger.info("oauth_token_success", client_id=client_id, grant_type=grant_type)
 
         if response.status_code == 200:
             try:
