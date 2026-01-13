@@ -140,7 +140,7 @@ class ModalSandbox:
                 "image": image,
                 "timeout": config.ttl_seconds,
                 "cpu": float(config.cpu_cores),
-                "memory": config.memory_gb * 1024,
+                "memory": int(config.memory_gb * 1024),
                 "verbose": True,
             }
 
