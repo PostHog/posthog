@@ -113,7 +113,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                         `api/organizations/${values.currentOrganization?.id}/domains/${payload.id}`,
                         { ...payload, id: undefined }
                     )
-                    lemonToast.success('Domain updated successfully! Changes will take immediately.')
+                    lemonToast.success('Domain updated successfully! Changes will take effect immediately.')
                     actions.replaceDomain(response)
                     return false
                 },

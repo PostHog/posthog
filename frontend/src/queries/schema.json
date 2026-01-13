@@ -749,6 +749,25 @@
                 }
             ]
         },
+        "ApprovalCardUIStatus": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ApprovalDecisionStatus"
+                },
+                {
+                    "const": "approving",
+                    "type": "string"
+                },
+                {
+                    "const": "rejecting",
+                    "type": "string"
+                }
+            ]
+        },
+        "ApprovalDecisionStatus": {
+            "enum": ["pending", "approved", "rejected", "auto_rejected"],
+            "type": "string"
+        },
         "ArtifactContent": {
             "anyOf": [
                 {
@@ -917,7 +936,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation", "notebook", "update"],
+            "enum": ["status", "message", "conversation", "notebook", "update", "approval"],
             "type": "string"
         },
         "AssistantForm": {
@@ -1933,7 +1952,8 @@
                 "create_insight",
                 "create_form",
                 "task",
-                "upsert_dashboard"
+                "upsert_dashboard",
+                "manage_memories"
             ],
             "type": "string"
         },
@@ -8767,6 +8787,30 @@
                 "subscription_event",
                 "payment_event"
             ],
+            "type": "object"
+        },
+        "DangerousOperationResponse": {
+            "additionalProperties": false,
+            "description": "Response returned when a tool operation requires user approval",
+            "properties": {
+                "payload": {
+                    "type": "object"
+                },
+                "preview": {
+                    "type": "string"
+                },
+                "proposalId": {
+                    "type": "string"
+                },
+                "status": {
+                    "const": "pending_approval",
+                    "type": "string"
+                },
+                "toolName": {
+                    "type": "string"
+                }
+            },
+            "required": ["status", "proposalId", "toolName", "preview", "payload"],
             "type": "object"
         },
         "DashboardFilter": {
@@ -18284,7 +18328,8 @@
                 "reddit-ads",
                 "databricks",
                 "tiktok-ads",
-                "bing-ads"
+                "bing-ads",
+                "vercel"
             ],
             "type": "string"
         },
@@ -19334,15 +19379,7 @@
                     },
                     "type": "object"
                 },
-                "conversion_goal_mappings": {
-                    "description": "Mappings to team-level conversion goals with optional schema_map for DW goals",
-                    "items": {
-                        "$ref": "#/definitions/MarketingConversionGoalMapping"
-                    },
-                    "type": "array"
-                },
                 "conversion_goals": {
-                    "deprecated": "Use conversion_goal_mappings instead. Kept for backwards compatibility.",
                     "items": {
                         "$ref": "#/definitions/ConversionGoalFilter"
                     },
@@ -19620,22 +19657,6 @@
                 }
             },
             "required": ["results"],
-            "type": "object"
-        },
-        "MarketingConversionGoalMapping": {
-            "additionalProperties": false,
-            "description": "Maps a CoreEvent to marketing analytics with optional UTM field mappings",
-            "properties": {
-                "core_event_id": {
-                    "description": "Reference to the CoreEvent.id",
-                    "type": "string"
-                },
-                "schema_map": {
-                    "$ref": "#/definitions/SchemaMap",
-                    "description": "UTM field mappings - required for DataWarehouseNode, optional otherwise"
-                }
-            },
-            "required": ["core_event_id"],
             "type": "object"
         },
         "MarketingIntegrationConfig": {
@@ -29405,6 +29426,12 @@
                 },
                 "issue_id": {
                     "type": "string"
+                },
+                "metadata": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
                 },
                 "title": {
                     "type": "string"

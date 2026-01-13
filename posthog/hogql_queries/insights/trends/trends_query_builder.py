@@ -453,7 +453,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if (
             not self.breakdown.enabled
             and not self._aggregation_operation.requires_query_orchestration()
-            and not self._aggregation_operation.aggregating_on_session_duration()
+            and not self._aggregation_operation.aggregating_on_session_property()
         ):
             return default_query
         # Both breakdowns and complex series aggregation
@@ -491,15 +491,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             orchestrator.parent_query_builder.extend_select(self.breakdown.alias_exprs)
             orchestrator.parent_query_builder.extend_group_by(self.breakdown.field_exprs)
             return orchestrator.build()
-        # Breakdowns and session duration math property
-        elif self.breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
-            default_query.select = [
-                ast.Alias(
-                    alias="session_duration",
-                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
-                ),
-            ]
-
+        # Breakdowns and session property math
+        elif self.breakdown.enabled and self._aggregation_operation.aggregating_on_session_property():
+            default_query.select = self._get_session_property_select_expr()
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
             default_query.select.extend(self.breakdown.column_exprs)
@@ -528,14 +522,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             default_query.select.extend(self.breakdown.column_exprs)
             default_query.group_by.extend(self.breakdown.field_exprs)
 
-        # Just session duration math property
-        elif self._aggregation_operation.aggregating_on_session_duration():
-            default_query.select = [
-                ast.Alias(
-                    alias="session_duration",
-                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
-                )
-            ]
+        # Just session property math
+        elif self._aggregation_operation.aggregating_on_session_property():
+            default_query.select = self._get_session_property_select_expr()
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
             wrapper = self.session_duration_math_property_wrapper(default_query, self.breakdown)
@@ -590,6 +579,26 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         """,
             placeholders=self.query_date_range.to_placeholders(),
         )
+
+    def _get_session_property_select_expr(self) -> list[ast.Expr]:
+        validated_property = self._aggregation_operation._validate_session_property()
+
+        if validated_property == "$session_duration":
+            # Backwards compatibility: existing queries expect "session_duration" alias
+            return [
+                ast.Alias(
+                    alias="session_duration",
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
+                )
+            ]
+        else:
+            # Other session properties use "session_property" alias
+            return [
+                ast.Alias(
+                    alias="session_property",
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", validated_property])]),
+                )
+            ]
 
     def _get_breakdown_limit(self) -> int:
         if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
@@ -655,7 +664,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         placeholders={
                             "max": ast.Array(
                                 exprs=[
-                                    ast.Call(name="max", args=[ast.Field(chain=[histogram_breakdown["alias"]])])
+                                    ast.Call(
+                                        name="max", args=[ast.Field(chain=[cast(str, histogram_breakdown["alias"])])]
+                                    )
                                     for histogram_breakdown in breakdown_aliases_with_histograms
                                 ]
                             )
@@ -666,7 +677,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         placeholders={
                             "min": ast.Array(
                                 exprs=[
-                                    ast.Call(name="min", args=[ast.Field(chain=[histogram_breakdown["alias"]])])
+                                    ast.Call(
+                                        name="min", args=[ast.Field(chain=[cast(str, histogram_breakdown["alias"])])]
+                                    )
                                     for histogram_breakdown in breakdown_aliases_with_histograms
                                 ]
                             )
@@ -706,13 +719,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             bucketed_breakdowns: list[ast.Expr] = []
             for breakdown_alias in breakdown_aliases:
                 if not isinstance(breakdown_alias.get("histogram_bin_count"), int):
-                    bucketed_breakdowns.append(ast.Field(chain=[breakdown_alias["alias"]]))
+                    bucketed_breakdowns.append(ast.Field(chain=[cast(str, breakdown_alias["alias"])]))
                 else:
                     alias_to_index = {
                         breakdown_alias["alias"]: idx
                         for idx, breakdown_alias in enumerate(breakdown_aliases_with_histograms)
                     }
 
+                    alias_str = cast(str, breakdown_alias["alias"])
                     filter_expr = parse_expr(
                         """
                             arrayFilter(
@@ -721,8 +735,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             )[1]
                         """,
                         placeholders={
-                            "alias": ast.Field(chain=[breakdown_alias["alias"]]),
-                            "bucket_index": ast.Constant(value=alias_to_index[breakdown_alias["alias"]] + 1),
+                            "alias": ast.Field(chain=[alias_str]),
+                            "bucket_index": ast.Constant(value=alias_to_index[alias_str] + 1),
                         },
                     )
 

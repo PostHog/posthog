@@ -6,6 +6,7 @@ import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { LemonColorPicker } from 'lib/lemon-ui/LemonColor/LemonColorPicker'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider/LemonSlider'
+import { prepareStepForRender } from 'scenes/product-tours/editor/generateStepHtml'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { ProductTourAppearance, ProductTourStep } from '~/types'
@@ -91,7 +92,7 @@ function TourStepPreview({
     useEffect(() => {
         if (previewRef.current && step) {
             renderProductTourPreview({
-                step: step as any, // will update this when things settle down
+                step: prepareStepForRender(step) as any,
                 appearance: appearance as any,
                 parentElement: previewRef.current,
                 stepIndex: selectedStepIndex,

@@ -78,7 +78,7 @@ runs:
               token: ${{ inputs.token }}
 
         - name: Install uv
-          uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
+          uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
           with:
               enable-cache: true
 
@@ -191,7 +191,7 @@ runs:
                   --ignore=posthog/temporal \
                   --ignore=common/hogvm/python/test \
                   --splits "$CONCURRENCY" --group "$GROUP" \
-                  --durations=100 --durations-min=1.0 --store-durations \
+                  --durations=100 --durations-min=1.0 --store-durations --clean-durations \
                   $PYTEST_ARGS
 
         # Uncomment this code to create an ssh-able console so you can debug issues with github actions
@@ -226,7 +226,7 @@ runs:
           run: |
               pytest posthog/temporal -m "not async_migrations" \
                   --splits "$CONCURRENCY" --group "$GROUP" \
-                  --durations=100 --durations-min=1.0 --store-durations \
+                  --durations=100 --durations-min=1.0 --store-durations --clean-durations \
                   $PYTEST_ARGS
 
         # Post tests

@@ -59,6 +59,7 @@ jobs:
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
+            openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -97,6 +98,7 @@ jobs:
                         - requirements-dev.txt
                         - mypy.ini
                         - pytest.ini
+                        - .test_durations # Used for pytest-split sharding
                         - frontend/src/queries/schema.json # Used for generating schema.py
                         - common/plugin_transpiler/src # Used for transpiling plugins
                         # Make sure we run if someone is explicitly changing the workflow
@@ -122,6 +124,14 @@ jobs:
                         - 'products/tasks/backend/temporal/**/*'
                       llm_gateway:
                         - 'services/llm-gateway/**/*'
+                      openapi_types:
+                        # Generated OpenAPI types - validate they match schema
+                        - 'frontend/src/generated/**/*'
+                        - 'products/*/frontend/generated/**/*'
+                        # Generation tooling - changes here could affect output
+                        - 'frontend/bin/generate-openapi-types.mjs'
+                        - 'frontend/src/lib/api-orval-mutator.ts'
+                        - 'frontend/src/lib/api-stub-for-orval.ts'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -151,10 +161,10 @@ jobs:
 
     check-migrations:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
         timeout-minutes: 20
 
-        name: Validate Django and CH migrations
+        name: Validate migrations and OpenAPI types
         runs-on: depot-ubuntu-latest
 
         steps:
@@ -398,6 +408,27 @@ jobs:
                   # Then run persons migrations using sqlx
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
+
+            - name: Dump migrated schema
+              if: github.event_name == 'push'
+              env:
+                  PGPASSWORD: posthog
+              run: |
+                  set -e
+                  set -o pipefail
+                  # Dump schema + django_migrations data so Django knows which migrations are applied
+                  (pg_dump --schema-only --clean -h localhost -U posthog posthog && \
+                   pg_dump --data-only --table=django_migrations -h localhost -U posthog posthog) | gzip > schema.sql.gz
+                  # Verify the dump is valid
+                  gunzip -t schema.sql.gz
+
+            - name: Upload migrated schema artifact
+              if: github.event_name == 'push'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: migrated-schema
+                  path: schema.sql.gz
+                  retention-days: 90
 
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
@@ -674,8 +705,8 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
-                          if docker compose -f docker-compose.dev.yml down && \
-                            docker compose -f docker-compose.dev.yml up -d; then
+                          if docker compose -f docker-compose.dev.yml -f products/batch_exports/backend/tests/docker-compose.yml down && \
+                            docker compose -f docker-compose.dev.yml -f products/batch_exports/backend/tests/docker-compose.yml up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
@@ -912,7 +943,8 @@ jobs:
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
+              # Only upload timing data on main branch to avoid artifact bloat from PRs
+              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations

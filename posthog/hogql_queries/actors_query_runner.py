@@ -3,6 +3,8 @@ import itertools
 from collections.abc import Iterator, Sequence
 from typing import Any, Optional
 
+from posthoganalytics import feature_enabled
+
 from posthog.schema import (
     ActorsQuery,
     ActorsQueryResponse,
@@ -25,7 +27,8 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy,
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner, get_query_runner
+from posthog.models import User
 
 
 class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
@@ -56,6 +59,19 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         self.strategy = self.determine_strategy()
         self.calculating = False
+        self.user = None
+
+    def run(
+        self,
+        execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user: Optional[User] = None,
+        query_id: Optional[str] = None,
+        insight_id: Optional[int] = None,
+        dashboard_id: Optional[int] = None,
+        cache_age_seconds: Optional[int] = None,
+    ):
+        self.user = user
+        return super().run(execution_mode, user, query_id, insight_id, dashboard_id, cache_age_seconds)
 
     @property
     def group_type_index(self) -> int | None:
@@ -339,7 +355,20 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             elif len(aggregations) > 0:
                 order_by = [ast.OrderExpr(expr=self._remove_aliases(aggregations[0]), order="DESC")]
             elif "created_at" in self.input_columns():
-                order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
+                if (
+                    self.strategy.field == "person"
+                    and self.user
+                    and feature_enabled(
+                        "drop-person-list-order-by",
+                        distinct_id=str(self.user.distinct_id),
+                        groups={"organization": str(self.user.organization.id)}
+                        if self.user.organization and self.user.organization.id
+                        else None,
+                    )
+                ):
+                    order_by = []
+                else:
+                    order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
             elif len(columns) > 0:
                 order_by = [ast.OrderExpr(expr=self._remove_aliases(columns[0]), order="ASC")]
             else:

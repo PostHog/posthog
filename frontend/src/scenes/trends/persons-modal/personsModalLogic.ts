@@ -415,42 +415,57 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return urls.insightNew({ query })
             },
         ],
+        sessionIdsFromLoadedActors: [
+            (s) => [s.actors],
+            (actors: ActorType[]): string[] => {
+                // Extract all session IDs from loaded actors' matched_recordings
+                const sessionIds: string[] = []
+                actors.forEach((actor: ActorType) => {
+                    if (actor.matched_recordings) {
+                        actor.matched_recordings.forEach((recording) => {
+                            if (recording.session_id) {
+                                sessionIds.push(recording.session_id)
+                            }
+                        })
+                    }
+                })
+                return sessionIds
+            },
+        ],
         recordingFilters: [
-            (s) => [s.actorsQuery, s.propertiesTimelineFilterFromUrl],
-            (actorsQuery, propertiesTimelineFilter): Partial<RecordingUniversalFilters> => {
+            (s) => [s.actorsQuery, s.propertiesTimelineFilterFromUrl, s.sessionIdsFromLoadedActors],
+            (
+                actorsQuery: ActorsQuery | null,
+                propertiesTimelineFilter: PropertiesTimelineFilterType,
+                sessionIds: string[]
+            ): Partial<RecordingUniversalFilters> => {
                 if (!actorsQuery || !actorsQuery.source) {
                     return {}
                 }
 
-                const filters: UniversalFilterValue[] = []
                 const source = actorsQuery.source
+
+                // For FunnelsActorsQuery with session IDs, use ONLY session IDs for efficient lookup
+                // No need for additional event/property filters since we already have the exact list of sessions
+                if (source.kind === 'FunnelsActorsQuery' && sessionIds.length > 0) {
+                    return {
+                        session_ids: sessionIds,
+                        // Use minimal valid structure required by conversion functions
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: [] }],
+                        },
+                        duration: [], // Empty duration means no duration filtering (we have explicit session IDs)
+                    }
+                }
+
+                // For non-funnel queries or funnels without session IDs, use filter-based approach
+                const filters: UniversalFilterValue[] = []
 
                 // For FunnelsActorsQuery, the actual query is nested at source.source
                 let insightQuery = source
                 if (source.kind === 'FunnelsActorsQuery' && 'source' in source && source.source) {
                     insightQuery = source.source as any
-                }
-
-                // Extract events from the insight query series
-                if ('series' in insightQuery && Array.isArray(insightQuery.series)) {
-                    insightQuery.series.forEach((series) => {
-                        if ('event' in series && series.event) {
-                            const eventFilter: any = {
-                                id: series.event,
-                                name: series.event,
-                                type: 'events',
-                            }
-                            // Add properties from the series if they exist
-                            if (
-                                'properties' in series &&
-                                Array.isArray(series.properties) &&
-                                series.properties.length > 0
-                            ) {
-                                eventFilter.properties = series.properties
-                            }
-                            filters.push(eventFilter)
-                        }
-                    })
                 }
 
                 // Add breakdown filters if present
@@ -483,8 +498,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     date_to = dateRange.date_to || date_to
                 }
 
-                // Build the nested AND structure required by RecordingUniversalFilters
-                const result = {
+                // Build the result for non-funnel or fallback cases
+                return {
                     filter_group: {
                         type: FilterLogicalOperator.And,
                         values: [
@@ -497,8 +512,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     date_from,
                     date_to,
                 }
-
-                return result
             },
         ],
     }),

@@ -26,6 +26,8 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
                 # Fetch Temporal SDK metrics from its Prometheus endpoint
                 temporal_output = b""
                 try:
+                    # this url is controlled by us, so we don't have to worry about it being a file:// url
+                    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
                     with urllib.request.urlopen(temporal_metrics_url, timeout=5) as response:
                         temporal_output = response.read()
                 except Exception as e:
