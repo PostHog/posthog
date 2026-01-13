@@ -3620,7 +3620,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 placeholders={"pattern": pattern_expr},
             )
             ilike_matches = {d for (d,) in ilike_result.results}
-            assert ilike_matches == ilike_expected, "like " + str(pattern)
+            assert ilike_matches == ilike_expected, "ilike " + str(pattern)
 
             if mat_col:
                 assert ilike_result.clickhouse
