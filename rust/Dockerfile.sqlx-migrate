@@ -4,7 +4,7 @@ FROM rust:1.88-bookworm AS builder
 
 RUN cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-20241223-slim
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
