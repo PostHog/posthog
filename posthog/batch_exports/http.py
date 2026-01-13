@@ -397,21 +397,35 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if model is not None and model != "events":
                 raise serializers.ValidationError("HTTP batch exports only support the events model")
 
-        # If interval is being changed to a non-daily/weekly value, ensure interval_offset is reset to 0
+        # If interval is being changed to a non-daily/weekly value, ensure interval_offset is reset to None
         interval = attrs.get("interval")
         if interval is not None and interval not in ("day", "week"):
             # If interval_offset is not in attrs, it means it's not being updated, so we need to check the instance
             if "interval_offset" not in attrs and self.instance:
                 existing_offset = self.instance.interval_offset
-                if existing_offset != 0:
-                    attrs["interval_offset"] = 0
-            # If interval_offset is in attrs, validate_interval_offset will handle setting it to 0
+                if existing_offset is not None:
+                    attrs["interval_offset"] = None
 
         return attrs
+
+    def validate_timezone(self, timezone: str | None) -> str | None:
+        """Validate timezone.
+
+        We set the timezone to the default value of 'UTC' if it is None.
+
+        NOTE: This only gets called if 'timezone' is provided in the request data.
+        (i.e. if we're not patching the timezone this function is not called and the timezone remains unchanged)
+        """
+
+        if timezone is None:
+            return "UTC"
+        return timezone
 
     def validate_interval_offset(self, interval_offset: int | None) -> int | None:
         """Validate interval_offset based on the interval.
 
+        NOTE: This only gets called if 'interval_offset' is provided in the request data.
+        (i.e. if we're not patching the interval_offset this function is not called and the interval_offset remains unchanged)
         If interval_offset is not provided, it means it's not being updated, so we need to check if the interval does
         not support an offset, and if not we reset it to 0.
 
@@ -428,8 +442,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
             interval = self.instance.interval
 
         if interval_offset is None:
-            if interval not in ("day", "week"):
-                return 0
             return None
 
         # 1. minimum interval offset is 0
