@@ -33,10 +33,14 @@ pub fn to_f64_representation(value: &Value) -> Option<f64> {
     to_string_representation(value).parse::<f64>().ok()
 }
 
+/// Strip 'v' prefix if present (e.g., "v1.2.3" -> "1.2.3")
+fn normalize_version_string(version: &str) -> &str {
+    version.strip_prefix('v').unwrap_or(version)
+}
+
 pub fn to_semver_representation(value: &Value) -> Option<Version> {
     let version_string = to_string_representation(value);
-    // Strip 'v' prefix if present (e.g., "v1.2.3" -> "1.2.3")
-    let normalized = version_string.strip_prefix('v').unwrap_or(&version_string);
+    let normalized = normalize_version_string(&version_string);
     // TODO: Build metadata (e.g., "1.0.0+build.1") is not currently supported because
     // our `sortableSemver` method in ClickHouse/HogQL doesn't support it yet.
     // For semver equality checks, use regular string equality operators instead.
@@ -265,8 +269,8 @@ pub fn match_property(
                 }
             };
 
-            if let Some(override_value) = to_semver_representation(value) {
-                Ok(compare(&parsed_value, &override_value, operator))
+            if let Some(filter_value) = to_semver_representation(value) {
+                Ok(compare(&parsed_value, &filter_value, operator))
             } else {
                 tracing::debug!(
                     "Failed to parse filter value '{}' for key '{}' as semver for operator {:?}",
@@ -302,7 +306,7 @@ pub fn match_property(
 
             // Build the version requirement string based on the operator
             let version_string = to_string_representation(value);
-            let normalized_version = version_string.strip_prefix('v').unwrap_or(&version_string);
+            let normalized_version = normalize_version_string(&version_string);
 
             let requirement_string = match operator {
                 OperatorType::SemverTilde => format!("~{normalized_version}"),
