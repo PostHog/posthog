@@ -2174,15 +2174,15 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Leading/trailing whitespace should not be accepted
-        assert!(!match_property(
+        // Leading/trailing whitespace is trimmed and accepted
+        assert!(match_property(
             &property,
             &HashMap::from([("version".to_string(), json!(" 1.2.3"))]),
             true
         )
         .expect("expected match to exist"));
 
-        assert!(!match_property(
+        assert!(match_property(
             &property,
             &HashMap::from([("version".to_string(), json!("1.2.3 "))]),
             true
