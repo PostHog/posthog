@@ -67,7 +67,8 @@ export class KeyStore extends BaseKeyStore {
         private redisPool: RedisPool,
         private dynamoDBClient: DynamoDBClient,
         private kmsClient: KMSClient,
-        private retentionService: RetentionService
+        private retentionService: RetentionService,
+        private teamService: TeamService
     ) {
         super()
         this.memoryCache = new LRUCache({
@@ -80,10 +81,11 @@ export class KeyStore extends BaseKeyStore {
         redisPool: RedisPool,
         dynamoDBClient: DynamoDBClient,
         kmsClient: KMSClient,
-        retentionService: RetentionService
+        retentionService: RetentionService,
+        teamService: TeamService
     ): Promise<KeyStore> {
         await sodium.ready
-        return new KeyStore(redisPool, dynamoDBClient, kmsClient, retentionService)
+        return new KeyStore(redisPool, dynamoDBClient, kmsClient, retentionService, teamService)
     }
 
     private cacheKey(sessionId: string, teamId: number): string {
@@ -146,51 +148,80 @@ export class KeyStore extends BaseKeyStore {
     }
 
     async generateKey(sessionId: string, teamId: number): Promise<SessionKey> {
-        // Generate a new data encryption key using KMS
-        const { Plaintext, CiphertextBlob } = await this.kmsClient.send(
-            new GenerateDataKeyCommand({
-                KeyId: 'alias/session-replay-master-key',
-                NumberOfBytes: sodium.crypto_secretbox_KEYBYTES,
-                EncryptionContext: {
-                    session_id: sessionId,
-                    team_id: String(teamId),
-                },
-            })
-        )
-
-        if (!Plaintext || !CiphertextBlob) {
-            throw new Error('Failed to generate data key from KMS')
-        }
-
-        // Generate a random nonce for encryption
-        const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES)
+        // Check if the team has encryption enabled
+        const encryptionEnabled = await this.teamService.getEncryptionEnabledByTeamId(teamId)
 
         // Calculate expiration based on session retention policy
         const sessionRetentionDays = await this.retentionService.getSessionRetentionDays(teamId, sessionId)
         const createdAt = Math.floor(Date.now() / 1000)
         const expiresAt = createdAt + sessionRetentionDays * 24 * 60 * 60
 
-        // Store the encrypted key in DynamoDB
-        await this.dynamoDBClient.send(
-            new PutItemCommand({
-                TableName: KEYS_TABLE_NAME,
-                Item: {
-                    session_id: { S: sessionId },
-                    team_id: { N: String(teamId) },
-                    encrypted_key: { B: CiphertextBlob },
-                    nonce: { B: nonce },
-                    encrypted_session: { BOOL: true },
-                    created_at: { N: String(createdAt) },
-                    expires_at: { N: String(expiresAt) },
-                },
-            })
-        )
+        let sessionKey: SessionKey
 
-        const sessionKey: SessionKey = {
-            plaintextKey: Buffer.from(Plaintext),
-            encryptedKey: Buffer.from(CiphertextBlob),
-            nonce: Buffer.from(nonce),
-            encryptedSession: true,
+        if (encryptionEnabled) {
+            // Generate a new data encryption key using KMS
+            const { Plaintext, CiphertextBlob } = await this.kmsClient.send(
+                new GenerateDataKeyCommand({
+                    KeyId: 'alias/session-replay-master-key',
+                    NumberOfBytes: sodium.crypto_secretbox_KEYBYTES,
+                    EncryptionContext: {
+                        session_id: sessionId,
+                        team_id: String(teamId),
+                    },
+                })
+            )
+
+            if (!Plaintext || !CiphertextBlob) {
+                throw new Error('Failed to generate data key from KMS')
+            }
+
+            // Generate a random nonce for encryption
+            const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES)
+
+            // Store the encrypted key in DynamoDB
+            await this.dynamoDBClient.send(
+                new PutItemCommand({
+                    TableName: KEYS_TABLE_NAME,
+                    Item: {
+                        session_id: { S: sessionId },
+                        team_id: { N: String(teamId) },
+                        encrypted_key: { B: CiphertextBlob },
+                        nonce: { B: nonce },
+                        encrypted_session: { BOOL: true },
+                        created_at: { N: String(createdAt) },
+                        expires_at: { N: String(expiresAt) },
+                    },
+                })
+            )
+
+            sessionKey = {
+                plaintextKey: Buffer.from(Plaintext),
+                encryptedKey: Buffer.from(CiphertextBlob),
+                nonce: Buffer.from(nonce),
+                encryptedSession: true,
+            }
+        } else {
+            await this.dynamoDBClient.send(
+                new PutItemCommand({
+                    TableName: KEYS_TABLE_NAME,
+                    Item: {
+                        session_id: { S: sessionId },
+                        team_id: { N: String(teamId) },
+                        encrypted_key: { B: Buffer.alloc(0) },
+                        nonce: { B: Buffer.alloc(0) },
+                        encrypted_session: { BOOL: false },
+                        created_at: { N: String(createdAt) },
+                        expires_at: { N: String(expiresAt) },
+                    },
+                })
+            )
+
+            sessionKey = {
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                nonce: Buffer.alloc(0),
+                encryptedSession: false,
+            }
         }
 
         // Cache in memory and Redis
@@ -226,13 +257,9 @@ export class KeyStore extends BaseKeyStore {
             })
         )
 
-        if (!result.Item) {
-            throw new Error(`Key not found for session ${sessionId} team ${teamId}`)
-        }
-
         let sessionKey: SessionKey
 
-        if (result.Item.encrypted_session?.BOOL) {
+        if (result.Item && result.Item.encrypted_session?.BOOL) {
             if (!result.Item.encrypted_key?.B || !result.Item.nonce?.B) {
                 throw new Error(`Missing key data for session ${sessionId} team ${teamId}`)
             }
@@ -263,7 +290,7 @@ export class KeyStore extends BaseKeyStore {
                 encryptedSession: true,
             }
         } else {
-            // Return empty key if session is not encrypted
+            // Return empty key if session is not encrypted or no key found
             sessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
@@ -321,7 +348,7 @@ export async function getKeyStore(hub: Hub, region: string): Promise<BaseKeyStor
         const teamService = new TeamService(hub.postgres)
         const retentionService = new RetentionService(redisPool, teamService)
 
-        return KeyStore.create(redisPool, dynamoDBClient, kmsClient, retentionService)
+        return KeyStore.create(redisPool, dynamoDBClient, kmsClient, retentionService, teamService)
     }
     return new PassthroughKeyStore()
 }
