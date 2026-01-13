@@ -11,13 +11,22 @@ import { MessageInput, MessageList } from '../Chat'
 import { sidePanelConversationsLogic } from './sidePanelConversationsLogic'
 
 function TicketListView(): JSX.Element {
-    const { tickets, ticketsLoading, conversationsReady } = useValues(sidePanelConversationsLogic)
+    const { tickets, ticketsLoading, conversationsReady, conversationsInitialized } =
+        useValues(sidePanelConversationsLogic)
     const { selectTicket, startNewConversation } = useActions(sidePanelConversationsLogic)
 
-    if (!conversationsReady || ticketsLoading) {
+    if (!conversationsInitialized || ticketsLoading) {
         return (
             <div className="flex items-center justify-center h-40">
                 <Spinner />
+            </div>
+        )
+    }
+
+    if (!conversationsReady) {
+        return (
+            <div className="text-center text-muted-alt py-8">
+                <p>Conversations are not available for this team.</p>
             </div>
         )
     }
@@ -121,8 +130,10 @@ function NewConversationView(): JSX.Element {
     const [messageContent, setMessageContent] = useState('')
 
     const handleSubmit = (): void => {
-        if (messageContent.trim()) {
-            sendMessage(messageContent)
+        if (messageContent.trim() && !messageSending) {
+            sendMessage(messageContent, () => {
+                setMessageContent('')
+            })
         }
     }
 
@@ -156,7 +167,7 @@ function NewConversationView(): JSX.Element {
                 center
                 onClick={handleSubmit}
                 loading={messageSending}
-                disabled={!messageContent.trim()}
+                disabled={!messageContent.trim() || messageSending}
                 data-attr="sidebar-submit-new-ticket"
             >
                 Submit ticket

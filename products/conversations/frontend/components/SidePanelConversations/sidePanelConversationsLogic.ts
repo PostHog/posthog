@@ -10,6 +10,7 @@ import type { ChatMessage, ConversationMessage, ConversationTicket, SidePanelVie
 import type { sidePanelConversationsLogicType } from './sidePanelConversationsLogicType'
 
 const TICKETS_POLL_INTERVAL = 30000 // 30 seconds
+const MAX_POLLING_FAILURES = 3 // Stop polling after 3 consecutive failures
 
 export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>([
     path([
@@ -30,6 +31,9 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
         setMessageSending: (sending: boolean) => ({ sending }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
         setConversationsReady: (ready: boolean) => ({ ready }),
+        setConversationsInitialized: (initialized: boolean) => ({ initialized }),
+        incrementPollingFailures: true,
+        resetPollingFailures: true,
         loadTickets: true,
         selectTicket: (ticketId: string) => ({ ticketId }),
         loadMessages: (ticketId: string) => ({ ticketId }),
@@ -99,6 +103,19 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
                 setConversationsReady: (_, { ready }) => ready,
             },
         ],
+        conversationsInitialized: [
+            false,
+            {
+                setConversationsInitialized: (_, { initialized }) => initialized,
+            },
+        ],
+        pollingFailures: [
+            0,
+            {
+                incrementPollingFailures: (state) => state + 1,
+                resetPollingFailures: () => 0,
+            },
+        ],
     }),
     selectors({
         userName: [() => [userLogic.selectors.user], (user) => user?.first_name || user?.email || 'You'],
@@ -121,9 +138,12 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
                 const response = await posthog.conversations.getTickets({ limit: 50 })
                 if (response) {
                     actions.setTickets(response.results as ConversationTicket[])
+                    actions.resetPollingFailures()
                 }
             } catch (e) {
                 console.error('Failed to load tickets:', e)
+                lemonToast.error('Failed to load tickets. Please try again.')
+                actions.incrementPollingFailures()
             } finally {
                 actions.setTicketsLoading(false)
             }
@@ -147,9 +167,12 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
                 if (response) {
                     actions.setMessages(response.messages as ConversationMessage[])
                     actions.setHasMoreMessages(response.has_more)
+                    actions.resetPollingFailures()
                 }
             } catch (e) {
                 console.error('Failed to load messages:', e)
+                lemonToast.error('Failed to load messages. Please try again.')
+                actions.incrementPollingFailures()
             } finally {
                 actions.setMessagesLoading(false)
             }
@@ -212,18 +235,26 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
                 if (posthog.conversations.isAvailable()) {
                     actions.setConversationsReady(true)
                     actions.loadTickets()
-                } else {
-                    // Wait a bit for remote config to load, then try again
+                    actions.setConversationsInitialized(true)
+                    return
+                }
+
+                // Poll for availability with timeout
+                const maxAttempts = 5
+                for (let attempt = 0; attempt < maxAttempts; attempt++) {
                     await new Promise((resolve) => setTimeout(resolve, 1000))
                     if (posthog.conversations.isAvailable()) {
                         actions.setConversationsReady(true)
                         actions.loadTickets()
-                    } else {
-                        console.warn('Conversations not enabled for this team')
+                        actions.setConversationsInitialized(true)
+                        return
                     }
                 }
+                console.warn('Conversations not enabled for this team')
+                actions.setConversationsInitialized(true)
             } catch (e) {
                 console.error('Failed to initialize conversations:', e)
+                actions.setConversationsInitialized(true)
             }
         }
         void initConversations()
@@ -231,10 +262,18 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
         // Start polling interval - checks conditions inside
         cache.pollingInterval = setInterval(() => {
             const { sidePanelOpen } = sidePanelStateLogic.values
-            if (sidePanelOpen && values.conversationsReady && values.tickets.length > 0) {
-                actions.loadTickets()
+            if (
+                sidePanelOpen &&
+                values.conversationsReady &&
+                values.tickets.length > 0 &&
+                values.pollingFailures < MAX_POLLING_FAILURES
+            ) {
+                // Only poll if not currently loading to avoid request pile-up
+                if (!values.ticketsLoading) {
+                    actions.loadTickets()
+                }
                 // Also reload messages if viewing a chat
-                if (values.view === 'chat' && values.currentTicket) {
+                if (values.view === 'chat' && values.currentTicket && !values.messagesLoading) {
                     actions.loadMessages(values.currentTicket.id)
                 }
             }
