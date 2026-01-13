@@ -6,14 +6,11 @@ import { Group } from '~/types'
 interface GroupCaptionProps {
     groupData: Group
     groupTypeName: string
-    displayType?: 'col' | 'wrap'
 }
 
-export function GroupCaption({ groupData, groupTypeName, displayType = 'wrap' }: GroupCaptionProps): JSX.Element {
-    const className = displayType === 'col' ? 'flex flex-col' : 'flex items-center flex-wrap'
-
+export function GroupCaption({ groupData, groupTypeName }: GroupCaptionProps): JSX.Element {
     return (
-        <div className={className}>
+        <div className="flex items-center flex-wrap">
             <div className="mr-4">
                 <span className="text-secondary">Type:</span> {groupTypeName}
             </div>
