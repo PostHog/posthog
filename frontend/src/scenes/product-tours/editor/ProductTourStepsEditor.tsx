@@ -16,6 +16,7 @@ import {
 import { LemonBadge, LemonButton, LemonDivider, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppearancePositionSelector'
 
 import {
     PRODUCT_TOUR_STEP_WIDTHS,
@@ -23,6 +24,8 @@ import {
     ProductTourStep,
     ProductTourStepType,
     ProductTourStepWidth,
+    ScreenPosition,
+    SurveyPosition,
 } from '~/types'
 
 import { StepContentEditor } from './StepContentEditor'
@@ -257,6 +260,15 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                         survey={selectedStep.survey}
                                         onChange={(survey) => updateStep(selectedStepIndex, { survey })}
                                     />
+                                    <div className="mt-4">
+                                        <label className="text-sm font-medium block mb-2">Position</label>
+                                        <PositionSelector
+                                            value={selectedStep.modalPosition ?? SurveyPosition.MiddleCenter}
+                                            onChange={(position: ScreenPosition) =>
+                                                updateStep(selectedStepIndex, { modalPosition: position })
+                                            }
+                                        />
+                                    </div>
                                 </div>
                                 <div className="ProductTourStepsEditor__survey-preview">
                                     <div className="text-xs text-muted uppercase tracking-wide mb-3">Preview</div>
@@ -280,31 +292,47 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                 <div className="ProductTourStepsEditor__step-settings">
                                     <h4 className="font-semibold mb-3">Step settings</h4>
 
-                                    <div className="max-w-sm">
-                                        <label className="text-sm font-medium block mb-2">Tooltip width</label>
-                                        <div className="flex items-center gap-3 mb-2">
-                                            <LemonSlider
-                                                value={getWidthValue(selectedStep.maxWidth)}
+                                    <div className="flex gap-12 items-start">
+                                        <div className="w-80">
+                                            <label className="text-sm font-medium block mb-2">Width</label>
+                                            <div className="flex items-center gap-3 mb-2">
+                                                <LemonSlider
+                                                    value={getWidthValue(selectedStep.maxWidth)}
+                                                    onChange={(value) =>
+                                                        updateStep(selectedStepIndex, { maxWidth: value })
+                                                    }
+                                                    min={TOUR_STEP_MIN_WIDTH}
+                                                    max={TOUR_STEP_MAX_WIDTH}
+                                                    step={10}
+                                                    className="flex-1"
+                                                />
+                                                <span className="text-sm text-muted w-12 text-right">
+                                                    {getWidthValue(selectedStep.maxWidth)}px
+                                                </span>
+                                            </div>
+                                            <LemonSegmentedButton
+                                                size="small"
+                                                value={
+                                                    isPresetWidth(getWidthValue(selectedStep.maxWidth))
+                                                        ? getWidthValue(selectedStep.maxWidth)
+                                                        : undefined
+                                                }
                                                 onChange={(value) => updateStep(selectedStepIndex, { maxWidth: value })}
-                                                min={TOUR_STEP_MIN_WIDTH}
-                                                max={TOUR_STEP_MAX_WIDTH}
-                                                step={10}
-                                                className="flex-1"
+                                                options={WIDTH_PRESET_OPTIONS}
                                             />
-                                            <span className="text-sm text-muted w-12 text-right">
-                                                {getWidthValue(selectedStep.maxWidth)}px
-                                            </span>
                                         </div>
-                                        <LemonSegmentedButton
-                                            size="small"
-                                            value={
-                                                isPresetWidth(getWidthValue(selectedStep.maxWidth))
-                                                    ? getWidthValue(selectedStep.maxWidth)
-                                                    : undefined
-                                            }
-                                            onChange={(value) => updateStep(selectedStepIndex, { maxWidth: value })}
-                                            options={WIDTH_PRESET_OPTIONS}
-                                        />
+
+                                        {selectedStep.type === 'modal' && (
+                                            <div>
+                                                <label className="text-sm font-medium block mb-2">Position</label>
+                                                <PositionSelector
+                                                    value={selectedStep.modalPosition ?? SurveyPosition.MiddleCenter}
+                                                    onChange={(position: ScreenPosition) =>
+                                                        updateStep(selectedStepIndex, { modalPosition: position })
+                                                    }
+                                                />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </>
