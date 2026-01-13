@@ -63,6 +63,7 @@ async def test_azure_blob_check_container_invalid_connection_string():
     result = await test_step.run()
 
     assert result.status == Status.FAILED
+    assert result.message is not None
     assert "Invalid connection string format" in result.message
 
 

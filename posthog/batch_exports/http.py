@@ -520,7 +520,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise PermissionDenied("Azure Blob Storage batch exports are not enabled for this team.")
 
             # validate the Integration is valid (this is mandatory for Azure Blob batch exports)
-            integration: Integration | None = destination_attrs.get("integration")
+            integration = destination_attrs.get("integration")
             if integration is None:
                 raise serializers.ValidationError("Integration is required for Azure Blob batch exports")
             if integration.team_id != team_id:
