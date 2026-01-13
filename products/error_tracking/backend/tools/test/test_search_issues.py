@@ -368,14 +368,16 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         tool = await self._create_tool()
 
         issues = [
-            {
-                "id": "01936e7f-d7ff-7314-b2d4-7627981e34f0",
-                "name": "Error",
-                "status": "active",
-                "first_seen": "2025-01-10T10:00:00Z",
-                "last_seen": "2025-01-15T11:00:00Z",
-                "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
-            }
+            ErrorTrackingIssueSchema.model_validate(
+                {
+                    "id": "01936e7f-d7ff-7314-b2d4-7627981e34f0",
+                    "name": "Error",
+                    "status": "active",
+                    "first_seen": "2025-01-10T10:00:00Z",
+                    "last_seen": "2025-01-15T11:00:00Z",
+                    "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
+                }
+            )
         ]
 
         result = tool._format_results(issues)
@@ -386,22 +388,26 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         tool = await self._create_tool()
 
         issues = [
-            {
-                "id": "01936e7f-d7ff-7314-b2d4-7627981e34f1",
-                "name": "Error 1",
-                "status": "active",
-                "first_seen": "2025-01-10T10:00:00Z",
-                "last_seen": "2025-01-15T11:00:00Z",
-                "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
-            },
-            {
-                "id": "01936e7f-d7ff-7314-b2d4-7627981e34f2",
-                "name": "Error 2",
-                "status": "active",
-                "first_seen": "2025-01-10T10:00:00Z",
-                "last_seen": "2025-01-15T11:00:00Z",
-                "aggregations": {"occurrences": 2, "users": 2, "sessions": 1, "volume_buckets": []},
-            },
+            ErrorTrackingIssueSchema.model_validate(
+                {
+                    "id": "01936e7f-d7ff-7314-b2d4-7627981e34f1",
+                    "name": "Error 1",
+                    "status": "active",
+                    "first_seen": "2025-01-10T10:00:00Z",
+                    "last_seen": "2025-01-15T11:00:00Z",
+                    "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
+                }
+            ),
+            ErrorTrackingIssueSchema.model_validate(
+                {
+                    "id": "01936e7f-d7ff-7314-b2d4-7627981e34f2",
+                    "name": "Error 2",
+                    "status": "active",
+                    "first_seen": "2025-01-10T10:00:00Z",
+                    "last_seen": "2025-01-15T11:00:00Z",
+                    "aggregations": {"occurrences": 2, "users": 2, "sessions": 1, "volume_buckets": []},
+                }
+            ),
         ]
 
         result = tool._format_results(issues)
@@ -414,14 +420,16 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         tool = await self._create_tool()
 
         issues = [
-            {
-                "id": f"01936e7f-d7ff-7314-b2d4-7627981e34{i:02d}",
-                "name": f"Error {i}",
-                "status": "active",
-                "first_seen": "2025-01-10T10:00:00Z",
-                "last_seen": "2025-01-15T11:00:00Z",
-                "aggregations": {"occurrences": i, "users": i, "sessions": 0, "volume_buckets": []},
-            }
+            ErrorTrackingIssueSchema.model_validate(
+                {
+                    "id": f"01936e7f-d7ff-7314-b2d4-7627981e34{i:02d}",
+                    "name": f"Error {i}",
+                    "status": "active",
+                    "first_seen": "2025-01-10T10:00:00Z",
+                    "last_seen": "2025-01-15T11:00:00Z",
+                    "aggregations": {"occurrences": i, "users": i, "sessions": 0, "volume_buckets": []},
+                }
+            )
             for i in range(15)
         ]
 

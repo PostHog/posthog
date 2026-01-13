@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { Link } from 'lib/lemon-ui/Link'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -237,9 +237,21 @@ function ErrorTrackingFiltersWidgetContent({ filters }: { filters: MaxErrorTrack
     }
 
     const hasIssues = issues.length > 0
+    const errorTrackingUrl = buildErrorTrackingUrl()
 
     return (
         <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
+            {!isOnErrorTrackingPage && (
+                <div className="flex items-center justify-between px-2 pt-2">
+                    <span className="text-xs font-semibold text-secondary">Error tracking</span>
+                    <LemonButton
+                        to={errorTrackingUrl}
+                        icon={<IconOpenInNew />}
+                        size="xsmall"
+                        tooltip="Open in Error tracking"
+                    />
+                </div>
+            )}
             <ErrorTrackingFiltersSummary filters={filters} />
             <div className="border-t">
                 {hasIssues ? (
@@ -254,23 +266,10 @@ function ErrorTrackingFiltersWidgetContent({ filters }: { filters: MaxErrorTrack
                     </div>
                 )}
                 {hasMore && (
-                    <div className="p-2 border-t">
-                        <LemonButton
-                            fullWidth
-                            type="secondary"
-                            size="small"
-                            onClick={() => loadMoreIssues()}
-                            loading={isLoading}
-                        >
+                    <div className="flex justify-center p-2 border-t">
+                        <LemonButton type="tertiary" size="xsmall" onClick={() => loadMoreIssues()} loading={isLoading}>
                             Load more issues
                         </LemonButton>
-                    </div>
-                )}
-                {!isOnErrorTrackingPage && (
-                    <div className="p-2 text-center border-t">
-                        <Link to={buildErrorTrackingUrl()} className="text-xs">
-                            View in Error tracking →
-                        </Link>
                     </div>
                 )}
             </div>

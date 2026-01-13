@@ -1,7 +1,7 @@
 import json
 from datetime import UTC
 from textwrap import dedent
-from typing import Literal
+from typing import Literal, cast
 
 from django.utils import timezone
 
@@ -224,17 +224,11 @@ class SearchErrorTrackingIssuesTool(MaxTool):
             logger.exception("Error executing error tracking query", error=str(e))
             return f"Error searching for issues: {e}", None
 
-        # Handle both pydantic model and dict responses
-        results: list = []
-        has_more_from_response: bool = False
-        if hasattr(query_results, "results"):
-            results = query_results.results
-            has_more_from_response = getattr(query_results, "hasMore", False) or getattr(
-                query_results, "has_more", False
-            )
-        elif isinstance(query_results, dict):
-            results = query_results.get("results", [])
-            has_more_from_response = query_results.get("hasMore", False) or query_results.get("has_more", False)
+        # Extract results and pagination info from response
+        # Note: executor returns dict with extra caching fields, so we validate issues individually
+        raw_results = cast(list[dict], query_results.get("results", []))
+        results = [ErrorTrackingIssue.model_validate(r) for r in raw_results]
+        has_more_from_response = cast(bool, query_results.get("hasMore", False))
 
         # Use has_more from paginator response (based on ClickHouse results before Postgres filtering)
         # Fall back to comparing result count vs limit if not available
@@ -259,11 +253,10 @@ class SearchErrorTrackingIssuesTool(MaxTool):
 
         return content, filters
 
-    def _build_issue_previews(self, results: list) -> list[MaxErrorTrackingIssuePreview]:
+    def _build_issue_previews(self, results: list[ErrorTrackingIssue]) -> list[MaxErrorTrackingIssuePreview]:
         """Build issue preview objects for frontend display."""
         previews = []
-        for issue_data in results:
-            issue = ErrorTrackingIssue.model_validate(issue_data)
+        for issue in results:
             aggregations = issue.aggregations
 
             previews.append(
@@ -282,7 +275,7 @@ class SearchErrorTrackingIssuesTool(MaxTool):
             )
         return previews
 
-    def _format_results(self, results: list, has_more: bool = False) -> str:
+    def _format_results(self, results: list[ErrorTrackingIssue], has_more: bool = False) -> str:
         """Format query results as text output."""
 
         if not results:
@@ -296,7 +289,7 @@ class SearchErrorTrackingIssuesTool(MaxTool):
 
         # Show up to 10 issues in the response
         for i, issue in enumerate(results[:10], 1):
-            content += self._format_issue(i, ErrorTrackingIssue.model_validate(issue))
+            content += self._format_issue(i, issue)
 
         if total_count > 10:
             content += f"\n...and {total_count - 10} more issues in this batch"
