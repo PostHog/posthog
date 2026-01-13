@@ -220,7 +220,11 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             stream_usage=True,
             user=self._user,
             team=self._team,
-            betas=["interleaved-thinking-2025-05-14", "context-1m-2025-08-07"],
+            betas=[
+                "interleaved-thinking-2025-05-14",
+                "context-1m-2025-08-07",
+                "fine-grained-tool-streaming-2025-05-14",
+            ],
             max_tokens=8192,
             thinking=self.THINKING_CONFIG,
             conversation_start_dt=state.start_dt,

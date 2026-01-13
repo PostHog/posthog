@@ -4622,6 +4622,7 @@ export const INTEGRATION_KINDS = [
     'tiktok-ads',
     'bing-ads',
     'vercel',
+    'azure-blob',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
