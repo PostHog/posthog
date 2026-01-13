@@ -9,7 +9,11 @@ from posthog.hogql.database.models import (
 
 
 class EventPropertiesTable(Table):
-    """EAV table for event properties materialization."""
+    """EAV table for event properties materialization.
+
+    Note: DateTime properties use value_string (not a separate column) to match
+    traditional mat_* column behavior. This avoids timezone interpretation issues.
+    """
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -21,7 +25,6 @@ class EventPropertiesTable(Table):
         "value_string": StringDatabaseField(name="value_string", nullable=True),
         "value_numeric": FloatDatabaseField(name="value_numeric", nullable=True),
         "value_bool": IntegerDatabaseField(name="value_bool", nullable=True),
-        "value_datetime": DateTimeDatabaseField(name="value_datetime", nullable=True),
     }
 
     def to_printed_clickhouse(self, context):

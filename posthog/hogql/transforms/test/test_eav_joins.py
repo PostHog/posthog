@@ -376,7 +376,8 @@ class TestEAVJoinsComplexQueries(BaseTest):
             (PropertyType.String, "value_string"),
             (PropertyType.Numeric, "value_numeric"),
             (PropertyType.Boolean, "value_bool"),
-            (PropertyType.Datetime, "value_datetime"),
+            # DateTime uses value_string to match traditional mat_* column behavior
+            (PropertyType.Datetime, "value_string"),
         ]
     )
     def test_eav_property_uses_correct_column_for_type(self, property_type: str, expected_column: str):

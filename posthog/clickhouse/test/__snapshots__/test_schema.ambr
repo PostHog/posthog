@@ -1028,8 +1028,7 @@
       key String,
       value_string Nullable(String),
       value_numeric Nullable(Float64),
-      value_bool Nullable(UInt8),
-      value_datetime Nullable(String)
+      value_bool Nullable(UInt8)
   
       
   , _timestamp DateTime
@@ -1052,10 +1051,9 @@
       distinct_id,
       uuid,
       key,
-      if(property_type = 'String', raw_value, NULL) as value_string,
+      if(property_type IN ('String', 'DateTime'), raw_value, NULL) as value_string,
       if(property_type = 'Numeric', accurateCastOrNull(raw_value, 'Float64'), NULL) as value_numeric,
       if(property_type = 'Boolean', toBool(transform(toString(raw_value), ['true', 'false'], [1, 0], NULL)), NULL) as value_bool,
-      if(property_type = 'DateTime', raw_value, NULL) as value_datetime,
       _timestamp,
       _offset,
       _partition
@@ -3838,8 +3836,7 @@
       key String,
       value_string Nullable(String),
       value_numeric Nullable(Float64),
-      value_bool Nullable(UInt8),
-      value_datetime Nullable(String)
+      value_bool Nullable(UInt8)
   
       
   , _timestamp DateTime
@@ -3850,8 +3847,7 @@
       INDEX bloom_filter_key key TYPE bloom_filter GRANULARITY 1,
       INDEX bloom_filter_value_string value_string TYPE bloom_filter GRANULARITY 1,
       INDEX bloom_filter_value_numeric value_numeric TYPE bloom_filter GRANULARITY 1,
-      INDEX bloom_filter_value_bool value_bool TYPE bloom_filter GRANULARITY 1,
-      INDEX bloom_filter_value_datetime value_datetime TYPE bloom_filter GRANULARITY 1
+      INDEX bloom_filter_value_bool value_bool TYPE bloom_filter GRANULARITY 1
   
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_event_properties', '{replica}', _timestamp)
@@ -5118,8 +5114,7 @@
       key String,
       value_string Nullable(String),
       value_numeric Nullable(Float64),
-      value_bool Nullable(UInt8),
-      value_datetime Nullable(String)
+      value_bool Nullable(UInt8)
   
       
   , _timestamp DateTime
@@ -6596,8 +6591,7 @@
       key String,
       value_string Nullable(String),
       value_numeric Nullable(Float64),
-      value_bool Nullable(UInt8),
-      value_datetime Nullable(String)
+      value_bool Nullable(UInt8)
   
       
   , _timestamp DateTime
@@ -6608,8 +6602,7 @@
       INDEX bloom_filter_key key TYPE bloom_filter GRANULARITY 1,
       INDEX bloom_filter_value_string value_string TYPE bloom_filter GRANULARITY 1,
       INDEX bloom_filter_value_numeric value_numeric TYPE bloom_filter GRANULARITY 1,
-      INDEX bloom_filter_value_bool value_bool TYPE bloom_filter GRANULARITY 1,
-      INDEX bloom_filter_value_datetime value_datetime TYPE bloom_filter GRANULARITY 1
+      INDEX bloom_filter_value_bool value_bool TYPE bloom_filter GRANULARITY 1
   
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_event_properties', '{replica}', _timestamp)

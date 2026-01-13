@@ -104,11 +104,12 @@ class TestEAVBackfillEndToEnd:
             )
 
         # Verify each property value in event_properties
+        # Note: DateTime uses value_string (not a separate column) to match traditional mat_* column behavior
         value_column_map = {
             str(PropertyType.String): "value_string",
             str(PropertyType.Numeric): "value_numeric",
             str(PropertyType.Boolean): "value_bool",
-            str(PropertyType.Datetime): "value_datetime",
+            str(PropertyType.Datetime): "value_string",
         }
 
         for prop_name, prop_type, input_value, expected, event_uuid in test_cases:

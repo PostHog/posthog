@@ -29,11 +29,12 @@ PROPERTY_TYPE_TO_COLUMN_NAME: dict[str, str] = {
 }
 
 # Mapping from property type to EAV value column
+# Note: DateTime uses value_string (not a separate column) to match traditional mat_* column behavior
 PROPERTY_TYPE_TO_EAV_COLUMN: dict[str, str] = {
     "String": "value_string",
     "Numeric": "value_numeric",
     "Boolean": "value_bool",
-    "DateTime": "value_datetime",
+    "DateTime": "value_string",
 }
 
 
