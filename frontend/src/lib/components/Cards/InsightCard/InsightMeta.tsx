@@ -472,7 +472,7 @@ export function InsightMetaContent({
     )
     if (link) {
         titleEl = (
-            <Link to={link} className="max-w-full overflow-hidden text-ellipsis">
+            <Link to={link} className="max-w-full truncate">
                 {titleEl}
             </Link>
         )
