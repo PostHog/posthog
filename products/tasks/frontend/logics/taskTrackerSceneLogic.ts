@@ -116,7 +116,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 submitNewTaskFailure: () => false,
             },
         ],
-        isRunningClustering: [
+        devOnlyIsRunningClustering: [
             false,
             {
                 devOnlyInferTasks: () => true,
