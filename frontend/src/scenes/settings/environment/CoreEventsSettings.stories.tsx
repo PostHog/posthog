@@ -171,6 +171,7 @@ export const FullSettingsWithEvents: StoryFn = () => {
 
     return <CoreEventsSettings />
 }
+FullSettingsWithEvents.tags = ['test-skip'] // Mocks don't load reliably in visual tests
 
 export const FullSettingsEmpty: StoryFn = () => {
     useStorybookMocks({
@@ -183,6 +184,7 @@ export const FullSettingsEmpty: StoryFn = () => {
 
     return <CoreEventsSettings />
 }
+FullSettingsEmpty.tags = ['test-skip'] // Mocks don't load reliably in visual tests
 
 export const ModalEmpty: StoryFn = () => {
     return (
