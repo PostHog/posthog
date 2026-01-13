@@ -247,12 +247,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/feature-flags',
         activityScope: ActivityScope.FEATURE_FLAG,
     },
-    [Scene.Feed]: {
-        projectBased: true,
-        name: 'Feed',
-        description: 'Stay updated with recent activities and changes in your project.',
-        iconType: 'feed',
-    },
     [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
     [Scene.Group]: {
         projectBased: true,
@@ -748,7 +742,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
-    [urls.feed()]: [Scene.Feed, 'feed'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],

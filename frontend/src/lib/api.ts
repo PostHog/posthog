@@ -648,11 +648,6 @@ export class ApiRequest {
         return this.comments(teamId).addPathComponent(id)
     }
 
-    // # Feed
-    public feed(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('feed')
-    }
-
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('exports')
@@ -2343,12 +2338,6 @@ const api = {
 
         async delete(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             return new ApiRequest().comment(id, teamId).update({ data: { deleted: true } })
-        },
-    },
-
-    feed: {
-        async recentUpdates(days: number = 7): Promise<{ results: any[]; count: number }> {
-            return new ApiRequest().feed().withAction('recent_updates').withQueryString({ days }).get()
         },
     },
 
