@@ -101,7 +101,6 @@ export class SessionBatchRecorder {
         const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
         if (isNewSession) {
             await this.sessionFilter.handleNewSession(teamId, sessionId)
-            await this.keyStore.generateKey(sessionId, teamId)
         }
 
         // Check if session is blocked
@@ -113,6 +112,10 @@ export class SessionBatchRecorder {
                 batchId: this.batchId,
             })
             return this.ignoreMessage(message)
+        }
+
+        if (isNewSession) {
+            await this.keyStore.generateKey(sessionId, teamId)
         }
 
         const isEventAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)
