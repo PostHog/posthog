@@ -36,7 +36,7 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         with patch("ee.hogai.tools.search.settings") as mock_settings:
             mock_settings.INKEEP_API_KEY = None
             with self.assertRaises(MaxToolFatalError) as context:
-                await self.tool._arun_impl({"mode": "search", "kind": "docs", "query": "How to use feature flags?"})
+                await self.tool._arun_impl(kind="docs", query="How to use feature flags?")
 
             error_message = str(context.exception)
             self.assertIn("not available", error_message.lower())
@@ -50,9 +50,7 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             patch("ee.hogai.tools.search.InkeepDocsSearchTool", return_value=mock_docs_tool),
         ):
             mock_settings.INKEEP_API_KEY = "test-key"
-            result, artifact = await self.tool._arun_impl(
-                {"mode": "search", "kind": "docs", "query": "How to use feature flags?"}
-            )
+            result, artifact = await self.tool._arun_impl(kind="docs", query="How to use feature flags?")
 
             mock_docs_tool.execute.assert_called_once_with("How to use feature flags?", self.tool_call_id)
             self.assertEqual(result, "")
@@ -60,88 +58,11 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_run_unknown_kind(self):
         with self.assertRaises(MaxToolRetryableError) as context:
-            await self.tool._arun_impl({"mode": "search", "kind": "unknown", "query": "test"})
+            await self.tool._arun_impl(kind="unknown", query="test")
 
         error_message = str(context.exception)
         self.assertIn("Invalid entity kind", error_message)
         self.assertIn("unknown", error_message)
-
-    async def test_list_mode_returns_entities(self):
-        """Test that list mode returns formatted entity data."""
-        entities_data = [
-            {
-                "type": "insight",
-                "result_id": "insight-123",
-                "extra_fields": {"name": "Test Insight", "description": "A test insight"},
-            }
-        ]
-        formatted_str = "Entity type: Insight\nID|Name|Description|URL\ninsight-123|Test Insight|A test insight|-"
-
-        with patch("ee.hogai.tools.search.EntitySearchContext") as MockEntitySearchContext:
-            mock_instance = MagicMock()
-            mock_instance.list_entities = AsyncMock(return_value=(entities_data, 1))
-            mock_instance.format_entities = MagicMock(return_value=formatted_str)
-            MockEntitySearchContext.return_value = mock_instance
-
-            result, _ = await self.tool._arun_impl({"mode": "list", "kind": "insights", "limit": 100, "offset": 0})
-
-            MockEntitySearchContext.assert_called_once_with(
-                team=self.team, user=self.user, context_manager=self.context_manager
-            )
-            mock_instance.list_entities.assert_called_once_with("insight", 100, 0)
-            mock_instance.format_entities.assert_called_once_with(entities_data)
-
-            self.assertIn("Offset 0, limit 100", result)
-            self.assertIn("Test Insight", result)
-            self.assertIn("insight-123", result)
-            self.assertIn("You reached the end of results", result)
-
-    async def test_list_mode_with_pagination(self):
-        """Test list mode pagination."""
-        entities_data = [
-            {"type": "dashboard", "result_id": "dash-1", "extra_fields": {"name": "Dashboard 1"}},
-            {"type": "dashboard", "result_id": "dash-2", "extra_fields": {"name": "Dashboard 2"}},
-        ]
-        formatted_str = "Entity type: Dashboard\nID|Name|URL\ndash-1|Dashboard 1|-\ndash-2|Dashboard 2|-"
-
-        with patch("ee.hogai.tools.search.EntitySearchContext") as MockEntitySearchContext:
-            mock_instance = MagicMock()
-            mock_instance.list_entities = AsyncMock(return_value=(entities_data, 5))
-            mock_instance.format_entities = MagicMock(return_value=formatted_str)
-            MockEntitySearchContext.return_value = mock_instance
-
-            result, _ = await self.tool._arun_impl({"mode": "list", "kind": "dashboards", "limit": 2, "offset": 0})
-
-            self.assertIn("Offset 0, limit 2", result)
-            self.assertIn("To see more results, use offset=2", result)
-            self.assertIn("Dashboard 1", result)
-            self.assertIn("Dashboard 2", result)
-
-    async def test_list_mode_rejects_all_kind(self):
-        """Test that list mode rejects 'all' as entity kind."""
-        with self.assertRaises(MaxToolRetryableError) as context:
-            await self.tool._arun_impl({"mode": "list", "kind": "all", "limit": 100, "offset": 0})
-
-        error_message = str(context.exception)
-        self.assertIn("Cannot list all entities", error_message)
-
-    async def test_list_mode_default_pagination(self):
-        """Test that list mode uses default pagination values."""
-        entities_data = [
-            {"type": "insight", "result_id": "insight-1", "extra_fields": {"name": "Insight 1"}},
-        ]
-        formatted_str = "Entity type: Insight\nID|Name|URL\ninsight-1|Insight 1|-"
-
-        with patch("ee.hogai.tools.search.EntitySearchContext") as MockEntitySearchContext:
-            mock_instance = MagicMock()
-            mock_instance.list_entities = AsyncMock(return_value=(entities_data, 1))
-            mock_instance.format_entities = MagicMock(return_value=formatted_str)
-            MockEntitySearchContext.return_value = mock_instance
-
-            result, _ = await self.tool._arun_impl({"mode": "list", "kind": "insights"})
-
-            mock_instance.list_entities.assert_called_once_with("insight", 100, 0)
-            self.assertIn("Offset 0, limit 100", result)
 
 
 class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):

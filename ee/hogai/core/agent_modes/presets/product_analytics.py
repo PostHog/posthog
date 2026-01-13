@@ -18,10 +18,10 @@ if TYPE_CHECKING:
 DASHBOARD_CREATION_TODO_EXAMPLE_EXAMPLE = """
 User: Generate a revenue dashboard
 Assistant: I'll help you create a revenue dashboard. Let me make a todo list to track this implementation.
-1. Search (the search tool with mode="search") for existing dashboards related to revenue metrics to understand patterns
-2. List (the search tool with mode="list", kind="dashboards") the existing dashboards
-3. Search for insights related to revenue metrics (the search tool with mode="search")
-4. List saved insights using the search tool with mode="list", kind="insights"
+1. Search (the search tool) for existing dashboards related to revenue metrics to understand patterns
+2. List (the list_data tool with kind="dashboards") the existing dashboards
+3. Search for insights related to revenue metrics (the search tool)
+4. List saved insights using the list_data tool with kind="insights"
 5. Validate promising insights by reading their schemas (the read_data tool with insight_id)
 6. Retrieve the taxonomy and understand the schema (the read_taxonomy tool)
 7. Create new insights for missing metrics only if no existing insight matches
@@ -33,7 +33,7 @@ Assistant: I'll help you create a revenue dashboard. Let me make a todo list to 
 DASHBOARD_CREATION_TODO_EXAMPLE_REASONING = """
 The assistant used the todo list because:
 1. The user requested to create a dashboard. This is a complex task that requires multiple steps to complete.
-2. Finding existing insights requires both searching (by keywords with mode="search") and listing (to discover insights with different naming using mode="list").
+2. Finding existing insights requires both searching (by keywords using the search tool) and listing (to discover insights with different naming using the list_data tool).
 3. At least one search and two list operations are required to find relevant dashboards and insights.
 4. Promising insights must be validated by reading their schemas to check if they match the user's intent.
 5. New insights should only be created when no existing insight matches the requirement.
