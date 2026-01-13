@@ -1,11 +1,11 @@
-import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from '~/lib/api'
 import type { CommentType } from '~/types'
 
-import type { Ticket, TicketPriority, TicketStatus } from '../../types'
+import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
 import type { conversationsTicketSceneLogicType } from './conversationsTicketSceneLogicType'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
@@ -108,6 +108,31 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                 sendMessage: () => true,
                 setMessageSending: (_, { sending }) => sending,
             },
+        ],
+    }),
+    selectors({
+        chatMessages: [
+            (s) => [s.messages, s.ticket],
+            (messages: CommentType[], ticket: Ticket | null): ChatMessage[] =>
+                messages.map((message) => {
+                    const authorType = message.item_context?.author_type || 'customer'
+                    let displayName = 'Customer'
+                    if (message.created_by) {
+                        displayName =
+                            `${message.created_by.first_name} ${message.created_by.last_name}`.trim() ||
+                            message.created_by.email
+                    } else if (authorType === 'customer') {
+                        displayName = ticket?.anonymous_traits?.name || ticket?.anonymous_traits?.email || 'Customer'
+                    }
+
+                    return {
+                        id: message.id,
+                        content: message.content || '',
+                        authorType: authorType === 'support' ? 'human' : authorType,
+                        authorName: displayName,
+                        createdAt: message.created_at,
+                    }
+                }),
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({

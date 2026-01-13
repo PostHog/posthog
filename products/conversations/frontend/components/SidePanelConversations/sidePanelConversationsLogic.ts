@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
+import type { ChatMessage } from '../../types'
 import type { sidePanelConversationsLogicType } from './sidePanelConversationsLogicType'
 
 export interface ConversationTicket {
@@ -119,6 +120,17 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
     selectors({
         userName: [() => [userLogic.selectors.user], (user) => user?.first_name || user?.email || 'You'],
         userEmail: [() => [userLogic.selectors.user], (user) => user?.email || ''],
+        chatMessages: [
+            (s) => [s.messages, s.userName],
+            (messages: ConversationMessage[], userName: string): ChatMessage[] =>
+                messages.map((message) => ({
+                    id: message.id,
+                    content: message.content,
+                    authorType: message.author_type,
+                    authorName: message.author_name || (message.author_type === 'customer' ? userName : 'Support'),
+                    createdAt: message.created_at,
+                })),
+        ],
     }),
     listeners(({ actions, values }) => ({
         loadTickets: async () => {

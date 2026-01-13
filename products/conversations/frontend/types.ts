@@ -3,6 +3,15 @@ export type TicketChannel = 'widget' | 'slack' | 'email'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
+export type MessageAuthorType = 'customer' | 'AI' | 'human'
+
+export interface ChatMessage {
+    id: string
+    content: string
+    authorType: MessageAuthorType
+    authorName: string
+    createdAt: string
+}
 
 export interface UserBasic {
     id: number

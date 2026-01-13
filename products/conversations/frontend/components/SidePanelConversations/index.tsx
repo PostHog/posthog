@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { IconArrowLeft, IconChevronRight } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTag, LemonTextArea, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDivider, LemonTag, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { ConversationMessage, ConversationTicket, sidePanelConversationsLogic } from './sidePanelConversationsLogic'
+import { MessageInput, MessageList } from '../Chat'
+import { ConversationTicket, sidePanelConversationsLogic } from './sidePanelConversationsLogic'
 
 function TicketListView(): JSX.Element {
     const { tickets, ticketsLoading, conversationsReady } = useValues(sidePanelConversationsLogic)
@@ -83,54 +84,9 @@ function TicketListView(): JSX.Element {
     )
 }
 
-function ChatMessage({ message, isCustomer }: { message: ConversationMessage; isCustomer: boolean }): JSX.Element {
-    const displayName = message.author_name || (isCustomer ? 'You' : 'Support')
-
-    return (
-        <div className={`flex ${isCustomer ? 'mr-10' : 'flex-row-reverse ml-10'}`}>
-            <div className="flex flex-col min-w-0 items-start">
-                <div className="text-xs text-muted mb-1 px-1">{displayName}</div>
-                <div className="max-w-full">
-                    <div className="border py-2 px-3 rounded-lg bg-surface-primary">
-                        <p className="text-sm p-0 m-0 whitespace-pre-wrap">{message.content}</p>
-                    </div>
-                </div>
-                <div className="text-xs text-muted-alt mt-1 px-1">
-                    <TZLabel time={message.created_at} />
-                </div>
-            </div>
-        </div>
-    )
-}
-
 function ChatView(): JSX.Element {
-    const { messages, messagesLoading, messageSending, currentTicket } = useValues(sidePanelConversationsLogic)
+    const { chatMessages, messagesLoading, messageSending, currentTicket } = useValues(sidePanelConversationsLogic)
     const { sendMessage, goBack } = useActions(sidePanelConversationsLogic)
-    const [messageContent, setMessageContent] = useState('')
-    const messagesEndRef = useRef<HTMLDivElement>(null)
-    const chatAreaRef = useRef<HTMLDivElement>(null)
-
-    const scrollToBottom = (): void => {
-        if (chatAreaRef.current && messagesEndRef.current) {
-            chatAreaRef.current.scrollTo({
-                top: chatAreaRef.current.scrollHeight,
-                behavior: 'smooth',
-            })
-        }
-    }
-
-    useEffect(() => {
-        if (messages.length > 0) {
-            scrollToBottom()
-        }
-    }, [messages.length])
-
-    const handleSendMessage = (): void => {
-        if (messageContent.trim()) {
-            sendMessage(messageContent)
-            setMessageContent('')
-        }
-    }
 
     return (
         <div className="flex flex-col h-full bg-surface-primary border rounded-lg p-2">
@@ -141,48 +97,16 @@ function ChatView(): JSX.Element {
                 </span>
             </div>
             <LemonDivider />
-            <div ref={chatAreaRef} className="flex-1 overflow-y-auto space-y-1.5 min-h-[300px] max-h-[400px] mb-3">
-                {messagesLoading ? (
-                    <div className="flex items-center justify-center h-full">
-                        <Spinner />
-                    </div>
-                ) : messages.length === 0 ? (
-                    <div className="flex items-center justify-center h-full text-muted-alt text-sm">
-                        No messages yet.
-                    </div>
-                ) : (
-                    <>
-                        {messages.map((message: ConversationMessage) => (
-                            <ChatMessage
-                                key={message.id}
-                                message={message}
-                                isCustomer={message.author_type === 'customer'}
-                            />
-                        ))}
-                        <div ref={messagesEndRef} />
-                    </>
-                )}
-            </div>
-
+            <MessageList
+                messages={chatMessages}
+                messagesLoading={messagesLoading}
+                emptyMessage="No messages yet."
+                minHeight="300px"
+                maxHeight="400px"
+                className="mb-3"
+            />
             <div className="border-t pt-3">
-                <div className="flex gap-2">
-                    <LemonInput
-                        className="flex-1"
-                        placeholder="Type your message..."
-                        value={messageContent}
-                        onChange={setMessageContent}
-                        onPressEnter={handleSendMessage}
-                        disabled={messageSending}
-                    />
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSendMessage}
-                        loading={messageSending}
-                        disabled={!messageContent.trim()}
-                    >
-                        Send
-                    </LemonButton>
-                </div>
+                <MessageInput onSendMessage={sendMessage} messageSending={messageSending} />
             </div>
         </div>
     )
