@@ -26,7 +26,9 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
-    if (!scenePanelIsPresent || (!inPanel && scenePanelOpenManual)) {
+    // Show "Open" button when panel is closed, show "Close" button when panel is open
+    // Both should never render simultaneously to avoid Playwright strict mode violations
+    if (!scenePanelIsPresent || inPanel !== scenePanelOpenManual) {
         return null
     }
 
