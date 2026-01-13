@@ -26,6 +26,7 @@ import {
 } from '~/types'
 
 import { StepContentEditor } from './StepContentEditor'
+import { StepScreenshotThumbnail } from './StepScreenshotThumbnail'
 import { SurveyStepEditor } from './SurveyStepEditor'
 import { prepareStepForRender } from './generateStepHtml'
 
@@ -87,6 +88,7 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
     const [selectedStepIndex, setSelectedStepIndex] = useState<number>(0)
     const [stepToDelete, setStepToDelete] = useState<number | null>(null)
     const [showPreviewModal, setShowPreviewModal] = useState(false)
+    const [showScreenshotModal, setShowScreenshotModal] = useState(false)
     const [previewElement, setPreviewElement] = useState<HTMLDivElement | null>(null)
     const [surveyPreviewElement, setSurveyPreviewElement] = useState<HTMLDivElement | null>(null)
 
@@ -201,10 +203,20 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                             <div className="flex items-center gap-2">
                                 <LemonBadge.Number count={selectedStepIndex + 1} size="medium" />
                                 <span className="font-semibold">{STEP_TYPE_LABELS[selectedStep.type]} step</span>
-                                {selectedStep.type === 'element' && selectedStep.selector && (
-                                    <code className="text-xs bg-fill-primary px-2 py-0.5 rounded">
-                                        {selectedStep.selector}
-                                    </code>
+                                {selectedStep.type === 'element' && (
+                                    <>
+                                        {selectedStep.screenshotMediaId && (
+                                            <StepScreenshotThumbnail
+                                                mediaId={selectedStep.screenshotMediaId}
+                                                onClick={() => setShowScreenshotModal(true)}
+                                            />
+                                        )}
+                                        {selectedStep.selector && (
+                                            <code className="text-xs bg-fill-primary px-2 py-0.5 rounded">
+                                                {selectedStep.selector}
+                                            </code>
+                                        )}
+                                    </>
                                 )}
                             </div>
                             <div className="flex items-center gap-2">
@@ -338,6 +350,21 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                     <div ref={setPreviewElement} />
                 </div>
             </LemonModal>
+
+            {selectedStep?.screenshotMediaId && (
+                <LemonModal
+                    isOpen={showScreenshotModal}
+                    onClose={() => setShowScreenshotModal(false)}
+                    title="Element screenshot"
+                    width="auto"
+                >
+                    <img
+                        src={`/uploaded_media/${selectedStep.screenshotMediaId}`}
+                        alt="Element screenshot"
+                        className="max-w-full max-h-[70vh]"
+                    />
+                </LemonModal>
+            )}
         </div>
     )
 }
