@@ -49,8 +49,8 @@ export function FeatureFlagNew(): JSX.Element {
             />
 
             <SceneContent>
-                <div className="flex gap-4 mt-4">
-                    <div className="flex-1 flex flex-col gap-4">
+                <div className="flex gap-4 mt-4 flex-wrap">
+                    <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
                         <div className="rounded border p-3 bg-white gap-2 flex flex-col">
                             <LemonLabel info="The key is used to identify the feature flag in the code. Must be unique.">
                                 Flag key
