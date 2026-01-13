@@ -13,10 +13,10 @@ export function LogsCaptureSettings(): JSX.Element {
 
     return (
         <div>
-            <h3>Console logs capture</h3>
+            <h3>Browser console logs capture</h3>
             <p>
-                Automatically capture console logs from your application and send them to the Logs product for analysis
-                and debugging.
+                Automatically capture browser session logs from your application and send them to the Logs product for
+                analysis and debugging.
             </p>
             <p>
                 This is separate from session replay console log capture and specifically sends logs to PostHog's
