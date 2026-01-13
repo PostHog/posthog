@@ -1118,7 +1118,12 @@ class ExperimentQueryBuilder:
         # Wrap numeric values with coalesce so NULL property values become 0
         # We need toFloat to ensure type consistency - base_expr could be String (HOGQL),
         # Float64 (continuous), or UInt8 (count). Coalesce requires matching types.
-        return ast.Call(name="coalesce", args=[ast.Call(name="toFloat", args=[base_expr]), ast.Constant(value=0)])
+        # Skip wrapping with toFloat if base_expr is already a toFloat call (e.g., continuous metrics)
+        if isinstance(base_expr, ast.Call) and base_expr.name == "toFloat":
+            float_expr = base_expr
+        else:
+            float_expr = ast.Call(name="toFloat", args=[base_expr])
+        return ast.Call(name="coalesce", args=[float_expr, ast.Constant(value=0)])
 
     def _build_value_aggregation_expr(
         self, source=None, events_alias: str = "metric_events", column_name: str = "value"

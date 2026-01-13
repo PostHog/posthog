@@ -179,7 +179,7 @@
      LEFT JOIN
        (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), '2020-01-01 12:00:00'), '', events.`$group_0`) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               coalesce(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64'), 0) AS value
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))) AS metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
