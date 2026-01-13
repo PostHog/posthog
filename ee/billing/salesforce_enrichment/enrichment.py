@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -522,6 +522,49 @@ def _fetch_updated_account_fields(
         return []
 
 
+def _normalize_datetime_string(value: str) -> datetime | None:
+    """Try to parse a datetime string into a datetime object for comparison.
+
+    Handles formats like:
+    - "2025-07-23T00:00:00Z" (ISO format with Z)
+    - "2025-07-23T00:00:00.000+0000" (Salesforce format)
+    """
+    formats = [
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%dT%H:%M:%S%z",
+    ]
+    for fmt in formats:
+        try:
+            parsed = datetime.strptime(value, fmt)
+            # Normalize to UTC
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC)
+        except ValueError:
+            continue
+    return None
+
+
+def _values_match(sent_value: Any, fetched_value: Any) -> bool:
+    """Compare two values, handling datetime format differences.
+
+    Salesforce returns dates like "2025-07-23T00:00:00.000+0000"
+    but we send them as "2025-07-23T00:00:00Z". These are equivalent.
+    """
+    if sent_value == fetched_value:
+        return True
+
+    # Try datetime comparison if both are strings
+    if isinstance(sent_value, str) and isinstance(fetched_value, str):
+        sent_dt = _normalize_datetime_string(sent_value)
+        fetched_dt = _normalize_datetime_string(fetched_value)
+        if sent_dt is not None and fetched_dt is not None:
+            return sent_dt == fetched_dt
+
+    return False
+
+
 def _compare_update_with_fetched(
     update_records: list[dict[str, Any]],
     fetched_accounts: list[dict[str, Any]],
@@ -570,7 +613,7 @@ def _compare_update_with_fetched(
                         "hint": "Possible field name typo - field not returned by Salesforce",
                     }
                 )
-            elif sent_value != fetched_value:
+            elif not _values_match(sent_value, fetched_value):
                 account_mismatches.append(
                     {
                         "field": field,
