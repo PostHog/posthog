@@ -17,23 +17,36 @@ from posthog.models import Team, User
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
-def initialize_self_capture():
+def initialize_self_capture(team_id: int | None = None):
     """Initialize self-capture for posthoganalytics in management command context"""
     try:
-        user = (
-            User.objects.filter(last_login__isnull=False).order_by("-last_login").select_related("current_team").first()
-        )
         team = None
-        if user and getattr(user, "current_team", None):
-            team = user.current_team
+        if team_id is not None:
+            team = Team.objects.filter(pk=team_id).first()
+            if not team:
+                logging.warning(f"No team found with id {team_id}. Aborting")
+                sys.exit(1)
         else:
-            team = Team.objects.only("api_token").first()
+            user = (
+                User.objects.filter(last_login__isnull=False)
+                .order_by("-last_login")
+                .select_related("current_team")
+                .first()
+            )
+            if user and getattr(user, "current_team", None):
+                team = user.current_team
+            else:
+                team = Team.objects.only("api_token").first()
 
         if team:
+            # Reset any existing client to ensure new settings are used
+            posthoganalytics.default_client = None
             posthoganalytics.disabled = False
             posthoganalytics.api_key = team.api_token
             posthoganalytics.host = settings.SITE_URL
-            logging.info(f"Self-capture initialized with team {team.name} (API key: {team.api_token[:10]}...)")
+            logging.info(
+                f"Self-capture initialized with team {team.name} (id={team.pk}, API key: {team.api_token[:10]}...)"
+            )
             return team
         else:
             logging.warning("No team found for self-capture initialization. Aborting")
@@ -403,6 +416,7 @@ class Command(BaseCommand):
             help="Initialize a new experiment configuration file at the specified path. Does not generate data.",
         )
         parser.add_argument("--experiment-id", type=str, help="Experiment ID (feature flag name)")
+        parser.add_argument("--team-id", type=int, help="Team ID to use for generating data")
         parser.add_argument("--config", type=str, help="Path to experiment config file")
         parser.add_argument(
             "--generate-session-replays",
@@ -432,7 +446,7 @@ class Command(BaseCommand):
         if not settings.DEBUG:
             raise ValueError("This command should only be run in development! DEBUG must be True.")
 
-        team = initialize_self_capture()
+        team = initialize_self_capture(team_id=options.get("team_id"))
 
         experiment_type = options.get("type")
 
