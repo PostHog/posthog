@@ -198,6 +198,8 @@ class User(AbstractUser, UUIDTClassicModel):
     )
     passkeys_enabled_for_2fa = models.BooleanField(
         default=False,
+        null=True,
+        blank=True,
         help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
     )
 

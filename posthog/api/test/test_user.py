@@ -1880,6 +1880,8 @@ class TestUserTwoFactor(APIBaseTest):
                 "backup_codes": [],
                 "method": None,
                 "has_passkeys": False,
+                "has_totp": False,
+                "passkeys_enabled_for_2fa": False,
             },
         )
 
@@ -1903,6 +1905,8 @@ class TestUserTwoFactor(APIBaseTest):
                 "backup_codes": ["123456", "789012"],
                 "method": "TOTP",
                 "has_passkeys": False,
+                "has_totp": True,
+                "passkeys_enabled_for_2fa": False,
             },
         )
 
@@ -1920,6 +1924,9 @@ class TestUserTwoFactor(APIBaseTest):
             transports=["internal"],
             verified=True,
         )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
 
         response = self.client.get(f"/api/users/@me/two_factor_status/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1930,6 +1937,8 @@ class TestUserTwoFactor(APIBaseTest):
                 "backup_codes": [],
                 "method": "passkey",
                 "has_passkeys": True,
+                "has_totp": False,
+                "passkeys_enabled_for_2fa": True,
             },
         )
 
@@ -1951,6 +1960,9 @@ class TestUserTwoFactor(APIBaseTest):
             transports=["internal"],
             verified=True,
         )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
 
         # Create backup codes
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
@@ -1966,6 +1978,8 @@ class TestUserTwoFactor(APIBaseTest):
                     "backup_codes": ["123456"],
                     "method": "TOTP",
                     "has_passkeys": True,
+                    "has_totp": True,
+                    "passkeys_enabled_for_2fa": True,
                 },
             )
 
@@ -1993,6 +2007,40 @@ class TestUserTwoFactor(APIBaseTest):
                 "backup_codes": [],
                 "method": None,
                 "has_passkeys": False,
+                "has_totp": False,
+                "passkeys_enabled_for_2fa": False,
+            },
+        )
+
+    def test_two_factor_status_with_passkeys_disabled_for_2fa(self):
+        """Test two_factor_status when user has passkeys but passkeys_enabled_for_2fa is False"""
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"test-credential-id",
+            label="Test Passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        # Ensure passkeys_enabled_for_2fa is False (default)
+        self.user.passkeys_enabled_for_2fa = False
+        self.user.save()
+
+        response = self.client.get(f"/api/users/@me/two_factor_status/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "is_enabled": False,
+                "backup_codes": [],
+                "method": None,
+                "has_passkeys": True,
+                "has_totp": False,
+                "passkeys_enabled_for_2fa": False,
             },
         )
 
