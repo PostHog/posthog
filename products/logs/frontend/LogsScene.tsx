@@ -51,7 +51,7 @@ const LogsSceneContent = (): JSX.Element => {
 
     const slowLoadingHint =
         showSlowLoadingHint && isAllServicesSelected
-            ? 'Still searching through ALL your logs... like finding a needle in a haystack! Try selecting a specific service to speed things up.'
+            ? 'Taking a long time? Try selecting a specific service to speed things up.'
             : null
 
     return (

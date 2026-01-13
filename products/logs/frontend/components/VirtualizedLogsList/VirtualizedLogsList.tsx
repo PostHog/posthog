@@ -7,7 +7,7 @@ import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellM
 import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
@@ -247,13 +247,12 @@ export function VirtualizedLogsList({
     if (dataSource.length === 0) {
         if (loading) {
             return (
-                <div className="relative h-full">
-                    <SpinnerOverlay />
-                    {slowLoadingHint && (
-                        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-                            <p className="text-muted text-sm text-center max-w-md mt-24">{slowLoadingHint}</p>
-                        </div>
-                    )}
+                <div className="flex flex-col gap-1 rounded p-4 w-full h-full justify-center items-center">
+                    <span className="font-semibold mb-1 text-center">Loading logs...</span>
+                    <div className="flex flex-col gap-2 justify-center items-center max-w-120">
+                        <LoadingBar />
+                        {slowLoadingHint && <p className="text-xs m-0 text-muted">{slowLoadingHint}</p>}
+                    </div>
                 </div>
             )
         }
