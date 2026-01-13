@@ -116,7 +116,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
         self.organization.available_product_features = [{"name": "data_pipelines", "key": "data_pipelines"}]
         self.organization.save()
 
-    @functools.lru_cache
+    @functools.lru_cache  # noqa: B019 - TODO: refactor to avoid method cache
     def _get_transpiled(self, edit_payload: Optional[Callable[[dict], dict]] = None):
         # TODO do this without calling the API. There's a lot of logic in the endpoint which would need to be extracted
         payload = {

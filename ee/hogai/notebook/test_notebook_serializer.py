@@ -845,9 +845,9 @@ code here
 
         # Nested items should be indented with 2 spaces
         assert lines[entry_line].startswith("  -"), f"Entry event should be indented: {lines[entry_line]}"
-        assert lines[completion_line].startswith(
-            "  -"
-        ), f"Completion event should be indented: {lines[completion_line]}"
+        assert lines[completion_line].startswith("  -"), (
+            f"Completion event should be indented: {lines[completion_line]}"
+        )
 
     def test_markdown_to_json_spacing_preservation(self):
         """Test that spaces between marked text and normal text are preserved correctly."""
@@ -878,9 +878,9 @@ code here
             text_nodes = content[0]["content"]
 
             # Verify the number of text nodes matches expected
-            assert len(text_nodes) == len(
-                expected_nodes
-            ), f"Expected {len(expected_nodes)} nodes for '{markdown}', got {len(text_nodes)}"
+            assert len(text_nodes) == len(expected_nodes), (
+                f"Expected {len(expected_nodes)} nodes for '{markdown}', got {len(text_nodes)}"
+            )
 
             # Verify each text node
             for i, (expected_text, expected_marks) in enumerate(expected_nodes):
@@ -923,9 +923,9 @@ code here
         converted_hogql = serializer._convert_assistant_query_to_insight_viz_node(assistant_hogql_query)
 
         assert isinstance(converted_hogql, dict), "Converted HogQL query should be a dict"
-        assert (
-            converted_hogql["kind"] == "DataTableNode"
-        ), "Should wrap AssistantHogQLQuery in DataTableNode, NOT InsightVizNode"
+        assert converted_hogql["kind"] == "DataTableNode", (
+            "Should wrap AssistantHogQLQuery in DataTableNode, NOT InsightVizNode"
+        )
         assert converted_hogql["source"].kind == "HogQLQuery", "Source should be converted to regular HogQLQuery"
         assert type(converted_hogql["source"]).__name__ == "HogQLQuery", "Source should be HogQLQuery type"
 

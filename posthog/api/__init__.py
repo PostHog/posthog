@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, feed, hog_flow, hog_flow_template, metalytics, my_notifications, project
+from posthog.api import data_color_theme, hog_flow, hog_flow_template, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.onboarding import OnboardingViewSet
@@ -102,6 +102,7 @@ from . import (
     organization,
     organization_domain,
     organization_feature_flag,
+    organization_integration,
     organization_invite,
     organization_member,
     personal_api_key,
@@ -121,6 +122,7 @@ from . import (
     user,
     user_home_settings,
     web_vitals,
+    webauthn,
 )
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
@@ -129,7 +131,7 @@ from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
-from .oauth_application import OAuthApplicationPublicMetadataViewSet
+from .oauth import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
 from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
@@ -504,6 +506,12 @@ environments_router.register(
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
 organizations_router.register(
+    r"integrations",
+    organization_integration.OrganizationIntegrationViewSet,
+    "organization_integrations",
+    ["organization_id"],
+)
+organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
 )
 organization_plugins_router = organizations_router.register(
@@ -569,6 +577,9 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
+router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
+router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
+router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(
@@ -943,8 +954,6 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
-
-projects_router.register(r"feed", feed.FeedViewSet, "project_feed", ["project_id"])
 
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]

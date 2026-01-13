@@ -1927,9 +1927,9 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_parametrized_f
 
     # using datetime partition mode with created_at - formatted to day, week, or month
     for expected_partition in expected_partitions:
-        assert any(
-            f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]
-        ), f"Expected partition {expected_partition} not found in S3 objects"
+        assert any(f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]), (
+            f"Expected partition {expected_partition} not found in S3 objects"
+        )
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
@@ -2549,7 +2549,9 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
         mock.patch("ee.api.billing.requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
-        source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+        with freeze_time("2023-01-01"):
+            source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+
         # A previous job that reached the billing limit
         await sync_to_async(ExternalDataJob.objects.create)(
             team=team,

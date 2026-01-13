@@ -76,9 +76,9 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             f"/api/environments/{self.team.id}/insights/{insight_on_dashboard.id}/",
             {"sharing_access_token": sharing_config.access_token},  # type: ignore[arg-type]
         )
-        assert (
-            response.status_code == 200
-        ), f"Should be able to access insight on dashboard. Got {response.status_code}: {response.content}"
+        assert response.status_code == 200, (
+            f"Should be able to access insight on dashboard. Got {response.status_code}: {response.content}"
+        )
 
         # Test 2: Should NOT be able to access insight that is NOT on the dashboard
         response = self.client.get(
@@ -140,9 +140,9 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         # CRITICAL: This is the vulnerability - the date range should NOT be overridden to -365d
         # It should remain the original -7d from the insight definition
         date_from = original_query.get("dateRange", {}).get("date_from")
-        assert (
-            date_from == "-7d"
-        ), f"SECURITY VULNERABILITY: filters_override was applied! Expected '-7d' but got '{date_from}'"
+        assert date_from == "-7d", (
+            f"SECURITY VULNERABILITY: filters_override was applied! Expected '-7d' but got '{date_from}'"
+        )
 
     def test_sharing_access_token_cannot_override_variables(self):
         """
@@ -212,16 +212,16 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         source_query = original_query.get("source", {}).get("query")
 
         # The query should still contain the variable placeholder, not the overridden value
-        assert (
-            "{variables.test_event}" in source_query
-        ), f"SECURITY VULNERABILITY: variables_override was applied! Query: {source_query}"
+        assert "{variables.test_event}" in source_query, (
+            f"SECURITY VULNERABILITY: variables_override was applied! Query: {source_query}"
+        )
 
         # The variables should still contain the original default value, not the malicious override
         variables = original_query.get("source", {}).get("variables", {})
         actual_variable_value = variables.get(str(variable.id), {}).get("value")
-        assert (
-            actual_variable_value == "pageview"
-        ), f"SECURITY VULNERABILITY: variables_override was applied! Expected 'pageview' but got '{actual_variable_value}'"
+        assert actual_variable_value == "pageview", (
+            f"SECURITY VULNERABILITY: variables_override was applied! Expected 'pageview' but got '{actual_variable_value}'"
+        )
 
     def test_sharing_access_token_cannot_access_other_team_insights(self):
         """
@@ -323,9 +323,9 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
                 "query": {"kind": "TrendsQuery", "series": [{"event": "malicious_event"}]},
             },
         )
-        assert (
-            response.status_code in [401, 403]
-        ), f"Should not be able to create insights with sharing access token in query params. Got {response.status_code}: {response.content}"
+        assert response.status_code in [401, 403], (
+            f"Should not be able to create insights with sharing access token in query params. Got {response.status_code}: {response.content}"
+        )
 
         # Test 2: Try to create an insight using sharing access token in body - should fail
         response = self.client.post(
@@ -336,24 +336,24 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
                 "sharing_access_token": sharing_config.access_token,
             },
         )
-        assert (
-            response.status_code in [401, 403]
-        ), f"Should not be able to create insights with sharing access token in body. Got {response.status_code}: {response.content}"
+        assert response.status_code in [401, 403], (
+            f"Should not be able to create insights with sharing access token in body. Got {response.status_code}: {response.content}"
+        )
 
         # Test 3: Try to update the dashboard using sharing access token as query param - should fail
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/?sharing_access_token={sharing_config.access_token}",
             {"name": "Hacked Dashboard"},
         )
-        assert (
-            response.status_code in [401, 403]
-        ), f"Should not be able to update dashboard with sharing access token in query params. Got {response.status_code}: {response.content}"
+        assert response.status_code in [401, 403], (
+            f"Should not be able to update dashboard with sharing access token in query params. Got {response.status_code}: {response.content}"
+        )
 
         # Test 4: Try to update the dashboard using sharing access token in body - should fail
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/",
             {"name": "Hacked Dashboard", "sharing_access_token": sharing_config.access_token},
         )
-        assert (
-            response.status_code in [401, 403]
-        ), f"Should not be able to update dashboard with sharing access token in body. Got {response.status_code}: {response.content}"
+        assert response.status_code in [401, 403], (
+            f"Should not be able to update dashboard with sharing access token in body. Got {response.status_code}: {response.content}"
+        )

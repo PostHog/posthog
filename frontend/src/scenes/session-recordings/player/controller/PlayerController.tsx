@@ -180,7 +180,8 @@ export function PlayerController(): JSX.Element {
                             <ClipRecording />
                         </>
                     )}
-                    {ModesWithInteractions.includes(playerMode) ? <PlayerUpNext /> : undefined}
+                    {(ModesWithInteractions.includes(playerMode) ||
+                        playerMode === SessionRecordingPlayerMode.Kiosk) && <PlayerUpNext />}
                     {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
                     <FullScreen />
                 </div>

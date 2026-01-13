@@ -464,21 +464,17 @@ class AISustainedRateThrottle(UserRateThrottle):
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):
     scope = "llm_proxy_burst"
-    rate = "30/minute"
+    rate = "2/minute"
 
 
 class LLMProxySustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
-    # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_proxy_sustained"
-    rate = "500/hour"
+    rate = "10/hour"
 
 
 class LLMProxyDailyRateThrottle(UserRateThrottle):
-    # Daily cap for LLM proxy (playground) endpoint
-    # Hard limit to prevent runaway costs from sustained abuse
     scope = "llm_proxy_daily"
-    rate = "1000/day"
+    rate = "20/day"
 
 
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
@@ -573,6 +569,24 @@ class EmailMFAResendThrottle(UserOrEmailRateThrottle):
         from posthog.helpers.two_factor_session import email_mfa_verifier
 
         user_id = email_mfa_verifier.get_pending_email_mfa_verification_user_id(request)
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
+class TwoFactorThrottle(UserOrEmailRateThrottle):
+    """
+    Rate limiting for TOTP/backup code verification during 2FA login.
+    Uses the pending 2FA user ID from session to throttle per-user.
+    """
+
+    scope = "two_factor"
+    rate = "6/20minutes"
+
+    def get_cache_key(self, request, view):
+        user_id = request.session.get("user_authenticated_but_no_2fa")
         if user_id:
             ident = hashlib.sha256(str(user_id).encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}

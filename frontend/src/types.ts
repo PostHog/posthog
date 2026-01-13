@@ -252,7 +252,7 @@ export enum Region {
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
-export type LoginMethod = SSOProvider | 'password' | null
+export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -844,8 +844,6 @@ export type ReplayTab = {
 
 export enum ExperimentsTabs {
     All = 'all',
-    Yours = 'yours',
-    Archived = 'archived',
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
     History = 'history',
@@ -1680,6 +1678,7 @@ export interface SessionRecordingExternalReference {
     external_url: string
     title: string
     issue_id: string
+    metadata?: Record<string, string>
 }
 
 export interface SessionRecordingType {
@@ -3322,6 +3321,8 @@ export interface ProductTourStep {
     selector?: string
     /** Rich text content in tiptap JSONContent format */
     content: Record<string, any> | null
+    /** Pre-rendered HTML content for SDK consumption. Built from `content` on tour save. */
+    contentHtml?: string
     position?: 'top' | 'bottom' | 'left' | 'right'
     /** Inline survey question config - only for survey steps */
     survey?: ProductTourSurveyQuestion
@@ -3825,6 +3826,8 @@ interface InstancePreferencesInterface {
     debug_queries: boolean
     /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
     disable_paid_fs: boolean
+    /** Whether Cloudflare proxy is enabled for managed reverse proxies. */
+    cloudflare_proxy_enabled?: boolean
 }
 
 export interface PreflightStatus {
@@ -4618,6 +4621,7 @@ export const INTEGRATION_KINDS = [
     'databricks',
     'tiktok-ads',
     'bing-ads',
+    'vercel',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4815,6 +4819,7 @@ export type APIScopeObject =
     | 'logs'
     | 'notebook'
     | 'organization'
+    | 'organization_integration'
     | 'organization_member'
     | 'person'
     | 'plugin'
@@ -5335,6 +5340,20 @@ export type BatchExportServiceDatabricks = {
     }
 }
 
+export type BatchExportServiceAzureBlob = {
+    type: 'AzureBlob'
+    integration: number
+    config: {
+        container_name: string
+        prefix: string
+        compression: string | null
+        file_format: string
+        max_file_size_mb: number | null
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 export type BatchExportRealtimeDestinationBackfill = {
     type: 'Workflows'
     config: {}
@@ -5351,6 +5370,7 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'Redshift',
     'HTTP',
     'Databricks',
+    'AzureBlob',
     'Workflows',
 ]
 export type BatchExportService =
@@ -5361,6 +5381,7 @@ export type BatchExportService =
     | BatchExportServiceRedshift
     | BatchExportServiceHTTP
     | BatchExportServiceDatabricks
+    | BatchExportServiceAzureBlob
     | BatchExportRealtimeDestinationBackfill
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
@@ -5803,6 +5824,7 @@ export type HogFunctionSubTemplateIdType =
     | 'activity-log'
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
+    | 'error-tracking-issue-spiking'
     | 'insight-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
@@ -5824,6 +5846,7 @@ export type HogFunctionSubTemplateType = Pick<
     sub_template_id: HogFunctionSubTemplateIdType
     name?: string
     description?: string
+    flag?: string
 }
 
 export type HogFunctionTemplateType = Pick<
@@ -6036,6 +6059,18 @@ export interface DeepResearchNotebook extends _NotebookBase {
 
 export type NotebookInfo = DeepResearchNotebook
 
+export type ApprovalDecisionStatus = 'pending' | 'approved' | 'rejected' | 'auto_rejected'
+
+export interface PendingApproval {
+    proposal_id: string
+    decision_status: ApprovalDecisionStatus
+    tool_name: string
+    preview: string
+    payload: Record<string, unknown>
+    original_tool_call_id?: string
+    message_id?: string
+}
+
 export interface Conversation {
     id: string
     user: UserBasicType
@@ -6049,6 +6084,7 @@ export interface Conversation {
     slack_thread_key?: string | null
     slack_workspace_domain?: string | null
     is_internal?: boolean
+    pending_approvals?: PendingApproval[]
 }
 
 export interface ConversationDetail extends Conversation {
@@ -6118,6 +6154,7 @@ export interface ProjectTreeRef {
 export type OAuthApplicationPublicMetadata = {
     name: string
     client_id: string
+    is_verified: boolean
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'

@@ -481,12 +481,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     // Capture error tracking specific alert event
                     if (
                         res.template?.id === 'error-tracking-issue-created' ||
-                        res.template?.id === 'error-tracking-issue-reopened'
+                        res.template?.id === 'error-tracking-issue-reopened' ||
+                        res.template?.id === 'error-tracking-issue-spiking'
                     ) {
-                        const triggerEvent =
-                            res.template.id === 'error-tracking-issue-created'
-                                ? '$error_tracking_issue_created'
-                                : '$error_tracking_issue_reopened'
+                        const triggerEventMap: Record<string, string> = {
+                            'error-tracking-issue-created': '$error_tracking_issue_created',
+                            'error-tracking-issue-reopened': '$error_tracking_issue_reopened',
+                            'error-tracking-issue-spiking': '$error_tracking_issue_spiking',
+                        }
+                        const triggerEvent = triggerEventMap[res.template.id]
 
                         posthog.capture('error_tracking_alert_created', {
                             trigger_event: triggerEvent,

@@ -293,9 +293,14 @@ export function BatchExportsEditFields({
                             name="endpoint_url"
                             label="Endpoint URL"
                             showOptional
-                            info={<>Only required if exporting to an S3-compatible blob storage (like MinIO)</>}
+                            info={
+                                <>
+                                    Only required if exporting to an S3-compatible blob storage (like Google Cloud
+                                    Storage, Cloudflare R2, MinIO, or others)
+                                </>
+                            }
                         >
-                            <LemonInput placeholder={isNew ? 'e.g. https://your-minio-host:9000' : 'Leave unchanged'} />
+                            <LemonInput placeholder={isNew ? 'e.g. https://your-minio-host:9000' : ''} />
                         </LemonField>
 
                         <LemonField
