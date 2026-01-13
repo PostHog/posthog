@@ -80,6 +80,8 @@ import { QueryContext } from '~/queries/types'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
+import { InferredSelector } from './toolbar/product-tours/elementInference'
+
 export enum ConversionRateInputType {
     MANUAL = 'manual',
     AUTOMATIC = 'automatic',
@@ -3334,6 +3336,10 @@ export interface ProductTourStep {
     progressionTrigger?: ProductTourProgressionTriggerType
     /** Custom width for the tooltip - can be a preset name or pixel value */
     maxWidth?: ProductTourStepWidth | number
+    /** Screenshot media ID from uploaded_media - for element steps */
+    screenshotMediaId?: string
+    /** enhanced element data for more reliable lookup at runtime */
+    inferenceData?: InferredSelector
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
