@@ -48,8 +48,8 @@ const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 
 const isValidSeverityLevel = (level: string): level is LogSeverityLevel =>
     VALID_SEVERITY_LEVELS.includes(level as LogSeverityLevel)
-const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 export const ALL_SERVICES_VALUE = '*'
+const DEFAULT_SERVICE_NAMES = [ALL_SERVICES_VALUE] as LogsQuery['serviceNames']
 const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
@@ -268,6 +268,7 @@ export const logsLogic = kea<logsLogicType>([
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
         setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => ({ sparklineBreakdownBy }),
+        setShowSlowLoadingHint: (showSlowLoadingHint: boolean) => ({ showSlowLoadingHint }),
     }),
 
     reducers({
@@ -446,6 +447,14 @@ export const logsLogic = kea<logsLogicType>([
             { persist: true },
             {
                 setSparklineBreakdownBy: (_, { sparklineBreakdownBy }) => sparklineBreakdownBy,
+            },
+        ],
+        showSlowLoadingHint: [
+            false,
+            {
+                setShowSlowLoadingHint: (_, { showSlowLoadingHint }) => showSlowLoadingHint,
+                fetchLogsSuccess: () => false,
+                fetchLogsFailure: () => false,
             },
         ],
     }),
@@ -832,6 +841,19 @@ export const logsLogic = kea<logsLogicType>([
                 })
             }
             actions.clearLogs()
+            actions.setShowSlowLoadingHint(false)
+            cache.disposables.dispose('slowLoadingHintTimer')
+            // Show slow loading hint after 5 seconds if still loading and using "all services"
+            if (values.isAllServicesSelected) {
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        if (values.logsLoading) {
+                            actions.setShowSlowLoadingHint(true)
+                        }
+                    }, 5000)
+                    return () => clearTimeout(timerId)
+                }, 'slowLoadingHintTimer')
+            }
             actions.fetchLogs()
             actions.fetchSparkline()
             actions.cancelInProgressLiveTail(null)
@@ -1080,8 +1102,7 @@ export const logsLogic = kea<logsLogicType>([
     })),
 
     afterMount(({ values, actions }) => {
-        // Only run query on mount if service name is selected (from URL params or default)
-        if (values.parsedLogs.length === 0 && values.hasServiceNameSelected) {
+        if (values.parsedLogs.length === 0) {
             actions.runQuery()
         }
     }),

@@ -325,27 +325,21 @@ describe('logsLogic', () => {
     })
 
     describe('service name selection', () => {
-        it('hasServiceNameSelected is false when no service is selected', async () => {
+        it('defaults to all services selected', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.hasServiceNameSelected).toBe(false)
+            expect(logic.values.serviceNames).toEqual([ALL_SERVICES_VALUE])
+            expect(logic.values.isAllServicesSelected).toBe(true)
         })
 
-        it('hasServiceNameSelected is true when a service is selected', async () => {
+        it('hasServiceNameSelected is true by default (all services)', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.hasServiceNameSelected).toBe(true)
+        })
+
+        it('hasServiceNameSelected is true when a specific service is selected', async () => {
             logic.actions.setServiceNames(['my-service'])
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.hasServiceNameSelected).toBe(true)
-        })
-
-        it('hasServiceNameSelected is true when all services is selected', async () => {
-            logic.actions.setServiceNames([ALL_SERVICES_VALUE])
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.hasServiceNameSelected).toBe(true)
-        })
-
-        it('isAllServicesSelected is true when * is selected', async () => {
-            logic.actions.setServiceNames([ALL_SERVICES_VALUE])
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.isAllServicesSelected).toBe(true)
         })
 
         it('isAllServicesSelected is false when specific services are selected', async () => {
@@ -355,7 +349,6 @@ describe('logsLogic', () => {
         })
 
         it('serviceNamesForQuery returns empty array when all services is selected', async () => {
-            logic.actions.setServiceNames([ALL_SERVICES_VALUE])
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.serviceNamesForQuery).toEqual([])
         })
@@ -364,52 +357,6 @@ describe('logsLogic', () => {
             logic.actions.setServiceNames(['my-service', 'other-service'])
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.serviceNamesForQuery).toEqual(['my-service', 'other-service'])
-        })
-
-        it('does not run query on mount when no service is selected', async () => {
-            const mockFn = jest.fn()
-            useMocks({
-                post: {
-                    '/api/environments/:team_id/logs/query/': () => {
-                        mockFn()
-                        return [200, { results: [] }]
-                    },
-                    '/api/environments/:team_id/logs/sparkline/': () => [200, []],
-                },
-            })
-
-            const freshLogic = logsLogic({ tabId: 'fresh-tab' })
-            freshLogic.mount()
-            await expectLogic(freshLogic).toFinishAllListeners()
-
-            // Should not have called the query API since no service is selected
-            expect(mockFn).not.toHaveBeenCalled()
-
-            freshLogic.unmount()
-        })
-
-        it('runs query on mount when service is selected via URL', async () => {
-            const mockFn = jest.fn()
-            useMocks({
-                post: {
-                    '/api/environments/:team_id/logs/query/': () => {
-                        mockFn()
-                        return [200, { results: [] }]
-                    },
-                    '/api/environments/:team_id/logs/sparkline/': () => [200, []],
-                },
-            })
-
-            router.actions.push('/logs', { serviceNames: '["my-service"]' })
-
-            const freshLogic = logsLogic({ tabId: 'fresh-tab-2' })
-            freshLogic.mount()
-            await expectLogic(freshLogic).toFinishAllListeners()
-
-            expect(freshLogic.values.serviceNames).toEqual(['my-service'])
-            expect(mockFn).toHaveBeenCalled()
-
-            freshLogic.unmount()
         })
     })
 })

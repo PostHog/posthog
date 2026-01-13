@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconTerminal } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -43,7 +42,8 @@ const LogsSceneContent = (): JSX.Element => {
         orderBy,
         sparklineData,
         sparklineBreakdownBy,
-        hasServiceNameSelected,
+        showSlowLoadingHint,
+        isAllServicesSelected,
     } = useValues(logsLogic)
     const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
@@ -83,38 +83,30 @@ const LogsSceneContent = (): JSX.Element => {
                 </p>
             </LemonBanner>
             <LogsFilters />
-            {hasServiceNameSelected ? (
-                <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
-                    <LogsViewer
-                        tabId={tabId}
-                        logs={parsedLogs}
-                        loading={logsLoading}
-                        totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
-                        hasMoreLogsToLoad={hasMoreLogsToLoad}
-                        orderBy={orderBy}
-                        onChangeOrderBy={setOrderBy}
-                        onRefresh={runQuery}
-                        onLoadMore={fetchNextLogsPage}
-                        onAddFilter={addFilter}
-                        sparklineData={sparklineData}
-                        sparklineLoading={sparklineLoading}
-                        onDateRangeChange={setDateRange}
-                        sparklineBreakdownBy={sparklineBreakdownBy}
-                        onSparklineBreakdownByChange={setSparklineBreakdownBy}
-                    />
-                </div>
-            ) : (
-                <div className="flex flex-col items-center justify-center py-16 gap-4">
-                    <IconTerminal className="text-muted-alt w-10 h-10" />
-                    <div className="text-center max-w-md">
-                        <h3 className="text-lg font-semibold mb-2">Select a service to view logs</h3>
-                        <p className="text-muted">
-                            Choose a specific service from the dropdown above, or select "All services" to search across
-                            all services (this may be slow for high-volume logs).
-                        </p>
-                    </div>
-                </div>
+            {showSlowLoadingHint && isAllServicesSelected && logsLoading && (
+                <LemonBanner type="info" dismissKey="logs-slow-loading-hint">
+                    Taking a long time? Try selecting a specific service to speed up the query.
+                </LemonBanner>
             )}
+            <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
+                <LogsViewer
+                    tabId={tabId}
+                    logs={parsedLogs}
+                    loading={logsLoading}
+                    totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
+                    hasMoreLogsToLoad={hasMoreLogsToLoad}
+                    orderBy={orderBy}
+                    onChangeOrderBy={setOrderBy}
+                    onRefresh={runQuery}
+                    onLoadMore={fetchNextLogsPage}
+                    onAddFilter={addFilter}
+                    sparklineData={sparklineData}
+                    sparklineLoading={sparklineLoading}
+                    onDateRangeChange={setDateRange}
+                    sparklineBreakdownBy={sparklineBreakdownBy}
+                    onSparklineBreakdownByChange={setSparklineBreakdownBy}
+                />
+            </div>
         </>
     )
 }

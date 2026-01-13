@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconWarning } from '@posthog/icons'
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { projectLogic } from 'scenes/projectLogic'
@@ -24,34 +23,35 @@ export const ServiceFilter = (): JSX.Element => {
 
     if (isAllServicesSelected) {
         return (
-            <LemonButtonWithDropdown
-                size="small"
-                type="secondary"
-                dropdown={{
-                    overlay: (
-                        <div className="p-2 max-w-xs">
-                            <p className="text-sm mb-2">
-                                Querying all services can be slow for high-volume logs. Consider selecting specific
-                                services for better performance.
-                            </p>
-                            <LemonButton size="small" type="primary" fullWidth onClick={() => setServiceNames([])}>
-                                Select specific services
-                            </LemonButton>
-                        </div>
-                    ),
-                    placement: 'bottom-start',
-                }}
+            <LemonDropdown
+                overlay={
+                    <div className="p-2 w-64">
+                        <PropertyValue
+                            size="small"
+                            endpoint={endpoint}
+                            operator={PropertyOperator.Exact}
+                            propertyKey="service_name"
+                            type={PropertyFilterType.Log}
+                            value={[]}
+                            onSet={(values) => {
+                                if (values && values.length > 0) {
+                                    setServiceNames(values)
+                                }
+                            }}
+                            placeholder="Search services..."
+                            preloadValues
+                        />
+                    </div>
+                }
+                placement="bottom-start"
             >
-                <span className="flex items-center gap-1">
-                    <IconWarning className="text-warning" />
-                    All services (slow)
-                </span>
-            </LemonButtonWithDropdown>
+                <LemonInput size="small" value="All services" readOnly className="cursor-pointer min-w-[150px]" />
+            </LemonDropdown>
         )
     }
 
     return (
-        <span className="rounded bg-surface-primary min-w-[150px] flex items-center gap-1">
+        <span className="rounded bg-surface-primary min-w-[150px] flex items-stretch">
             <PropertyValue
                 size="small"
                 endpoint={endpoint}
@@ -59,18 +59,16 @@ export const ServiceFilter = (): JSX.Element => {
                 propertyKey="service_name"
                 type={PropertyFilterType.Log}
                 value={serviceNames}
-                onSet={setServiceNames}
-                placeholder="Select service"
+                onSet={(values) => {
+                    if (!values || values.length === 0) {
+                        setServiceNames([ALL_SERVICES_VALUE])
+                    } else {
+                        setServiceNames(values)
+                    }
+                }}
+                placeholder="All services"
                 preloadValues
             />
-            <LemonButton
-                size="xsmall"
-                type="tertiary"
-                tooltip="Query all services (may be slow)"
-                onClick={() => setServiceNames([ALL_SERVICES_VALUE])}
-            >
-                All
-            </LemonButton>
         </span>
     )
 }
