@@ -65,7 +65,6 @@ import {
     isAssistantMessage,
     isAssistantToolCallMessage,
     isHumanMessage,
-    isNotebookUpdateMessage,
     isSubagentUpdateEvent,
     threadEndsWithMultiQuestionForm,
 } from './utils'
@@ -999,7 +998,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // 1. There are tool calls in progress, OR
                     // 2. The last message is a streaming ASSISTANT message (no ID or it starts with 'temp-') - it will show its own thinking/content
                     // Note: Human messages should always trigger thinking loader, only assistant messages can be "streaming"
-                    // Note: NotebookUpdateMessages do stream, but they are not added to the thread until they have an id
                     const lastMessageIsStreamingAssistant =
                         finalMessageSoFar &&
                         isAssistantMessage(finalMessageSoFar) &&
@@ -1271,12 +1269,14 @@ function enhanceThreadToolCalls(
             const isLastPlanningMessage = message.id === lastPlanningMessageId
             message.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
                 const isCompleted = !!toolCallCompletions.get(toolCall.id)
-                const isFailed = !isCompleted && (!isFinalGroup || !isLoading)
+                // create_form is an interactive tool - it's "completed" once rendered (waiting for user input)
+                const isInteractiveTool = toolCall.name === 'create_form'
+                const isFailed = !isCompleted && !isInteractiveTool && (!isFinalGroup || !isLoading)
                 return {
                     ...toolCall,
                     status: isFailed
                         ? TaskExecutionStatus.Failed
-                        : isCompleted
+                        : isCompleted || (isInteractiveTool && !isLoading)
                           ? TaskExecutionStatus.Completed
                           : TaskExecutionStatus.InProgress,
                     isLastPlanningMessage: toolCall.name === 'todo_write' && isLastPlanningMessage,
@@ -1357,14 +1357,6 @@ export async function onEventImplementation(
                 status: 'completed',
             })
         } else {
-            if (isNotebookUpdateMessage(parsedResponse)) {
-                actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
-                if (!parsedResponse.id) {
-                    // we do not want to show partial notebook update messages
-                    return
-                }
-            }
-
             if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {
                 for (const { name: toolName, args: toolResult } of parsedResponse.tool_calls) {
                     if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {

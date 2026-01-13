@@ -35,6 +35,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     CleanupRunningJobsActivityInputs,
     CreateJobModelInputs,
     ModelNode,
+    NonRetryableException,
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
@@ -113,12 +114,12 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
 
     calls = magic_mock.mock_calls
 
-    assert all(
-        call.args[0] in models_materialized for call in calls
-    ), f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
-    assert all(
-        call.args[1].pk == ateam.pk for call in calls
-    ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    assert all(call.args[0] in models_materialized for call in calls), (
+        f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
+    )
+    assert all(call.args[1].pk == ateam.pk for call in calls), (
+        f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    )
     assert len(calls) == len(models_materialized)
     assert results.completed == set(dag.keys())
 
@@ -208,12 +209,12 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
 
     calls = magic_mock.mock_calls
 
-    assert all(
-        call.args[0] in models_materialized for call in calls
-    ), f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
-    assert all(
-        call.args[1].pk == ateam.pk for call in calls
-    ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    assert all(call.args[0] in models_materialized for call in calls), (
+        f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
+    )
+    assert all(call.args[1].pk == ateam.pk for call in calls), (
+        f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    )
     assert len(calls) == len(models_materialized)
 
     assert results.completed == expected_completed
@@ -847,12 +848,12 @@ async def test_run_workflow_with_minio_bucket(
                 warehouse_table = await DataWarehouseTable.objects.aget(team_id=ateam.pk, id=query.table_id)
                 assert warehouse_table is not None, f"DataWarehouseTable for {query.name} not found"
                 # Match the 50 page_view events defined above
-                assert warehouse_table.row_count == len(
-                    expected_data
-                ), f"Row count for {query.name} not the expected value"
-                assert (
-                    warehouse_table.size_in_s3_mib is not None and warehouse_table.size_in_s3_mib != 0
-                ), f"Table size in mib for {query.name} is not set"
+                assert warehouse_table.row_count == len(expected_data), (
+                    f"Row count for {query.name} not the expected value"
+                )
+                assert warehouse_table.size_in_s3_mib is not None and warehouse_table.size_in_s3_mib != 0, (
+                    f"Table size in mib for {query.name} is not set"
+                )
                 assert warehouse_table.credential_id is None, "Table has credentials set when it shouldn't"
 
             job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
@@ -1643,6 +1644,58 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
 
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED
+
+
+async def test_materialize_model_empty_results(ateam, bucket_name, minio_client):
+    """Test that materialize_model raises NonRetryableException when query returns no results."""
+    query = "SELECT 1 WHERE 1 = 0"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="empty_results_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    async def mock_hogql_table(*args, **kwargs):
+        return
+        yield  # makes this a generator but nothing is ever yielded because of the return
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=0),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        with pytest.raises(NonRetryableException) as exc_info:
+            await materialize_model(
+                saved_query.id.hex,
+                ateam,
+                saved_query,
+                job,
+                unittest.mock.AsyncMock(),
+            )
+
+        assert "returned no results" in str(exc_info.value)
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.FAILED
+        assert job.error is not None
+        assert "returned no results" in job.error
+
+        await database_sync_to_async(saved_query.refresh_from_db)()
+        assert saved_query.latest_error is not None
+        assert "returned no results" in saved_query.latest_error
 
 
 child_ducklake_workflow_runs: list[dict] = []

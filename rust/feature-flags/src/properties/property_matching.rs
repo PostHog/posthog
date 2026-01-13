@@ -33,10 +33,14 @@ pub fn to_f64_representation(value: &Value) -> Option<f64> {
     to_string_representation(value).parse::<f64>().ok()
 }
 
+/// Strip 'v' prefix if present (e.g., "v1.2.3" -> "1.2.3")
+fn normalize_version_string(version: &str) -> &str {
+    version.strip_prefix('v').unwrap_or(version).trim()
+}
+
 pub fn to_semver_representation(value: &Value) -> Option<Version> {
     let version_string = to_string_representation(value);
-    // Strip 'v' prefix if present (e.g., "v1.2.3" -> "1.2.3")
-    let normalized = version_string.strip_prefix('v').unwrap_or(&version_string);
+    let normalized = normalize_version_string(&version_string);
     // TODO: Build metadata (e.g., "1.0.0+build.1") is not currently supported because
     // our `sortableSemver` method in ClickHouse/HogQL doesn't support it yet.
     // For semver equality checks, use regular string equality operators instead.
@@ -124,17 +128,9 @@ pub fn match_property(
                 Ok(operator == OperatorType::IsNot)
             }
         }
-        OperatorType::IsSet => Ok(matching_property_values.contains_key(key)),
-        OperatorType::IsNotSet => {
-            if partial_props {
-                if matching_property_values.contains_key(key) {
-                    Ok(false)
-                } else {
-                    Err(FlagMatchingError::InconclusiveOperatorMatch)
-                }
-            } else {
-                Ok(!matching_property_values.contains_key(key))
-            }
+        // IsSet and IsNotSet are handled early (lines 69-83) and return before reaching this match
+        OperatorType::IsSet | OperatorType::IsNotSet => {
+            unreachable!("IsSet/IsNotSet operators are handled earlier in the function")
         }
         OperatorType::Icontains | OperatorType::NotIcontains => {
             if let Some(match_value) = match_value {
@@ -213,8 +209,8 @@ pub fn match_property(
                 }
             };
 
-            if let Some(override_value) = to_f64_representation(value) {
-                Ok(compare(parsed_value, override_value, operator))
+            if let Some(filter_value) = to_f64_representation(value) {
+                Ok(compare(parsed_value, filter_value, operator))
             } else {
                 tracing::debug!(
                     "Failed to parse filter value '{}' for key '{}' as number for operator {:?}",
@@ -223,7 +219,7 @@ pub fn match_property(
                     operator
                 );
                 Err(FlagMatchingError::ValidationError(
-                    "override value is not a number".to_string(),
+                    "filter value is not a number".to_string(),
                 ))
             }
         }
@@ -265,8 +261,8 @@ pub fn match_property(
                 }
             };
 
-            if let Some(override_value) = to_semver_representation(value) {
-                Ok(compare(&parsed_value, &override_value, operator))
+            if let Some(filter_value) = to_semver_representation(value) {
+                Ok(compare(&parsed_value, &filter_value, operator))
             } else {
                 tracing::debug!(
                     "Failed to parse filter value '{}' for key '{}' as semver for operator {:?}",
@@ -302,7 +298,7 @@ pub fn match_property(
 
             // Build the version requirement string based on the operator
             let version_string = to_string_representation(value);
-            let normalized_version = version_string.strip_prefix('v').unwrap_or(&version_string);
+            let normalized_version = normalize_version_string(&version_string);
 
             let requirement_string = match operator {
                 OperatorType::SemverTilde => format!("~{normalized_version}"),
@@ -1884,6 +1880,30 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
+        // Test minimal version 0.0.0
+        let property_minimal = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("0.0.0")),
+            operator: Some(OperatorType::SemverGte),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_minimal,
+            &HashMap::from([("version".to_string(), json!("0.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_minimal,
+            &HashMap::from([("version".to_string(), json!("0.0.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
         // Test SemverGte
         let property_gte = PropertyFilter {
             key: "version".to_string(),
@@ -2150,6 +2170,69 @@ mod test_match_properties {
         assert!(!match_property(
             &property,
             &HashMap::from([("version".to_string(), json!("1.2.abc"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading/trailing whitespace is trimmed and accepted
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!(" 1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3 "))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading zeros are not valid semver
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("01.02.03"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Too many version components (common in .NET)
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3.4"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Empty component
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1..2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Trailing dot
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3."))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading dot
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!(".1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Negative version part
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.-2.3"))]),
             true
         )
         .expect("expected match to exist"));

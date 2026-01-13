@@ -11,23 +11,25 @@ export function FixedReplayHeatmapBrowser({
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
 
-    const { replayIframeData, hasValidReplayIframeData, widthOverride } = useValues(logic)
+    const { replayIframeData, hasValidReplayIframeData, widthOverride, heightOverride } = useValues(logic)
     const { onIframeLoad } = useActions(logic)
 
     return hasValidReplayIframeData ? (
         <div className="flex flex-row gap-x-2 w-full">
             <div className="relative flex-1 w-full h-full">
-                <div className="flex justify-center h-full w-full overflow-scroll">
+                <div className="flex justify-center h-full w-full overflow-auto">
                     <div
-                        className="relative h-full overflow-scroll"
+                        className="relative"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: widthOverride }}
+                        style={{ width: widthOverride, height: heightOverride }}
                     >
                         <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
                         <iframe
                             id="heatmap-iframe"
                             ref={iframeRef}
-                            className="w-full h-full bg-white"
+                            className="bg-white"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ width: widthOverride, height: heightOverride }}
                             srcDoc={replayIframeData?.html}
                             sandbox=""
                             onLoad={onIframeLoad}

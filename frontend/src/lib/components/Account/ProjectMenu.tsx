@@ -4,9 +4,7 @@ import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonSnack, Link } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
@@ -27,8 +25,6 @@ import { urls } from 'scenes/urls'
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
-import { EnvironmentSwitcherOverlay } from '../../../layout/navigation/EnvironmentSwitcher'
-
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
         <div className="flex items-center max-w-full">
@@ -40,21 +36,15 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
 
 export function ProjectMenu({
     buttonProps = { className: 'font-semibold' },
-    iconOnly = false,
 }: {
-    iconOnly?: boolean
     buttonProps?: ButtonPrimitiveProps
 }): JSX.Element | null {
+    const iconOnly = buttonProps?.iconOnly ?? false
     const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-        return <EnvironmentSwitcherOverlay buttonProps={buttonProps} iconOnly={iconOnly} />
-    }
 
     return isAuthenticatedTeam(currentTeam) ? (
         <PopoverPrimitive>

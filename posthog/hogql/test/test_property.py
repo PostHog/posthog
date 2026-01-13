@@ -1186,6 +1186,7 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "person", "key": "version", "operator": "semver_caret", "value": "abc.def"})
 
         # Test wildcard requires valid pattern
+<<<<<<< HEAD
         with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver pattern"):
             self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": "*"})
 
@@ -1193,6 +1194,129 @@ class TestProperty(BaseTest):
         with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver pattern"):
             self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": ".*"})
 
+=======
+        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": "*"})
+
+        # Test wildcard requires valid pattern
+        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": ".*"})
+
+    def test_property_to_expr_semver_edge_cases(self):
+        """Test edge cases to document expected behavior with various version formats"""
+        # Minimal version (0.0.0)
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_eq", "value": "0.0.0"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('0.0.0')"),
+        )
+
+        # Prerelease versions (1.2.3-alpha) - Not officially supported yet but sortableSemver handles them
+        # We pass through to ClickHouse's sortableSemver function which should handle the parsing
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3-alpha"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3-alpha')"),
+        )
+
+        # v-prefix (v1.2.3) - sortableSemver should handle this
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "v1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('v1.2.3')"),
+        )
+
+        # Leading space ( 1.2.3) - sortableSemver will receive it as-is
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": " 1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver(' 1.2.3')"),
+        )
+
+        # Trailing space (1.2.3 ) - sortableSemver will receive it as-is
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3 "}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3 ')"),
+        )
+
+        # Leading zeros (01.02.03) - Should be treated same as 1.2.3 by sortableSemver
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "01.02.03"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('01.02.03')"),
+        )
+
+        # Too many version numbers (1.2.3.4) - Common in .NET, sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3.4"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3.4')"),
+        )
+
+        # Empty component (1..2.3) - sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1..2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1..2.3')"),
+        )
+
+        # Trailing dot (1.2.3.) - sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3."}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3.')"),
+        )
+
+        # Leading dot (.1.2.3) - sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": ".1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('.1.2.3')"),
+        )
+
+        # Negative version part (1.-2.3) - Invalid semver, sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.-2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.-2.3')"),
+        )
+
+        # Range operators with edge cases also pass through to sortableSemver
+        # Tilde with minimal version (our code handles major.minor requirement)
+        with self.assertRaisesMessage(QueryError, "Tilde operator requires a valid semver string"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "0"})
+
+        # Caret with leading zeros should still work (our code extracts numeric values)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "01.02.03"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('01.02.03') AND sortableSemver(person.properties.app_version) < sortableSemver('2.0.0'))"
+            ),
+        )
+
+        # Wildcard with too many parts (1.2.3.*) - Our code should handle this
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_wildcard", "value": "1.2.3.*"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3.0') AND sortableSemver(person.properties.app_version) < sortableSemver('1.2.4.0'))"
+            ),
+        )
+
+>>>>>>> master
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     # Sentinel to indicate a property should not be included in the event
