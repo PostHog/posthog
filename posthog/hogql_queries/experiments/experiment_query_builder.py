@@ -1080,16 +1080,45 @@ class ExperimentQueryBuilder:
             },
         )
 
-    def _build_value_expr(self, source=None) -> ast.Expr:
+    def _build_value_expr(self, source=None, apply_coalesce: bool = True) -> ast.Expr:
         """
         Extracts the value expression from the metric source configuration.
         For ratio metrics, pass the specific source (numerator or denominator).
         For mean metrics, uses self.metric.source by default.
+
+        Args:
+            source: The metric source configuration
+            apply_coalesce: If True, wrap numeric values with coalesce(..., 0) so that
+                           NULL property values are treated as 0. This should be True
+                           for event CTEs (metric_events, numerator_events, denominator_events)
+                           so that downstream aggregations don't need to distinguish between
+                           metric types.
+
+        Note: For count distinct math types (UNIQUE_SESSION, DAU, UNIQUE_GROUP), coalesce
+        is not applied since the value is an ID, not a numeric value.
         """
         if source is None:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
-        return get_source_value_expr(source)
+
+        base_expr = get_source_value_expr(source)
+
+        if not apply_coalesce:
+            return base_expr
+
+        # Check if this is a count distinct math type - don't coalesce IDs
+        math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
+        if math_type in [
+            ExperimentMetricMathType.UNIQUE_SESSION,
+            ExperimentMetricMathType.DAU,
+            ExperimentMetricMathType.UNIQUE_GROUP,
+        ]:
+            return base_expr
+
+        # Wrap numeric values with coalesce so NULL property values become 0
+        # We need toFloat to ensure type consistency - base_expr could be String (HOGQL),
+        # Float64 (continuous), or UInt8 (count). Coalesce requires matching types.
+        return ast.Call(name="coalesce", args=[ast.Call(name="toFloat", args=[base_expr]), ast.Constant(value=0)])
 
     def _build_value_aggregation_expr(
         self, source=None, events_alias: str = "metric_events", column_name: str = "value"
@@ -1104,25 +1133,17 @@ class ExperimentQueryBuilder:
             events_alias: The table/CTE alias to use (e.g., "metric_events", "combined_events")
             column_name: The column name containing the value (e.g., "value", "numerator_value")
 
-        Note on coalesce usage:
-        - For SUM: coalesce(value, 0) is safe because adding zeros doesn't affect the sum
-        - For AVG/MIN/MAX: coalesce would convert NULLs to 0, skewing results when using
-          combined_events (where NULLs indicate "not applicable" rather than "zero value")
-        - For count distinct: NULLs are naturally ignored by count(distinct ...)
+        Note: NULL handling (coalesce) is applied upstream in _build_value_expr() when building
+        the event CTEs. This method does not need to handle NULLs - aggregation functions will
+        naturally ignore NULLs from combined_events (ratio metrics), while NULL property values
+        have already been coalesced to 0 at the source.
         """
         if source is None:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
 
-        # Get metric source details
         math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
         column_ref = f"{events_alias}.{column_name}"
-
-        # Determine if we're aggregating from combined_events (ratio metrics)
-        # In combined_events, NULLs in numerator_value/denominator_value mean "this row is from
-        # the other event type" and should be ignored.
-        # In regular metric_events, NULLs mean "property not set" and should be treated as 0.
-        is_combined_events = column_name in ("numerator_value", "denominator_value")
 
         if math_type in [
             ExperimentMetricMathType.UNIQUE_SESSION,
@@ -1130,7 +1151,6 @@ class ExperimentQueryBuilder:
             ExperimentMetricMathType.UNIQUE_GROUP,
         ]:
             # Count distinct values, filtering out null UUIDs and empty strings
-            # This matches the old implementation's behavior
             return parse_expr(
                 f"""toFloat(count(distinct
                     multiIf(
@@ -1141,38 +1161,24 @@ class ExperimentQueryBuilder:
                 ))"""
             )
         elif math_type == ExperimentMetricMathType.MIN:
-            if is_combined_events:
-                # Don't use coalesce - NULLs from other event type should be ignored
-                return parse_expr(f"min(toFloat({column_ref}))")
-            else:
-                return parse_expr(f"min(coalesce(toFloat({column_ref}), 0))")
+            return parse_expr(f"min(toFloat({column_ref}))")
         elif math_type == ExperimentMetricMathType.MAX:
-            if is_combined_events:
-                # Don't use coalesce - NULLs from other event type should be ignored
-                return parse_expr(f"max(toFloat({column_ref}))")
-            else:
-                return parse_expr(f"max(coalesce(toFloat({column_ref}), 0))")
+            return parse_expr(f"max(toFloat({column_ref}))")
         elif math_type == ExperimentMetricMathType.AVG:
-            if is_combined_events:
-                # Don't use coalesce - NULLs from other event type should be ignored
-                return parse_expr(f"avg(toFloat({column_ref}))")
-            else:
-                return parse_expr(f"avg(coalesce(toFloat({column_ref}), 0))")
+            return parse_expr(f"avg(toFloat({column_ref}))")
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
                 aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    # Build the aggregation with params if it's a parametric function
-                    if is_combined_events:
-                        # Don't use coalesce - NULLs from other event type should be ignored
-                        inner_value_expr = parse_expr(f"toFloat({column_ref})")
-                    else:
-                        inner_value_expr = parse_expr(f"coalesce(toFloat({column_ref}), 0)")
+                    inner_value_expr = parse_expr(f"toFloat({column_ref})")
                     return build_aggregation_call(aggregation_function, inner_value_expr, params=params)
+            # Fallback to SUM
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
         else:
-            # SUM is safe with coalesce - adding zeros doesn't affect the sum
+            # SUM (default) - coalesce is needed here because sum(NULL) returns NULL.
+            # For ratio metrics with combined_events, when there are no events of one type,
+            # all values for that type are NULL (from UNION ALL structure), and we want 0 not NULL.
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
 
     def _build_test_accounts_filter(self) -> ast.Expr:
