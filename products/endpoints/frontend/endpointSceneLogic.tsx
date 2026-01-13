@@ -282,6 +282,35 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 actions.loadSelectedVersion({ name: endpoint.name, version })
             }
         },
+        loadSelectedVersionSuccess: ({ selectedVersionData }) => {
+            const endpoint = values.endpoint
+            if (!endpoint || !selectedVersionData) {
+                return
+            }
+            // Update payload JSON to include version parameter when viewing old version
+            if (selectedVersionData.version !== endpoint.current_version) {
+                const currentPayload = values.payloadJson
+                try {
+                    const payload = currentPayload ? JSON.parse(currentPayload) : {}
+                    payload.version = selectedVersionData.version
+                    actions.setPayloadJson(JSON.stringify(payload, null, 2))
+                } catch (error) {
+                    // If current payload is invalid JSON, create new one with version
+                    actions.setPayloadJson(JSON.stringify({ version: selectedVersionData.version }, null, 2))
+                }
+            }
+        },
+        returnToCurrentVersion: () => {
+            const endpoint = values.endpoint
+            if (!endpoint) {
+                return
+            }
+            actions.setViewingVersion(null)
+            actions.setLocalQuery(null)
+            // Reset payload to default when returning to current version
+            const initialPayload = generateInitialPayloadJson(endpoint)
+            actions.setPayloadJson(initialPayload)
+        },
         updateVersionMaterialization: async ({ version, data }) => {
             const endpoint = values.endpoint
             if (!endpoint) {
@@ -306,6 +335,17 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 actions.setActiveTab(searchParams.tab as EndpointTab)
             } else if (!searchParams.tab && values.activeTab !== EndpointTab.QUERY) {
                 actions.setActiveTab(EndpointTab.QUERY)
+            }
+            // Handle version parameter
+            if (searchParams.version) {
+                const version = parseInt(searchParams.version, 10)
+                if (!isNaN(version) && version !== values.viewingVersion) {
+                    actions.setViewingVersion(version)
+                    actions.selectVersion(version)
+                }
+            } else if (values.viewingVersion !== null) {
+                // Reset to current version if no version param
+                actions.setViewingVersion(null)
             }
         },
     })),

@@ -15,7 +15,9 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import type { DataWarehouseSyncInterval, EndpointType, EndpointVersionType } from '~/types'
@@ -122,41 +124,31 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
         {
             title: 'Version',
             dataIndex: 'version',
-            width: 120,
             render: function RenderVersion(_, item) {
                 const isCurrent = item.version === endpoint.current_version
                 const isViewing = viewingVersion === item.version
+                const versionUrl = isCurrent
+                    ? urls.endpoint(endpoint.name)
+                    : `${urls.endpoint(endpoint.name)}?version=${item.version}`
+
                 return (
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="tertiary"
-                            onClick={() => (isCurrent ? returnToCurrentVersion() : selectVersion(item.version))}
-                            className="font-semibold"
-                        >
-                            v{item.version}
-                        </LemonButton>
-                        {isCurrent && <LemonTag size="small">Current</LemonTag>}
-                        {isViewing && <LemonTag size="small">Viewing</LemonTag>}
-                    </div>
+                    <LemonTableLink
+                        to={versionUrl}
+                        title={
+                            <div className="flex items-center gap-2">
+                                <span>v{item.version}</span>
+                                {isCurrent && <LemonTag size="small">Current</LemonTag>}
+                                {isViewing && <LemonTag size="small">Viewing</LemonTag>}
+                            </div>
+                        }
+                    />
                 )
             },
         },
-        {
-            title: 'Created',
-            dataIndex: 'created_at',
-            render: function RenderCreated(createdAt: string) {
-                return <TZLabel time={createdAt} />
-            },
-        },
-        {
-            title: 'Created by',
-            render: function RenderCreatedBy(_, item) {
-                return item.created_by ? <ProfilePicture user={item.created_by} showName size="sm" /> : 'Unknown'
-            },
-        },
+        createdAtColumn<EndpointVersionType>(),
+        createdByColumn<EndpointVersionType>(),
         {
             title: 'Status',
-            width: 200,
             render: function RenderStatus(_, item) {
                 const isCurrent = item.version === endpoint.current_version
                 const materialized = isCurrent ? endpoint.is_materialized : item.is_materialized
@@ -279,7 +271,7 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                 </div>
             </div>
             <LemonDivider />
-            <div className="mt-4">
+            <div className="mt-4 max-w-4xl">
                 <h3 className="text-lg font-semibold mb-1">Version history</h3>
                 <p className="text-muted mb-3">View previous versions and switch between snapshots.</p>
                 <LemonTable
