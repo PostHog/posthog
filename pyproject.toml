@@ -242,7 +242,7 @@ dev = [
     "python-dateutil~=2.9.0",
     "requests-mock~=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.8.1",
+    "ruff~=0.14.11",
     "sqlalchemy==2.0.38",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
@@ -291,19 +291,20 @@ exclude = [
 
 [tool.ruff.lint]
 ignore = [
-    "B017",
-    "B019",
-    "B904",
-    "B905",
-    "C901",
-    "E501",
-    "E722",
-    "E731",
-    "F403",
-    "F541",
-    "F601",
-    "UP007",
-    "UP032",
+    "B017",  # ~38: assertRaises(Exception) too broad
+    "B904",  # ~488: raise without from in except
+    "B905",  # ~153: zip() without strict=
+    "C901",  # ~527: function too complex
+    "E501",  # ~4697: line too long
+    "E722",  # ~62: bare except
+    "E731",  # ~185: lambda assignment
+    "F403",  # ~67: import * undefined
+    "F541",  # ~1139: f-string missing placeholders
+    "UP007",  # ~377: Union[X,Y] → X | Y (auto-fixable)
+    "UP032",  # ~175: use f-string (auto-fixable)
+    "UP045",  # ~3064: Optional[X] → X | None (auto-fixable)
+    "UP046",  # ~39: generic class → PEP 695 (unsafe)
+    "UP047",  # ~37: generic func → PEP 695 (unsafe)
 ]
 select = [
     "B",
