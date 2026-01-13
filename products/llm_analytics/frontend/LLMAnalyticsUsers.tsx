@@ -34,7 +34,7 @@ export function LLMAnalyticsUsers(): JSX.Element {
             }}
             context={{
                 columns: {
-                    user: llmAnalyticsColumnRenderers.user,
+                    __llm_person: llmAnalyticsColumnRenderers.__llm_person,
                     first_seen: {
                         renderTitle: () => renderSortableColumnTitle('first_seen', 'First Seen'),
                     },
