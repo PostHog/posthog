@@ -67,20 +67,20 @@ class TeamIdFilterVisitor(TraversingVisitor):
 
     def _team_id_tables_from_expr(self, expr: ast.Expr) -> set[str]:
         if isinstance(expr, ast.And):
-            tables: set[str] = set()
+            and_tables: set[str] = set()
             for sub_expr in expr.exprs:
-                tables.update(self._team_id_tables_from_expr(sub_expr))
-            return tables
+                and_tables.update(self._team_id_tables_from_expr(sub_expr))
+            return and_tables
 
         if isinstance(expr, ast.Or):
-            tables: Optional[set[str]] = None
+            or_tables: Optional[set[str]] = None
             for sub_expr in expr.exprs:
                 sub_tables = self._team_id_tables_from_expr(sub_expr)
-                if tables is None:
-                    tables = set(sub_tables)
+                if or_tables is None:
+                    or_tables = set(sub_tables)
                 else:
-                    tables &= sub_tables
-            return tables or set()
+                    or_tables &= sub_tables
+            return or_tables or set()
 
         if isinstance(expr, ast.Not):
             return set()
