@@ -24,7 +24,7 @@ import {
 } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
-import { captureScreenshot, getElementMetadata } from './utils'
+import { ElementScreenshot, captureAndUploadElementScreenshot, captureScreenshot, getElementMetadata } from './utils'
 
 const RECENT_GOALS_KEY = 'posthog-product-tours-recent-goals'
 
@@ -181,6 +181,12 @@ export const productToursLogic = kea<productToursLogicType>([
         // Creation
         startCreation: true,
         setCachedScreenshot: (screenshot: string | null) => ({ screenshot }),
+
+        setPendingScreenshotPromise: (stepIndex: number, promise: Promise<ElementScreenshot | null>) => ({
+            stepIndex,
+            promise,
+        }),
+        clearPendingScreenshotPromise: true,
     }),
 
     loaders(() => ({
@@ -304,6 +310,15 @@ export const productToursLogic = kea<productToursLogicType>([
             null as string | null,
             {
                 setCachedScreenshot: (_, { screenshot }) => screenshot,
+                selectTour: () => null,
+            },
+        ],
+        pendingScreenshotPromise: [
+            null as { stepIndex: number; promise: Promise<ElementScreenshot | null> } | null,
+            {
+                setPendingScreenshotPromise: (_, { stepIndex, promise }) => ({ stepIndex, promise }),
+                clearPendingScreenshotPromise: () => null,
+                cancelEditing: () => null,
                 selectTour: () => null,
             },
         ],
@@ -498,20 +513,26 @@ export const productToursLogic = kea<productToursLogicType>([
 
             const { stepIndex } = editorState
             const isChangingExistingStep = tourForm && stepIndex < (tourForm.steps?.length ?? 0)
+            const selector = elementToActionStep(element, dataAttributes).selector ?? ''
+
+            const screenshotPromise = captureAndUploadElementScreenshot(element).catch((e) => {
+                console.warn('[Product Tours] Failed to capture element screenshot:', e)
+                return null
+            })
 
             if (isChangingExistingStep) {
-                // Changing element for existing step - update immediately
-                const selector = elementToActionStep(element, dataAttributes).selector ?? ''
                 const steps = [...(tourForm.steps || [])]
                 steps[stepIndex] = {
                     ...steps[stepIndex],
                     selector,
                     element,
+                    screenshotMediaId: undefined,
                 }
                 actions.setTourFormValue('steps', steps)
-                actions.setEditorState({ mode: 'idle' })
+                actions.setPendingScreenshotPromise(stepIndex, screenshotPromise)
+                actions.setEditorState({ mode: 'editing', stepIndex, stepType: 'element' })
             } else {
-                // New step - go to editing mode
+                actions.setPendingScreenshotPromise(stepIndex, screenshotPromise)
                 actions.setEditorState({
                     mode: 'editing',
                     stepIndex,
@@ -519,8 +540,8 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
             }
         },
-        confirmStep: ({ content, selector: selectorOverride, survey, progressionTrigger, maxWidth }) => {
-            const { editorState, tourForm, selectedElement } = values
+        confirmStep: async ({ content, selector: selectorOverride, survey, progressionTrigger, maxWidth }) => {
+            const { editorState, tourForm, selectedElement, pendingScreenshotPromise } = values
             if (editorState.mode !== 'editing' || !tourForm) {
                 return
             }
@@ -533,6 +554,15 @@ export const productToursLogic = kea<productToursLogicType>([
             // Preserve existing selector if none provided (e.g., editing content only)
             const selector = stepType === 'element' ? (selectorOverride ?? existingStep?.selector) : undefined
 
+            let screenshotMediaId: string | undefined = existingStep?.screenshotMediaId
+            if (stepType === 'element' && pendingScreenshotPromise?.stepIndex === stepIndex) {
+                const screenshot = await pendingScreenshotPromise.promise
+                if (screenshot) {
+                    screenshotMediaId = screenshot.mediaId
+                }
+                actions.clearPendingScreenshotPromise()
+            }
+
             const newStep: TourStep = {
                 id: existingStep?.id ?? uuid(),
                 type: stepType,
@@ -542,6 +572,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 ...(survey ? { survey } : {}),
                 ...(progressionTrigger ? { progressionTrigger } : {}),
                 ...(maxWidth ? { maxWidth } : {}),
+                ...(screenshotMediaId ? { screenshotMediaId } : {}),
             }
 
             if (stepIndex < steps.length) {
