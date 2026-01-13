@@ -29,6 +29,8 @@ Use memories to:
 - Save information the user explicitly asks you to remember
 
 Always query memories when you need context about the user's product or when they reference previous discussions.
+
+Store memories pre-emptively - you don't need to be asked specifically to store them, if there's something you think is important, check if there's already a memory about it, and if there isn't, make one.
 """.strip()
 
 
@@ -52,11 +54,15 @@ class UpdateMemoryArgs(BaseModel):
     metadata: dict | None = Field(default=None, description="New metadata for the memory")
 
 
+class DeleteMemoryArgs(BaseModel):
+    memory_id: str = Field(description="The ID of the memory to delete")
+
+
 class ManageMemoriesToolArgs(BaseModel):
-    action: Literal["create", "query", "update", "list_metadata_keys"] = Field(
-        description="The action to perform: create (store new memory), query (search memories), update (modify existing), or list_metadata_keys (get available filter keys)"
+    action: Literal["create", "query", "update", "delete", "list_metadata_keys"] = Field(
+        description="The action to perform: create (store new memory), query (search memories), update (modify existing), delete (remove memory), or list_metadata_keys (get available filter keys)"
     )
-    args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | None = Field(
+    args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | DeleteMemoryArgs | None = Field(
         default=None, description="Arguments for the action (not needed for list_metadata_keys)"
     )
 
@@ -75,8 +81,8 @@ class ManageMemoriesTool(MaxTool):
 
     async def _arun_impl(
         self,
-        action: Literal["create", "query", "update", "list_metadata_keys"],
-        args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | None = None,
+        action: Literal["create", "query", "update", "delete", "list_metadata_keys"],
+        args: CreateMemoryArgs | QueryMemoryArgs | UpdateMemoryArgs | DeleteMemoryArgs | None = None,
     ) -> tuple[str, dict[str, Any]]:
         if action == "create":
             if not isinstance(args, CreateMemoryArgs):
@@ -90,6 +96,10 @@ class ManageMemoriesTool(MaxTool):
             if not isinstance(args, UpdateMemoryArgs):
                 raise MaxToolRetryableError("UpdateMemoryArgs required for update action")
             return await self._update_memory(args.memory_id, args.contents, args.metadata)
+        elif action == "delete":
+            if not isinstance(args, DeleteMemoryArgs):
+                raise MaxToolRetryableError("DeleteMemoryArgs required for delete action")
+            return await self._delete_memory(args.memory_id)
         elif action == "list_metadata_keys":
             return await self._list_metadata_keys()
         else:
@@ -144,6 +154,7 @@ class ManageMemoriesTool(MaxTool):
               AND product = 'posthog-ai'
               AND document_type = 'memory'
               AND ({{skip_user_filter}} OR metadata.user_id = {{user_id}})
+              AND NOT JSONExtractBool(metadata, 'deleted')
               AND ({metadata_filter_sql})
             ORDER BY distance ASC
             LIMIT {{limit}}
@@ -237,8 +248,30 @@ class ManageMemoriesTool(MaxTool):
             {"memory_id": str(memory.id), "action": "updated"},
         )
 
-    async def _list_metadata_keys(self) -> tuple[str, dict[str, Any]]:
+    async def _delete_memory(self, memory_id: str) -> tuple[str, dict[str, Any]]:
         @database_sync_to_async
+        def delete():
+            try:
+                memory = AgentMemory.objects.get(id=memory_id, team=self._team)
+            except AgentMemory.DoesNotExist:
+                return None
+
+            memory.metadata = {**memory.metadata, "deleted": True}
+            memory.embed(EMBEDDING_MODEL)
+            memory.delete()
+            return memory_id
+
+        deleted_id = await delete()
+        if not deleted_id:
+            raise MaxToolRetryableError(f"Memory with ID {memory_id} not found")
+
+        return (
+            f"Memory {memory_id} deleted successfully",
+            {"memory_id": deleted_id, "action": "deleted"},
+        )
+
+    async def _list_metadata_keys(self) -> tuple[str, dict[str, Any]]:
+        @database_sync_to_async(thread_sensitive=False)
         def get_keys():
             memories = AgentMemory.objects.filter(team=self._team).values_list("metadata", flat=True)
             all_keys: set[str] = set()
