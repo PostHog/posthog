@@ -1,6 +1,7 @@
 import {
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -93,6 +94,13 @@ export interface DependentFlag {
     name: string
 }
 
+export interface PendingDependentFlagsConfirmation {
+    originalFlag: FeatureFlagType | null
+    updatedFlag: Partial<FeatureFlagType>
+    onConfirm: () => void
+    timeoutId: ReturnType<typeof setTimeout>
+}
+
 export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
@@ -140,6 +148,8 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
         },
     ],
 }
+
+const FLAG_DEPENDENCY_TIMEOUT_MS = 2000
 
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
 export function validateFeatureFlagKey(key: string): string | undefined {
@@ -366,6 +376,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
             bucketingIdentifier,
         }),
+        setPendingDependentFlagsConfirmation: (pending: PendingDependentFlagsConfirmation | null) => ({ pending }),
+        showDependentFlagsConfirmation: (payload: {
+            originalFlag: FeatureFlagType | null
+            updatedFlag: Partial<FeatureFlagType>
+            onConfirm: () => void
+            dependentFlags: DependentFlag[]
+            isBeingDisabled?: boolean
+        }) => payload,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -672,8 +690,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
             },
         ],
+        pendingDependentFlagsConfirmation: [
+            null as PendingDependentFlagsConfirmation | null,
+            {
+                setPendingDependentFlagsConfirmation: (_, { pending }) => pending,
+            },
+        ],
     }),
-    sharedListeners(({ values }) => ({
+    sharedListeners(({ values, actions }) => ({
         checkDependentFlagsAndConfirm: async (payload: {
             originalFlag: FeatureFlagType | null
             updatedFlag: Partial<FeatureFlagType>
@@ -684,26 +708,53 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Check if flag is being disabled and has active dependents
             const isBeingDisabled = updatedFlag.id && originalFlag?.active === true && updatedFlag.active === false
 
-            let dependentFlagsWarning: string | undefined
+            let dependentFlagsForConfirmation: DependentFlag[] = []
             if (isBeingDisabled) {
-                try {
-                    const response = await api.create(
-                        `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}/has_active_dependents/`,
-                        {}
-                    )
-                    if (response.has_active_dependents) {
-                        dependentFlagsWarning = response.warning
-                    }
-                } catch {
-                    lemonToast.error('Failed to check for dependent flags. Please try again.')
+                if (values.dependentFlagsLoading) {
+                    const timeoutId = setTimeout(() => {
+                        // On timeout we'll clear the pending flags confirmation dialog
+                        // and show it with empty dependent flags - we didn't load in
+                        // time
+                        const pending = values.pendingDependentFlagsConfirmation
+                        if (pending) {
+                            actions.setPendingDependentFlagsConfirmation(null)
+                            actions.showDependentFlagsConfirmation({
+                                originalFlag: pending.originalFlag,
+                                updatedFlag: pending.updatedFlag,
+                                onConfirm: pending.onConfirm,
+                                dependentFlags: [],
+                                isBeingDisabled: true,
+                            })
+                        }
+                    }, FLAG_DEPENDENCY_TIMEOUT_MS)
+
+                    actions.setPendingDependentFlagsConfirmation({
+                        originalFlag,
+                        updatedFlag,
+                        onConfirm,
+                        timeoutId,
+                    })
                     return
                 }
+                dependentFlagsForConfirmation = values.dependentFlags
             }
 
-            const extraMessages: string[] = []
-            if (dependentFlagsWarning) {
-                extraMessages.push(dependentFlagsWarning)
-            }
+            actions.showDependentFlagsConfirmation({
+                originalFlag,
+                updatedFlag,
+                onConfirm,
+                dependentFlags: dependentFlagsForConfirmation,
+                isBeingDisabled: !!isBeingDisabled,
+            })
+        },
+        showDependentFlagsConfirmation: (payload: {
+            originalFlag: FeatureFlagType | null
+            updatedFlag: Partial<FeatureFlagType>
+            onConfirm: () => void
+            dependentFlags: DependentFlag[]
+            isBeingDisabled?: boolean
+        }) => {
+            const { originalFlag, updatedFlag, onConfirm, dependentFlags, isBeingDisabled = false } = payload
 
             const featureFlagConfirmationEnabled = !!values.currentTeam?.feature_flag_confirmation_enabled
             let customConfirmationMessage: string | undefined
@@ -711,16 +762,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 customConfirmationMessage = values.currentTeam?.feature_flag_confirmation_message
             }
 
-            const shouldDisplayConfirmation = featureFlagConfirmationEnabled || extraMessages.length > 0
+            const shouldDisplayConfirmation = featureFlagConfirmationEnabled || dependentFlags.length > 0
 
             const confirmationShown = checkFeatureFlagConfirmation(
                 originalFlag,
                 updatedFlag as FeatureFlagType,
                 shouldDisplayConfirmation,
                 customConfirmationMessage,
-                extraMessages,
                 featureFlagConfirmationEnabled,
-                onConfirm
+                onConfirm,
+                dependentFlags,
+                isBeingDisabled
             )
 
             // If no confirmation was shown, proceed immediately
@@ -1149,6 +1201,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     })),
     listeners(({ actions, values, props, sharedListeners }) => ({
+        showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
         generateUsageDashboard: async () => {
             if (props.id) {
                 await api.create(`api/projects/${values.currentProjectId}/feature_flags/${props.id}/dashboard`)
@@ -1255,6 +1308,37 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
             // Experiment is now loaded inline during loadFeatureFlag, not here
+        },
+        loadDependentFlagsSuccess: () => {
+            const pending = values.pendingDependentFlagsConfirmation
+            if (pending) {
+                // Clear timeout since we got the data in time
+                clearTimeout(pending.timeoutId)
+                actions.setPendingDependentFlagsConfirmation(null)
+                actions.showDependentFlagsConfirmation({
+                    originalFlag: pending.originalFlag,
+                    updatedFlag: pending.updatedFlag,
+                    onConfirm: pending.onConfirm,
+                    dependentFlags: values.dependentFlags,
+                    isBeingDisabled: true,
+                })
+            }
+        },
+        loadDependentFlagsFailure: () => {
+            const pending = values.pendingDependentFlagsConfirmation
+            if (pending) {
+                // if the API request fails, just ignore dependent flags
+                // most flags won't have them, and we made our best effort
+                clearTimeout(pending.timeoutId)
+                actions.setPendingDependentFlagsConfirmation(null)
+                actions.showDependentFlagsConfirmation({
+                    originalFlag: pending.originalFlag,
+                    updatedFlag: pending.updatedFlag,
+                    onConfirm: pending.onConfirm,
+                    dependentFlags: [],
+                    isBeingDisabled: true,
+                })
+            }
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
             if (featureFlagCopy?.success.length) {
@@ -1646,6 +1730,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         } else if (props.id === 'new') {
             // Load default evaluation environments for new flags
             actions.loadFeatureFlag()
+        }
+    }),
+    beforeUnmount(({ values }) => {
+        // Clean up any pending confirmation timeout to prevent memory leaks
+        const pending = values.pendingDependentFlagsConfirmation
+        if (pending) {
+            clearTimeout(pending.timeoutId)
         }
     }),
 ])

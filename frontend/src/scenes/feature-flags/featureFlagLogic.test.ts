@@ -59,6 +59,7 @@ describe('featureFlagLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.useRealTimers()
     })
 
     describe('setMultivariateEnabled functionality', () => {
@@ -281,127 +282,256 @@ describe('featureFlagLogic', () => {
         })
     })
 
-    describe('dependent flags loading', () => {
-        it('loads dependent flags when feature flag loads successfully', async () => {
-            const flagWithDependents = {
-                ...MOCK_FEATURE_FLAG,
-                id: 4,
-            }
+    describe('pending confirmation with dependent flags', () => {
+        it('uses pre-loaded dependent flags when data is available', async () => {
+            const flag = { ...MOCK_FEATURE_FLAG, id: 6, active: true }
 
-            const dependentFlagsLogic = featureFlagLogic({ id: 4 })
-            dependentFlagsLogic.mount()
+            const testLogic = featureFlagLogic({ id: 6 })
+            testLogic.mount()
 
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithDependents.id}/`]: () => [
-                        200,
-                        flagWithDependents,
-                    ],
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithDependents.id}/status`]: () => [
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/`]: () => [200, flag],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/status`]: () => [
                         200,
                         MOCK_FEATURE_FLAG_STATUS,
                     ],
                 },
                 post: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithDependents.id}/has_active_dependents/`]:
-                        () => [
-                            200,
-                            {
-                                has_active_dependents: true,
-                                dependent_flags: MOCK_DEPENDENT_FLAGS,
-                            },
-                        ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/has_active_dependents/`]:
+                        () => [200, { has_active_dependents: true, dependent_flags: MOCK_DEPENDENT_FLAGS }],
                 },
             })
 
-            await expectLogic(dependentFlagsLogic, () => {
-                dependentFlagsLogic.actions.loadFeatureFlag()
-            })
-                .toDispatchActions(['loadFeatureFlagSuccess', 'loadDependentFlags', 'loadDependentFlagsSuccess'])
-                .toMatchValues({
-                    dependentFlags: MOCK_DEPENDENT_FLAGS,
+            await expectLogic(testLogic, () => {
+                testLogic.actions.loadFeatureFlag()
+            }).toDispatchActions(['loadFeatureFlagSuccess', 'loadDependentFlagsSuccess'])
+
+            expect(testLogic.values.dependentFlags).toEqual(MOCK_DEPENDENT_FLAGS)
+            expect(testLogic.values.dependentFlagsLoading).toBe(false)
+
+            testLogic.unmount()
+        })
+
+        it('initializes with no pending confirmation state', async () => {
+            const testLogic = featureFlagLogic({ id: 7 })
+            testLogic.mount()
+
+            testLogic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, id: 7, active: true })
+
+            expect(testLogic.values.pendingDependentFlagsConfirmation).toBeNull()
+
+            testLogic.unmount()
+        })
+
+        describe('when disabling while dependent flags are loading', () => {
+            let testLogic: ReturnType<typeof featureFlagLogic.build>
+            const flagId = 12
+
+            beforeEach(async () => {
+                jest.useFakeTimers()
+
+                const flag = { ...MOCK_FEATURE_FLAG, id: flagId, active: true }
+                testLogic = featureFlagLogic({ id: flagId })
+                testLogic.mount()
+                testLogic.actions.loadFeatureFlagSuccess(flag)
+
+                useMocks({
+                    post: {
+                        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagId}/has_active_dependents/`]:
+                            () => new Promise(() => {}), // Never resolves
+                    },
                 })
 
-            dependentFlagsLogic.unmount()
+                testLogic.actions.loadDependentFlags()
+                expect(testLogic.values.dependentFlagsLoading).toBe(true)
+
+                testLogic.actions.toggleFeatureFlagActive(false)
+                await Promise.resolve()
+            })
+
+            afterEach(() => {
+                testLogic.unmount()
+            })
+
+            it('sets pending confirmation with timeout', () => {
+                expect(testLogic.values.pendingDependentFlagsConfirmation).not.toBeNull()
+                expect(testLogic.values.pendingDependentFlagsConfirmation?.timeoutId).toBeTruthy()
+            })
+
+            it('clears pending confirmation after 2 second timeout', async () => {
+                expect(testLogic.values.pendingDependentFlagsConfirmation).not.toBeNull()
+
+                jest.advanceTimersByTime(2000)
+                await Promise.resolve()
+
+                expect(testLogic.values.pendingDependentFlagsConfirmation).toBeNull()
+            })
+        })
+
+        it('clears pending confirmation timeout on unmount', async () => {
+            const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout')
+            const flag = { ...MOCK_FEATURE_FLAG, id: 8, active: true }
+
+            const testLogic = featureFlagLogic({ id: 8 })
+            testLogic.mount()
+
+            const mockTimeoutId = setTimeout(() => {}, 2000) as unknown as ReturnType<typeof setTimeout>
+            testLogic.actions.setPendingDependentFlagsConfirmation({
+                originalFlag: flag,
+                updatedFlag: { ...flag, active: false },
+                onConfirm: jest.fn(),
+                timeoutId: mockTimeoutId,
+            })
+            expect(testLogic.values.pendingDependentFlagsConfirmation).not.toBeNull()
+
+            testLogic.unmount()
+
+            expect(clearTimeoutSpy).toHaveBeenCalledWith(mockTimeoutId)
+            clearTimeoutSpy.mockRestore()
+        })
+
+        it('clears timeout when dependent flags load successfully with pending confirmation', async () => {
+            const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout')
+            const flag = { ...MOCK_FEATURE_FLAG, id: 9, active: true }
+
+            const testLogic = featureFlagLogic({ id: 9 })
+            testLogic.mount()
+
+            const mockTimeoutId = setTimeout(() => {}, 2000) as unknown as ReturnType<typeof setTimeout>
+            testLogic.actions.setPendingDependentFlagsConfirmation({
+                originalFlag: flag,
+                updatedFlag: { ...flag, active: false },
+                onConfirm: jest.fn(),
+                timeoutId: mockTimeoutId,
+            })
+            expect(testLogic.values.pendingDependentFlagsConfirmation).not.toBeNull()
+
+            await expectLogic(testLogic, () => {
+                testLogic.actions.loadDependentFlagsSuccess(MOCK_DEPENDENT_FLAGS)
+            }).toDispatchActions(['loadDependentFlagsSuccess', 'showDependentFlagsConfirmation'])
+
+            expect(clearTimeoutSpy).toHaveBeenCalledWith(mockTimeoutId)
+            expect(testLogic.values.pendingDependentFlagsConfirmation).toBeNull()
+
+            clearTimeoutSpy.mockRestore()
+            testLogic.unmount()
+        })
+    })
+
+    describe('dependent flags loading', () => {
+        it('loads dependent flags when feature flag loads successfully', async () => {
+            const flag = { ...MOCK_FEATURE_FLAG, id: 4 }
+
+            const testLogic = featureFlagLogic({ id: 4 })
+            testLogic.mount()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/`]: () => [200, flag],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                },
+                post: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/has_active_dependents/`]:
+                        () => [200, { has_active_dependents: true, dependent_flags: MOCK_DEPENDENT_FLAGS }],
+                },
+            })
+
+            await expectLogic(testLogic, () => {
+                testLogic.actions.loadFeatureFlag()
+            })
+                .toDispatchActions(['loadFeatureFlagSuccess', 'loadDependentFlags', 'loadDependentFlagsSuccess'])
+                .toMatchValues({ dependentFlags: MOCK_DEPENDENT_FLAGS })
+
+            testLogic.unmount()
         })
 
         it('returns empty array when no dependent flags exist', async () => {
-            const flagWithoutDependents = {
-                ...MOCK_FEATURE_FLAG,
-                id: 5,
-            }
+            const flag = { ...MOCK_FEATURE_FLAG, id: 5 }
 
-            const noDependentsLogic = featureFlagLogic({ id: 5 })
-            noDependentsLogic.mount()
+            const testLogic = featureFlagLogic({ id: 5 })
+            testLogic.mount()
 
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithoutDependents.id}/`]: () => [
-                        200,
-                        flagWithoutDependents,
-                    ],
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithoutDependents.id}/status`]:
-                        () => [200, MOCK_FEATURE_FLAG_STATUS],
-                },
-                post: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithoutDependents.id}/has_active_dependents/`]:
-                        () => [
-                            200,
-                            {
-                                has_active_dependents: false,
-                                dependent_flags: [],
-                            },
-                        ],
-                },
-            })
-
-            await expectLogic(noDependentsLogic, () => {
-                noDependentsLogic.actions.loadFeatureFlag()
-            })
-                .toDispatchActions(['loadFeatureFlagSuccess', 'loadDependentFlags', 'loadDependentFlagsSuccess'])
-                .toMatchValues({
-                    dependentFlags: [],
-                })
-
-            noDependentsLogic.unmount()
-        })
-
-        it('handles API failure gracefully and returns empty array', async () => {
-            const flagWithError = {
-                ...MOCK_FEATURE_FLAG,
-                id: 14,
-            }
-
-            const errorLogic = featureFlagLogic({ id: 14 })
-            errorLogic.mount()
-
-            useMocks({
-                get: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithError.id}/`]: () => [
-                        200,
-                        flagWithError,
-                    ],
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithError.id}/status`]: () => [
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/`]: () => [200, flag],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/status`]: () => [
                         200,
                         MOCK_FEATURE_FLAG_STATUS,
                     ],
                 },
                 post: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithError.id}/has_active_dependents/`]:
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/has_active_dependents/`]:
+                        () => [200, { has_active_dependents: false, dependent_flags: [] }],
+                },
+            })
+
+            await expectLogic(testLogic, () => {
+                testLogic.actions.loadFeatureFlag()
+            })
+                .toDispatchActions(['loadFeatureFlagSuccess', 'loadDependentFlags', 'loadDependentFlagsSuccess'])
+                .toMatchValues({ dependentFlags: [] })
+
+            testLogic.unmount()
+        })
+
+        it('handles API failure gracefully and returns empty array', async () => {
+            const flag = { ...MOCK_FEATURE_FLAG, id: 14 }
+
+            const testLogic = featureFlagLogic({ id: 14 })
+            testLogic.mount()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/`]: () => [200, flag],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                },
+                post: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/has_active_dependents/`]:
                         () => [500, { error: 'Internal server error' }],
                 },
             })
 
-            await expectLogic(errorLogic, () => {
-                errorLogic.actions.loadFeatureFlag()
+            await expectLogic(testLogic, () => {
+                testLogic.actions.loadFeatureFlag()
             })
                 .toDispatchActions(['loadFeatureFlagSuccess', 'loadDependentFlags', 'loadDependentFlagsFailure'])
-                .toMatchValues({
-                    dependentFlags: [],
-                    dependentFlagsLoading: false,
-                })
+                .toMatchValues({ dependentFlags: [], dependentFlagsLoading: false })
 
-            errorLogic.unmount()
+            testLogic.unmount()
+        })
+
+        it('clears pending confirmation when dependent flags fail to load', async () => {
+            const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout')
+            const flag = { ...MOCK_FEATURE_FLAG, id: 15, active: true }
+
+            const testLogic = featureFlagLogic({ id: 15 })
+            testLogic.mount()
+
+            const mockTimeoutId = setTimeout(() => {}, 2000) as unknown as ReturnType<typeof setTimeout>
+            testLogic.actions.setPendingDependentFlagsConfirmation({
+                originalFlag: flag,
+                updatedFlag: { ...flag, active: false },
+                onConfirm: jest.fn(),
+                timeoutId: mockTimeoutId,
+            })
+            expect(testLogic.values.pendingDependentFlagsConfirmation).not.toBeNull()
+
+            await expectLogic(testLogic, () => {
+                testLogic.actions.loadDependentFlagsFailure('API error')
+            }).toDispatchActions(['loadDependentFlagsFailure', 'showDependentFlagsConfirmation'])
+
+            expect(clearTimeoutSpy).toHaveBeenCalledWith(mockTimeoutId)
+            expect(testLogic.values.pendingDependentFlagsConfirmation).toBeNull()
+
+            clearTimeoutSpy.mockRestore()
+            testLogic.unmount()
         })
     })
 })
