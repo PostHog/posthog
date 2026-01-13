@@ -169,6 +169,30 @@ function extractDynamicMaterializedColumns(
     }
 }
 
+/**
+ * Convert a property value to its raw string representation.
+ *
+ * This produces the same output as ClickHouse's JSONExtractRaw + quote stripping:
+ * - Strings: value as-is (no extra quotes)
+ * - Numbers/Booleans: String() representation ("123", "true", "false")
+ * - Objects/Arrays: JSON.stringify() representation
+ */
+function toRawValue(value: unknown): string {
+    if (typeof value === 'string') {
+        return value
+    } else if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value)
+    } else {
+        return JSON.stringify(value)
+    }
+}
+
+/**
+ * Extract EAV properties from an event for materialized column slots.
+ *
+ * Sends raw_value + property_type to Kafka. The ClickHouse MV transforms
+ * these into typed columns using the same logic as backfill and HogQL.
+ */
 function extractEAVProperties(
     preIngestionEvent: PreIngestionEvent,
     properties: Properties,
@@ -196,51 +220,16 @@ function extractEAVProperties(
             continue
         }
 
-        const eavProperty: EAVEventProperty = {
+        eavProperties.push({
             team_id: teamId,
             timestamp: timestampStr,
             event: safeClickhouseString(event),
             distinct_id: safeClickhouseString(distinctId),
             uuid: uuid,
             key: slot.property_name,
-            value_string: null,
-            value_numeric: null,
-            value_bool: null,
-            value_datetime: null,
-        }
-
-        // Set the appropriate value column based on property type
-        switch (slot.property_type) {
-            case 'String':
-                eavProperty.value_string = String(propertyValue)
-                break
-            case 'Numeric':
-                const numValue = parseFloat(propertyValue)
-                if (!isNaN(numValue)) {
-                    eavProperty.value_numeric = numValue
-                }
-                break
-            case 'Boolean':
-                const strValue = String(propertyValue).toLowerCase()
-                if (strValue === 'true' || strValue === '1') {
-                    eavProperty.value_bool = 1
-                } else if (strValue === 'false' || strValue === '0') {
-                    eavProperty.value_bool = 0
-                }
-                break
-            case 'DateTime':
-                // Parse datetime and convert to ClickHouse format
-                const parsedDateTime = DateTime.fromISO(String(propertyValue), { zone: 'utc' })
-                if (parsedDateTime.isValid) {
-                    eavProperty.value_datetime = castTimestampToClickhouseFormat(
-                        parsedDateTime,
-                        TimestampFormat.ClickHouse
-                    )
-                }
-                break
-        }
-
-        eavProperties.push(eavProperty)
+            raw_value: toRawValue(propertyValue),
+            property_type: slot.property_type,
+        })
     }
 
     return eavProperties

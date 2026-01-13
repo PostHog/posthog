@@ -773,7 +773,13 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
     project_id: ProjectId
 }
 
-/** EAV (Entity-Attribute-Value) event property for the event_properties table. */
+/**
+ * EAV (Entity-Attribute-Value) event property for the event_properties Kafka table.
+ *
+ * Node.js sends raw_value + property_type to Kafka, and the ClickHouse MV
+ * transforms them into typed columns (value_string, value_numeric, etc.)
+ * using the same logic as backfill and HogQL property extraction.
+ */
 export interface EAVEventProperty {
     team_id: number
     timestamp: string
@@ -781,10 +787,8 @@ export interface EAVEventProperty {
     distinct_id: string
     uuid: string
     key: string
-    value_string: string | null
-    value_numeric: number | null
-    value_bool: number | null
-    value_datetime: string | null
+    raw_value: string
+    property_type: 'String' | 'Numeric' | 'Boolean' | 'DateTime'
 }
 
 /** Parsed event row from ClickHouse. */

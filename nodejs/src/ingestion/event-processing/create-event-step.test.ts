@@ -375,26 +375,23 @@ describe('create-event-step', () => {
         })
 
         describe('EAV property extraction', () => {
+            // Node.js sends raw_value + property_type to Kafka, ClickHouse MV handles conversion
             it.each([
-                ['String', 'plan', 'enterprise', { value_string: 'enterprise' }],
-                ['Numeric', 'revenue', 123.45, { value_numeric: 123.45 }],
-                ['Numeric', 'count', '42', { value_numeric: 42 }],
-                ['Boolean', 'is_active', true, { value_bool: 1 }],
-                ['Boolean', 'is_active', 'true', { value_bool: 1 }],
-                ['Boolean', 'is_active', '1', { value_bool: 1 }],
-                ['Boolean', 'is_active', false, { value_bool: 0 }],
-                ['Boolean', 'is_active', 'false', { value_bool: 0 }],
-                ['Boolean', 'is_active', '0', { value_bool: 0 }],
-                [
-                    'DateTime',
-                    'created_at',
-                    '2026-01-09T07:10:36.367000Z',
-                    { value_datetime: '2026-01-09 07:10:36.367' },
-                ],
-                ['DateTime', 'created_at', '2026-01-09T07:10:36Z', { value_datetime: '2026-01-09 07:10:36.000' }],
+                // [propertyType, propertyName, propertyValue, expectedRawValue]
+                ['String', 'plan', 'enterprise', 'enterprise'],
+                ['Numeric', 'revenue', 123.45, '123.45'],
+                ['Numeric', 'count', '42', '42'],
+                ['Boolean', 'is_active', true, 'true'],
+                ['Boolean', 'is_active', 'true', 'true'],
+                ['Boolean', 'is_active', '1', '1'],
+                ['Boolean', 'is_active', false, 'false'],
+                ['Boolean', 'is_active', 'false', 'false'],
+                ['Boolean', 'is_active', '0', '0'],
+                ['DateTime', 'created_at', '2026-01-09T07:10:36.367000Z', '2026-01-09T07:10:36.367000Z'],
+                ['DateTime', 'created_at', '2026-01-09T07:10:36Z', '2026-01-09T07:10:36Z'],
             ])(
-                'should extract %s property %s with value %p',
-                async (propertyType, propertyName, propertyValue, expectedValues) => {
+                'should extract %s property %s with value %p as raw_value=%p',
+                async (propertyType, propertyName, propertyValue, expectedRawValue) => {
                     const slot: MaterializedColumnSlot = {
                         property_name: propertyName,
                         slot_index: 0,
@@ -428,24 +425,25 @@ describe('create-event-step', () => {
                         expect(result.value.eavPropertiesToEmit).toHaveLength(1)
                         const eavProp = result.value.eavPropertiesToEmit![0]
                         expect(eavProp.key).toBe(propertyName)
-                        for (const [key, value] of Object.entries(expectedValues)) {
-                            expect(eavProp[key as keyof typeof eavProp]).toBe(value)
-                        }
+                        expect(eavProp.property_type).toBe(propertyType)
+                        expect(eavProp.raw_value).toBe(expectedRawValue)
                     }
                 }
             )
 
+            // Values that would fail type conversion in ClickHouse are still sent as raw_value
+            // The MV will convert them to NULL in the appropriate typed column
             it.each([
-                ['Numeric', 'revenue', 'not-a-number'],
-                ['Numeric', 'revenue', {}],
-                ['Boolean', 'is_active', 'maybe'],
-                ['Boolean', 'is_active', 2],
-                ['DateTime', 'created_at', 'not-a-date'],
-                ['DateTime', 'created_at', 123],
-                ['DateTime', 'created_at', {}],
+                ['Numeric', 'revenue', 'not-a-number', 'not-a-number'],
+                ['Numeric', 'revenue', { complex: 'object' }, '{"complex":"object"}'],
+                ['Boolean', 'is_active', 'maybe', 'maybe'],
+                ['Boolean', 'is_active', 2, '2'],
+                ['DateTime', 'created_at', 'not-a-date', 'not-a-date'],
+                ['DateTime', 'created_at', 123, '123'],
+                ['DateTime', 'created_at', { nested: 'value' }, '{"nested":"value"}'],
             ])(
-                'should not extract %s property %s with invalid value %p',
-                async (propertyType, propertyName, propertyValue) => {
+                'should still emit %s property %s with potentially invalid value %p as raw_value=%p',
+                async (propertyType, propertyName, propertyValue, expectedRawValue) => {
                     const slot: MaterializedColumnSlot = {
                         property_name: propertyName,
                         slot_index: 0,
@@ -476,15 +474,12 @@ describe('create-event-step', () => {
 
                     expect(isOkResult(result)).toBe(true)
                     if (isOkResult(result)) {
-                        // Should either have no EAV properties or have one with null values
-                        const eavProps = result.value.eavPropertiesToEmit || []
-                        if (eavProps.length > 0) {
-                            const eavProp = eavProps[0]
-                            expect(eavProp.value_string).toBeNull()
-                            expect(eavProp.value_numeric).toBeNull()
-                            expect(eavProp.value_bool).toBeNull()
-                            expect(eavProp.value_datetime).toBeNull()
-                        }
+                        // We always emit the raw value - ClickHouse MV handles type conversion
+                        expect(result.value.eavPropertiesToEmit).toHaveLength(1)
+                        const eavProp = result.value.eavPropertiesToEmit![0]
+                        expect(eavProp.key).toBe(propertyName)
+                        expect(eavProp.property_type).toBe(propertyType)
+                        expect(eavProp.raw_value).toBe(expectedRawValue)
                     }
                 }
             )
