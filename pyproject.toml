@@ -79,7 +79,7 @@ dependencies = [
     "langchain-openai~=0.3.35",
     "langchain-anthropic~=0.3.22",
     "langgraph==0.4.10",
-    "lxml==5.2.1",
+    "lxml==6.0.2",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
     "mimesis==5.2.1",
