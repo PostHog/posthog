@@ -12,10 +12,14 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { timeZoneLabel } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, BatchExportConfigurationTest, BatchExportConfigurationTestStep } from '~/types'
@@ -45,7 +49,17 @@ export function BatchExportConfiguration(): JSX.Element {
     } = useValues(logic)
     const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { timezone: teamTimezone } = useValues(teamLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
+
+    const showTimezoneSelector = configuration.interval === 'day' || configuration.interval === 'week'
+    const timezoneOptions =
+        preflight?.available_timezones &&
+        Object.entries(preflight.available_timezones).map(([tz, offset]) => ({
+            key: tz,
+            label: timeZoneLabel(tz, offset),
+        }))
 
     const requiredFields = ['interval']
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
@@ -94,6 +108,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                             options={[
                                                 { value: 'hour', label: 'Hourly' },
                                                 { value: 'day', label: 'Daily' },
+                                                { value: 'week', label: 'Weekly' },
                                                 {
                                                     value: 'every 5 minutes',
                                                     label: 'Every 5 minutes',
@@ -103,6 +118,34 @@ export function BatchExportConfiguration(): JSX.Element {
                                         />
                                     </LemonField>
                                 </div>
+
+                                {showTimezoneSelector && (
+                                    <div className="flex gap-2 min-h-16">
+                                        <LemonField
+                                            name="timezone"
+                                            label="Timezone"
+                                            className="flex-1"
+                                            info={`Timezone used for determining ${configuration.interval} boundaries for batch export runs`}
+                                        >
+                                            {({ value, onChange }) => {
+                                                const currentTimezone = value || teamTimezone || 'UTC'
+                                                return (
+                                                    <LemonInputSelect
+                                                        mode="single"
+                                                        placeholder="Select a time zone"
+                                                        value={[currentTimezone]}
+                                                        onChange={(newValue) => {
+                                                            onChange(newValue[0] || teamTimezone || 'UTC')
+                                                        }}
+                                                        options={timezoneOptions || []}
+                                                        popoverClassName="z-[1000]"
+                                                        virtualized
+                                                    />
+                                                )
+                                            }}
+                                        </LemonField>
+                                    </div>
+                                )}
                             </div>
                             <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
                                 <div className="flex gap-2 min-h-16">
