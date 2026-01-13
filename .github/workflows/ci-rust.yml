@@ -73,6 +73,8 @@ jobs:
             - name: Configure sccache
               run: |
                   echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+                  # Bust cache due to OpenSSL assembly corruption (2026-01-13)
+                  echo "SCCACHE_CACHE_BUST=20260113" >> $GITHUB_ENV
                   sccache --start-server
 
             - name: Run cargo build
@@ -248,6 +250,8 @@ jobs:
             - name: Configure sccache
               run: |
                   echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+                  # Bust cache due to OpenSSL assembly corruption (2026-01-13)
+                  echo "SCCACHE_CACHE_BUST=20260113" >> $GITHUB_ENV
                   sccache --start-server
 
             - name: Check format
