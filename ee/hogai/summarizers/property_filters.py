@@ -69,6 +69,7 @@ PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
     PropertyOperator.IS_CLEANED_PATH_EXACT: "has a link without a hash and URL parameters that matches exactly",
     PropertyOperator.FLAG_EVALUATES_TO: "evaluates to",
     PropertyOperator.SEMVER_EQ: "equals semver",
+    PropertyOperator.SEMVER_NEQ: "does not equal semver",
     PropertyOperator.SEMVER_GT: "is semver greater than",
     PropertyOperator.SEMVER_GTE: "is semver greater than or equal to",
     PropertyOperator.SEMVER_LT: "is semver less than",

@@ -1186,11 +1186,11 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "person", "key": "version", "operator": "semver_caret", "value": "abc.def"})
 
         # Test wildcard requires valid pattern
-        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver pattern"):
+        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
             self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": "*"})
 
         # Test wildcard requires valid pattern
-        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver pattern"):
+        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
             self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": ".*"})
 
     def test_property_to_expr_semver_edge_cases(self):
