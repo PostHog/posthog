@@ -159,6 +159,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     and get_query_tag_value("access_method") != "personal_api_key"
                     else None
                 ),
+                previous_cache_key=data.cache_skippable_hint.previous_cache_key if data.cache_skippable_hint else None,
+                cache_operation=data.cache_skippable_hint.cache_operation.value if data.cache_skippable_hint else None,
+                cache_operation_index=int(data.cache_skippable_hint.cache_operation_index)
+                if data.cache_skippable_hint and data.cache_skippable_hint.cache_operation_index is not None
+                else None,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
