@@ -55,6 +55,7 @@ from ee.hogai.tools import (
     ListDataTool,
     ReadDataTool,
     ReadTaxonomyTool,
+    SearchTool,
     SwitchModeTool,
     TaskTool,
     TodoWriteTool,
@@ -72,7 +73,7 @@ from ee.hogai.utils.types.base import AssistantState, NodePath
 DEFAULT_TOOLS: list[type[MaxTool]] = [
     ReadTaxonomyTool,
     ReadDataTool,
-    # SearchTool,
+    SearchTool,
     ListDataTool,
     TodoWriteTool,
     SwitchModeTool,
