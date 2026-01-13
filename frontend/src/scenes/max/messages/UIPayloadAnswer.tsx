@@ -13,10 +13,17 @@ import {
 import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
+import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'
+import { isDangerousOperationResponse, normalizeDangerousOperationResponse } from '../approvalOperationUtils'
+import { maxLogic } from '../maxLogic'
 import { MessageTemplate } from './MessageTemplate'
 import { RecordingsFiltersSummary } from './RecordingsFiltersSummary'
 
-export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = ['search_session_recordings', 'create_form']
+export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
+    'search_session_recordings',
+    'create_form',
+    'upsert_dashboard',
+]
 
 export function UIPayloadAnswer({
     toolCallId,
@@ -27,10 +34,22 @@ export function UIPayloadAnswer({
     toolName: string
     toolPayload: any
 }): JSX.Element | null {
+    const { conversationId } = useValues(maxLogic)
+
     if (toolName === 'search_session_recordings') {
         const filters = toolPayload as RecordingUniversalFilters
         return <RecordingsWidget toolCallId={toolCallId} filters={filters} />
     }
+
+    // Check if this is a dangerous operation requiring approval
+    if (isDangerousOperationResponse(toolPayload)) {
+        if (!conversationId) {
+            return null
+        }
+        const normalizedOperation = normalizeDangerousOperationResponse(toolPayload)
+        return <DangerousOperationApprovalCard operation={normalizedOperation} />
+    }
+
     // It's not expected to hit the null branch below, because such a case SHOULD have already been filtered out
     // in maxThreadLogic.selectors.threadGrouped, but better safe than sorry - there can be deployments mismatches etc.
     return null

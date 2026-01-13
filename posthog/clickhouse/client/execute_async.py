@@ -33,7 +33,7 @@ QUERY_WAIT_TIME = Histogram(
     "query_wait_time_seconds",
     "Time from query creation to pick-up",
     labelnames=["team", "mode"],
-    buckets=Histogram.DEFAULT_BUCKETS[2:-1] + (20, 30, 60, 120, 300, 600, float("inf")),
+    buckets=(*Histogram.DEFAULT_BUCKETS[2:-1], 20, 30, 60, 120, 300, 600, float("inf")),
 )
 
 QUERY_PROCESS_TIME = Histogram(

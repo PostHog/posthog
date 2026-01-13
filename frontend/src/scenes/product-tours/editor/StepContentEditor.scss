@@ -152,63 +152,60 @@
                     }
                 }
 
-                // Syntax highlighting (lowlight/highlight.js classes)
+                // GitHub light syntax highlighting theme
+                // Used consistently in editor and SDK
                 .hljs-comment,
                 .hljs-quote {
                     font-style: italic;
-                    color: var(--muted);
+                    color: #6a737d;
                 }
 
                 .hljs-keyword,
-                .hljs-selector-tag,
-                .hljs-addition {
-                    color: var(--purple);
+                .hljs-selector-tag {
+                    color: #d73a49;
+                }
+
+                .hljs-string,
+                .hljs-doctag,
+                .hljs-regexp {
+                    color: #032f62;
                 }
 
                 .hljs-number,
-                .hljs-string,
-                .hljs-meta .hljs-meta-string,
                 .hljs-literal,
-                .hljs-doctag,
-                .hljs-regexp {
-                    color: var(--success);
+                .hljs-variable,
+                .hljs-template-variable {
+                    color: #005cc5;
                 }
 
                 .hljs-title,
                 .hljs-section,
-                .hljs-name,
                 .hljs-selector-id,
-                .hljs-selector-class {
-                    color: var(--primary-3000);
+                .hljs-selector-class,
+                .hljs-title.function_ {
+                    color: #6f42c1;
                 }
 
+                .hljs-name,
                 .hljs-attribute,
-                .hljs-attr,
-                .hljs-variable,
-                .hljs-template-variable,
-                .hljs-class .hljs-title,
-                .hljs-type {
-                    color: var(--warning);
+                .hljs-attr {
+                    color: #22863a;
                 }
 
                 .hljs-symbol,
                 .hljs-bullet,
-                .hljs-subst,
-                .hljs-meta,
-                .hljs-meta .hljs-keyword,
-                .hljs-selector-attr,
-                .hljs-selector-pseudo,
-                .hljs-link {
-                    color: var(--danger);
-                }
-
                 .hljs-built_in,
-                .hljs-deletion {
-                    color: var(--danger);
+                .hljs-addition {
+                    color: #22863a;
                 }
 
-                .hljs-formula {
-                    background: var(--bg-fill-secondary);
+                .hljs-subst,
+                .hljs-deletion {
+                    color: #b31d28;
+                }
+
+                .hljs-meta {
+                    color: #032f62;
                 }
 
                 .hljs-emphasis {

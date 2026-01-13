@@ -77,8 +77,9 @@ class TestAttributeFilters(APIBaseTest):
         # Verify that log attribute filters are included in the query
         self.assertIn("service.name", query_str)
         self.assertIn("http.method", query_str)
-        # Log attributes use resource_fingerprint filtering for optimization
-        self.assertIn("(in(resource_fingerprint", query_str)
+        # Log attributes DO NOT use resource_fingerprint filtering for optimization
+        # this optimization was premature and needs more thought, and probably has very little benefit anyway
+        self.assertNotIn("(in(resource_fingerprint", query_str)
 
     def test_resource_attribute_filters(self):
         """Test that resource attribute filters are properly handled"""
@@ -440,6 +441,40 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with self.capture_select_queries() as queries:
             response = self._make_logs_api_request(query_params)
         self.assertEqual(len(response["results"]), 0)
+        self.assertEqual(len(queries), 2)
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_resource_negative_attribute_filters(self):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:00:36.178572Z", "date_to": None},
+            "limit": 100,
+            "filterGroup": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "k8s.deployment.name",
+                                "value": "argo-rollouts",
+                                "operator": "icontains",
+                                "type": "log_resource_attribute",
+                            },
+                            {
+                                "key": "message",
+                                "value": ["time=2025-12-16T09:04:40.952Z"],
+                                "operator": "not_icontains",
+                                "type": "log_attribute",
+                            },
+                        ],
+                    }
+                ],
+            },
+        }
+
+        with self.capture_select_queries() as queries:
+            response = self._make_logs_api_request(query_params)
+        self.assertEqual(len(response["results"]), 99)
         self.assertEqual(len(queries), 2)
 
     @freeze_time("2025-12-16T10:33:00Z")
