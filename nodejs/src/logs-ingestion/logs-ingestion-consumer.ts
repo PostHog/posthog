@@ -128,8 +128,9 @@ export class LogsIngestionConsumer {
                           port: hub.LOGS_REDIS_PORT,
                           tls: hub.LOGS_REDIS_TLS ? {} : undefined,
                       },
+                      name: 'logs-redis',
                   }
-                : { url: hub.REDIS_URL },
+                : { url: hub.REDIS_URL, name: 'logs-redis-fallback' },
             poolMinSize: hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })

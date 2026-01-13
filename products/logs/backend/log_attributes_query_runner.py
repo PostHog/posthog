@@ -1,4 +1,5 @@
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 from posthog.schema import IntervalType, LogAttributesQuery, LogAttributesQueryResponse
 
@@ -36,32 +37,10 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
             interval=IntervalType.MINUTE,
             interval_count=10,
             now=dt.datetime.now(),
+            timezone_info=ZoneInfo("UTC"),
         )
 
     def to_query(self) -> ast.SelectQuery:
-        # temporarily exclude resource_attributes from the log attributes results
-        # this is because we are currently merging resource attributes into log attributes but will stop soon
-        # once we stop merging the attributes here: https://github.com/PostHog/posthog/blob/d55f534193220eee1cd50df2c4465229925a572d/rust/capture-logs/src/log_record.rs#L91
-        # and the 7 day retention period has passed, we can remove this code
-        # If you see this message after 2026-01-01 tell @frank to do it already
-        exclude_expression: ast.Expr = ast.Constant(value=1)
-        if self.query.attributeType == "log":
-            exclude_expression = parse_expr(
-                """(attribute_key) NOT IN (
-                    SELECT attribute_key FROM log_attributes
-                    WHERE time_bucket >= {date_from_start_of_interval}
-                    AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
-                    AND attribute_type = 'resource'
-                    AND attribute_key LIKE {search}
-                    AND {where}
-                )""",
-                placeholders={
-                    "search": ast.Constant(value=f"%{self.query.search}%"),
-                    **self.query_date_range.to_placeholders(),
-                    "where": self.where(),
-                },
-            )
-
         query = parse_select(
             """
             SELECT
@@ -76,7 +55,6 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
                 AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
                 AND attribute_type = {attributeType}
                 AND attribute_key LIKE {search}
-                AND {exclude_expression}
                 AND {where}
                 GROUP BY team_id, attribute_key
                 ORDER BY sum(attribute_count) desc, attribute_key asc
@@ -86,7 +64,6 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
             placeholders={
                 "search": ast.Constant(value=f"%{self.query.search}%"),
                 "attributeType": ast.Constant(value=self.query.attributeType),
-                "exclude_expression": exclude_expression,
                 "limit": ast.Constant(value=self.query.limit),
                 "offset": ast.Constant(value=self.query.offset),
                 "where": self.where(),

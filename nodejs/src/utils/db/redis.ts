@@ -17,6 +17,7 @@ const REDIS_ERROR_COUNTER_LIMIT = 10
 export interface RedisConnectionConfig {
     url: string
     options?: RedisOptions
+    name?: string
 }
 
 /**
@@ -29,7 +30,7 @@ export interface RedisPoolConfig {
 }
 
 export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis> {
-    return createRedisClient(config.url, config.options)
+    return createRedisClient(config.url, config.options, config.name)
 }
 
 export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
@@ -66,27 +67,41 @@ function getRedisHost(url: string, options?: RedisOptions): string {
     }
 }
 
-export async function createRedisClient(url: string, options?: RedisOptions): Promise<Redis.Redis> {
+export async function createRedisClient(
+    url: string,
+    options?: RedisOptions,
+    connectionName?: string
+): Promise<Redis.Redis> {
     const redis = new Redis(url, {
         ...options,
         maxRetriesPerRequest: -1,
     })
     let errorCounter = 0
     const redisHost = getRedisHost(url, options)
+    const connectionId = connectionName ? `[${connectionName}] ` : ''
+    const creationStack = new Error().stack
     redis
         .on('error', (error) => {
             errorCounter++
             captureException(error)
             if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
-                logger.error('😡', 'Redis error encountered! host:', redisHost, ' Enough of this, I quit!', error)
+                logger.error(
+                    '😡',
+                    `${connectionId}Redis error encountered! host: ${redisHost} Enough of this, I quit!`,
+                    { error, creationStack }
+                )
                 killGracefully()
             } else {
-                logger.error('🔴', 'Redis error encountered! host:', redisHost, ' Trying to reconnect...', error)
+                logger.error(
+                    '🔴',
+                    `${connectionId}Redis error encountered! host: ${redisHost} Trying to reconnect...`,
+                    { error, creationStack }
+                )
             }
         })
         .on('ready', () => {
             if (process.env.NODE_ENV !== 'test') {
-                logger.info('✅', 'Connected to Redis!', redisHost)
+                logger.info('✅', `${connectionId}Connected to Redis!`, redisHost)
             }
         })
     await redis.info()

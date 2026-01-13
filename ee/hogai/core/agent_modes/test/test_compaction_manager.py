@@ -350,7 +350,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-1",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query_description": "test"},
                     )
                 ],
@@ -486,7 +486,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-1",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query": "test"},
                     )
                 ],
@@ -528,7 +528,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-old",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query": "old"},
                     )
                 ],
@@ -549,7 +549,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-new",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query": "new"},
                     )
                 ],
@@ -593,7 +593,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-1",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query": "first"},
                     )
                 ],
@@ -604,7 +604,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-2",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query": "second"},
                     )
                 ],

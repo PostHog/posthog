@@ -34,8 +34,11 @@ fn create_test_checkpoint_config(tmp_checkpoint_dir: &TempDir) -> CheckpointConf
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: TEST_BUCKET.to_string(),
         s3_key_prefix: "checkpoints".to_string(),
-        aws_region: "us-east-1".to_string(),
-        test_s3_endpoint: Some(MINIO_ENDPOINT.to_string()),
+        aws_region: Some("us-east-1".to_string()),
+        s3_endpoint: Some(MINIO_ENDPOINT.to_string()),
+        s3_access_key_id: Some(MINIO_ACCESS_KEY.to_string()),
+        s3_secret_access_key: Some(MINIO_SECRET_KEY.to_string()),
+        s3_force_path_style: true,
         // Use a wide import window so our just-uploaded checkpoint is found
         checkpoint_import_window_hours: 24,
         ..Default::default()
@@ -121,10 +124,6 @@ async fn cleanup_bucket(client: &AwsS3Client, prefix: &str) {
 /// Integration test for checkpoint export and import via MinIO
 #[tokio::test]
 async fn test_checkpoint_export_import_via_minio() -> Result<()> {
-    // Set up AWS credentials for MinIO
-    std::env::set_var("AWS_ACCESS_KEY_ID", MINIO_ACCESS_KEY);
-    std::env::set_var("AWS_SECRET_ACCESS_KEY", MINIO_SECRET_KEY);
-
     let test_topic = "test_checkpoint_integration";
     let test_partition = 0;
 
@@ -158,7 +157,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     let config = create_test_checkpoint_config(&tmp_checkpoint_dir);
 
     // Create S3Uploader for MinIO and wrap in exporter
-    let uploader = S3Uploader::new_for_testing(config.clone()).await?;
+    let uploader = S3Uploader::new(config.clone()).await?;
     let exporter = Some(Arc::new(CheckpointExporter::new(Box::new(uploader))));
 
     // Create checkpoint worker and perform checkpoint
@@ -225,7 +224,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     );
 
     // Now test the import side - create S3Downloader and CheckpointImporter
-    let downloader = S3Downloader::new_for_testing(&config).await?;
+    let downloader = S3Downloader::new(&config).await?;
 
     // Test list_recent_checkpoints
     let recent_checkpoints = downloader

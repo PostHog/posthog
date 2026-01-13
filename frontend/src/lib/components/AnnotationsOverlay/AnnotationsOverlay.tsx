@@ -1,7 +1,8 @@
 import './AnnotationsOverlay.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useRef, useState } from 'react'
+import posthog from 'posthog-js'
+import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 
@@ -196,6 +197,19 @@ function AnnotationsPopover({
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
+    // Capture event when popup is shown with a system annotation
+    useEffect(() => {
+        if (
+            isPopoverShown &&
+            popoverAnnotations.some((annotation: AnnotationType) => annotation.id === -1 || annotation.id === -2)
+        ) {
+            posthog.capture('person_property_incident_annotation_viewed', {
+                annotation_count: popoverAnnotations.length,
+                has_system_annotation: true,
+            })
+        }
+    }, [isPopoverShown, popoverAnnotations])
+
     return (
         <Popover
             additionalRefs={overlayRefs}
@@ -248,49 +262,64 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
 
+    const isSystemAnnotation = annotation.id === -1 || annotation.id === -2
+
     return (
-        <li className="AnnotationCard flex flex-col w-full p-3 rounded border list-none">
+        <li
+            className={`AnnotationCard flex flex-col w-full p-3 rounded border list-none ${
+                isSystemAnnotation ? 'border-primary/30 bg-primary/5' : ''
+            }`}
+        >
             <div className="flex items-center gap-2">
                 <h5 className="grow m-0 text-secondary">
                     {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
                     {annotationScopeToName[annotation.scope]}
                     -level
                 </h5>
-                <LemonButton
-                    size="small"
-                    icon={<IconPencil />}
-                    tooltip="Edit this annotation"
-                    onClick={() =>
-                        openModalToEditAnnotation(annotation, insightId, annotationsOverlayProps.dashboardId)
-                    }
-                    noPadding
-                />
-                <LemonButton
-                    size="small"
-                    icon={<IconTrash />}
-                    tooltip="Delete this annotation"
-                    onClick={() => deleteAnnotation(annotation)}
-                    noPadding
-                />
+                {!isSystemAnnotation && (
+                    <>
+                        <LemonButton
+                            size="small"
+                            icon={<IconPencil />}
+                            tooltip="Edit this annotation"
+                            onClick={() =>
+                                openModalToEditAnnotation(annotation, insightId, annotationsOverlayProps.dashboardId)
+                            }
+                            noPadding
+                        />
+                        <LemonButton
+                            size="small"
+                            icon={<IconTrash />}
+                            tooltip="Delete this annotation"
+                            onClick={() => deleteAnnotation(annotation)}
+                            noPadding
+                        />
+                    </>
+                )}
             </div>
-            <div className="mt-1">
+            <div className="mt-1 flex items-center gap-3">
+                {isSystemAnnotation && (
+                    <LemonBadge status="primary" size="small" className="flex-shrink-0" content="PostHog" />
+                )}
                 <TextContent text={annotation.content ?? ''} data-attr="annotation-overlay-rendered-content" />
             </div>
-            <div className="leading-6 mt-2 flex flex-row items-center justify-between">
-                <div>
-                    <ProfilePicture
-                        user={
-                            annotation.creation_type === 'GIT'
-                                ? { first_name: 'GitHub automation' }
-                                : annotation.created_by
-                        }
-                        showName
-                        size="md"
-                        type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}
-                    />{' '}
-                    • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
+            {!isSystemAnnotation && (
+                <div className="leading-6 mt-2 flex flex-row items-center justify-between">
+                    <div>
+                        <ProfilePicture
+                            user={
+                                annotation.creation_type === 'GIT'
+                                    ? { first_name: 'GitHub automation' }
+                                    : annotation.created_by
+                            }
+                            showName
+                            size="md"
+                            type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}
+                        />{' '}
+                        • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
+                    </div>
                 </div>
-            </div>
+            )}
         </li>
     )
 }

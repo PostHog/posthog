@@ -31,7 +31,7 @@ const _commonActionFields = {
     output_variable: z // The Hogflow-level variable to store the output of this action into
         .object({
             key: z.string(),
-            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'body.user.id'
         })
         .optional()
         .nullable(),
@@ -282,4 +282,5 @@ export interface HogflowTestResult {
     logs?: LogEntry[]
     nextActionId: string | null
     errors?: string[]
+    variables?: Record<string, any>
 }

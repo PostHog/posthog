@@ -187,6 +187,10 @@ pub struct ConfigResponse {
     /// Error tracking configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_tracking: Option<ErrorTrackingConfig>,
+
+    /// Conversations configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversations: Option<Value>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -477,6 +481,9 @@ impl FromFeatureAndMatch for FlagDetails {
                 Some("Holdout condition value".to_string())
             }
             FeatureFlagMatchReason::FlagDisabled => Some("Feature flag is disabled".to_string()),
+            FeatureFlagMatchReason::MissingDependency => {
+                Some("Flag cannot be evaluated due to missing dependency".to_string())
+            }
         }
     }
 }
@@ -673,6 +680,26 @@ mod tests {
             payload: None,
         },
         Some("Holdout condition value".to_string())
+    )]
+    #[case::flag_disabled(
+        FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::FlagDisabled,
+            condition_index: None,
+            payload: None,
+        },
+        Some("Feature flag is disabled".to_string())
+    )]
+    #[case::missing_dependency(
+        FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::MissingDependency,
+            condition_index: None,
+            payload: None,
+        },
+        Some("Flag cannot be evaluated due to missing dependency".to_string())
     )]
     fn test_get_reason_description(
         #[case] flag_match: FeatureFlagMatch,
