@@ -48,7 +48,8 @@ pub async fn handle_batch(
         handles.push(async move {
             let mut results = vec![];
             for model in &request.models {
-                let (model, embedding) = handle_single(ctx.clone(), *model, request.clone()).await?;
+                let (model, embedding) =
+                    handle_single(ctx.clone(), *model, request.clone()).await?;
                 results.push(ModelResult {
                     model,
                     outcome: EmbeddingResult::Success { embedding },
