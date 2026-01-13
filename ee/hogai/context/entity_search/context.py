@@ -237,6 +237,10 @@ class EntitySearchContext:
         Returns:
             Tuple of (entities list in format_entities format, total count)
         """
+        return await database_sync_to_async(self._list_insights_sync, thread_sensitive=False)(limit, offset)
+
+    def _list_insights_sync(self, limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
+        """Sync implementation of _list_insights for use with database_sync_to_async."""
         cutoff_date = timezone.now() - timedelta(days=INSIGHTS_CUTOFF_DAYS)
         queryset = (
             Insight.objects.filter(team=self._team, deleted=False)
@@ -247,14 +251,10 @@ class EntitySearchContext:
         # Apply access control filtering
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
 
-        total_count = await queryset.acount()
-        insights = await database_sync_to_async(
-            lambda: list(
-                queryset[offset : offset + limit].values(
-                    "id", "name", "description", "query", "derived_name", "short_id"
-                )
-            )
-        )()
+        total_count = queryset.count()
+        insights = list(
+            queryset[offset : offset + limit].values("id", "name", "description", "query", "derived_name", "short_id")
+        )
 
         all_entities: list[dict[str, Any]] = []
         for insight in insights:
