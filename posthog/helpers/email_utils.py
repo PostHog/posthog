@@ -7,6 +7,7 @@ import hashlib
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
@@ -185,6 +186,7 @@ def _capture_esp_suppression_analytics(
     api_called: bool = False,
     api_status_code: Optional[int] = None,
     error_type: Optional[str] = None,
+    suppressions: Optional[list[dict]] = None,
 ) -> None:
     try:
         posthoganalytics.capture(
@@ -197,6 +199,7 @@ def _capture_esp_suppression_analytics(
                 "api_called": api_called,
                 "api_status_code": api_status_code,
                 "error_type": error_type,
+                "suppressions": suppressions,
             },
         )
     except Exception as e:
@@ -249,6 +252,7 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
             from_cache=False,
             api_called=True,
             api_status_code=api_response.status_code,
+            suppressions=api_response.suppressions,
         )
         return ESPSuppressionResult(
             is_suppressed=api_response.is_suppressed,
@@ -276,6 +280,7 @@ def _parse_esp_suppression_response(data: Any) -> bool:
 class ESPSuppressionAPIResponse:
     is_suppressed: bool
     status_code: int
+    suppressions: Optional[list[dict]] = None
 
 
 class ESPSuppressionAPIError(Exception):
@@ -295,20 +300,22 @@ def _fetch_esp_suppression_from_api(email: str) -> ESPSuppressionAPIResponse:
 
     try:
         response = requests.get(
-            f"{settings.CUSTOMER_IO_API_URL}/v1/esp/suppressions",
-            params={"email": email},
+            f"{settings.CUSTOMER_IO_API_URL}/v1/esp/search_suppression/{quote(email, safe='')}",
             headers=headers,
             timeout=ESP_SUPPRESSION_API_TIMEOUT_IN_SECONDS,
         )
 
         if response.status_code == 200:
             data = response.json()
+            suppressions = data.get("suppressions") if data else None
+            is_suppressed = bool(suppressions)
             return ESPSuppressionAPIResponse(
-                is_suppressed=_parse_esp_suppression_response(data),
+                is_suppressed=is_suppressed,
                 status_code=200,
+                suppressions=suppressions if is_suppressed else None,
             )
-        elif response.status_code == 404:
-            return ESPSuppressionAPIResponse(is_suppressed=False, status_code=404)
+        elif response.status_code == 429:
+            return ESPSuppressionAPIResponse(is_suppressed=False, status_code=429)
         else:
             raise ESPSuppressionAPIError(
                 "http_error",
