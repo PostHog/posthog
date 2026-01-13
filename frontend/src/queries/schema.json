@@ -8459,7 +8459,7 @@
                             "$ref": "#/definitions/DataWarehouseNode"
                         }
                     ],
-                    "description": "Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.)"
+                    "description": "Filter configuration - event, action, or data warehouse node"
                 },
                 "id": {
                     "description": "Unique identifier",

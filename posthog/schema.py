@@ -13680,10 +13680,7 @@ class CoreEvent(BaseModel):
     )
     description: str | None = Field(default=None, description="Optional description")
     filter: EventsNode | ActionsNode | DataWarehouseNode = Field(
-        ...,
-        description=(
-            "Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.)"
-        ),
+        ..., description="Filter configuration - event, action, or data warehouse node"
     )
     id: str = Field(..., description="Unique identifier")
     name: str = Field(..., description="Display name")

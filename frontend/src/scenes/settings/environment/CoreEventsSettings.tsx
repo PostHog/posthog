@@ -1,16 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { uuid } from 'lib/utils'
 import { ActionFilter as ActionFilterComponent } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     ActionsNode,
     CoreEvent,
@@ -19,78 +18,50 @@ import {
     EventsNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { ActionFilter, BaseMathType, DataWarehouseFilter, FilterType, GroupMathType, PropertyMathType } from '~/types'
+import { ActionFilter, DataWarehouseFilter, FilterType } from '~/types'
 
+import { CATEGORY_OPTIONS, CategorySection } from './CoreEventComponents'
 import { coreEventsLogic } from './coreEventsLogic'
 
-// Only allow: total count, unique users/groups, and property sum
-const ALLOWED_MATH_TYPES = [
-    BaseMathType.TotalCount,
-    BaseMathType.UniqueUsers,
-    GroupMathType.UniqueGroup,
-    PropertyMathType.Sum,
-] as const
-
-const CATEGORY_OPTIONS = [
-    { value: CoreEventCategory.Acquisition, label: 'Acquisition', description: 'Sign up, app install' },
-    { value: CoreEventCategory.Activation, label: 'Activation', description: 'Onboarding, first core action' },
-    {
-        value: CoreEventCategory.Monetization,
-        label: 'Monetization',
-        description: 'Purchase, subscription started',
-    },
-    { value: CoreEventCategory.Expansion, label: 'Expansion', description: 'Plan upgraded' },
-    { value: CoreEventCategory.Referral, label: 'Referral', description: 'Invite sent' },
-    { value: CoreEventCategory.Retention, label: 'Retention', description: 'Repeat purchase' },
-    { value: CoreEventCategory.Churn, label: 'Churn', description: 'Subscription canceled' },
-    { value: CoreEventCategory.Reactivation, label: 'Reactivation', description: 'Returned after churn' },
-]
-
-function getFilterTypeLabel(filter: EventsNode | ActionsNode | DataWarehouseNode): string {
-    switch (filter.kind) {
-        case NodeKind.EventsNode:
-            return 'Event'
-        case NodeKind.ActionsNode:
-            return 'Action'
-        case NodeKind.DataWarehouseNode:
-            return 'Data warehouse'
-        default:
-            return 'Unknown'
-    }
-}
-
-function getFilterSummary(filter: EventsNode | ActionsNode | DataWarehouseNode): string {
-    switch (filter.kind) {
-        case NodeKind.EventsNode:
-            return filter.event || 'All events'
-        case NodeKind.ActionsNode:
-            return filter.name || `Action #${filter.id}`
-        case NodeKind.DataWarehouseNode:
-            return filter.table_name || 'Unknown table'
-        default:
-            return 'Unknown'
-    }
-}
-
-// Convert ActionFilter format to our filter node format
+// Convert ActionFilter format to node (strips math and properties for simplified storage)
 function actionFilterToNode(filters: FilterType): EventsNode | ActionsNode | DataWarehouseNode | null {
-    const series = actionsAndEventsToSeries(
-        {
-            actions: filters.actions as ActionFilter[] | undefined,
-            events: filters.events as ActionFilter[] | undefined,
-            data_warehouse: filters.data_warehouse as DataWarehouseFilter[] | undefined,
-        },
-        true,
-        MathAvailability.All
-    )
+    const event = filters.events?.[0]
+    const action = filters.actions?.[0]
+    const dataWarehouse = filters.data_warehouse?.[0]
 
-    if (series.length > 0) {
-        return series[0] as EventsNode | ActionsNode | DataWarehouseNode
+    if (event?.id) {
+        return {
+            kind: NodeKind.EventsNode,
+            event: String(event.id),
+            name: event.name,
+        } as EventsNode
     }
+
+    if (action?.id !== undefined) {
+        return {
+            kind: NodeKind.ActionsNode,
+            id: Number(action.id),
+            name: action.name,
+        } as ActionsNode
+    }
+
+    if (dataWarehouse?.id) {
+        const dw = dataWarehouse as DataWarehouseFilter
+        return {
+            kind: NodeKind.DataWarehouseNode,
+            id: String(dw.id),
+            table_name: String(dw.id),
+            id_field: dw.id_field || '',
+            timestamp_field: dw.timestamp_field || '',
+            distinct_id_field: dw.distinct_id_field || '',
+            name: dw.name,
+        } as DataWarehouseNode
+    }
+
     return null
 }
 
-// Convert our filter node to ActionFilter format for the picker
+// Convert node to ActionFilter format for the picker
 function nodeToActionFilter(filter: EventsNode | ActionsNode | DataWarehouseNode | null): Partial<FilterType> {
     if (!filter) {
         return { events: [], actions: [], data_warehouse: [] }
@@ -104,9 +75,6 @@ function nodeToActionFilter(filter: EventsNode | ActionsNode | DataWarehouseNode
                         id: filter.event || null,
                         name: filter.name,
                         type: 'events',
-                        math: filter.math || BaseMathType.TotalCount,
-                        math_property: filter.math_property,
-                        properties: filter.properties,
                     } as ActionFilter,
                 ],
                 actions: [],
@@ -120,9 +88,6 @@ function nodeToActionFilter(filter: EventsNode | ActionsNode | DataWarehouseNode
                         id: filter.id,
                         name: filter.name,
                         type: 'actions',
-                        math: filter.math || BaseMathType.TotalCount,
-                        math_property: filter.math_property,
-                        properties: filter.properties,
                     } as ActionFilter,
                 ],
                 data_warehouse: [],
@@ -136,8 +101,6 @@ function nodeToActionFilter(filter: EventsNode | ActionsNode | DataWarehouseNode
                         id: filter.table_name,
                         name: filter.name || filter.table_name,
                         type: 'data_warehouse',
-                        math: filter.math || BaseMathType.TotalCount,
-                        math_property: filter.math_property,
                         id_field: filter.id_field,
                         timestamp_field: filter.timestamp_field,
                         distinct_id_field: filter.distinct_id_field,
@@ -184,11 +147,55 @@ export function CoreEventsSettings(): JSX.Element {
 
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [formState, setFormState] = useState<FormState>(createEmptyFormState())
+    const [selectedCategory, setSelectedCategory] = useState<CoreEventCategory | null>(null)
 
     const isEditing = formState.id !== null
 
-    const handleOpenNewModal = (): void => {
-        setFormState(createEmptyFormState())
+    const eventsByCategory = useMemo(() => {
+        const grouped: Record<CoreEventCategory, CoreEvent[]> = {} as Record<CoreEventCategory, CoreEvent[]>
+        for (const category of CATEGORY_OPTIONS) {
+            grouped[category.value] = []
+        }
+        for (const event of coreEvents) {
+            if (event.category && grouped[event.category]) {
+                grouped[event.category].push(event)
+            }
+        }
+        return grouped
+    }, [coreEvents])
+
+    const categoryCounts = useMemo(() => {
+        const counts: Record<CoreEventCategory, number> = {} as Record<CoreEventCategory, number>
+        for (const category of CATEGORY_OPTIONS) {
+            counts[category.value] = eventsByCategory[category.value].length
+        }
+        return counts
+    }, [eventsByCategory])
+
+    // Filter and sort categories - those with events first, empty ones at the end
+    const categoriesToShow = useMemo(() => {
+        if (selectedCategory) {
+            return CATEGORY_OPTIONS.filter((c) => c.value === selectedCategory)
+        }
+        return [...CATEGORY_OPTIONS].sort((a, b) => {
+            const aCount = eventsByCategory[a.value].length
+            const bCount = eventsByCategory[b.value].length
+            if (aCount > 0 && bCount === 0) {
+                return -1
+            }
+            if (aCount === 0 && bCount > 0) {
+                return 1
+            }
+            return 0
+        })
+    }, [selectedCategory, eventsByCategory])
+
+    const handleOpenNewModal = (preselectedCategory?: CoreEventCategory): void => {
+        const newState = createEmptyFormState()
+        if (preselectedCategory) {
+            newState.category = preselectedCategory
+        }
+        setFormState(newState)
         setIsModalOpen(true)
     }
 
@@ -263,71 +270,51 @@ export function CoreEventsSettings(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-between items-center">
-                <h3 className="font-bold">
-                    {coreEvents.length === 0
-                        ? 'No core events configured'
-                        : `${coreEvents.length} core event${coreEvents.length === 1 ? '' : 's'}`}
-                </h3>
-                <LemonButton type="primary" icon={<IconPlusSmall />} onClick={handleOpenNewModal}>
+            <div className="flex justify-between items-start">
+                <div>
+                    <p className="text-muted">
+                        Define the key events that matter for your business across different user lifecycle stages.
+                    </p>
+                </div>
+                <LemonButton type="primary" icon={<IconPlusSmall />} onClick={() => handleOpenNewModal()}>
                     Add core event
                 </LemonButton>
             </div>
 
-            <LemonTable
-                rowKey={(item) => item.id}
-                dataSource={coreEvents}
-                columns={[
-                    {
-                        key: 'name',
-                        title: 'Name',
-                        render: (_, event: CoreEvent) => <span className="font-medium">{event.name}</span>,
-                    },
-                    {
-                        key: 'type',
-                        title: 'Type',
-                        render: (_, event: CoreEvent) => getFilterTypeLabel(event.filter),
-                    },
-                    {
-                        key: 'filter',
-                        title: 'Filter',
-                        render: (_, event: CoreEvent) => (
-                            <span className="text-muted">{getFilterSummary(event.filter)}</span>
-                        ),
-                    },
-                    {
-                        key: 'category',
-                        title: 'Category',
-                        render: (_, event: CoreEvent) =>
-                            event.category
-                                ? CATEGORY_OPTIONS.find((o) => o.value === event.category)?.label || event.category
-                                : '-',
-                    },
-                    {
-                        key: 'actions',
-                        title: 'Actions',
-                        width: 100,
-                        render: (_, event: CoreEvent) => (
-                            <div className="flex gap-1">
-                                <LemonButton
-                                    icon={<IconPencil />}
-                                    size="small"
-                                    onClick={() => handleOpenEditModal(event)}
-                                    tooltip="Edit"
-                                />
-                                <LemonButton
-                                    icon={<IconTrash />}
-                                    size="small"
-                                    status="danger"
-                                    onClick={() => removeCoreEvent(event.id)}
-                                    tooltip="Remove"
-                                />
-                            </div>
-                        ),
-                    },
-                ]}
-                emptyState="No core events configured yet. Add your first core event above."
-            />
+            {/* Category filter badges */}
+            <div className="flex flex-wrap gap-2">
+                <LemonTag
+                    type={selectedCategory === null ? 'primary' : 'default'}
+                    onClick={() => setSelectedCategory(null)}
+                    className="cursor-pointer"
+                >
+                    All ({coreEvents.length})
+                </LemonTag>
+                {CATEGORY_OPTIONS.map((category) => (
+                    <LemonTag
+                        key={category.value}
+                        type={selectedCategory === category.value ? 'primary' : 'default'}
+                        onClick={() => setSelectedCategory(selectedCategory === category.value ? null : category.value)}
+                        className="cursor-pointer"
+                    >
+                        {category.label} ({categoryCounts[category.value]})
+                    </LemonTag>
+                ))}
+            </div>
+
+            {/* Events grouped by category */}
+            <div className="space-y-6">
+                {categoriesToShow.map((category) => (
+                    <CategorySection
+                        key={category.value}
+                        category={category}
+                        events={eventsByCategory[category.value]}
+                        onEdit={handleOpenEditModal}
+                        onRemove={removeCoreEvent}
+                        onAdd={() => handleOpenNewModal(category.value)}
+                    />
+                ))}
+            </div>
 
             <LemonModal
                 isOpen={isModalOpen}
@@ -369,8 +356,8 @@ export function CoreEventsSettings(): JSX.Element {
                             filters={currentFilter}
                             setFilters={handleFilterChange}
                             typeKey="core-events-settings"
-                            mathAvailability={MathAvailability.All}
-                            allowedMathTypes={ALLOWED_MATH_TYPES}
+                            mathAvailability={MathAvailability.None}
+                            hideFilter
                             hideRename
                             hideDuplicate
                             showSeriesIndicator={false}
@@ -386,14 +373,21 @@ export function CoreEventsSettings(): JSX.Element {
                         />
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                         <LemonLabel>Category</LemonLabel>
-                        <LemonSelect
-                            value={formState.category}
-                            onChange={(value) => setFormState((prev) => ({ ...prev, category: value }))}
-                            options={CATEGORY_OPTIONS}
-                            placeholder="Select a category"
-                        />
+                        <div className="flex flex-wrap gap-2">
+                            {CATEGORY_OPTIONS.map((category) => (
+                                <LemonTag
+                                    key={category.value}
+                                    type={formState.category === category.value ? 'primary' : 'default'}
+                                    onClick={() => setFormState((prev) => ({ ...prev, category: category.value }))}
+                                    className="cursor-pointer"
+                                    title={category.description}
+                                >
+                                    {category.label}
+                                </LemonTag>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </LemonModal>

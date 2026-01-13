@@ -4600,7 +4600,7 @@ export interface CoreEvent {
     description?: string
     /** Category (acquisition, activation, retention, referral, revenue) */
     category: CoreEventCategory
-    /** Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.) */
+    /** Filter configuration - event, action, or data warehouse node */
     filter: EventsNode | ActionsNode | DataWarehouseNode
 }
 
