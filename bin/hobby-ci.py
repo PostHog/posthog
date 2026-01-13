@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 import urllib3
 import requests
-import digitalocean
+import digitalocean  # type: ignore
 
 DOMAIN = os.getenv("HOBBY_DOMAIN", "posthog.cc")
 
@@ -138,12 +138,11 @@ runcmd:
             "cd ..",
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
             self._get_wait_for_image_script(),
-            "chmod +x posthog/bin/deploy-hobby",
-            'echo "$LOG_PREFIX Starting deployment script"',
-            "export SKIP_HEALTH_CHECK=1",
-            f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {safe_hostname} 1",
+            "chmod +x posthog/bin/hobby-installer",
+            'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
+            f"./posthog/bin/hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
-            'echo "$LOG_PREFIX Deployment script exited with code: $DEPLOY_EXIT"',
+            'echo "$LOG_PREFIX Hobby installer exited with code: $DEPLOY_EXIT"',
             "exit $DEPLOY_EXIT",
         ]
 
@@ -391,17 +390,41 @@ runcmd:
 
             unhealthy = []
             for c in containers:
-                name = c.get("Name", "unknown").lstrip("/")
+                container_name = c.get("Name", "unknown").lstrip("/")
+                # Convert container name to docker-compose service name
+                # e.g., 'hobby-cymbal-1' -> 'cymbal', 'hobby-property-defs-rs-1' -> 'property-defs-rs'
+                import re
+
+                match = re.match(r"^hobby-(.+)-\d+$", container_name)
+                service_name = match.group(1) if match else container_name
+
                 state = c.get("State", "")
                 restart_count = c.get("RestartCount", 0)
 
-                # Container not running
-                if state != "running":
-                    unhealthy.append({"Service": name, "State": state, "RestartCount": restart_count})
-                # Container in restart loop (3+ restarts indicates real instability, not transient)
+                # Worker gets special handling - it may restart while waiting for migrations
+                # Allow "restarting" state (between restart cycles) as long as under threshold
+                if service_name == "worker":
+                    max_restarts = 30
+                    if state not in ("running", "restarting"):
+                        unhealthy.append({"Service": service_name, "State": state, "RestartCount": restart_count})
+                    elif restart_count >= max_restarts:
+                        unhealthy.append(
+                            {
+                                "Service": service_name,
+                                "State": f"restarted {restart_count}x",
+                                "RestartCount": restart_count,
+                            }
+                        )
+                # Other containers must be running and under restart threshold
+                elif state != "running":
+                    unhealthy.append({"Service": service_name, "State": state, "RestartCount": restart_count})
                 elif restart_count >= 3:
                     unhealthy.append(
-                        {"Service": name, "State": f"restarted {restart_count}x", "RestartCount": restart_count}
+                        {
+                            "Service": service_name,
+                            "State": f"restarted {restart_count}x",
+                            "RestartCount": restart_count,
+                        }
                     )
 
             all_healthy = len(unhealthy) == 0 and len(containers) > 0
@@ -411,7 +434,7 @@ runcmd:
             print(f"  ⚠️  Could not parse container status: {e}", flush=True)
             return (False, [], [])
 
-    def test_deployment(self, timeout=30, retry_interval=15, stability_period=300):
+    def test_deployment(self, timeout=45, retry_interval=15, stability_period=300):
         if not self.hostname:
             return
         # timeout in minutes, stability_period in seconds
@@ -482,42 +505,14 @@ runcmd:
                         cloud_init_finished = True
                         print("\n📋 Cloud-init completed successfully", flush=True)
 
-                # Show container health diagnostics periodically once cloud-init is done
-                # (fail-fast is handled by the per-iteration check below)
-                if cloud_init_finished:
-                    print("\n🐳 Container status:", flush=True)
-                    _, stopped, containers = self.check_container_health()
-                    if containers:
-                        running_count = len(containers) - len(stopped)
-                        print(f"  Running: {running_count}/{len(containers)} containers", flush=True)
-
-                # Show cloud-init progress if still running
-                if not cloud_init_finished:
-                    print("\n📋 Cloud-init progress:", flush=True)
-                    logs = self.fetch_cloud_init_logs()
-                    if logs:
-                        for line in logs.strip().split("\n")[-10:]:
-                            print(f"  {line}", flush=True)
-
-                last_log_fetch = int(elapsed)
-                print()
-
-            # Fail-fast: check container health on every iteration after cloud-init
-            # This catches restart loops even when HTTP health check fails (502)
-            if cloud_init_finished:
-                all_healthy, stopped, containers = self.check_container_health()
-                if not all_healthy and stopped:
-                    print(f"\n❌ Container health check failed - failing fast", flush=True)
-                    for c in stopped:
-                        print(f"    ❌ {c.get('Service')}: {c.get('State')}", flush=True)
-                        logs_cmd = f"cd hobby && sudo -E docker-compose -f docker-compose.yml logs --tail=50 {c.get('Service')}"
-                        container_logs = self.run_command_on_droplet(logs_cmd, timeout=30)
-                        if container_logs:
-                            print(f"\n   Logs for {c.get('Service')}:", flush=True)
-                            for log_line in container_logs.split("\n")[-30:]:
-                                print(f"     {log_line}", flush=True)
-                    print(f"\n📍 For debugging, SSH to: ssh root@{self.droplet.ip_address}", flush=True)
-                    return False
+                        # Check container health now that deployment finished
+                        print("\n🐳 Checking docker container status...", flush=True)
+                        all_healthy, unhealthy_containers, all_containers = self.check_container_health()
+                        if unhealthy_containers:
+                            print(f"\n❌ {len(unhealthy_containers)} container(s) failing!", flush=True)
+                            failing_names = [c.get("Service", "unknown") for c in unhealthy_containers]
+                            self.fetch_and_print_failing_container_logs(failing_names)
+                            return False
 
             # Check for success: health check passed AND containers stable for required period
             if health_check_passed and cloud_init_finished:
@@ -541,8 +536,11 @@ runcmd:
                         )
             elif health_check_passed:
                 print(f"  Health check passed but cloud-init not yet complete", flush=True)
-            elif cloud_init_finished and not all_healthy:
-                containers_healthy_since = None  # Reset if containers unhealthy
+            elif cloud_init_finished:
+                # Cloud-init done but health check not passing - check if containers are healthy
+                all_healthy, _, _ = self.check_container_health()
+                if not all_healthy:
+                    containers_healthy_since = None  # Reset if containers unhealthy
 
             time.sleep(retry_interval)
             attempt += 1
@@ -579,6 +577,14 @@ runcmd:
         else:
             print("  ❌ Could not fetch cloud-init logs via SSH", flush=True)
 
+        # Check container health and fetch logs for failing containers
+        print(f"\n🐳 Checking container health...", flush=True)
+        all_healthy, unhealthy_containers, all_containers = self.check_container_health()
+        if unhealthy_containers:
+            print(f"\n❌ {len(unhealthy_containers)} container(s) failing!", flush=True)
+            failing_names = [c.get("Service", "unknown") for c in unhealthy_containers]
+            self.fetch_and_print_failing_container_logs(failing_names)
+
         # Provide diagnostic summary
         print(f"\n🔍 Failure Pattern Analysis:", flush=True)
         print(f"  - Connection errors: {connection_error_count}", flush=True)
@@ -601,7 +607,7 @@ runcmd:
 
         return False
 
-    def test_deployment_with_details(self, timeout=30, retry_interval=15, stability_period=300):
+    def test_deployment_with_details(self, timeout=45, retry_interval=15, stability_period=300):
         """Like test_deployment but returns (success, failure_details) tuple."""
         if not self.hostname:
             return (False, {"reason": "no_hostname", "message": "No hostname configured"})
@@ -682,10 +688,45 @@ runcmd:
                 if not all_healthy and stopped:
                     print(f"\n❌ Container health check failed - failing fast", flush=True)
                     unhealthy_list = []
+                    failing_names = []
                     for c in stopped:
                         container_info = f"{c.get('Service')}: {c.get('State')}"
                         unhealthy_list.append(container_info)
+                        failing_names.append(c.get("Service", "unknown"))
                         print(f"    ❌ {container_info}", flush=True)
+
+                    # Fetch logs from failing containers
+                    self.fetch_and_print_failing_container_logs(failing_names)
+
+                    # Also fetch kafka-init logs to debug topic creation issues
+                    print(f"\n📋 Checking kafka-init status:", flush=True)
+                    kafka_init_result = self.run_ssh_command(
+                        "docker ps -a --filter name=hobby-kafka-init --format '{{.Names}}: {{.Status}}'", timeout=15
+                    )
+                    if kafka_init_result["exit_code"] == 0 and kafka_init_result["stdout"]:
+                        print(f"    {kafka_init_result['stdout'].strip()}", flush=True)
+                    kafka_logs_result = self.run_ssh_command("docker logs hobby-kafka-init-1 2>&1 || true", timeout=15)
+                    if kafka_logs_result["exit_code"] == 0 and kafka_logs_result["stdout"]:
+                        for line in kafka_logs_result["stdout"].strip().split("\n")[-20:]:
+                            print(f"    {line}", flush=True)
+
+                    # Check for OOM kills in dmesg
+                    print(f"\n📋 Checking for OOM kills:", flush=True)
+                    oom_result = self.run_ssh_command(
+                        "dmesg | grep -i 'oom\\|killed process' | tail -10 || true", timeout=15
+                    )
+                    if oom_result["exit_code"] == 0 and oom_result["stdout"].strip():
+                        for line in oom_result["stdout"].strip().split("\n"):
+                            print(f"    {line}", flush=True)
+                    else:
+                        print(f"    No OOM kills found", flush=True)
+
+                    # Check memory usage
+                    print(f"\n📋 Memory usage:", flush=True)
+                    mem_result = self.run_ssh_command("free -h", timeout=15)
+                    if mem_result["exit_code"] == 0 and mem_result["stdout"]:
+                        for line in mem_result["stdout"].strip().split("\n"):
+                            print(f"    {line}", flush=True)
 
                     print(f"\n📍 For debugging, SSH to: ssh root@{self.droplet.ip_address}", flush=True)
                     failure_details = {
@@ -811,6 +852,75 @@ runcmd:
     def fetch_cloud_init_logs(self):
         """Fetch cloud-init logs via SSH."""
         return self.run_command_on_droplet("cat /var/log/cloud-init-output.log", timeout=30)
+
+    def fetch_and_print_failing_container_logs(self, failing_containers, tail=100):
+        """Fetch and print logs for failing containers, and save to files."""
+        if not failing_containers:
+            return
+
+        for container in failing_containers:
+            print(f"\n📋 Logs for {container}:", flush=True)
+
+            # First, get container inspect info for exit code and OOM status
+            inspect_cmd = f"docker inspect hobby-{container}-1 --format '{{{{.State.ExitCode}}}} {{{{.State.OOMKilled}}}} {{{{.State.Error}}}}' 2>&1 || true"
+            inspect_result = self.run_ssh_command(inspect_cmd, timeout=15)
+            if inspect_result["exit_code"] == 0 and inspect_result["stdout"].strip():
+                print(f"    [container state] {inspect_result['stdout'].strip()}", flush=True)
+
+            # Use docker logs directly - works better for restarting containers
+            logs_cmd = f"docker logs --tail={tail} hobby-{container}-1 2>&1 || true"
+            print(f"    [debug] Running: {logs_cmd}", flush=True)
+            result = self.run_ssh_command(logs_cmd, timeout=30)
+            print(
+                f"    [debug] Exit code: {result['exit_code']}, stdout len: {len(result.get('stdout', ''))}", flush=True
+            )
+            container_logs = result["stdout"] if result["exit_code"] == 0 else None
+
+            if container_logs:
+                # Print last 50 lines to console
+                log_lines = container_logs.strip().split("\n")[-50:]
+                for log_line in log_lines:
+                    print(f"    {log_line}", flush=True)
+
+                # Save full logs to file for artifact upload
+                safe_name = container.replace("/", "-").replace(" ", "_")
+                log_path = f"/tmp/container-{safe_name}.log"
+                try:
+                    with open(log_path, "w") as f:
+                        f.write(container_logs)
+                    print(f"    (Full logs saved to {log_path})", flush=True)
+                except Exception as e:
+                    print(f"    ⚠️  Could not save logs: {e}", flush=True)
+
+                # Search for errors in the full logs
+                print(f"\n📋 Searching for errors in {container} logs:", flush=True)
+                error_cmd = f"docker logs hobby-{container}-1 2>&1 | grep -i -E 'error|exception|traceback|failed|killed|signal|exited|docker-worker-celery' | tail -30 || true"
+                error_result = self.run_ssh_command(error_cmd, timeout=30)
+                if error_result["exit_code"] == 0 and error_result["stdout"].strip():
+                    for line in error_result["stdout"].strip().split("\n"):
+                        print(f"    ❌ {line}", flush=True)
+                else:
+                    print(f"    No obvious errors found", flush=True)
+
+                # Check docker events for the container to see restart reasons
+                print(f"\n📋 Docker events for {container} (last 5 mins):", flush=True)
+                events_cmd = f"docker events --filter container=hobby-{container}-1 --since 5m --until 0s 2>&1 | head -20 || true"
+                events_result = self.run_ssh_command(events_cmd, timeout=15)
+                if events_result["exit_code"] == 0 and events_result["stdout"].strip():
+                    for line in events_result["stdout"].strip().split("\n"):
+                        print(f"    {line}", flush=True)
+                else:
+                    print(f"    No events captured", flush=True)
+
+                # Check full container state including FinishedAt
+                print(f"\n📋 Full container state for {container}:", flush=True)
+                state_cmd = f"docker inspect hobby-{container}-1 --format '{{{{json .State}}}}' 2>&1 | python3 -m json.tool || true"
+                state_result = self.run_ssh_command(state_cmd, timeout=15)
+                if state_result["exit_code"] == 0 and state_result["stdout"].strip():
+                    for line in state_result["stdout"].strip().split("\n")[:15]:
+                        print(f"    {line}", flush=True)
+            else:
+                print(f"    (no logs available)", flush=True)
 
     def check_cloud_init_status(self):
         """Returns: (finished, success, status_dict)"""

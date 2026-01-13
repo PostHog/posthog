@@ -6,23 +6,29 @@ import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { logsViewerLogic } from './logsViewerLogic'
 
-const createMockParsedLog = (uuid: string): ParsedLogMessage => ({
-    uuid,
-    trace_id: 'trace-1',
-    span_id: 'span-1',
-    body: `Log ${uuid}`,
-    attributes: {},
-    timestamp: '2024-01-01T00:00:00Z',
-    observed_timestamp: '2024-01-01T00:00:00Z',
-    severity_text: 'info',
-    severity_number: 9,
-    level: 'info',
-    resource_attributes: {},
-    instrumentation_scope: 'test',
-    event_name: 'log',
-    cleanBody: `Log ${uuid}`,
-    parsedBody: null,
-})
+const createMockParsedLog = (uuid: string): ParsedLogMessage => {
+    const baseLog = {
+        uuid,
+        trace_id: 'trace-1',
+        span_id: 'span-1',
+        body: `Log ${uuid}`,
+        attributes: {},
+        timestamp: '2024-01-01T00:00:00Z',
+        observed_timestamp: '2024-01-01T00:00:00Z',
+        severity_text: 'info' as const,
+        severity_number: 9,
+        level: 'info' as const,
+        resource_attributes: {},
+        instrumentation_scope: 'test',
+        event_name: 'log',
+    }
+    return {
+        ...baseLog,
+        cleanBody: `Log ${uuid}`,
+        parsedBody: null,
+        originalLog: baseLog,
+    }
+}
 
 const mockLogs = [createMockParsedLog('log-1'), createMockParsedLog('log-2'), createMockParsedLog('log-3')]
 
@@ -224,54 +230,6 @@ describe('logsViewerLogic', () => {
             })
                 .toDispatchActions(['moveCursorUp'])
                 .toNotHaveDispatchedActions(['setCursor'])
-        })
-    })
-
-    describe('expansion', () => {
-        beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
-        })
-        it('expands a log when not expanded', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.toggleExpandLog('log-1')
-            }).toMatchValues({
-                expandedLogIds: { 'log-1': true },
-            })
-        })
-
-        it('collapses a log when already expanded', async () => {
-            logic.actions.toggleExpandLog('log-1')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds['log-1']).toBe(true)
-
-            await expectLogic(logic, () => {
-                logic.actions.toggleExpandLog('log-1')
-            }).toMatchValues({
-                expandedLogIds: {},
-            })
-        })
-
-        it('supports multiple expanded logs', async () => {
-            logic.actions.toggleExpandLog('log-1')
-            logic.actions.toggleExpandLog('log-2')
-            logic.actions.toggleExpandLog('log-3')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds).toEqual({
-                'log-1': true,
-                'log-2': true,
-                'log-3': true,
-            })
-
-            logic.actions.toggleExpandLog('log-2')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds).toEqual({
-                'log-1': true,
-                'log-3': true,
-            })
         })
     })
 

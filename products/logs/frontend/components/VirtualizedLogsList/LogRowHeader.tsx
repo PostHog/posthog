@@ -4,9 +4,7 @@ import { LemonButton, LemonCheckbox, LemonMenu } from '@posthog/lemon-ui'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 
 import {
-    ACTIONS_WIDTH,
     CHECKBOX_WIDTH,
-    EXPAND_WIDTH,
     MIN_ATTRIBUTE_COLUMN_WIDTH,
     RESIZER_HANDLE_WIDTH,
     ROW_GAP,
@@ -66,7 +64,6 @@ export function LogRowHeader({
                         size="small"
                     />
                 </div>
-                <div style={{ width: EXPAND_WIDTH, flexShrink: 0 }} />
             </div>
 
             {/* Timestamp */}
@@ -141,9 +138,6 @@ export function LogRowHeader({
             <div className="flex items-center px-1" style={getMessageStyle(flexWidth)}>
                 Message
             </div>
-
-            {/* Actions (no label) */}
-            <div className="flex items-center px-1" style={{ width: ACTIONS_WIDTH, flexShrink: 0 }} />
         </div>
     )
 }

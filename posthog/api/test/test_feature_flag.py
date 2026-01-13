@@ -5415,6 +5415,42 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "stale_multivariate"
         assert response["results"][0]["status"] == "STALE"
 
+    def test_get_flags_with_stale_filter_explicit_multivariate_null(self):
+        # Regression test: flags created via frontend have explicit multivariate: null
+        # The SQL filter should handle both missing key AND explicit null value
+        with freeze_time("2024-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="stale_with_explicit_null",
+                active=True,
+                filters={
+                    "groups": [{"rollout_percentage": 100, "properties": []}],
+                    "multivariate": None,  # Frontend explicitly sets this to null
+                    "payloads": {},
+                },
+            )
+
+        # Create a non-stale flag with explicit multivariate: null (recent)
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="recent_with_explicit_null",
+            active=True,
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": []}],
+                "multivariate": None,
+                "payloads": {},
+            },
+        )
+
+        filtered_flags_list = self.client.get("/api/projects/@current/feature_flags?active=STALE")
+        response = filtered_flags_list.json()
+
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "stale_with_explicit_null"
+        assert response["results"][0]["status"] == "STALE"
+
     def test_get_flags_with_evaluation_runtime_filter(self):
         # Create flags with different evaluation runtimes
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="server_flag", evaluation_runtime="server")
@@ -7984,6 +8020,227 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         # Should match 10 groups that have "org:" in their key
         self.assertLessEqual({"users_affected": 10, "total_users": 11}.items(), response_json.items())
 
+    def test_user_blast_radius_with_integer_property_values(self):
+        """Test that integer property values are correctly normalized to strings for matching"""
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"age": 25, "score": 100},
+        )
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"age": "25", "score": "100"},
+        )
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"age": 30, "score": 200},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": "age", "type": "person", "value": [25], "operator": "exact"},
+                    ],
+                    "rollout_percentage": 100,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Both p1 (int 25) and p2 (string "25") should match
+        self.assertEqual(response_json["users_affected"], 2)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_group_key_regex(self):
+        """Test $group_key with regex operator"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-prod-001", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-staging-002", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="workspace-test-003", properties={})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "^org-(prod|staging)-\\d+$",
+                            "operator": "regex",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match 2 org- groups but not workspace- group
+        self.assertEqual(response_json["users_affected"], 2)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_group_key_not_regex(self):
+        """Test $group_key with not_regex operator"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-prod-001", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-staging-002", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="workspace-test-003", properties={})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "^org-(prod|staging)-\\d+$",
+                            "operator": "not_regex",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match workspace- group but not org- groups
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_group_key_not_icontains(self):
+        """Test $group_key with not_icontains operator"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-prod-001", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-staging-002", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="workspace-test-003", properties={})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "ORG",
+                            "operator": "not_icontains",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match workspace- group but not org- groups (case-insensitive)
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_group_key_and_regular_properties(self):
+        """Test combining $group_key with regular group properties"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="org:premium", properties={"plan": "enterprise"}
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:free", properties={"plan": "free"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="workspace:premium",
+            properties={"plan": "enterprise"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "org:",
+                            "operator": "icontains",
+                            "group_type_index": 0,
+                        },
+                        {
+                            "key": "plan",
+                            "type": "group",
+                            "value": "enterprise",
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match only "org:premium" (has both org: prefix AND enterprise plan)
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_dynamic_cohort(self):
+        """Test that dynamic cohorts are evaluated correctly"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Dynamic cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}],
+                }
+            },
+        )
+
+        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"email": "user@posthog.com"})
+        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"email": "user@example.com"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "id", "type": "cohort", "value": cohort.id}],
+                    "rollout_percentage": 100,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 2)
+
     def test_user_blast_radius_with_groups_incorrect_group_type(self):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
@@ -8037,6 +8294,140 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             }.items(),
             response_json.items(),
         )
+
+    def test_user_blast_radius_with_group_key_unsupported_operator(self):
+        """Test that unsupported operators on $group_key raise validation errors"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="test-org", properties={})
+
+        # Test with unsupported operator (e.g., 'gt' - greater than)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": "5",
+                            "operator": "gt",  # Greater than is not supported for $group_key
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not supported", response.json()["detail"].lower())
+
+    def test_user_blast_radius_with_group_key_exact_list_values(self):
+        """Test that EXACT operator with list values uses IN logic"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-alpha", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-beta", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-gamma", properties={})
+
+        # Test EXACT with list of values (should match any value in the list)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": ["org-alpha", "org-beta"],  # List of values
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should match org-alpha and org-beta (2 out of 3)
+        self.assertEqual(response_json["users_affected"], 2)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_group_key_is_not_list_values(self):
+        """Test that IS_NOT operator with list values uses NOT IN logic"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-alpha", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-beta", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-gamma", properties={})
+
+        # Test IS_NOT with list of values (should exclude all values in the list)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": ["org-alpha", "org-beta"],  # List of values to exclude
+                            "operator": "is_not",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        # Should only match org-gamma (1 out of 3)
+        self.assertEqual(response_json["users_affected"], 1)
+        self.assertEqual(response_json["total_users"], 3)
+
+    def test_user_blast_radius_with_group_key_icontains_list_values_raises_error(self):
+        """Test that ICONTAINS operator with list values raises validation error"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-alpha", properties={})
+
+        # Test ICONTAINS with list of values (should raise validation error)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": ["alpha", "beta"],  # List not supported for icontains
+                            "operator": "icontains",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not support list values", response.json()["detail"].lower())
 
 
 class QueryTimeoutWrapper:

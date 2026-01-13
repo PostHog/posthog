@@ -106,3 +106,76 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == error_status
         assert "error" in response.json()["detail"]
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_product_prefix_route(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/wizard/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "msg_123"
+
+    @pytest.mark.parametrize(
+        "product",
+        [
+            pytest.param("llm_gateway", id="llm_gateway_product"),
+            pytest.param("wizard", id="wizard_product"),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_allowed_product_prefixes(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+        product: str,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            f"/{product}/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize(
+        "product",
+        [
+            pytest.param("invalid", id="invalid_product"),
+            pytest.param("max", id="max_product"),
+            pytest.param("claude-code", id="claude_code_product"),
+        ],
+    )
+    def test_invalid_product_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        product: str,
+    ) -> None:
+        response = authenticated_client.post(
+            f"/{product}/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert "Invalid product" in response.json()["detail"]

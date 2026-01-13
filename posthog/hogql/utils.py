@@ -1,8 +1,46 @@
+import re
 from dataclasses import fields
 from typing import Any, Union, get_args, get_origin
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, AST_CLASSES, Constant, Expr, HogQLXAttribute, HogQLXTag
+
+
+def like_matches(pattern: str, text: str) -> bool:
+    """
+    Python implementation of ClickHouse LIKE pattern matching (case-sensitive).
+    See https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/MatchImpl.h
+
+    LIKE is case-sensitive matching where:
+    - % matches any sequence of characters (including empty)
+    - _ matches exactly one character
+    - \\ escapes the next character (\\%, \\_, \\\\)
+    - Other characters match literally (case-sensitive)
+    """
+    # Convert SQL LIKE pattern to regex
+    regex_parts: list[str] = []
+    i = 0
+    while i < len(pattern):
+        char = pattern[i]
+        if char == "%":
+            regex_parts.append(".*")
+        elif char == "_":
+            regex_parts.append(".")
+        elif char == "\\" and i + 1 < len(pattern):
+            # Escape sequence - next char is literal
+            i += 1
+            regex_parts.append(re.escape(pattern[i]))
+        else:
+            regex_parts.append(re.escape(char))
+        i += 1
+
+    regex_pattern = f"^{''.join(regex_parts)}$"
+    return bool(re.match(regex_pattern, text, re.DOTALL))
+
+
+def ilike_matches(pattern: str, text: str) -> bool:
+    # ilike is like like, but unlike like, ilike is, like, case-insensitive
+    return like_matches(pattern.lower(), text.lower())
 
 
 def unwrap_optional(t):

@@ -52,6 +52,7 @@ from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import (
     CreateFormTool,
+    ManageMemoriesTool,
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
@@ -62,6 +63,7 @@ from ee.hogai.tools import (
 from ee.hogai.utils.feature_flags import (
     has_create_form_tool_feature_flag,
     has_error_tracking_mode_feature_flag,
+    has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
     has_web_search_feature_flag,
@@ -103,6 +105,8 @@ class ChatAgentToolkit(AgentToolkit):
             tools.extend(TASK_TOOLS)
         if has_task_tool_feature_flag(self._team, self._user):
             tools.append(TaskTool)
+        if has_memory_tool_feature_flag(self._team, self._user):
+            tools.append(ManageMemoriesTool)
         return tools
 
 
@@ -205,6 +209,9 @@ class ChatAgentModeManager(AgentModeManager):
         mode: AgentMode | None = None,
     ):
         super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, mode=mode)
+        # Validate mode is in registry, fall back to default mode if not
+        if mode and mode not in self.mode_registry:
+            mode = AgentMode.PRODUCT_ANALYTICS
         self._mode = mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
