@@ -67,8 +67,7 @@ func main() {
 	go stats.KeepStats(statsChan)
 	go sessionStats.KeepStats(ctx, sessionStatsChan)
 
-	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka.Brokers, config.Kafka.SecurityProtocol, config.Kafka.GroupID, config.Kafka.Topic, geolocator, phEventChan,
-		statsChan, config.Parallelism, config.Debug)
+	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka, geolocator, phEventChan, statsChan, config.Parallelism)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
@@ -228,10 +227,9 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	port = ":" + port
 
 	go func() {
-		if err := e.Start(port); err != nil && err != http.ErrServerClosed {
+		if err := e.Start(":" + port); err != nil && err != http.ErrServerClosed {
 			e.Logger.Fatal(err)
 		}
 	}()

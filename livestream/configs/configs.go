@@ -5,7 +5,6 @@ import (
 	"log"
 	"strings"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 )
 
@@ -45,6 +44,9 @@ type KafkaConfig struct {
 	SessionRecordingBrokers          string `mapstructure:"session_recording_brokers"`
 	SessionRecordingSecurityProtocol string `mapstructure:"session_recording_security_protocol"`
 	GroupID                          string `mapstructure:"group_id"`
+	SessionTimeoutMs                 int    `mapstructure:"session_timeout_ms"`
+	HeartbeatIntervalMs              int    `mapstructure:"heartbeat_interval_ms"`
+	MaxPollIntervalMs                int    `mapstructure:"max_poll_interval_ms"`
 }
 
 func InitConfigs(filename, configPath string) {
@@ -61,14 +63,7 @@ func InitConfigs(filename, configPath string) {
 		} else {
 			log.Fatalf("Error reading config file: %v", err)
 		}
-	} else {
-		// Only watch for changes if we are loading from config
-		viper.OnConfigChange(func(e fsnotify.Event) {
-			log.Printf("Config file changed: %s", e.Name)
-		})
-		viper.WatchConfig()
 	}
-
 
 	viper.SetEnvPrefix("livestream") // will be uppercased automatically
 	replacer := strings.NewReplacer(".", "_")
@@ -91,6 +86,9 @@ func InitConfigs(filename, configPath string) {
 	viper.BindEnv("kafka.session_recording_topic")             // LIVESTREAM_KAFKA_SESSION_RECORDING_TOPIC
 	viper.BindEnv("kafka.session_recording_brokers")           // LIVESTREAM_KAFKA_SESSION_RECORDING_BROKERS
 	viper.BindEnv("kafka.session_recording_security_protocol") // LIVESTREAM_KAFKA_SESSION_RECORDING_SECURITY_PROTOCOL
+	viper.BindEnv("kafka.session_timeout_ms")                  // LIVESTREAM_KAFKA_SESSION_TIMEOUT_MS
+	viper.BindEnv("kafka.heartbeat_interval_ms")               // LIVESTREAM_KAFKA_HEARTBEAT_INTERVAL_MS
+	viper.BindEnv("kafka.max_poll_interval_ms")                // LIVESTREAM_KAFKA_MAX_POLL_INTERVAL_MS
 
 	// Postgres settings
 	viper.BindEnv("postgres.url") // LIVESTREAM_POSTGRES_URL
