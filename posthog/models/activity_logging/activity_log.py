@@ -277,6 +277,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "User": [
         "last_login",
         "date_joined",
+        "current_organization",
+        "current_team",
         "current_organization_id",
         "current_team_id",
     ],
