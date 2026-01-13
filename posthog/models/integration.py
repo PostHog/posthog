@@ -1165,6 +1165,7 @@ class FirebaseIntegration:
         if not expires_in or not refreshed_at:
             return False
 
+        # To be really safe we refresh if its half way through the expiry
         time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
         return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
 
