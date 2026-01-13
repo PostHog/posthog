@@ -1,7 +1,6 @@
 import logging
 
 import pytest
-from unittest import mock
 
 from asgiref.sync import async_to_sync
 from temporalio.client import Client as TemporalClient
@@ -11,13 +10,6 @@ from posthog.api.test.batch_exports.fixtures import create_organization, create_
 from posthog.api.test.batch_exports.operations import start_test_worker
 from posthog.batch_exports.models import BatchExport
 from posthog.temporal.common.client import sync_connect
-
-
-@pytest.fixture(autouse=True)
-def mock_url_validation():
-    """Mock URL validation to allow test URLs that don't resolve in CI."""
-    with mock.patch("posthog.batch_exports.http.is_url_allowed", return_value=(True, None)):
-        yield
 
 
 @async_to_sync
