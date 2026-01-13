@@ -142,18 +142,28 @@ class ManageMemoriesTool(MaxTool):
 
         metadata_filter_sql = " AND ".join(metadata_conditions) if metadata_conditions else "1=1"
 
+        # This query isn't particularly optimal, but the universe of memories per team is going to be
+        # so small that it really doesn't need to be - we don't need to try and pick up on the vector
+        # indexes or anything, pure brute force search is fine.
         query = f"""
             SELECT
                 document_id,
                 content,
                 metadata,
                 cosineDistance(embedding, embedText({{query_text}}, {{model_name}})) as distance
-            FROM document_embeddings
-            WHERE team_id = {{team_id}}
-              AND model_name = {{model_name}}
-              AND product = 'posthog-ai'
-              AND document_type = 'memory'
-              AND ({{skip_user_filter}} OR metadata.user_id = {{user_id}})
+            FROM (
+                SELECT
+                    document_id,
+                    argMax(content, inserted_at) as content,
+                    argMax(metadata, inserted_at) as metadata,
+                    argMax(embedding, inserted_at) as embedding
+                FROM document_embeddings
+                WHERE model_name = {{model_name}}
+                  AND product = 'posthog-ai'
+                  AND document_type = 'memory'
+                GROUP BY document_id, model_name, product, document_type, rendering
+            )
+            WHERE ({{skip_user_filter}} OR JSONExtractString(metadata, 'user_id') = {{user_id}})
               AND NOT JSONExtractBool(metadata, 'deleted')
               AND ({metadata_filter_sql})
             ORDER BY distance ASC
@@ -171,7 +181,6 @@ class ManageMemoriesTool(MaxTool):
                 team=self._team,
                 placeholders={
                     "query_text": ast.Constant(value=query_text),
-                    "team_id": ast.Constant(value=self._team.id),
                     "model_name": ast.Constant(value=EMBEDDING_MODEL),
                     "user_id": ast.Constant(value=user_id),
                     "skip_user_filter": ast.Constant(value=skip_user_filter),
