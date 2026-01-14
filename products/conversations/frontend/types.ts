@@ -3,6 +3,7 @@ export type TicketChannel = 'widget' | 'slack' | 'email'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
+export type MessageAuthorType = 'customer' | 'AI' | 'human'
 
 export interface UserBasic {
     id: number
@@ -31,6 +32,14 @@ export interface Ticket {
     last_message_at: string | null
     last_message_text: string | null
     unread_team_count: number
+}
+
+export interface ChatMessage {
+    id: string
+    content: string
+    authorType: MessageAuthorType
+    authorName: string
+    createdAt: string
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
