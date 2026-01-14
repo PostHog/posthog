@@ -77,13 +77,11 @@ async function fetchExamplesMarkdown(context: Context): Promise<Unzipped> {
 
 /**
  * Fetches and caches the skills resources ZIP
- * For local testing, set POSTHOG_MCP_LOCAL_EXAMPLES_URL to a local HTTP URL
- * (Skills replaces the old examples approach, using the same env var)
+ * For local testing, set POSTHOG_MCP_LOCAL_SKILLS_URL to a local HTTP URL
  */
 async function fetchSkillsResources(context: Context): Promise<Unzipped> {
     // Check for local URL override in environment (for testing)
-    // Uses same env var as examples since skills replaces examples
-    const localUrlRaw = (context.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_EXAMPLES_URL
+    const localUrlRaw = (context.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
     const localUrl = localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
     const url = localUrl || SKILLS_RESOURCES_URL
 
