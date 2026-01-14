@@ -77,7 +77,7 @@ jobs:
                   build-args: COMMIT_HASH=${{ github.sha }}
 
             - name: Build and push container image (notebook)
-              id: build
+              id: build-notebook
               uses: depot/build-push-action@9785b135c3c76c33db102e45be96a25ab55cd507 # v1.16.2
               with:
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook
