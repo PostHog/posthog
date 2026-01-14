@@ -33,7 +33,10 @@ import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/Em
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
-import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
+import {
+    CyclotronJobInputIntegrationField,
+    PushSubscriptionPickerField,
+} from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputConfiguration } from './types'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
@@ -468,6 +471,8 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
+        case 'push_subscription':
+            return <PushSubscriptionPickerField schema={schema} value={input.value} onChange={onValueChange} />
         default:
             return (
                 <strong className="text-danger">
