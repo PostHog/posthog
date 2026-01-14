@@ -105,7 +105,7 @@ function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
     if (batchWorkflowJobsLoading) {
         return (
             <div className="flex justify-center">
-                <Spinner className="text-xl" />
+                <Spinner size="medium" />
             </div>
         )
     }
