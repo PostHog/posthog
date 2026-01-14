@@ -68,10 +68,7 @@ jobs:
                   ansible_sed='s/.*: *([0-9.]+).*/\1/'
 
                   # Production EU uses Ansible role defaults (the TF file is stale)
-                  # This is also the source for hobby deployments
-                  ansible_version=$(fetch_infra_version "Ansible (EU/Hobby)" "ansible/roles/clickhouse/defaults/main.yml" "$ansible_grep" "$ansible_sed")
-                  production_eu="$ansible_version"
-                  hobby="$ansible_version"
+                  production_eu=$(fetch_infra_version "Production EU" "ansible/roles/clickhouse/defaults/main.yml" "$ansible_grep" "$ansible_sed")
 
                   # Production US uses Terragrunt (new cluster)
                   production_us=$(fetch_infra_version "Production US" "terraform/environments/aws-accnt-clickhouse-prod-us/us-east-1/clickhouse/terragrunt.hcl" "$tf_grep" "$tf_sed")
@@ -79,8 +76,9 @@ jobs:
                   # Local version from docker-compose (extract from this repo)
                   local_version=$(grep -oE 'clickhouse/clickhouse-server:[0-9.]+' docker-compose.base.yml | head -1 | cut -d: -f2)
                   if [ -z "$local_version" ]; then
-                    local_version="$production_eu"
-                    echo "::warning::Could not extract local version from docker-compose.base.yml, using production_eu"
+                    errors="${errors}- **Local**: Failed to extract version from \`docker-compose.base.yml\`\n"
+                  elif ! [[ "$local_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    errors="${errors}- **Local**: Invalid version format: \`$local_version\` (expected X.Y.Z.W)\n"
                   fi
 
                   if [ -n "$errors" ]; then
@@ -99,16 +97,14 @@ jobs:
 
                   echo "production_eu=$production_eu" >> $GITHUB_OUTPUT
                   echo "production_us=$production_us" >> $GITHUB_OUTPUT
-                  echo "hobby=$hobby" >> $GITHUB_OUTPUT
                   echo "local=$local_version" >> $GITHUB_OUTPUT
                   echo "oldest_supported=$oldest_supported" >> $GITHUB_OUTPUT
-                  echo "::notice::Production EU: $production_eu, Production US: $production_us, Hobby: $hobby, Local: $local_version, Oldest supported: $oldest_supported"
+                  echo "::notice::Production EU: $production_eu, Production US: $production_us, Local: $local_version, Oldest supported: $oldest_supported"
 
             - name: Update .github/clickhouse-versions.json
               run: |
                   production_eu="${{ steps.fetch-versions.outputs.production_eu }}"
                   production_us="${{ steps.fetch-versions.outputs.production_us }}"
-                  hobby="${{ steps.fetch-versions.outputs.hobby }}"
                   local_version="${{ steps.fetch-versions.outputs.local }}"
                   oldest_supported="${{ steps.fetch-versions.outputs.oldest_supported }}"
 
@@ -117,13 +113,11 @@ jobs:
                   jq -n \
                     --arg production_eu "clickhouse/clickhouse-server:$production_eu" \
                     --arg production_us "clickhouse/clickhouse-server:$production_us" \
-                    --arg hobby "clickhouse/clickhouse-server:$hobby" \
                     --arg local "clickhouse/clickhouse-server:$local_version" \
                     --arg oldest_supported "clickhouse/clickhouse-server:$oldest_supported" \
                     '{
                       production_eu: $production_eu,
                       production_us: $production_us,
-                      hobby: $hobby,
                       local: $local,
                       oldest_supported: $oldest_supported
                     }' > .github/clickhouse-versions.json
@@ -158,7 +152,6 @@ jobs:
                       |-------------|---------|--------|
                       | Production EU | `${{ steps.fetch-versions.outputs.production_eu }}` | Ansible defaults |
                       | Production US | `${{ steps.fetch-versions.outputs.production_us }}` | Terragrunt |
-                      | Hobby | `${{ steps.fetch-versions.outputs.hobby }}` | Ansible defaults |
                       | Local | `${{ steps.fetch-versions.outputs.local }}` | docker-compose.base.yml |
                       | **Oldest Supported** | `${{ steps.fetch-versions.outputs.oldest_supported }}` | min(EU, US) |
 

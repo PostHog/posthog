@@ -1,7 +1,6 @@
 {
     "production_eu": "clickhouse/clickhouse-server:25.8.12.129",
     "production_us": "clickhouse/clickhouse-server:25.8.11.66",
-    "hobby": "clickhouse/clickhouse-server:25.8.12.129",
     "local": "clickhouse/clickhouse-server:25.8.12.129",
     "oldest_supported": "clickhouse/clickhouse-server:25.8.11.66"
 }
