@@ -183,7 +183,11 @@ function toRawValue(value: unknown): string {
     } else if (typeof value === 'number' || typeof value === 'boolean') {
         return String(value)
     } else {
-        return JSON.stringify(value)
+        try {
+            return JSON.stringify(value)
+        } catch {
+            return '[Unserializable]'
+        }
     }
 }
 

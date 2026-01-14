@@ -27,6 +27,7 @@ describe('MaterializedColumnSlotManager', () => {
     })
 
     afterEach(async () => {
+        await postgres.end()
         await closeHub(hub)
     })
 
