@@ -176,7 +176,7 @@ class SecretAlert(APIView):
                 "label": "false_positive",
             }
 
-            # Debug info while token lookups continue to fail
+            # Debug info for monitoring token lookups
             token_debug = {
                 "token_length": len(token),
                 "token_prefix": token[:8],
