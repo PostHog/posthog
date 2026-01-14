@@ -421,10 +421,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).ensure()
         except SandboxProvisionError as err:
             logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": str(err)}, status=503)
+            return Response({"detail": "Failed to start notebook kernel."}, status=503)
         except RuntimeError as err:
             logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": str(err)}, status=503)
+            return Response({"detail": "Failed to start notebook kernel."}, status=503)
         return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
 
     @action(methods=["POST"], url_path="kernel/stop", detail=True)
@@ -434,7 +434,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             stopped = get_kernel_runtime(notebook, self._current_user()).shutdown()
         except RuntimeError as err:
             logger.exception("notebook_kernel_stop_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": str(err)}, status=503)
+            return Response({"detail": "Failed to stop notebook kernel."}, status=503)
         return Response({"stopped": stopped})
 
     @action(methods=["POST"], url_path="kernel/restart", detail=True)
@@ -444,10 +444,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).restart()
         except SandboxProvisionError as err:
             logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": str(err)}, status=503)
+            return Response({"detail": "Failed to restart notebook kernel."}, status=503)
         except RuntimeError as err:
             logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": str(err)}, status=503)
+            return Response({"detail": "Failed to restart notebook kernel."}, status=503)
         return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
 
     @action(methods=["GET"], url_path="kernel/status", detail=True)
