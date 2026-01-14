@@ -332,7 +332,7 @@ class PropertySwapper(CloningVisitor):
 
         return self._field_type_to_property_call(node, field_type)
 
-    def _field_type_to_property_call(self, node: ast.Field, field_type: str):
+    def _field_type_to_property_call(self, node: ast.Expr, field_type: str):
         if field_type == "DateTime":
             return ast.Call(name="toDateTime", args=[node])
         if field_type == "Float":
