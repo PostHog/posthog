@@ -87,14 +87,6 @@ test.describe('Workflows', () => {
 
         expect(workflow2.ok()).toBe(true)
 
-        // Login to the workspace
-        await page.request.post('/api/login/', {
-            data: {
-                email: workspace.user_email,
-                password: workspace.user_password,
-            },
-        })
-
         // Navigate to workflows list page
         await page.goto(`/project/${workspace.team_id}/workflows`)
 
@@ -176,14 +168,6 @@ test.describe('Workflows', () => {
         expect(workflowResponse.ok()).toBe(true)
         const workflowData = await workflowResponse.json()
         expect(workflowData.id).toBeTruthy()
-
-        // Login to the workspace
-        await page.request.post('/api/login/', {
-            data: {
-                email: workspace.user_email,
-                password: workspace.user_password,
-            },
-        })
 
         // Navigate to workflow detail page
         await page.goto(`/project/${workspace.team_id}/workflows/${workflowData.id}/workflow`)
