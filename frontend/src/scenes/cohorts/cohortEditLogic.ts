@@ -268,6 +268,21 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 return cohort.is_static && typeof cohort.id === 'number'
             },
         ],
+        isPendingCalculation: [
+            (s) => [s.cohort],
+            (cohort: CohortType) => {
+                return (
+                    cohort.pending_version != null &&
+                    (cohort.version == null || cohort.pending_version !== cohort.version)
+                )
+            },
+        ],
+        isCalculatingOrPending: [
+            (s) => [s.cohort, s.isPendingCalculation],
+            (cohort: CohortType, isPendingCalculation: boolean) => {
+                return cohort.is_calculating || isPendingCalculation
+            },
+        ],
     }),
 
     forms(({ actions, values }) => ({

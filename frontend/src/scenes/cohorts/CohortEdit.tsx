@@ -1,7 +1,6 @@
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useMemo } from 'react'
 
 import {
     IconClock,
@@ -100,6 +99,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         creationPersonQuery,
         personsToCreateStaticCohort,
         canRemovePersonFromCohort,
+        isPendingCalculation,
+        isCalculatingOrPending,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -117,12 +118,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         enabled: Boolean(cohortId && !cohortLoading && !cohortMissing && !cohort.deleted),
         deps: [cohortId, cohortLoading, cohortMissing, cohort.deleted],
     })
-
-    const isPendingCalculation = useMemo(
-        () => cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version),
-        [cohort.pending_version, cohort.version]
-    )
-    const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
 
     const createStaticCohortContext: QueryContext = {
         columns: {
