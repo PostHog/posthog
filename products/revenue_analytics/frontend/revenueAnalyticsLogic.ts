@@ -285,7 +285,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 return hasRevenueTables || hasRevenueEvents
             },
         ],
-          
+
         allRevenueAnalyticsViews: [
             (s) => [s.dataWarehouseSavedQueries],
             (savedQueries): DataWarehouseSavedQuery[] => {
