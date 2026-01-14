@@ -333,9 +333,8 @@ class KernelRuntimeService:
 
             if backend == KernelRuntime.Backend.MODAL:
                 self._ensure_modal_credentials()
-                handle = self._create_modal_kernel_handle(notebook, user)
-            else:
-                handle = self._create_docker_kernel_handle(notebook, user)
+
+            handle = self._create_kernel_handle(notebook, user, backend)
 
             self._kernels[key] = handle
 
@@ -383,12 +382,9 @@ class KernelRuntimeService:
         return False
 
     def _reuse_kernel_handle(self, notebook: Notebook, user: User | None, backend: str) -> _KernelHandle | None:
-        if backend == KernelRuntime.Backend.MODAL:
-            return self._reuse_modal_kernel_handle(notebook, user)
-        if backend == KernelRuntime.Backend.DOCKER:
-            return self._reuse_docker_kernel_handle(notebook, user)
-
-        return None
+        if backend not in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
+            return None
+        return self._reuse_kernel_handle_for_backend(notebook, user, backend)
 
     def _mark_runtime_error(self, runtime: KernelRuntime, message: str) -> None:
         runtime.status = KernelRuntime.Status.ERROR
@@ -398,9 +394,10 @@ class KernelRuntimeService:
 
     def _create_runtime(self, notebook: Notebook, user: User | None, backend: str) -> KernelRuntime:
         self._discard_active_runtime(notebook, user, backend)
+        notebook_reference = notebook if notebook.pk and not notebook._state.adding else None
         return KernelRuntime.objects.create(
             team_id=notebook.team_id,
-            notebook=notebook if notebook.pk else None,
+            notebook=notebook_reference,
             notebook_short_id=notebook.short_id,
             user=user if isinstance(user, User) else None,
             status=KernelRuntime.Status.STARTING,
@@ -420,26 +417,16 @@ class KernelRuntimeService:
     def _get_backend(self) -> str:
         return KernelRuntime.Backend.MODAL if self._has_modal_credentials() else KernelRuntime.Backend.DOCKER
 
-    def _create_modal_kernel_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle:
-        runtime = self._create_runtime(notebook, user, KernelRuntime.Backend.MODAL)
+    def _create_kernel_handle(self, notebook: Notebook, user: User | None, backend: str) -> _KernelHandle:
+        runtime = self._create_runtime(notebook, user, backend)
         connection_file = f"/tmp/jupyter/kernel-{runtime.id}.json"
         kernel_id = f"kernel-{runtime.id}"
         sandbox_config = build_notebook_sandbox_config(notebook)
-        sandbox_class = self._get_sandbox_class(KernelRuntime.Backend.MODAL)
+        sandbox_class = self._get_sandbox_class(backend)
         sandbox = sandbox_class.create(sandbox_config)
 
         try:
-            start_command = (
-                "mkdir -p /tmp/jupyter && "
-                f"nohup python3 -m ipykernel_launcher -f {connection_file} "
-                "> /tmp/jupyter/kernel.log 2>&1 & echo $!"
-            )
-            start_result = sandbox.execute(start_command, timeout_seconds=int(self._startup_timeout))
-            pid_line = start_result.stdout.strip().splitlines()[-1] if start_result.stdout else ""
-            kernel_pid = int(pid_line) if pid_line.isdigit() else None
-            if not kernel_pid:
-                raise RuntimeError(f"Failed to start kernel process: {start_result.stdout} {start_result.stderr}")
-
+            kernel_pid = self._start_kernel_process(sandbox, connection_file)
             self._wait_for_kernel_ready(sandbox, connection_file)
         except Exception as err:
             self._mark_runtime_error(runtime, "Failed to start kernel in sandbox")
@@ -469,62 +456,22 @@ class KernelRuntimeService:
             lock=threading.RLock(),
             started_at=timezone.now(),
             last_activity_at=timezone.now(),
-            backend=KernelRuntime.Backend.MODAL,
+            backend=backend,
             sandbox_id=sandbox.id,
         )
 
-    def _create_docker_kernel_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle:
-        runtime = self._create_runtime(notebook, user, KernelRuntime.Backend.DOCKER)
-        connection_file = f"/tmp/jupyter/kernel-{runtime.id}.json"
-        kernel_id = f"kernel-{runtime.id}"
-        sandbox_config = build_notebook_sandbox_config(notebook)
-        sandbox_class = self._get_sandbox_class(KernelRuntime.Backend.DOCKER)
-        sandbox = sandbox_class.create(sandbox_config)
-
-        try:
-            start_command = (
-                "mkdir -p /tmp/jupyter && "
-                f"nohup python3 -m ipykernel_launcher -f {connection_file} "
-                "> /tmp/jupyter/kernel.log 2>&1 & echo $!"
-            )
-            start_result = sandbox.execute(start_command, timeout_seconds=int(self._startup_timeout))
-            pid_line = start_result.stdout.strip().splitlines()[-1] if start_result.stdout else ""
-            kernel_pid = int(pid_line) if pid_line.isdigit() else None
-            if not kernel_pid:
-                raise RuntimeError(f"Failed to start kernel process: {start_result.stdout} {start_result.stderr}")
-
-            self._wait_for_kernel_ready(sandbox, connection_file)
-        except Exception as err:
-            self._mark_runtime_error(runtime, "Failed to start kernel in sandbox")
-            with suppress(Exception):
-                sandbox.destroy()
-            raise RuntimeError("Failed to start kernel in sandbox") from err
-
-        runtime.kernel_id = kernel_id
-        runtime.kernel_pid = kernel_pid
-        runtime.connection_file = connection_file
-        runtime.status = KernelRuntime.Status.RUNNING
-        runtime.last_used_at = timezone.now()
-        runtime.sandbox_id = sandbox.id
-        runtime.save(
-            update_fields=[
-                "kernel_id",
-                "kernel_pid",
-                "connection_file",
-                "status",
-                "last_used_at",
-                "sandbox_id",
-            ]
+    def _start_kernel_process(self, sandbox: SandboxProtocol, connection_file: str) -> int:
+        start_command = (
+            "mkdir -p /tmp/jupyter && "
+            f"nohup python3 -m ipykernel_launcher -f {connection_file} "
+            "> /tmp/jupyter/kernel.log 2>&1 & echo $!"
         )
-
-        return _KernelHandle(
-            runtime=runtime,
-            lock=threading.RLock(),
-            started_at=timezone.now(),
-            last_activity_at=timezone.now(),
-            backend=KernelRuntime.Backend.DOCKER,
-            sandbox_id=sandbox.id,
-        )
+        start_result = sandbox.execute(start_command, timeout_seconds=int(self._startup_timeout))
+        pid_line = start_result.stdout.strip().splitlines()[-1] if start_result.stdout else ""
+        kernel_pid = int(pid_line) if pid_line.isdigit() else None
+        if not kernel_pid:
+            raise RuntimeError(f"Failed to start kernel process: {start_result.stdout} {start_result.stderr}")
+        return kernel_pid
 
     def _wait_for_kernel_ready(self, sandbox: Any, connection_file: str) -> None:
         payload = {
@@ -536,14 +483,16 @@ class KernelRuntimeService:
         if result.exit_code != 0:
             raise RuntimeError(f"Kernel did not become ready: {result.stdout} {result.stderr}")
 
-    def _reuse_modal_kernel_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle | None:
+    def _reuse_kernel_handle_for_backend(
+        self, notebook: Notebook, user: User | None, backend: str
+    ) -> _KernelHandle | None:
         runtime = (
             KernelRuntime.objects.filter(
                 team_id=notebook.team_id,
                 notebook_short_id=notebook.short_id,
                 user=user if isinstance(user, User) else None,
                 status=KernelRuntime.Status.RUNNING,
-                backend=KernelRuntime.Backend.MODAL,
+                backend=backend,
             )
             .exclude(connection_file__isnull=True)
             .exclude(connection_file="")
@@ -558,7 +507,7 @@ class KernelRuntimeService:
         from products.tasks.backend.services.sandbox import SandboxStatus
 
         try:
-            sandbox_class = self._get_sandbox_class(KernelRuntime.Backend.MODAL)
+            sandbox_class = self._get_sandbox_class(backend)
             sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
         except Exception:
             self._mark_runtime_error(runtime, "Sandbox not found")
@@ -580,57 +529,7 @@ class KernelRuntimeService:
             started_at=timezone.now(),
             last_activity_at=timezone.now(),
             execution_count=0,
-            backend=KernelRuntime.Backend.MODAL,
-            sandbox_id=runtime.sandbox_id,
-        )
-        self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
-        return handle
-
-    def _reuse_docker_kernel_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle | None:
-        runtime = (
-            KernelRuntime.objects.filter(
-                team_id=notebook.team_id,
-                notebook_short_id=notebook.short_id,
-                user=user if isinstance(user, User) else None,
-                status=KernelRuntime.Status.RUNNING,
-                backend=KernelRuntime.Backend.DOCKER,
-            )
-            .exclude(connection_file__isnull=True)
-            .exclude(connection_file="")
-            .exclude(sandbox_id__isnull=True)
-            .order_by("-last_used_at")
-            .first()
-        )
-
-        if not runtime or not runtime.sandbox_id:
-            return None
-
-        from products.tasks.backend.services.sandbox import SandboxStatus
-
-        try:
-            sandbox_class = self._get_sandbox_class(KernelRuntime.Backend.DOCKER)
-            sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
-        except Exception:
-            self._mark_runtime_error(runtime, "Sandbox not found")
-            return None
-
-        if sandbox.get_status() != SandboxStatus.RUNNING:
-            self._mark_runtime_error(runtime, "Sandbox is not running")
-            return None
-
-        try:
-            self._wait_for_kernel_ready(sandbox, runtime.connection_file or "")
-        except Exception:
-            self._mark_runtime_error(runtime, "Kernel not ready in sandbox")
-            return None
-
-        handle = _KernelHandle(
-            runtime=runtime,
-            lock=threading.RLock(),
-            started_at=timezone.now(),
-            last_activity_at=timezone.now(),
-            execution_count=0,
-            backend=KernelRuntime.Backend.DOCKER,
+            backend=backend,
             sandbox_id=runtime.sandbox_id,
         )
         self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
