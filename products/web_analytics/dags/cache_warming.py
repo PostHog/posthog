@@ -11,7 +11,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dags.common import JobOwners
-from posthog.dags.common.resources import PostHogAnalyticsResource
+from posthog.dags.common.resources import ClickhouseClusterResource, PostHogAnalyticsResource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -52,7 +52,11 @@ def get_teams_enabled_for_web_analytics_cache_warming() -> list[int]:
 
 
 def queries_to_keep_fresh(
-    context: dagster.OpExecutionContext, team_id: int, days: int = 7, minimum_query_count: int = 10
+    context: dagster.OpExecutionContext,
+    cluster: ClickhouseClusterResource,
+    team_id: int,
+    days: int = 7,
+    minimum_query_count: int = 10,
 ) -> list[dict]:
     context.log.info(
         f"Searching the last {days} days for team {team_id}'s queries with at least {minimum_query_count} runs."
@@ -121,6 +125,7 @@ def get_teams_for_warming_op(
 @dagster.op
 def get_queries_for_teams_op(
     context: dagster.OpExecutionContext,
+    cluster: ClickhouseClusterResource,
     team_ids: list[int],
 ) -> dict:
     days = get_instance_setting("WEB_ANALYTICS_WARMING_DAYS")
@@ -129,7 +134,7 @@ def get_queries_for_teams_op(
     all_queries = {}
     query_count = 0
     for team_id in team_ids:
-        queries = queries_to_keep_fresh(context, team_id, days=days, minimum_query_count=minimum_query_count)
+        queries = queries_to_keep_fresh(context, cluster, team_id, days=days, minimum_query_count=minimum_query_count)
 
         context.log.info(f"Loading {len(queries)} frequent web analytics queries for team {team_id}")
 
