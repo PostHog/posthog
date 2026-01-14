@@ -1757,6 +1757,11 @@ class FeatureFlagViewSet(
         """
         response = self.dependent_flags(request, **kwargs)
         dependent_flags = response.data
+        TOMBSTONE_COUNTER.labels(
+            namespace="feature_flags",
+            operation="has_active_dependents",
+            component="api",
+        ).inc()
         return Response(
             {
                 "has_active_dependents": len(dependent_flags) > 0,
