@@ -36,6 +36,21 @@ export function UpdateEmailPreferences(): JSX.Element {
                 <div className="deprecated-space-y-4">
                     <h4>Notification types</h4>
 
+                    <div className="border rounded p-4">
+                        <div className="space-y-2">
+                            <LemonSwitch
+                                data-attr="security_alerts_enabled"
+                                checked={true}
+                                disabled={true}
+                                label="Security alerts"
+                            />
+                            <span className="text-muted">
+                                Account security notifications including password changes, 2FA, login activity, and
+                                personal API key exposure. These notifications cannot be disabled.
+                            </span>
+                        </div>
+                    </div>
+
                     {/* Weekly Digest Section */}
                     <div className="border rounded p-4 deprecated-space-y-3">
                         <SimpleSwitch
