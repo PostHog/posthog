@@ -28,8 +28,6 @@ RUN apt-get update && \
     python3-pip \
     python3-venv \
     python3-dev \
-    python3-ipykernel \
-    python3-jupyter-client \
     # Databases
     sqlite3 \
     postgresql-client \
@@ -96,8 +94,9 @@ ENV PYTHONPATH="/tmp/workspace"
 WORKDIR /tmp/workspace
 
 # Install common notebook Python dependencies
-RUN python3 -m pip install --no-cache-dir --upgrade pip && \
-    python3 -m pip install --no-cache-dir \
+RUN python3 -m venv /opt/notebook-venv && \
+    /opt/notebook-venv/bin/pip install --no-cache-dir --upgrade pip && \
+    /opt/notebook-venv/bin/pip install --no-cache-dir \
     ipython \
     jupyter \
     jupyterlab \
@@ -116,7 +115,11 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
     sqlalchemy \
     requests \
     lxml \
-    beautifulsoup4
+    beautifulsoup4 && \
+    /opt/notebook-venv/bin/python -m ipykernel install --sys-prefix
+
+ENV VIRTUAL_ENV=/opt/notebook-venv
+ENV PATH="/opt/notebook-venv/bin:$PATH"
 
 RUN python3 --version && \
     node --version && \
