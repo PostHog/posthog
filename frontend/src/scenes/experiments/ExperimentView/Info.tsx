@@ -16,7 +16,6 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, ProgressStatus } from '~/types'
-import { MultivariateFlagVariant } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
