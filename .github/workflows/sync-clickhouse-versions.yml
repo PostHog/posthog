@@ -76,9 +76,6 @@ jobs:
                   # Production US uses Terragrunt (new cluster)
                   production_us=$(fetch_infra_version "Production US" "terraform/environments/aws-accnt-clickhouse-prod-us/us-east-1/clickhouse/terragrunt.hcl" "$tf_grep" "$tf_sed")
 
-                  # Dev environment
-                  dev=$(fetch_infra_version "Dev" "terraform/environments/aws-accnt-dev/us-east-1/clickhouse/clickhouse.tf" "$tf_grep" "$tf_sed")
-
                   # Local version from docker-compose (extract from this repo)
                   local_version=$(grep -oE 'clickhouse/clickhouse-server:[0-9.]+' docker-compose.base.yml | head -1 | cut -d: -f2)
                   if [ -z "$local_version" ]; then
@@ -98,21 +95,19 @@ jobs:
 
                   # Compute the oldest supported version across production environments for compat testing
                   # If tests pass on the oldest version, they should work everywhere
-                  oldest_supported=$(printf '%s\n' "$production_eu" "$production_us" "$dev" | sort -V | head -1)
+                  oldest_supported=$(printf '%s\n' "$production_eu" "$production_us" | sort -V | head -1)
 
                   echo "production_eu=$production_eu" >> $GITHUB_OUTPUT
                   echo "production_us=$production_us" >> $GITHUB_OUTPUT
-                  echo "dev=$dev" >> $GITHUB_OUTPUT
                   echo "hobby=$hobby" >> $GITHUB_OUTPUT
                   echo "local=$local_version" >> $GITHUB_OUTPUT
                   echo "oldest_supported=$oldest_supported" >> $GITHUB_OUTPUT
-                  echo "::notice::Production EU: $production_eu, Production US: $production_us, Dev: $dev, Hobby: $hobby, Local: $local_version, Oldest supported: $oldest_supported"
+                  echo "::notice::Production EU: $production_eu, Production US: $production_us, Hobby: $hobby, Local: $local_version, Oldest supported: $oldest_supported"
 
             - name: Update .github/clickhouse-versions.json
               run: |
                   production_eu="${{ steps.fetch-versions.outputs.production_eu }}"
                   production_us="${{ steps.fetch-versions.outputs.production_us }}"
-                  dev="${{ steps.fetch-versions.outputs.dev }}"
                   hobby="${{ steps.fetch-versions.outputs.hobby }}"
                   local_version="${{ steps.fetch-versions.outputs.local }}"
                   oldest_supported="${{ steps.fetch-versions.outputs.oldest_supported }}"
@@ -122,14 +117,12 @@ jobs:
                   jq -n \
                     --arg production_eu "clickhouse/clickhouse-server:$production_eu" \
                     --arg production_us "clickhouse/clickhouse-server:$production_us" \
-                    --arg dev "clickhouse/clickhouse-server:$dev" \
                     --arg hobby "clickhouse/clickhouse-server:$hobby" \
                     --arg local "clickhouse/clickhouse-server:$local_version" \
                     --arg oldest_supported "clickhouse/clickhouse-server:$oldest_supported" \
                     '{
                       production_eu: $production_eu,
                       production_us: $production_us,
-                      dev: $dev,
                       hobby: $hobby,
                       local: $local,
                       oldest_supported: $oldest_supported
@@ -165,10 +158,9 @@ jobs:
                       |-------------|---------|--------|
                       | Production EU | `${{ steps.fetch-versions.outputs.production_eu }}` | Ansible defaults |
                       | Production US | `${{ steps.fetch-versions.outputs.production_us }}` | Terragrunt |
-                      | Dev | `${{ steps.fetch-versions.outputs.dev }}` | Terraform |
                       | Hobby | `${{ steps.fetch-versions.outputs.hobby }}` | Ansible defaults |
                       | Local | `${{ steps.fetch-versions.outputs.local }}` | docker-compose.base.yml |
-                      | **Oldest Supported** | `${{ steps.fetch-versions.outputs.oldest_supported }}` | min(EU, US, Dev) |
+                      | **Oldest Supported** | `${{ steps.fetch-versions.outputs.oldest_supported }}` | min(EU, US) |
 
                       **Files updated:**
                       - `.github/clickhouse-versions.json` - version definitions (source of truth)
