@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import json
 import atexit
 import base64
@@ -11,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
+from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -225,7 +225,7 @@ class KernelRuntimeService:
             raise RuntimeError("Modal credentials are required to start notebook kernels in production.")
 
     def _has_modal_credentials(self) -> bool:
-        return all(os.getenv(name) for name in self._MODAL_REQUIRED_ENV_VARS)
+        return all(getattr(settings, name, None) for name in self._MODAL_REQUIRED_ENV_VARS)
 
     def _get_sandbox_class(self, backend: str) -> type[SandboxClass]:
         if backend == KernelRuntime.Backend.MODAL:
@@ -415,7 +415,11 @@ class KernelRuntimeService:
         ).update(status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now())
 
     def _get_backend(self) -> str:
-        return KernelRuntime.Backend.MODAL if self._has_modal_credentials() else KernelRuntime.Backend.DOCKER
+        if self._has_modal_credentials():
+            return KernelRuntime.Backend.MODAL
+        if settings.DEBUG or settings.TEST:
+            return KernelRuntime.Backend.DOCKER
+        return KernelRuntime.Backend.MODAL
 
     def _create_kernel_handle(self, notebook: Notebook, user: User | None, backend: str) -> _KernelHandle:
         runtime = self._create_runtime(notebook, user, backend)
