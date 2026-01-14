@@ -8,14 +8,19 @@ import { PlaywrightWorkspaceSetupResult, test } from '../utils/workspace-test-ba
 test.describe('Workflows', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
-    test.beforeEach(async ({ page, playwrightSetup }) => {
-        // Create a workspace with custom names
+    test.beforeAll(async ({ playwrightSetup }) => {
+        // Create a workspace with custom names (once for all tests)
         workspace = await playwrightSetup.createWorkspace('Workflow Users Inc.')
 
         // Verify workspace was created
         expect(workspace.organization_name).toBe('Workflow Users Inc.')
         expect(workspace.personal_api_key).toBeTruthy()
+    })
 
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        if (!workspace) {
+            throw new Error('Workspace was not initialized before tests')
+        }
         // Login and navigate to the team page
         await playwrightSetup.loginAndNavigateToTeam(page, workspace)
 
