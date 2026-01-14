@@ -20,7 +20,6 @@ import { isHogQLQuery } from '~/queries/utils'
 import { EndpointType } from '~/types'
 
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'
-
 import { humanizeQueryKind } from './common'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'

@@ -152,6 +152,7 @@ export const endpointLogic = kea<endpointLogicType>([
             createEndpointSuccess: ({ response }) => {
                 actions.setEndpointName('')
                 actions.setEndpointDescription('')
+                actions.loadEndpoints()
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',
