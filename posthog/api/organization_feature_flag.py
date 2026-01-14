@@ -218,7 +218,7 @@ class OrganizationFeatureFlagView(
                 
                 # Copy schedules if requested
                 if copy_schedule:
-                    self._copy_feature_flag_schedules(flag_to_copy, saved_flag, request.user)
+                    self._copy_feature_flag_schedules(flag_to_copy, saved_flag, request.user, name_to_dest_cohort_id)
                 
                 successful_projects.append(feature_flag_serializer.data)
             except Exception as e:
@@ -234,7 +234,7 @@ class OrganizationFeatureFlagView(
             status=status.HTTP_200_OK,
         )
 
-    def _copy_feature_flag_schedules(self, source_flag, target_flag, user):
+    def _copy_feature_flag_schedules(self, source_flag, target_flag, user, cohort_mapping):
         """
         Copy all scheduled changes from source flag to target flag.
         
@@ -242,6 +242,7 @@ class OrganizationFeatureFlagView(
             source_flag: The original FeatureFlag instance
             target_flag: The newly created/updated FeatureFlag instance  
             user: The user performing the copy operation
+            cohort_mapping: Dict mapping source cohort names to target cohort IDs
         """
         from posthog.models.scheduled_change import ScheduledChange
         from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
@@ -266,10 +267,13 @@ class OrganizationFeatureFlagView(
         
         # Copy each schedule to the target flag
         for schedule in source_schedules:
+            # Remap cohort IDs in schedule payload
+            updated_payload = self._remap_cohort_ids_in_payload(schedule.payload, cohort_mapping)
+            
             ScheduledChange.objects.create(
                 record_id=str(target_flag.id),
                 model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
-                payload=schedule.payload,
+                payload=updated_payload,
                 scheduled_at=schedule.scheduled_at,
                 is_recurring=schedule.is_recurring,
                 recurrence_interval=schedule.recurrence_interval,
@@ -277,3 +281,25 @@ class OrganizationFeatureFlagView(
                 team=target_flag.team,
                 created_by=user,
             )
+
+    def _remap_cohort_ids_in_payload(self, payload, cohort_mapping):
+        """Remap cohort IDs in schedule payload to target project cohorts."""
+        import copy
+        updated_payload = copy.deepcopy(payload)
+        
+        # Handle filters in payload (for AddReleaseCondition operations)
+        if "filters" in updated_payload and "groups" in updated_payload["filters"]:
+            for group in updated_payload["filters"]["groups"]:
+                for prop in group.get("properties", []):
+                    if isinstance(prop, dict) and prop.get("type") == "cohort":
+                        try:
+                            original_cohort_id = int(prop["value"])
+                            # Find cohort name from source and map to target ID
+                            from posthog.models.cohort import Cohort
+                            source_cohort = Cohort.objects.filter(id=original_cohort_id).first()
+                            if source_cohort and source_cohort.name in cohort_mapping:
+                                prop["value"] = cohort_mapping[source_cohort.name]
+                        except (ValueError, TypeError):
+                            continue
+        
+        return updated_payload
