@@ -3,9 +3,6 @@
         "pyright-lsp@claude-plugins-official": true,
         "typescript-lsp@claude-plugins-official": true
     },
-    "permissions": {
-        "allow": ["Bash(flox activate:*)"]
-    },
     "hooks": {
         "PostToolUse": [
             {
