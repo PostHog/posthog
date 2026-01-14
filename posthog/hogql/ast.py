@@ -393,6 +393,11 @@ class CTETableType(BaseTableType):
                 db_field = column.resolve_database_field(context)
                 if db_field:
                     fields[name] = db_field
+                else:
+                    # If resolve_database_field returns None (e.g., for SelectQueryType tables),
+                    # create a database field based on the constant type
+                    const_type = column.resolve_constant_type(context)
+                    fields[name] = constant_type_to_database_field(name, const_type)
             elif isinstance(column, ExpressionFieldType):
                 fields[name] = ExpressionField(name=column.name, expr=column.expr, isolate_scope=column.isolate_scope)
             elif isinstance(column, FieldTraverserType):

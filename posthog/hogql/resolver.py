@@ -151,20 +151,17 @@ class Resolver(CloningVisitor):
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
 
-        # Save the current CTEs and create a new scope for nested queries
-        parent_ctes = self.ctes
-        self.ctes = dict(parent_ctes)
-
+        # Visit the CTE expression (SELECT query) without creating a new CTE scope
+        # This allows the CTE to reference previously defined CTEs in the same WITH clause
         cte_expr = clone_expr(node.expr)
         cte_expr = self.visit(cte_expr)
         node.type = ast.CTETableType(name=node.name, select_query_type=cte_expr.type)
 
-        # Restore parent CTEs
-        self.ctes = parent_ctes
         self.cte_counter -= 1
 
         node.expr = cte_expr
 
+        # Add this CTE to the current scope so subsequent CTEs can reference it
         self.ctes[node.name] = node
 
         return node
