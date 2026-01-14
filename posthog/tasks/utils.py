@@ -104,5 +104,5 @@ class CeleryQueue(Enum):
     SESSION_REPLAY_PERSISTENCE = "session_replay_persistence"
     SESSION_REPLAY_GENERAL = "session_replay_general"
     INTEGRATIONS = "integrations"
-    FEATURE_FLAGS = "feature-flags"
-    FEATURE_FLAGS_LONG_RUNNING = "feature-flags-long-running"
+    FEATURE_FLAGS = "feature_flags"
+    FEATURE_FLAGS_LONG_RUNNING = "feature_flags_long_running"
