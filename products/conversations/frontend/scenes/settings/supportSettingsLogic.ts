@@ -4,10 +4,10 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { conversationsSettingsLogicType } from './conversationsSettingsLogicType'
+import type { supportSettingsLogicType } from './supportSettingsLogicType'
 
-export const conversationsSettingsLogic = kea<conversationsSettingsLogicType>([
-    path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'conversationsSettingsLogic']),
+export const supportSettingsLogic = kea<supportSettingsLogicType>([
+    path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect({
         values: [teamLogic, ['currentTeam']],
         actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],

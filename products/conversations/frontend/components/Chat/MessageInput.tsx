@@ -10,8 +10,6 @@ import {
     serializationOptions,
 } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-
 export interface MessageInputProps {
     onSendMessage: (content: string, onSuccess: () => void) => void
     messageSending: boolean
@@ -58,7 +56,6 @@ export function MessageInput({
                     onClick={handleSubmit}
                     loading={messageSending}
                     disabledReason={isEmpty ? 'No message' : undefined}
-                    sideIcon={<KeyboardShortcut command enter />}
                 >
                     {buttonText}
                 </LemonButton>
