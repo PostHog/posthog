@@ -133,8 +133,14 @@ function InfoBanner(): JSX.Element {
 }
 
 function FeatureFlagCopySection(): JSX.Element {
-    const { featureFlag, copyDestinationProject, projectsWithCurrentFlag, featureFlagCopyLoading, copySchedule, scheduledChanges } =
-        useValues(featureFlagLogic)
+    const {
+        featureFlag,
+        copyDestinationProject,
+        projectsWithCurrentFlag,
+        featureFlagCopyLoading,
+        copySchedule,
+        scheduledChanges,
+    } = useValues(featureFlagLogic)
     const { setCopyDestinationProject, copyFlag, setCopySchedule } = useActions(featureFlagLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
