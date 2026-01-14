@@ -22,6 +22,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { payGateMiniLogic } from 'lib/components/PayGateMini/payGateMiniLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
@@ -41,7 +42,10 @@ export function ManagedReverseProxy(): JSX.Element {
     const { acknowledgeCloudflareOptIn, deleteRecord, showForm } = useActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
-    const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
+    // Check both instance-level setting AND per-org feature flag
+    const instanceCloudflareEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
+    const orgCloudflareEnabled = useFeatureFlag('MANAGED_PROXY_USE_CLOUDFLARE')
+    const cloudflareProxyEnabled = instanceCloudflareEnabled && orgCloudflareEnabled
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
