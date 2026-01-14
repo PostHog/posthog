@@ -150,7 +150,10 @@ jobs:
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
-                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
+                    # Dependabot is excluded - it creates new PRs that may need snapshot updates
+                    # Other bots (github-actions, posthog-bot) commit snapshots and must use CHECK mode to avoid loops
+                    if [[ "$AUTHOR" != "dependabot[bot]" ]] && \
+                       ([[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]); then
                       echo "mode=check" >> $GITHUB_OUTPUT
                       echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
