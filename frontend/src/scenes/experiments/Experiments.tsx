@@ -49,7 +49,14 @@ import { StatusTag } from './ExperimentView/components'
 import { ExperimentsSettings } from './ExperimentsSettings'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
-import { EXPERIMENTS_PER_PAGE, ExperimentsFilters, experimentsLogic, getExperimentStatus } from './experimentsLogic'
+import {
+    EXPERIMENTS_PER_PAGE,
+    ExperimentsFilters,
+    experimentsLogic,
+    getExperimentStatus,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from './experimentsLogic'
 import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport = {
@@ -218,6 +225,15 @@ const ExperimentsTable = ({
                                     >
                                         <LemonTag type="warning" className="ml-1">
                                             Legacy
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {isSingleVariantShipped(experiment) && (
+                                    <Tooltip
+                                        title={`Variant "${getShippedVariantKey(experiment)}" has been rolled out to 100% of users`}
+                                    >
+                                        <LemonTag type="completion" className="ml-1">
+                                            <b className="uppercase">100% rollout</b>
                                         </LemonTag>
                                     </Tooltip>
                                 )}

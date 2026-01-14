@@ -247,12 +247,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/feature-flags',
         activityScope: ActivityScope.FEATURE_FLAG,
     },
-    [Scene.Feed]: {
-        projectBased: true,
-        name: 'Feed',
-        description: 'Stay updated with recent activities and changes in your project.',
-        iconType: 'feed',
-    },
     [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
     [Scene.Group]: {
         projectBased: true,
@@ -434,6 +428,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'session_replay',
         description:
             'Replay recordings of user sessions to understand how users interact with your product or website.',
+    },
+    [Scene.ReplayKiosk]: {
+        projectBased: true,
+        name: 'Kiosk mode',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+        layout: 'plain',
+        hideProjectNotice: true,
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
@@ -705,6 +707,7 @@ export const routes: Record<string, [Scene | string, string]> = {
         {} as Record<string, [Scene, string]>
     ),
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
+    [urls.replayKiosk()]: [Scene.ReplayKiosk, 'replayKiosk'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
     [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],
@@ -739,7 +742,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
-    [urls.feed()]: [Scene.Feed, 'feed'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
@@ -802,6 +804,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
+    [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelines(':kind' as any)]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],

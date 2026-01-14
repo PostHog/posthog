@@ -60,7 +60,12 @@ function Header(): JSX.Element {
                                 label: 'Playback from PostHog JSON file',
                                 to: urls.replayFilePlayback(),
                             },
+                            {
+                                label: 'Kiosk mode',
+                                to: urls.replayKiosk(),
+                            },
                         ]}
+                        placement="bottom-end"
                     >
                         <LemonButton icon={<IconEllipsis />} size="small" />
                     </LemonMenu>
@@ -188,13 +193,13 @@ function MainPanel({ tabId }: { tabId: string }): JSX.Element {
     useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic({ tabId }))
 
     return (
-        <SceneContent>
+        <SceneContent className={cn(ReplayTabs.Home === tab && 'grow')}>
             <Warnings />
 
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
-                <div className="SessionRecordingPlaylistHeightWrapper">
+                <div className="SessionRecordingPlaylistHeightWrapper grow">
                     <SessionRecordingsPlaylist {...playlistLogicProps} />
                 </div>
             ) : tab === ReplayTabs.Playlists ? (

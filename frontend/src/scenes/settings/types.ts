@@ -27,6 +27,7 @@ export type SettingSectionId =
     | 'environment-surveys'
     | 'environment-feature-flags'
     | 'environment-error-tracking'
+    | 'environment-logs'
     | 'environment-csp-reporting'
     | 'environment-max'
     | 'environment-integrations'
@@ -42,6 +43,7 @@ export type SettingSectionId =
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'organization-details'
+    | 'organization-integrations'
     | 'organization-members'
     | 'organization-roles'
     | 'organization-authentication'
@@ -58,7 +60,6 @@ export type SettingSectionId =
     | 'user-danger-zone'
     | 'user-feature-previews'
     | 'mcp-server'
-    | 'product-logs'
 
 export type SettingId =
     | 'replay-triggers'
@@ -113,6 +114,7 @@ export type SettingId =
     | 'project-move'
     | 'organization-logo'
     | 'organization-display-name'
+    | 'organization-integrations-list'
     | 'invites'
     | 'members'
     | 'email-members'
@@ -164,6 +166,7 @@ export type SettingId =
     | 'activity-log-settings'
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
+    | 'logs'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'
