@@ -332,17 +332,17 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         # Include evaluation tags in the serialized output
         evaluation_tag_names = []
 
-        if hasattr(obj, "evaluation_contexts"):
+        if hasattr(obj, "evaluation_tags"):
             # Django's prefetch_related creates a cache in _prefetched_objects_cache.
             # If the viewset used prefetch_related (which it should for performance),
-            # we can access the contexts without hitting the database again.
-            if hasattr(obj, "_prefetched_objects_cache") and "evaluation_contexts" in obj._prefetched_objects_cache:
+            # we can access the tags without hitting the database again.
+            if hasattr(obj, "_prefetched_objects_cache") and "evaluation_tags" in obj._prefetched_objects_cache:
                 # Use prefetched data (already in memory) - no DB query
-                evaluation_tag_names = [et.tag.name for et in obj.evaluation_contexts.all()]
+                evaluation_tag_names = [et.tag.name for et in obj.evaluation_tags.all()]
             else:
                 # Fallback to database query with select_related to minimize queries
-                # This should rarely happen as the viewset prefetches evaluation_contexts
-                evaluation_tag_names = [et.tag.name for et in obj.evaluation_contexts.select_related("tag").all()]
+                # This should rarely happen as the viewset prefetches evaluation_tags
+                evaluation_tag_names = [et.tag.name for et in obj.evaluation_tags.select_related("tag").all()]
 
         ret["evaluation_tags"] = evaluation_tag_names
 
@@ -530,11 +530,11 @@ class FeatureFlagSerializer(
             # Check if evaluation tags are already loaded to avoid extra query
             if (
                 hasattr(self.instance, "_prefetched_objects_cache")
-                and "evaluation_contexts" in self.instance._prefetched_objects_cache
+                and "evaluation_tags" in self.instance._prefetched_objects_cache
             ):
-                existing_eval_tag_count = len(self.instance.evaluation_contexts.all())
+                existing_eval_tag_count = len(self.instance.evaluation_tags.all())
             else:
-                existing_eval_tag_count = self.instance.evaluation_contexts.count()
+                existing_eval_tag_count = self.instance.evaluation_tags.count()
 
             if existing_eval_tag_count > 0:
                 # Flag currently has evaluation tags, so we need to enforce the requirement
@@ -1487,8 +1487,8 @@ class FeatureFlagViewSet(
                 # Convert string to boolean
                 filter_value = filters[key].lower() in ("true", "1", "yes")
 
-                # Annotate with count of evaluation contexts
-                queryset = queryset.annotate(eval_tag_count=Count("evaluation_contexts"))
+                # Annotate with count of evaluation tags
+                queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
 
                 if filter_value:
                     queryset = queryset.filter(eval_tag_count__gt=0)
@@ -1505,13 +1505,13 @@ class FeatureFlagViewSet(
             Prefetch("experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments")
         )
 
-        # Prefetch evaluation contexts to avoid N+1 queries when serializing.
+        # Prefetch evaluation tags to avoid N+1 queries when serializing.
         # Without this, each flag would trigger a separate query to fetch its
-        # evaluation contexts. With prefetch_related, Django loads all evaluation
-        # contexts in a single query and caches them on the model instances.
+        # evaluation tags. With prefetch_related, Django loads all evaluation
+        # tags in a single query and caches them on the model instances.
         queryset = queryset.prefetch_related(
             Prefetch(
-                "evaluation_contexts",
+                "evaluation_tags",
                 queryset=FeatureFlagEvaluationTag.objects.select_related("tag"),
             )
         )
