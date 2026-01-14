@@ -10,19 +10,16 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
+import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 
-export function DefaultEvaluationEnvironments(): JSX.Element | null {
+export function DefaultEvaluationContexts(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tags, isEnabled, canAddMoreTags, newTagInput, defaultEvaluationEnvironmentsLoading, isAdding } = useValues(
-        defaultEvaluationEnvironmentsLogic
-    )
-    const { addTag, removeTag, toggleEnabled, setNewTagInput, setIsAdding } = useActions(
-        defaultEvaluationEnvironmentsLogic
-    )
+    const { tags, isEnabled, canAddMoreTags, newTagInput, defaultEvaluationContextsLoading, isAdding } =
+        useValues(defaultEvaluationContextsLogic)
+    const { addTag, removeTag, toggleEnabled, setNewTagInput, setIsAdding } = useActions(defaultEvaluationContextsLogic)
 
     // Check if feature flag is enabled
-    if (!featureFlags[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]) {
+    if (!featureFlags[FEATURE_FLAGS.DEFAULT_EVALUATION_CONTEXTS]) {
         return null
     }
 
@@ -45,28 +42,28 @@ export function DefaultEvaluationEnvironments(): JSX.Element | null {
     return (
         <div className="space-y-4">
             <div className="space-y-2">
-                <h3 className="min-w-[25rem]">Default Evaluation Environments</h3>
+                <h3 className="min-w-[25rem]">Default Evaluation Contexts</h3>
 
                 <p>
                     Configure default{' '}
                     <Link
-                        to="https://posthog.com/docs/feature-flags/evaluation-environments"
+                        to="https://posthog.com/docs/feature-flags/evaluation-contexts"
                         target="_blank"
                         disableDocsPanel
                     >
-                        evaluation environments
+                        evaluation contexts
                     </Link>{' '}
                     that will be automatically applied to new feature flags. When enabled, these tags will be set on
                     newly created flags.
                 </p>
 
                 <LemonSwitch
-                    data-attr="default-evaluation-environments-switch"
+                    data-attr="default-evaluation-contexts-switch"
                     onChange={toggleEnabled}
-                    label="Apply default evaluation environments to new flags"
+                    label="Apply default evaluation contexts to new flags"
                     bordered
                     checked={isEnabled}
-                    disabled={defaultEvaluationEnvironmentsLoading}
+                    disabled={defaultEvaluationContextsLoading}
                 />
             </div>
 

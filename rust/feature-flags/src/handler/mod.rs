@@ -174,7 +174,7 @@ async fn process_request_inner(
                 &context.meta,
                 &context.headers,
                 request.evaluation_runtime,
-                request.evaluation_environments.as_ref(),
+                request.evaluation_contexts.as_ref(),
             )
             .await?;
 

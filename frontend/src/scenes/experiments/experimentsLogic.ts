@@ -306,7 +306,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 }
 
                 // Add evaluation tags filter if required by team
-                if (currentTeam?.require_evaluation_environment_tags) {
+                if (currentTeam?.require_evaluation_contexts) {
                     params.has_evaluation_tags = true
                 }
 

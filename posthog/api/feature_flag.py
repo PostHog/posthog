@@ -207,7 +207,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
     Serializer mixin that handles evaluation contexts for feature flags.
     Evaluation contexts mark which organizational tags also serve as runtime evaluation constraints.
 
-    Note: SDK clients must send 'evaluation_environments' in their flag evaluation requests
+    Note: SDK clients must send 'evaluation_contexts' in their flag evaluation requests
     for these constraints to take effect. Without this parameter, all flags are evaluated
     regardless of their evaluation contexts.
     """
@@ -832,9 +832,10 @@ class FeatureFlagSerializer(
         validated_data["version"] = 1  # This is the first version of the feature flag
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         # Support both evaluation_contexts (new) and evaluation_tags (deprecated)
-        evaluation_contexts = validated_data.pop("evaluation_contexts", None) or validated_data.pop(
-            "evaluation_tags", None
-        )
+        # Always pop both to ensure neither remains in validated_data
+        evaluation_contexts = validated_data.pop("evaluation_contexts", None)
+        evaluation_tags_deprecated = validated_data.pop("evaluation_tags", None)
+        evaluation_contexts = evaluation_contexts or evaluation_tags_deprecated
         evaluation_tags = evaluation_contexts  # For backward compatibility in method calls
         creation_context = validated_data.pop(
             "creation_context", "feature_flags"

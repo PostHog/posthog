@@ -74,7 +74,7 @@ import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/fronten
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
-import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
+import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 
@@ -313,8 +313,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['currentOrganization'],
             enabledFeaturesLogic,
             ['featureFlags as enabledFeatures'],
-            defaultEvaluationEnvironmentsLogic,
-            ['defaultEvaluationEnvironments'],
+            defaultEvaluationContextsLogic,
+            ['defaultEvaluationContexts'],
         ],
         actions: [
             featureFlagsLogic,
@@ -323,8 +323,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
-            defaultEvaluationEnvironmentsLogic,
-            ['loadDefaultEvaluationEnvironments'],
+            defaultEvaluationContextsLogic,
+            ['loadDefaultEvaluationContexts'],
         ],
     })),
     actions({
@@ -796,20 +796,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
                 // For new flags, load default evaluation environments and set default tags
                 if (props.id === 'new') {
-                    // Only load and apply default evaluation environments if BOTH conditions are met:
+                    // Only load and apply default evaluation contexts if BOTH conditions are met:
                     // 1. The feature flag is enabled globally
-                    // 2. The team has enabled default evaluation environments
-                    const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]
-                    const isTeamEnabled = values.currentTeam?.default_evaluation_environments_enabled
+                    // 2. The team has enabled default evaluation contexts
+                    const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_CONTEXTS]
+                    const isTeamEnabled = values.currentTeam?.default_evaluation_contexts_enabled
 
                     if (isFeatureEnabled && isTeamEnabled) {
                         try {
-                            actions.loadDefaultEvaluationEnvironments()
+                            actions.loadDefaultEvaluationContexts()
                         } catch (error) {
-                            // If loading default evaluation environments fails, continue with empty tags
-                            console.warn('Failed to load default evaluation environments:', error)
+                            // If loading default evaluation contexts fails, continue with empty tags
+                            console.warn('Failed to load default evaluation contexts:', error)
                         }
-                        const defaultEnvs = values.defaultEvaluationEnvironments
+                        const defaultEnvs = values.defaultEvaluationContexts
                         const defaultTags = defaultEnvs?.default_evaluation_tags || []
 
                         return {
