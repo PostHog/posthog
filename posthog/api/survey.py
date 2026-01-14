@@ -217,6 +217,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "response_sampling_daily_limits",
             "enable_partial_responses",
             "enable_iframe_embedding",
+            "translations",
             "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
@@ -281,6 +282,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_daily_limits",
             "enable_partial_responses",
             "enable_iframe_embedding",
+            "translations",
             "_create_in_folder",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
@@ -333,6 +335,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
+
+        return value
+
+    def validate_translations(self, value):
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Translations must be an object")
+
+        # Validate language codes format (ISO 639-1 or BCP 47)
+        language_code_pattern = re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")
+        for lang_code in value.keys():
+            if not language_code_pattern.match(lang_code):
+                raise serializers.ValidationError(
+                    f"Invalid language code '{lang_code}'. Use ISO 639-1 format (e.g., 'es', 'fr') or BCP 47 format (e.g., 'es-MX', 'en-US')"
+                )
 
         return value
 
