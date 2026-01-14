@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.distinct_id_usage.sql import TABLE_BASE_NAME, TRUNCATE_DISTINCT_ID_USAGE_TABLE_SQL
@@ -119,3 +119,26 @@ class TestDistinctIdUsageAggregation(ClickhouseTestMixin, BaseTest):
         )
 
         self.assertEqual(result[0][0], 100)
+
+    def test_materialized_view_populates_from_events(self):
+        """Integration test: verify the MV correctly populates distinct_id_usage from sharded_events"""
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="mv_test_user",
+        )
+        flush_persons_and_events()
+
+        result = sync_execute(
+            f"""
+            SELECT distinct_id, sum(event_count) as total
+            FROM {TABLE_BASE_NAME}
+            WHERE team_id = %(team_id)s AND distinct_id = 'mv_test_user'
+            GROUP BY distinct_id
+            """,
+            {"team_id": self.team.pk},
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], "mv_test_user")
+        self.assertEqual(result[0][1], 1)
