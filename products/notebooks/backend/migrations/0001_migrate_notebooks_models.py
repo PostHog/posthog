@@ -109,6 +109,16 @@ class Migration(migrations.Migration):
             name="notebook",
             unique_together={("team", "short_id")},
         ),
+        migrations.RenameIndex(
+            model_name="kernelruntime",
+            new_name="posthog_ker_team_id_934f49_idx",
+            old_name="notebooks_k_team_id_d9a4c8_idx",
+        ),
+        migrations.AlterField(
+            model_name="kernelruntime",
+            name="backend",
+            field=models.CharField(choices=[("modal", "modal"), ("docker", "docker")], default="docker", max_length=20),
+        ),
     ]
 
     operations = [
