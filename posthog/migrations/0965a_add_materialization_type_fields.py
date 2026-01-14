@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "0970_add_session_recording_encryption"),
+        ("posthog", "0973_alter_integration_kind"),
     ]
 
     operations = [

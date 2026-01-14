@@ -66,6 +66,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setLocalQuery: (query: Node | null) => ({ query }),
         setActiveTab: (tab: EndpointTab) => ({ tab }),
         setPayloadJson: (value: string) => ({ value }),
+        setPayloadJsonError: (error: string | null) => ({ error }),
         setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
         setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
         setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
@@ -88,6 +89,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             '' as string,
             {
                 setPayloadJson: (_, { value }) => value,
+            },
+        ],
+        payloadJsonError: [
+            null as string | null,
+            {
+                setPayloadJsonError: (_, { error }) => error,
+                setPayloadJson: () => null,
             },
         ],
         cacheAge: [

@@ -587,6 +587,7 @@ async def materialize_model(
             )
             saved_query.latest_error = error_message
             await logger.ainfo("Table reference no longer exists for model %s, reverting materialization", model_label)
+            # saving query handled in revert_materialization()
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
@@ -594,22 +595,28 @@ async def materialize_model(
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
             await logger.ainfo("Query exceeded memory limit for model %s", model_label)
+            await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
         elif "Timeout exceeded" in error_message:
             error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
+            saved_query.sync_frequency_interval = None
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
+            await database_sync_to_async(saved_query.save)()
+            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
-            await set_view_to_never_sync(saved_query, logger)
+            await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
+            saved_query.sync_frequency_interval = None
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
+            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
             if isinstance(e, NonRetryableException):
-                raise NonRetryableException(error_message)
+                raise
             raise Exception(error_message) from e
 
     data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
@@ -672,17 +679,6 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.status = DataModelingJob.Status.FAILED
     job.error = error_message
     await database_sync_to_async(job.save)()
-
-
-async def set_view_to_never_sync(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
-    """Updates saved_query to set the sync schedule to "never" to protect from high strain on clickhouse"""
-
-    saved_query.sync_frequency_interval = None
-    await database_sync_to_async(saved_query.save)()
-
-    await a_pause_saved_query_schedule(str(saved_query.id))
-
-    await logger.adebug(f"Updated saved query {saved_query.id} to never sync")
 
 
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
