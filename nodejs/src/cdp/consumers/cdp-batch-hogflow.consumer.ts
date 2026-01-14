@@ -50,12 +50,14 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
     }
 
     private createHogFlowInvocation({
+        batchJobId,
         hogFlow,
         team,
         personId,
         distinctId,
         defaultVariables,
     }: {
+        batchJobId: string
         hogFlow: HogFlow
         team: Team
         personId: string
@@ -80,6 +82,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             },
             teamId: hogFlow.team_id,
             functionId: hogFlow.id,
+            batchJobId,
             hogFlow,
             person: invocationGlobals.person,
             filterGlobals,
@@ -166,6 +169,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                 onPersonBatch: async (persons: { personId: string; distinctId: string }[]) => {
                     const batchInvocations = persons.map(({ personId, distinctId }) =>
                         this.createHogFlowInvocation({
+                            batchJobId: batchHogFlowRequest.batchJobId,
                             hogFlow,
                             team,
                             personId,
@@ -244,6 +248,11 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                         logger.error('Batch HogFlow request references missing team or hogflow', {
                             batchHogFlowRequest,
                         })
+                        return
+                    }
+
+                    if (teamHogFlow.status !== 'active') {
+                        logger.info('Skipping inactive HogFlow for batch request', { batchHogFlowRequest })
                         return
                     }
 
