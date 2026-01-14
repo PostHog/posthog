@@ -214,7 +214,7 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["date_part_month"], 1)
         self.assertEqual(result_dict["date_part_day"], 1)
         self.assertEqual(result_dict["date_part_hour"], 13)
-        self.assertEqual(result_dict["to_timestamp_result"], datetime(2023, 1, 1, 13, 25, 32))
+        self.assertEqual(result_dict["to_timestamp_result"], datetime(2023, 1, 1, 13, 25, 32, tzinfo=UTC))
         self.assertEqual(result_dict["to_char_result"], "2023-01-01")
         self.assertEqual(result_dict["make_date_result"], date(2023, 1, 1))
         self.assertEqual(result_dict["date_add_result"], datetime(2023, 1, 1, 14, 45, 32, tzinfo=UTC))

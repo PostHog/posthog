@@ -340,7 +340,7 @@ class CTETableType(BaseTableType):
         try:
             self.resolve_database_table(context).get_field(name)
             return True
-        except:
+        except Exception:
             return False
 
     def resolve_database_table(self, context: HogQLContext) -> Table:

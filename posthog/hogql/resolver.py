@@ -182,6 +182,12 @@ class Resolver(CloningVisitor):
                 self.ctes = dict(parent_ctes)
             # If in a UNION, CTEs accumulate in the shared union scope (don't create new dict)
             for cte in node.ctes.values():
+                # Check for CTE name conflicts when hoisting from nested queries
+                if cte.name in parent_ctes:
+                    raise QueryError(
+                        f"CTE '{cte.name}' is already defined in an outer query. "
+                        f"CTE names must be unique when hoisting to the top level."
+                    )
                 self.visit(cte)
             node_type.ctes = node.ctes
         elif not self.inside_union:
@@ -293,9 +299,20 @@ class Resolver(CloningVisitor):
 
         self.scopes.pop()
 
-        # Restore parent CTEs (unless we're in a UNION where CTEs should accumulate)
+        # Hoist CTEs from nested queries to the top level
+        # After visiting all subqueries, self.ctes may have accumulated CTEs from nested SELECT statements
+        # Put them on the top-level query node
+        if len(self.scopes) == 0 and self.cte_counter == 0 and not self.inside_union:
+            # We're at the top level - update the node's CTEs with any that were accumulated
+            if self.ctes:
+                new_node.ctes = self.ctes
+
+        # Keep accumulated CTEs from nested queries so they can be hoisted to the top level
+        # (unless we're in a UNION where CTEs should accumulate differently)
         if not self.inside_union:
-            self.ctes = parent_ctes
+            # Merge parent CTEs with any new CTEs collected from this query and its subqueries
+            # Parent CTEs take precedence (they were defined first)
+            self.ctes = {**self.ctes, **parent_ctes}
 
         return new_node
 

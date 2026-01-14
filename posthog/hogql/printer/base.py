@@ -130,15 +130,39 @@ class HogQLPrinter(Visitor[str]):
     def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
         return [self.visit(column) for column in columns]
 
-    def visit_select_query(self, node: ast.SelectQuery):
-        # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
+    def _cte_print_settings(self, node: ast.SelectQuery) -> Literal["none", "first", "all"]:
+        """
+        Determines how CTEs (Common Table Expressions) should be printed for a SELECT query.
+
+        This method controls CTE printing behavior based on whether the query is part of a
+        UNION and its position within that UNION.
+
+        :param node: The SELECT query node being printed
+        :type node: ast.SelectQuery
+        :return: One of three CTE printing modes:
+            - 'none': No CTEs should be printed (query has no CTEs)
+            - 'first': Print CTEs only for the first SELECT in a UNION or standalone SELECT
+            - 'all': Print CTEs for every SELECT statement (used in dialects where CTEs
+                     are scoped per SELECT, like ClickHouse)
+        :rtype: Literal['none', 'first', 'all']
+
+        """
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
-        is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
         is_first_query_in_union = (
             part_of_select_union
             and isinstance(self.stack[0], ast.SelectSetQuery)
             and self.stack[0].initial_select_query == node
         )
+
+        if node.ctes and (is_first_query_in_union or not part_of_select_union):
+            return "first"
+
+        return "none"
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
+        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
+        is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
         is_last_query_in_union = (
             part_of_select_union
             and isinstance(self.stack[0], ast.SelectSetQuery)
@@ -179,6 +203,7 @@ class HogQLPrinter(Visitor[str]):
             columns = ["1"]
 
         ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
+        cte_print_setting = self._cte_print_settings(node)
 
         window = (
             ", ".join(
@@ -211,7 +236,7 @@ class HogQLPrinter(Visitor[str]):
 
         clauses = [
             f"WITH{space}{comma.join(ctes)}"
-            if ctes and (is_first_query_in_union or not part_of_select_union)
+            if ctes and (cte_print_setting == "first" or cte_print_setting == "all")
             else None,
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,

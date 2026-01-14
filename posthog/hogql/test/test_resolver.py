@@ -347,6 +347,32 @@ class TestResolver(BaseTest):
             self._print_hogql("WITH x AS (SELECT 1) SELECT x FROM events")
         self.assertIn("Cannot use table CTE", str(e.exception))
 
+    def test_ctes_hoisting_from_subquery(self):
+        # Test that CTEs defined in a subquery are hoisted to the top level
+        self.assertEqual(
+            self._print_hogql(
+                "SELECT * FROM (WITH cte1 AS (SELECT 1 AS x) SELECT x FROM cte1) AS source"
+            ),
+            "WITH cte1 AS (SELECT 1 AS x) SELECT x FROM (SELECT x FROM cte1) AS source LIMIT 50000",
+        )
+
+        # Test with multiple nested CTEs
+        self.assertEqual(
+            self._print_hogql(
+                "SELECT * FROM (WITH cte1 AS (SELECT event FROM events) SELECT event FROM cte1) AS source"
+            ),
+            "WITH cte1 AS (SELECT event FROM events) SELECT event FROM (SELECT event FROM cte1) AS source LIMIT 50000",
+        )
+
+    def test_ctes_hoisting_name_conflict(self):
+        # Test that CTE name conflicts are detected when hoisting
+        with self.assertRaises(QueryError) as e:
+            self._print_hogql(
+                "WITH cte1 AS (SELECT 1 AS a) "
+                "SELECT * FROM (WITH cte1 AS (SELECT 2 AS b) SELECT b FROM cte1) AS source"
+            )
+        self.assertIn("already defined", str(e.exception))
+
     def test_join_using(self):
         node = self._select(
             "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a"
