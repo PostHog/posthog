@@ -60,7 +60,7 @@ describe('Annotations', { concurrent: false }, () => {
             expect(annotation.content).toBe(params.data.content)
 
             // Track for cleanup
-            createdResources.featureFlags.push(annotation.id)
+            createdResources.annotations.push(annotation.id)
         })
 
         it('should create an annotation with all optional fields', async () => {
@@ -81,7 +81,7 @@ describe('Annotations', { concurrent: false }, () => {
             expect(annotation.content).toBe(params.data.content)
             expect(annotation.scope).toBe(params.data.scope)
 
-            createdResources.featureFlags.push(annotation.id)
+            createdResources.annotations.push(annotation.id)
         })
     })
 
@@ -100,7 +100,7 @@ describe('Annotations', { concurrent: false }, () => {
 
             const createResult = await createTool.handler(context, createParams)
             const createdAnnotation = parseToolResponse(createResult)
-            createdResources.featureFlags.push(createdAnnotation.id)
+            createdResources.annotations.push(createdAnnotation.id)
 
             const updateParams = {
                 annotationId: createdAnnotation.id,
@@ -132,7 +132,7 @@ describe('Annotations', { concurrent: false }, () => {
 
             const createResult = await createTool.handler(context, createParams)
             const createdAnnotation = parseToolResponse(createResult)
-            createdResources.featureFlags.push(createdAnnotation.id)
+            createdResources.annotations.push(createdAnnotation.id)
 
             const getParams = {
                 annotationId: createdAnnotation.id,
@@ -175,7 +175,7 @@ describe('Annotations', { concurrent: false }, () => {
             const createTool = createAnnotationTool()
             const createResult = await createTool.handler(context, createParams)
             const createdAnnotation = parseToolResponse(createResult)
-            createdResources.featureFlags.push(createdAnnotation.id)
+            createdResources.annotations.push(createdAnnotation.id)
 
             const listParams = {
                 data: {
@@ -240,7 +240,7 @@ describe('Annotations', { concurrent: false }, () => {
             const createdAnnotation = parseToolResponse(createResult)
 
             expect(createdAnnotation.id).toBeTruthy()
-            createdResources.featureFlags.push(createdAnnotation.id)
+            createdResources.annotations.push(createdAnnotation.id)
 
             // Read
             const getResult = await getTool.handler(context, { annotationId: createdAnnotation.id })
