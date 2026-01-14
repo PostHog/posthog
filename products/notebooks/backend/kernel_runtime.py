@@ -5,7 +5,6 @@ import json
 import atexit
 import base64
 import signal
-import threading
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
@@ -17,6 +16,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.models import User
+from posthog.redis import get_client
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.tasks.backend.services.sandbox import ExecutionResult, SandboxConfig, SandboxStatus, SandboxTemplate
@@ -61,12 +61,33 @@ class KernelExecutionResult:
 @dataclass
 class _KernelHandle:
     runtime: KernelRuntime
-    lock: threading.RLock
+    lock_name: str
     started_at: datetime
     last_activity_at: datetime
     execution_count: int = 0
     backend: str = KernelRuntime.Backend.DOCKER
     sandbox_id: str | None = None
+
+
+@dataclass
+class _RedisLock:
+    name: str
+    timeout: float
+    blocking_timeout: float
+    _lock: Any | None = None
+
+    def __enter__(self) -> _RedisLock:
+        client = get_client()
+        self._lock = client.lock(self.name, timeout=self.timeout, blocking_timeout=self.blocking_timeout)
+        if not self._lock.acquire():
+            raise RuntimeError(f"Failed to acquire Redis lock: {self.name}")
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, exc_tb: Any) -> None:
+        if not self._lock:
+            return
+        with suppress(Exception):
+            self._lock.release()
 
 
 class SandboxProtocol(Protocol):
@@ -137,12 +158,16 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
 class KernelRuntimeService:
     _TYPE_EXPRESSION_PREFIX = "__type__"
     _MODAL_REQUIRED_ENV_VARS = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET")
+    _SERVICE_LOCK_TIMEOUT_SECONDS = 30.0
+    _HANDLE_LOCK_TIMEOUT_SECONDS = 60.0
+    _LOCK_BLOCKING_TIMEOUT_SECONDS = 10.0
+    _EXECUTION_LOCK_TIMEOUT_BUFFER_SECONDS = 30.0
 
     def __init__(self, startup_timeout: float = 10.0, execution_timeout: float = 30.0):
         self._startup_timeout = startup_timeout
         self._execution_timeout = execution_timeout
         self._kernels: dict[str, _KernelHandle] = {}
-        self._service_lock = threading.RLock()
+        self._service_lock_name = "notebook-kernel-runtime-service"
         self._register_cleanup_hooks()
 
     def get_kernel_runtime(self, notebook: Notebook, user: User | None) -> KernelRuntimeSession:
@@ -153,7 +178,7 @@ class KernelRuntimeService:
         return handle.runtime
 
     def shutdown_kernel(self, notebook: Notebook, user: User | None) -> bool:
-        with self._service_lock:
+        with self._acquire_lock(self._service_lock_name, timeout=self._SERVICE_LOCK_TIMEOUT_SECONDS):
             handle = None
             for backend in (KernelRuntime.Backend.DOCKER, KernelRuntime.Backend.MODAL):
                 key = self._get_kernel_key(notebook, user, backend)
@@ -177,14 +202,14 @@ class KernelRuntimeService:
                 return False
             handle = _KernelHandle(
                 runtime=runtime,
-                lock=threading.RLock(),
+                lock_name=self._kernel_lock_name(notebook, user, runtime.backend),
                 started_at=runtime.created_at,
                 last_activity_at=runtime.last_used_at,
                 backend=runtime.backend,
                 sandbox_id=runtime.sandbox_id,
             )
 
-        with handle.lock:
+        with self._acquire_lock(handle.lock_name, timeout=self._HANDLE_LOCK_TIMEOUT_SECONDS):
             self._shutdown_handle(handle, status=KernelRuntime.Status.STOPPED)
 
         return True
@@ -213,7 +238,8 @@ class KernelRuntimeService:
                 user_expressions[f"{self._TYPE_EXPRESSION_PREFIX}{name}"] = f"type({name}).__name__"
         handle = self._ensure_handle(notebook, user)
 
-        with handle.lock:
+        lock_timeout = (timeout or self._execution_timeout) + self._EXECUTION_LOCK_TIMEOUT_BUFFER_SECONDS
+        with self._acquire_lock(handle.lock_name, timeout=lock_timeout):
             if not self._is_handle_alive(handle):
                 handle = self._reset_handle(notebook, user, handle)
 
@@ -229,12 +255,12 @@ class KernelRuntimeService:
             raise RuntimeError("Unsupported notebook kernel backend.")
 
     def shutdown_all(self) -> None:
-        with self._service_lock:
+        with self._acquire_lock(self._service_lock_name, timeout=self._SERVICE_LOCK_TIMEOUT_SECONDS):
             handles = list(self._kernels.values())
             self._kernels.clear()
 
         for handle in handles:
-            with handle.lock:
+            with self._acquire_lock(handle.lock_name, timeout=self._HANDLE_LOCK_TIMEOUT_SECONDS):
                 self._shutdown_handle(handle, status=KernelRuntime.Status.DISCARDED)
 
     def _get_kernel_key(self, notebook: Notebook, user: User | None, backend: str) -> str:
@@ -339,7 +365,7 @@ class KernelRuntimeService:
             raise RuntimeError("Notebook sandbox provider is not configured.")
         key = self._get_kernel_key(notebook, user, backend)
 
-        with self._service_lock:
+        with self._acquire_lock(self._service_lock_name, timeout=self._SERVICE_LOCK_TIMEOUT_SECONDS):
             handle = self._kernels.get(key)
 
             if handle and self._is_handle_alive(handle):
@@ -365,7 +391,7 @@ class KernelRuntimeService:
 
     def _reset_handle(self, notebook: Notebook, user: User | None, handle: _KernelHandle) -> _KernelHandle:
         self._shutdown_handle(handle, status=KernelRuntime.Status.ERROR)
-        with self._service_lock:
+        with self._acquire_lock(self._service_lock_name, timeout=self._SERVICE_LOCK_TIMEOUT_SECONDS):
             self._kernels.pop(self._get_kernel_key(notebook, user, handle.backend), None)
         return self._ensure_handle(notebook, user)
 
@@ -481,7 +507,7 @@ class KernelRuntimeService:
 
         return _KernelHandle(
             runtime=runtime,
-            lock=threading.RLock(),
+            lock_name=self._kernel_lock_name(notebook, user, backend),
             started_at=timezone.now(),
             last_activity_at=timezone.now(),
             backend=backend,
@@ -553,7 +579,7 @@ class KernelRuntimeService:
 
         handle = _KernelHandle(
             runtime=runtime,
-            lock=threading.RLock(),
+            lock_name=self._kernel_lock_name(notebook, user, backend),
             started_at=timezone.now(),
             last_activity_at=timezone.now(),
             execution_count=0,
@@ -662,6 +688,16 @@ class KernelRuntimeService:
             "finally:\n"
             "    client.stop_channels()\n"
             "PY"
+        )
+
+    def _kernel_lock_name(self, notebook: Notebook, user: User | None, backend: str) -> str:
+        return f"notebook-kernel-runtime:{self._get_kernel_key(notebook, user, backend)}"
+
+    def _acquire_lock(self, name: str, *, timeout: float) -> _RedisLock:
+        return _RedisLock(
+            name=name,
+            timeout=timeout,
+            blocking_timeout=self._LOCK_BLOCKING_TIMEOUT_SECONDS,
         )
 
     def _execute_in_sandbox(
