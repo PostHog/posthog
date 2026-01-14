@@ -439,7 +439,7 @@ def _stream_clickhouse_query(
         data=sql_with_format.encode("utf-8"),
         stream=True,
         timeout=600,
-        verify=False,
+        verify=settings.CLICKHOUSE_CA,
     ) as response:
         if response.status_code != 200:
             error_message = response.text
