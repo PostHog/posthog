@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -1182,6 +1182,52 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                 }
             },
             submit: async (formdata) => {
+                // Check if schedule fields have changed and show confirmation modal
+                const scheduleFieldsChanged =
+                    formdata.interval !== values.savedConfiguration.interval ||
+                    formdata.timezone !== values.savedConfiguration.timezone ||
+                    formdata.interval_offset !== values.savedConfiguration.interval_offset
+
+                if (!values.isNew && scheduleFieldsChanged) {
+                    let userConfirmed = false
+                    await new Promise<void>((resolve) => {
+                        LemonDialog.open({
+                            title: 'Confirm schedule change',
+                            description: (
+                                <>
+                                    <p>
+                                        Changing the schedule (interval, timezone, or start time) of a batch export
+                                        could result in a gap of data.
+                                    </p>
+                                    <p>
+                                        Make sure to run a backfill if necessary to ensure all data is exported
+                                        correctly.
+                                    </p>
+                                </>
+                            ),
+                            primaryButton: {
+                                children: 'Save changes',
+                                onClick: () => {
+                                    userConfirmed = true
+                                    resolve()
+                                },
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                                onClick: () => {
+                                    userConfirmed = false
+                                    resolve()
+                                },
+                            },
+                        })
+                    })
+
+                    // Only proceed with submission if user confirmed
+                    if (!userConfirmed) {
+                        return
+                    }
+                }
+
                 await asyncActions.updateBatchExportConfig(formdata)
             },
         },
