@@ -1,3 +1,4 @@
+import json
 import os
 import time
 import uuid
@@ -18,6 +19,7 @@ from playwright.sync_api import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.schema import ReplayInactivityPeriod
 
 logger = structlog.get_logger(__name__)
 
@@ -267,6 +269,32 @@ def detect_recording_resolution(
         logger.info("video_exporter.resolution_detection_complete")
 
 
+def detect_inactivity_periods(
+    page: Page,
+) -> list[ReplayInactivityPeriod]:
+    """Detect inactivity periods when recording session videos."""
+    try:
+        logger.info("video_exporter.waiting_for_inactivity_periods_global")
+        inactivity_periods = page.wait_for_function(
+            """
+            () => {
+                const r = (window).__POSTHOG_INACTIVITY_PERIODS__;
+                if (!r) return [];
+                return r.map(p => ({
+                    ts_from_s: Number(p.ts_from_s),
+                    ts_to_s: p.ts_to_s !== undefined ? Number(p.ts_to_s) : null,
+                    active: Boolean(p.active),
+                }));
+            }
+            """,
+            timeout=15000,
+        ).json_value()
+        return [ReplayInactivityPeriod(**period) for period in inactivity_periods]
+    except Exception as e:
+        logger.warning("video_exporter.inactivity_periods_detection_failed", error=str(e))
+        return []
+
+
 def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
     """
     the export function might choose to change the playback speed
@@ -354,7 +382,8 @@ def record_replay_to_file(
             )
             measured_width: Optional[int] = None
             try:
-                dimensions = page.evaluate("""
+                dimensions = page.evaluate(
+                    """
                     () => {
                         const replayer = document.querySelector('.replayer-wrapper');
                         if (replayer) {
@@ -371,7 +400,8 @@ def record_replay_to_file(
                             width: table ? Math.floor((table.offsetWidth || 0) * 1.5) : 0
                         };
                     }
-                """)
+                """
+                )
                 final_height = dimensions["height"]
                 width_candidate = dimensions["width"] or width
                 measured_width = max(width, min(1800, int(width_candidate)))
@@ -385,6 +415,16 @@ def record_replay_to_file(
             actual_duration = opts.recording_duration / playback_speed
             page.wait_for_timeout(int(actual_duration * 1000))
             video = page.video
+
+            # Collect data on inactivity periods
+            inactivity_periods = detect_inactivity_periods(
+                page=page,
+            )
+            # TODO: Remove after testing, store in the exported asset metadata instead
+            with open("timietimie.json", "w") as f:
+                json.dump([x.model_dump() for x in inactivity_periods], f)
+
+            # Stop the recording
             page.close()
             if video is None:
                 raise RuntimeError("Playwright did not produce a video. Ensure record_video_dir is set.")

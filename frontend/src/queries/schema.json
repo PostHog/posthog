@@ -27589,6 +27589,22 @@
             ],
             "type": "string"
         },
+        "ReplayInactivityPeriod": {
+            "additionalProperties": false,
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "ts_from_s": {
+                    "type": "number"
+                },
+                "ts_to_s": {
+                    "type": "number"
+                }
+            },
+            "required": ["ts_from_s", "active"],
+            "type": "object"
+        },
         "ResolvedDateRangeResponse": {
             "additionalProperties": false,
             "properties": {
