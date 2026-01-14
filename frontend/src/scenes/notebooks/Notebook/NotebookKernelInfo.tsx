@@ -22,6 +22,11 @@ const formatMemory = (value: number): string => {
     return `${value} GB`
 }
 
+const CPU_PRICE_PER_CORE_HOUR = 0.1419
+const MEMORY_PRICE_PER_GIB_HOUR = 0.0242
+
+const formatHourlyPrice = (value: number): string => `$${value.toFixed(4)} / h`
+
 export const NotebookKernelInfo = (): JSX.Element => {
     const { shortId } = useValues(notebookLogic)
     const logic = notebookKernelInfoLogic({ shortId })
@@ -138,8 +143,14 @@ export const NotebookKernelInfo = (): JSX.Element => {
                     </div>
                     <div className="space-y-3 border-t border-border pt-3">
                         <div className="space-y-1">
-                            <div className="text-xs font-semibold text-muted uppercase tracking-wide">
-                                Compute profile
+                            <div className="text-xs flex justify-between items-center gap-2">
+                                <div className="font-semibold text-muted uppercase tracking-wide">Compute profile</div>
+                                <span className="font-semibold">
+                                    {formatHourlyPrice(
+                                        selectedCpu * CPU_PRICE_PER_CORE_HOUR +
+                                            selectedMemory * MEMORY_PRICE_PER_GIB_HOUR
+                                    )}
+                                </span>
                             </div>
                             <div className="text-xs text-muted">
                                 CPU and RAM are reservations. Usage can burst above the configured values.
@@ -149,7 +160,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                             <div className="space-y-1">
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="font-semibold text-muted">CPU</span>
-                                    <span className="font-semibold">{formatCores(selectedCpu)}</span>
+                                    <span className="font-semibold">{formatCores(selectedCpu)} </span>
                                 </div>
                                 <div className={!isModalKernel ? 'pointer-events-none opacity-50' : undefined}>
                                     <LemonSlider
