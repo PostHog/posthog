@@ -1,6 +1,7 @@
 from typing import Optional
 
 import structlog
+import posthoganalytics
 from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
@@ -8,7 +9,7 @@ from temporalio.common import MetricCounter, MetricMeter
 from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
-from posthog.tasks.exporter import is_user_query_error_type
+from posthog.tasks.exports.failure_handler import is_user_query_error_type
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
@@ -173,6 +174,7 @@ async def deliver_subscription_report_async(
                 get_subscription_success_metric("email", "temporal").add(1)
             except Exception as e:
                 get_subscription_failure_metric("email", "temporal").add(1)
+                _capture_delivery_failed_event(subscription, e)
                 logger.error(
                     "deliver_subscription_report_async.email_failed",
                     subscription_id=subscription.id,
@@ -224,6 +226,7 @@ async def deliver_subscription_report_async(
             if not is_user_config_error:
                 get_subscription_failure_metric("slack", "temporal", failure_type="complete").add(1)
 
+            _capture_delivery_failed_event(subscription, e)
             logger.error(
                 "deliver_subscription_report_async.slack_failed",
                 subscription_id=subscription.id,
@@ -246,3 +249,18 @@ async def deliver_subscription_report_async(
         await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
 
     logger.info("deliver_subscription_report_async.completed", subscription_id=subscription_id)
+
+
+def _capture_delivery_failed_event(subscription: Subscription, e: Exception) -> None:
+    distinct_id = (subscription.created_by.distinct_id if subscription.created_by else None) or subscription.team_id
+    posthoganalytics.capture(
+        distinct_id=str(distinct_id),
+        event="subscription_delivery_failed",
+        properties={
+            "subscription_id": subscription.id,
+            "team_id": subscription.team_id,
+            "target_type": subscription.target_type,
+            "exception": str(e),
+            "exception_type": type(e).__name__,
+        },
+    )

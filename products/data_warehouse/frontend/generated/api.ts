@@ -1089,6 +1089,44 @@ export const environmentsWarehouseSavedQueriesRunHistoryRetrieve = async (
     )
 }
 
+/**
+ * Resume paused materialization schedules for multiple matviews.
+
+Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
+This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+ */
+export type environmentsWarehouseSavedQueriesResumeSchedulesCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type environmentsWarehouseSavedQueriesResumeSchedulesCreateResponseSuccess =
+    environmentsWarehouseSavedQueriesResumeSchedulesCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsWarehouseSavedQueriesResumeSchedulesCreateResponse =
+    environmentsWarehouseSavedQueriesResumeSchedulesCreateResponseSuccess
+
+export const getEnvironmentsWarehouseSavedQueriesResumeSchedulesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/warehouse_saved_queries/resume_schedules/`
+}
+
+export const environmentsWarehouseSavedQueriesResumeSchedulesCreate = async (
+    projectId: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<environmentsWarehouseSavedQueriesResumeSchedulesCreateResponse> => {
+    return apiMutator<environmentsWarehouseSavedQueriesResumeSchedulesCreateResponse>(
+        getEnvironmentsWarehouseSavedQueriesResumeSchedulesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
+        }
+    )
+}
+
 export type environmentsWarehouseSavedQueryDraftsListResponse200 = {
     data: PaginatedDataWarehouseSavedQueryDraftListApi
     status: 200
@@ -2447,6 +2485,44 @@ export const warehouseSavedQueriesRunHistoryRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+/**
+ * Resume paused materialization schedules for multiple matviews.
+
+Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
+This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+ */
+export type warehouseSavedQueriesResumeSchedulesCreateResponse200 = {
+    data: DataWarehouseSavedQueryApi
+    status: 200
+}
+
+export type warehouseSavedQueriesResumeSchedulesCreateResponseSuccess =
+    warehouseSavedQueriesResumeSchedulesCreateResponse200 & {
+        headers: Headers
+    }
+export type warehouseSavedQueriesResumeSchedulesCreateResponse =
+    warehouseSavedQueriesResumeSchedulesCreateResponseSuccess
+
+export const getWarehouseSavedQueriesResumeSchedulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/resume_schedules/`
+}
+
+export const warehouseSavedQueriesResumeSchedulesCreate = async (
+    projectId: string,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    options?: RequestInit
+): Promise<warehouseSavedQueriesResumeSchedulesCreateResponse> => {
+    return apiMutator<warehouseSavedQueriesResumeSchedulesCreateResponse>(
+        getWarehouseSavedQueriesResumeSchedulesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }

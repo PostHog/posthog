@@ -8,6 +8,7 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
+        "@tiptap/core": "*",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",
