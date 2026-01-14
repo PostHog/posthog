@@ -397,20 +397,13 @@ export function renderColumn(
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
         const key = (record as any[])[1] // 'key' is the second column in the groups query
         return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
-    } else if (trimQuotes(key).endsWith('$virt_mrr')) {
-        if (value === null || value === undefined) {
-            return '—'
-        }
-        const baseCurrency = context?.baseCurrency || CurrencyCode.USD
-        return formatCurrency(Number(value), baseCurrency)
-    } else if (trimQuotes(key).endsWith('$virt_revenue')) {
+    } else if (trimQuotes(key).endsWith('$virt_mrr') || trimQuotes(key).endsWith('$virt_revenue')) {
         if (value === null || value === undefined) {
             return '—'
         }
         const baseCurrency = context?.baseCurrency || CurrencyCode.USD
         return formatCurrency(Number(value), baseCurrency)
     }
-
     if (typeof value === 'object') {
         return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
     } else if (
