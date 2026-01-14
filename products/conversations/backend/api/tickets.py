@@ -105,7 +105,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     pagination_class = TicketPagination
     posthog_feature_flag = {
-        "product-conversations": [
+        "product-support": [
             "list",
             "retrieve",
             "create",
