@@ -101,8 +101,14 @@ export function ImpersonationNotice(): JSX.Element | null {
                     </div>
                     <div className="ImpersonationNotice__content">
                         <p className="ImpersonationNotice__message">
-                            Signed in as <span className="text-warning">{user.email}</span> from{' '}
-                            <span className="text-warning">{user.organization?.name}</span>.
+                            Signed in as <span className="text-warning">{user.email}</span>
+                            {user.organization?.name && (
+                                <>
+                                    {' '}
+                                    from <span className="text-warning">{user.organization.name}</span>
+                                </>
+                            )}
+                            .
                             {user.is_impersonated_until && (
                                 <>
                                     {' '}

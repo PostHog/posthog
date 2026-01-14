@@ -176,6 +176,8 @@ export function useDraggableSnap(options: DraggableSnapOptions = {}): DraggableS
                 return
             }
 
+            cleanupRef.current?.()
+
             const offsetX = clientX - position.x
             const offsetY = clientY - position.y
             const elementWidth = element.offsetWidth
@@ -225,7 +227,11 @@ export function useDraggableSnap(options: DraggableSnapOptions = {}): DraggableS
             }
 
             const onMouseMove = (e: MouseEvent): void => onMove(e.clientX, e.clientY)
-            const onTouchMove = (e: TouchEvent): void => onMove(e.touches[0].clientX, e.touches[0].clientY)
+            const onTouchMove = (e: TouchEvent): void => {
+                if (e.touches[0]) {
+                    onMove(e.touches[0].clientX, e.touches[0].clientY)
+                }
+            }
 
             const cleanup = (): void => {
                 setIsDragging(false)
@@ -265,7 +271,9 @@ export function useDraggableSnap(options: DraggableSnapOptions = {}): DraggableS
                 }
             },
             onTouchStart: (e: React.TouchEvent): void => {
-                handleDragStart(e.touches[0].clientX, e.touches[0].clientY)
+                if (e.touches[0]) {
+                    handleDragStart(e.touches[0].clientX, e.touches[0].clientY)
+                }
             },
         }),
         [handleDragStart]
