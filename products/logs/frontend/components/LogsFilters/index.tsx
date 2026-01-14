@@ -48,7 +48,7 @@ export const LogsFilters = (): JSX.Element => {
                         loading={logsLoading || liveTailRunning}
                         disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
                     >
-                        {liveTailRunning ? 'Tailing...' : logsLoading ? 'Loading...' : 'Search'}
+                        {liveTailRunning ? 'Tailing...' : 'Refresh'}
                     </LemonButton>
                     <AppShortcut
                         name="LogsLiveTail"

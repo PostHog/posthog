@@ -319,7 +319,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           key: 'attribution',
                           label: () => (
                               <div className="flex">
-                                  <span>Attribution type</span>
+                                  <span>Breakdown attribution</span>
                                   <Tooltip
                                       closeDelayMs={200}
                                       title={
