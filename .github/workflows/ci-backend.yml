@@ -1195,7 +1195,7 @@ jobs:
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
-                  capture-workflow-duration: true
+                  capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   status-job: 'Django Tests Pass'
