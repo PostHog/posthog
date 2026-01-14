@@ -173,12 +173,16 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 // Set up new ResizeObserver for the new container
                 if (typeof ResizeObserver !== 'undefined') {
                     cache.disposables.add(() => {
+                        // ref.current may be null when disposable resumes after visibility change
+                        if (!ref.current) {
+                            return () => {}
+                        }
                         const observer = new ResizeObserver(() => {
                             if (ref?.current) {
                                 actions.setMainContentRect(ref.current.getBoundingClientRect())
                             }
                         })
-                        observer.observe(ref.current!)
+                        observer.observe(ref.current)
                         return () => observer.disconnect()
                     }, 'resizeObserver')
                 }
