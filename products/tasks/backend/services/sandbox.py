@@ -23,6 +23,7 @@ class SandboxStatus(str, Enum):
 
 class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
+    NOTEBOOK_BASE = "notebook_base"
 
 
 class ExecutionResult(BaseModel):

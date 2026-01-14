@@ -109,7 +109,7 @@ class KernelRuntimeSession:
 def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
     sandbox_config = SandboxConfig(
         name=f"notebook-kernel-{notebook.short_id}",
-        template=SandboxTemplate.DEFAULT_BASE,
+        template=SandboxTemplate.NOTEBOOK_BASE,
     )
     if notebook.kernel_cpu_cores:
         sandbox_config.cpu_cores = notebook.kernel_cpu_cores
