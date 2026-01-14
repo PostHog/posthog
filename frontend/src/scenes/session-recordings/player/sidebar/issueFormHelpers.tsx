@@ -3,7 +3,6 @@ import { LemonDialog, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
@@ -14,15 +13,12 @@ export const createLinearIssueForm = (
     integration: IntegrationType,
     onSubmit: (integrationId: number, config: IssueConfig) => void
 ): void => {
-    const recordingUrl = urls.absolute(urls.replay(undefined, undefined, sessionRecordingId))
-    const description = `**Session Recording:** ${recordingUrl}`
-
     LemonDialog.openForm({
         title: 'Create Linear issue',
         shouldAwaitSubmit: true,
         initialValues: {
             title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
-            description: description,
+            description: '',
             integrationId: integration.id,
             teamIds: [],
         },
@@ -52,15 +48,12 @@ export const createGitHubIssueForm = (
     integration: IntegrationType,
     onSubmit: (integrationId: number, config: IssueConfig) => void
 ): void => {
-    const recordingUrl = urls.absolute(urls.replay(undefined, undefined, sessionRecordingId))
-    const body = `**Session Recording:** ${recordingUrl}`
-
     LemonDialog.openForm({
         title: 'Create GitHub issue',
         shouldAwaitSubmit: true,
         initialValues: {
             title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
-            body: body,
+            body: '',
             integrationId: integration.id,
             repositories: [],
         },
@@ -91,15 +84,12 @@ export const createGitLabIssueForm = (
     integration: IntegrationType,
     onSubmit: (integrationId: number, config: IssueConfig) => void
 ): void => {
-    const recordingUrl = urls.absolute(urls.replay(undefined, undefined, sessionRecordingId))
-    const body = `**Session Recording:** ${recordingUrl}`
-
     LemonDialog.openForm({
         title: 'Create GitLab issue',
         shouldAwaitSubmit: true,
         initialValues: {
             title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
-            body: body,
+            body: '',
             integrationId: integration.id,
         },
         content: (
