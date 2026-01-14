@@ -218,7 +218,16 @@ class OrganizationFeatureFlagView(
                 
                 # Copy schedules if requested
                 if copy_schedule:
-                    self._copy_feature_flag_schedules(flag_to_copy, saved_flag, request.user, name_to_dest_cohort_id)
+                    try:
+                        self._copy_feature_flag_schedules(flag_to_copy, saved_flag, request.user, name_to_dest_cohort_id)
+                    except Exception as e:
+                        # Log the error but don't fail the entire operation
+                        import structlog
+                        logger = structlog.get_logger(__name__)
+                        logger.error("Failed to copy feature flag schedules", 
+                                   source_flag_id=source_flag.id, 
+                                   target_flag_id=saved_flag.id, 
+                                   error=str(e))
                 
                 successful_projects.append(feature_flag_serializer.data)
             except Exception as e:
