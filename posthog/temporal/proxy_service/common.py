@@ -62,7 +62,7 @@ def is_cloudflare_proxy_record(target_cname: str) -> bool:
     This is used by delete/monitor operations to determine which backend to use,
     rather than re-evaluating the feature flag which may have changed since creation.
     """
-    return settings.CLOUDFLARE_PROXY_BASE_CNAME and settings.CLOUDFLARE_PROXY_BASE_CNAME in target_cname
+    return settings.CLOUDFLARE_PROXY_BASE_CNAME and target_cname.endswith(settings.CLOUDFLARE_PROXY_BASE_CNAME)
 
 
 class NonRetriableException(Exception):
