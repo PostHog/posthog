@@ -28,8 +28,8 @@ class TestBackfillEAVPropertyWorkflow:
         state_updates = []
 
         @activity.defn(name="backfill_eav_property")
-        async def mock_backfill(inputs: BackfillEAVPropertyInputs) -> int:
-            return 0
+        async def mock_backfill(inputs: BackfillEAVPropertyInputs) -> None:
+            return None
 
         @activity.defn(name="update_eav_slot_state")
         async def mock_update_state(inputs: UpdateEAVSlotStateInputs) -> bool:
@@ -71,7 +71,7 @@ class TestBackfillEAVPropertyWorkflow:
         state_updates = []
 
         @activity.defn(name="backfill_eav_property")
-        async def mock_backfill(inputs: BackfillEAVPropertyInputs) -> int:
+        async def mock_backfill(inputs: BackfillEAVPropertyInputs) -> None:
             raise ApplicationError("ClickHouse insert failed", non_retryable=True)
 
         @activity.defn(name="update_eav_slot_state")
@@ -116,8 +116,8 @@ class TestBackfillEAVPropertyWorkflow:
         call_count = {"count": 0}
 
         @activity.defn(name="backfill_eav_property")
-        async def mock_backfill(inputs: BackfillEAVPropertyInputs) -> int:
-            return 0
+        async def mock_backfill(inputs: BackfillEAVPropertyInputs) -> None:
+            return None
 
         @activity.defn(name="update_eav_slot_state")
         async def mock_update_state(inputs: UpdateEAVSlotStateInputs) -> bool:
