@@ -5378,3 +5378,9 @@ export type WebsiteBrowsingHistoryProdInterest =
     | 'workflows'
     | 'logs'
     | 'endpoints'
+
+export interface ReplayInactivityPeriod {
+    ts_from_s: number
+    ts_to_s?: number
+    active: boolean
+}
