@@ -1,4 +1,3 @@
-import re
 import json
 from collections.abc import Mapping
 from typing import Any, Literal, Optional, cast
@@ -12,6 +11,7 @@ from posthog.test.base import (
     _create_person,
     clean_varying_query_parts,
     cleanup_materialized_columns,
+    get_index_from_explain,
     materialized,
     snapshot_clickhouse_queries,
 )
@@ -52,7 +52,7 @@ from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 
-from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, materialize
+from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, get_ngram_lower_index_name, materialize
 
 
 class TestPrinter(BaseTest):
@@ -1347,6 +1347,83 @@ class TestPrinter(BaseTest):
             self._select("select 1 from events, raw_groups"),
             f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
+
+    def test_left_join_team_id_in_on_clause(self):
+        # LEFT JOINs should have team_id in ON clause, not WHERE, to preserve LEFT JOIN semantics
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="LEFT JOIN",
+                    table=ast.Field(chain=["events"]),
+                    alias="e2",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["events", "event"]),
+                            right=ast.Field(chain=["e2", "event"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[])
+
+        # The main events table should have its team_id filter in WHERE
+        where_start = result.find("WHERE")
+        where_clause = result[where_start:] if where_start != -1 else ""
+        self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
+
+        # The LEFT JOINed table (alias 'e2') should have team_id in ON clause, NOT in WHERE
+        on_start = result.find("ON")
+        on_clause = result[on_start:where_start] if on_start != -1 and where_start != -1 else ""
+        self.assertIn(f"equals(e2.team_id, {self.team.pk})", on_clause)
+        self.assertNotIn("e2.team_id", where_clause)
+
+    def test_inner_join_team_id_in_where_clause(self):
+        # INNER JOINs should still have team_id in WHERE clause (current behavior)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="JOIN",
+                    table=ast.Field(chain=["events"]),
+                    alias="e2",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["events", "event"]),
+                            right=ast.Field(chain=["e2", "event"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[])
+
+        # Both tables should have team_id filters in the WHERE clause for INNER JOIN
+        where_start = result.find("WHERE")
+        where_clause = result[where_start:] if where_start != -1 else ""
+        self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
+        self.assertIn(f"equals(e2.team_id, {self.team.pk})", where_clause)
 
     def test_select_array_join(self):
         self.assertEqual(
@@ -3103,34 +3180,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         if expected_context_values is not None:
             self.assertLessEqual(expected_context_values.items(), context.values.items())
 
-    def _assert_skip_index_used(self, clickhouse_sql: str, mat_col) -> None:
-        """Assert that the materialized column's skip index is used in the query."""
-        index_name = get_minmax_index_name(mat_col.name)
-
-        # Substitute placeholders with dummy values for EXPLAIN
-        sql_for_explain = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", clickhouse_sql)
-        explain_query = f"EXPLAIN indexes = 1, json = 1 {sql_for_explain}"
-        [[raw_explain_result]] = sync_execute(explain_query)
-
-        def find_node(node, condition):
-            if condition(node):
-                return node
-            for child in node.get("Plans", []):
-                if result := find_node(child, condition):
-                    return result
-            return None
-
-        read_from_merge_tree = find_node(
-            json.loads(raw_explain_result)[0]["Plan"],
-            condition=lambda node: node["Node Type"] == "ReadFromMergeTree",
-        )
-        indexes = (
-            {idx["Name"] for idx in read_from_merge_tree.get("Indexes", []) if idx["Type"] == "Skip"}
-            if read_from_merge_tree
-            else set()
-        )
-        self.assertIn(index_name, indexes, f"Expected skip index {index_name} to be used")
-
     def test_materialized_column_optimized_equality_comparison_non_nullable(self) -> None:
         # Non-nullable columns don't need any wrapping
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
@@ -3260,7 +3309,10 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(eq_result.results, [("d1",)])
             assert eq_result.clickhouse is not None
-            self._assert_skip_index_used(eq_result.clickhouse, mat_col)
+            index_name = get_minmax_index_name(mat_col.name)
+            assert get_index_from_explain(eq_result.clickhouse, index_name), (
+                f"Expected skip index {index_name} to be used"
+            )
 
             neq_result = execute_hogql_query(
                 team=self.team,
@@ -3481,358 +3533,116 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
+            ("no_mat_col", None, False),
+            ("nullable_mat_col", True, False),
+            ("non_nullable_mat_col", False, False),
+            ("nullable_mat_col_with_ngram_lower", True, True),
+            ("non_nullable_mat_col_with_ngram_lower", False, True),
         ]
     )
-    def test_materialized_column_ilike_returns_correct_results(self, _, is_nullable) -> None:
-        """
-        Test that ilike produces correct results for patterns that don't match sentinel values.
-        This works consistently across all column types.
-        """
+    def test_ilike_and_not_ilike_optimization_gives_correct_results(
+        self, _, is_nullable, create_ngram_lower_index
+    ) -> None:
         if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
+            mat_col = materialize(
+                "events", "test_prop", is_nullable=is_nullable, create_ngram_lower_index=create_ngram_lower_index
+            )
             self.addCleanup(cleanup_materialized_columns)
+        else:
+            mat_col = None
 
-        _create_event(
-            team=self.team, distinct_id="d1", event="test_event", properties={"test_prop": "Hello@PostHog.com"}
-        )
-        _create_event(team=self.team, distinct_id="d2", event="test_event", properties={"test_prop": "other_value"})
-        _create_event(team=self.team, distinct_id="d3", event="test_event", properties={"test_prop": ""})
-        _create_event(team=self.team, distinct_id="d4", event="test_event", properties={"test_prop": "null"})
-        _create_event(team=self.team, distinct_id="d5", event="test_event", properties={})
-        _create_event(team=self.team, distinct_id="d6", event="test_event", properties={"test_prop": None})
+        # do multiple test cases per test run, as setup and teardown are a bit slow
+        cases: set[str] = {
+            "hello@posthog.com",
+            "Hello@PostHog.com",
+            "other_value",
+            "null",
+            "NULL",
+            "'null'",
+            "contains null in the middle",
+            "null@posthog.com",
+            "",
+            "None",  # Store None (i.e. actual NULL value) as a string, because we can't have a NULL distinct_id and it makes things easier
+        }
 
-        # Non-sentinel pattern works for all column types
-        ilike_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop ilike '%posthog%' ORDER BY distinct_id",
-        )
-        self.assertEqual(ilike_result.results, [("d1",)])
-        assert ilike_result.clickhouse is not None
-        assert clean_varying_query_parts(ilike_result.clickhouse, replace_all_numbers=False) == self.snapshot
+        # Map of patterns to (ilike_expected, ilike_expected_if_non_nullable) - can use ilike_expected_if_non_nullable=None to fall back to ilike_expected.
+        # Note that non-nullable mat columns treat the '' and 'null' values as NULL, this is a bug/"feature" in non-nullable mat columns, not in our optimization.
+        # In this case we bail out of our optimization and fall back to default NULL handling/wrapping.
+        # It'd be a good thing to fix this! And remove these special-cases from the tests! but my top priority was making sure that I didn't change any behavior.
+        patterns_and_expected = {
+            "%@posthog.com": ({"hello@posthog.com", "Hello@PostHog.com", "null@posthog.com"}, None),
+            "hello@posthog.com": ({"hello@posthog.com", "Hello@PostHog.com"}, None),
+            "%null%": (
+                {"null", "NULL", "'null'", "null@posthog.com", "contains null in the middle"},
+                {"NULL", "'null'", "null@posthog.com", "contains null in the middle"},
+            ),
+            "%": (
+                {
+                    "",
+                    "hello@posthog.com",
+                    "Hello@PostHog.com",
+                    "other_value",
+                    "null",
+                    "NULL",
+                    "'null'",
+                    "contains null in the middle",
+                    "null@posthog.com",
+                },
+                {
+                    "hello@posthog.com",
+                    "Hello@PostHog.com",
+                    "other_value",
+                    "NULL",
+                    "'null'",
+                    "contains null in the middle",
+                    "null@posthog.com",
+                },
+            ),
+            "": ({""}, set()),
+            "None": ({"None"}, {"None", "", "null"}),
+        }
 
-    @parameterized.expand(
-        [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
-        ]
-    )
-    def test_materialized_column_ilike_with_sentinel_patterns(self, _, is_nullable) -> None:
-        """
-        Test ilike with patterns that could match sentinel values ('', 'null').
-        These only work correctly for no materialized column or nullable materialized columns.
-
-        Non-nullable materialized columns use 'null' and '' as sentinel values, making it
-        impossible to distinguish between the sentinel and actual property values.
-        """
-        if is_nullable is False:
-            pytest.xfail(
-                "Non-nullable materialized columns cannot distinguish between the sentinel "
-                "value 'null' and an actual property value of 'null'. The nullIf wrapping "
-                "converts both to SQL NULL."
+        for case in cases:
+            _create_event(
+                team=self.team,
+                distinct_id=case,
+                event="test_event",
+                properties={"test_prop": case if case != "None" else None},
             )
 
-        if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
-            self.addCleanup(cleanup_materialized_columns)
-
-        _create_event(
-            team=self.team, distinct_id="d1", event="test_event", properties={"test_prop": "Hello@PostHog.com"}
-        )
-        _create_event(team=self.team, distinct_id="d2", event="test_event", properties={"test_prop": "other_value"})
-        _create_event(team=self.team, distinct_id="d3", event="test_event", properties={"test_prop": ""})
-        _create_event(team=self.team, distinct_id="d4", event="test_event", properties={"test_prop": "null"})
-        _create_event(team=self.team, distinct_id="d5", event="test_event", properties={})
-        _create_event(team=self.team, distinct_id="d6", event="test_event", properties={"test_prop": None})
-        _create_event(
-            team=self.team,
-            distinct_id="d7",
-            event="test_event",
-            properties={"test_prop": "contains null in the middle"},
-        )
-        _create_event(team=self.team, distinct_id="d8", event="test_event", properties={"test_prop": "NULL"})
-
-        # %null% should match d4 (string "null"), d7 (contains "null"), d8 (string "NULL")
-        ilike_null_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop ilike '%null%' ORDER BY distinct_id",
-        )
-        self.assertEqual(ilike_null_result.results, [("d4",), ("d7",), ("d8",)])
-
-        # Empty string pattern should match d3 (empty string property value)
-        ilike_empty_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop ilike '' ORDER BY distinct_id",
-        )
-        self.assertEqual(ilike_empty_result.results, [("d3",)])
-
-        # % wildcard should match all non-null property values
-        ilike_wildcard_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop ilike '%' ORDER BY distinct_id",
-        )
-        self.assertEqual(ilike_wildcard_result.results, [("d1",), ("d2",), ("d3",), ("d4",), ("d7",), ("d8",)])
-
-    @parameterized.expand(
-        [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
-        ]
-    )
-    def test_materialized_column_not_ilike_returns_correct_results(self, _, is_nullable) -> None:
-        """
-        Test that not ilike produces correct results for patterns that don't match sentinel values.
-        This works consistently across all column types.
-        """
-        if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
-            self.addCleanup(cleanup_materialized_columns)
-
-        _create_event(
-            team=self.team, distinct_id="d1", event="test_event", properties={"test_prop": "Hello@PostHog.com"}
-        )
-        _create_event(team=self.team, distinct_id="d2", event="test_event", properties={"test_prop": "other_value"})
-        _create_event(team=self.team, distinct_id="d3", event="test_event", properties={"test_prop": ""})
-        _create_event(team=self.team, distinct_id="d4", event="test_event", properties={"test_prop": "null"})
-        _create_event(team=self.team, distinct_id="d5", event="test_event", properties={})
-        _create_event(team=self.team, distinct_id="d6", event="test_event", properties={"test_prop": None})
-
-        # NOT ILIKE '%posthog%' should return all rows except d1, including NULL rows (d5, d6)
-        not_ilike_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop not ilike '%posthog%' ORDER BY distinct_id",
-        )
-        self.assertEqual(not_ilike_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
-        assert not_ilike_result.clickhouse is not None
-        assert clean_varying_query_parts(not_ilike_result.clickhouse, replace_all_numbers=False) == self.snapshot
-
-    @parameterized.expand(
-        [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
-        ]
-    )
-    def test_materialized_column_not_ilike_with_sentinel_patterns(self, _, is_nullable) -> None:
-        """
-        Test not ilike with patterns that could match sentinel values ('', 'null').
-        These only work correctly for no materialized column or nullable materialized columns.
-
-        Non-nullable materialized columns use 'null' and '' as sentinel values, making it
-        impossible to distinguish between the sentinel and actual property values.
-        """
-        if is_nullable is False:
-            pytest.xfail(
-                "Non-nullable materialized columns cannot distinguish between the sentinel "
-                "value 'null' and an actual property value of 'null'. The nullIf wrapping "
-                "converts both to SQL NULL."
+        for pattern, (ilike_expected, ilike_expected_if_non_nullable) in patterns_and_expected.items():
+            if ilike_expected_if_non_nullable is not None and (is_nullable is False):
+                ilike_expected = ilike_expected_if_non_nullable
+            pattern_expr = ast.Constant(value=pattern if pattern != "None" else None)
+            ilike_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE ilike(properties.test_prop, {pattern}) ORDER BY distinct_id",
+                placeholders={"pattern": pattern_expr},
             )
+            ilike_matches = {d for (d,) in ilike_result.results}
+            assert ilike_matches == ilike_expected, "ilike " + str(pattern)
 
-        if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
-            self.addCleanup(cleanup_materialized_columns)
+            if mat_col:
+                assert ilike_result.clickhouse
+                # we can only ever use the index if it exists, pattern was not NULL, and we didn't need to bail out of the optimisation
+                should_use_index = (
+                    create_ngram_lower_index
+                    and pattern != "None"
+                    and (is_nullable or (ilike_expected_if_non_nullable is None))
+                )
+                did_use_index = bool(
+                    get_index_from_explain(ilike_result.clickhouse, get_ngram_lower_index_name(mat_col.name))
+                )
+                assert should_use_index == did_use_index
 
-        _create_event(
-            team=self.team, distinct_id="d1", event="test_event", properties={"test_prop": "Hello@PostHog.com"}
-        )
-        _create_event(team=self.team, distinct_id="d2", event="test_event", properties={"test_prop": "other_value"})
-        _create_event(team=self.team, distinct_id="d3", event="test_event", properties={"test_prop": ""})
-        _create_event(team=self.team, distinct_id="d4", event="test_event", properties={"test_prop": "null"})
-        _create_event(team=self.team, distinct_id="d5", event="test_event", properties={})
-        _create_event(team=self.team, distinct_id="d6", event="test_event", properties={"test_prop": None})
-        _create_event(
-            team=self.team,
-            distinct_id="d7",
-            event="test_event",
-            properties={"test_prop": "contains null in the middle"},
-        )
-        _create_event(team=self.team, distinct_id="d8", event="test_event", properties={"test_prop": "NULL"})
-
-        # NOT ILIKE '%null%' should exclude d4, d7, d8 (which contain "null"), include NULL rows (d5, d6)
-        not_ilike_null_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop not ilike '%null%' ORDER BY distinct_id",
-        )
-        self.assertEqual(not_ilike_null_result.results, [("d1",), ("d2",), ("d3",), ("d5",), ("d6",)])
-
-    @parameterized.expand(
-        [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
-        ]
-    )
-    def test_materialized_column_like_returns_correct_results(self, _, is_nullable) -> None:
-        """
-        Test that like (case-sensitive) produces correct results for patterns that don't match sentinel values.
-        This works consistently across all column types.
-        """
-        if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
-            self.addCleanup(cleanup_materialized_columns)
-
-        _create_event(
-            team=self.team, distinct_id="d1", event="test_event", properties={"test_prop": "Hello@PostHog.com"}
-        )
-        _create_event(
-            team=self.team, distinct_id="d2", event="test_event", properties={"test_prop": "hello@posthog.com"}
-        )
-        _create_event(team=self.team, distinct_id="d3", event="test_event", properties={"test_prop": ""})
-        _create_event(team=self.team, distinct_id="d4", event="test_event", properties={"test_prop": "null"})
-        _create_event(team=self.team, distinct_id="d5", event="test_event", properties={})
-        _create_event(team=self.team, distinct_id="d6", event="test_event", properties={"test_prop": None})
-
-        # Non-sentinel patterns work for all column types
-        like_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop like '%PostHog%' ORDER BY distinct_id",
-        )
-        self.assertEqual(like_result.results, [("d1",)])
-        assert like_result.clickhouse is not None
-        assert clean_varying_query_parts(like_result.clickhouse, replace_all_numbers=False) == self.snapshot
-
-        like_lowercase_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop like '%posthog%' ORDER BY distinct_id",
-        )
-        self.assertEqual(like_lowercase_result.results, [("d2",)])
-
-    @parameterized.expand(
-        [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
-        ]
-    )
-    def test_materialized_column_like_with_sentinel_patterns(self, _, is_nullable) -> None:
-        """
-        Test like with patterns that could match sentinel values ('', 'null').
-        These only work correctly for no materialized column or nullable materialized columns.
-
-        Non-nullable materialized columns use 'null' and '' as sentinel values, making it
-        impossible to distinguish between the sentinel and actual property values.
-        """
-        if is_nullable is False:
-            pytest.xfail(
-                "Non-nullable materialized columns cannot distinguish between the sentinel "
-                "value 'null' and an actual property value of 'null'. The nullIf wrapping "
-                "converts both to SQL NULL."
+            not_ilike_expected = cases.difference(ilike_expected)
+            not_ilike_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE notILike(properties.test_prop, {pattern}) ORDER BY distinct_id",
+                placeholders={"pattern": pattern_expr},
             )
-
-        if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
-            self.addCleanup(cleanup_materialized_columns)
-
-        _create_event(
-            team=self.team, distinct_id="d1", event="test_event", properties={"test_prop": "Hello@PostHog.com"}
-        )
-        _create_event(
-            team=self.team, distinct_id="d2", event="test_event", properties={"test_prop": "hello@posthog.com"}
-        )
-        _create_event(team=self.team, distinct_id="d3", event="test_event", properties={"test_prop": ""})
-        _create_event(team=self.team, distinct_id="d4", event="test_event", properties={"test_prop": "null"})
-        _create_event(team=self.team, distinct_id="d5", event="test_event", properties={})
-        _create_event(team=self.team, distinct_id="d6", event="test_event", properties={"test_prop": None})
-        _create_event(team=self.team, distinct_id="d7", event="test_event", properties={"test_prop": "NULL"})
-
-        # %null% (case-sensitive) should match d4 (string "null") only
-        like_null_pattern_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop like '%null%' ORDER BY distinct_id",
-        )
-        self.assertEqual(like_null_pattern_result.results, [("d4",)])
-
-        # %NULL% (case-sensitive) should match d7 (string "NULL") only
-        like_uppercase_null_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop like '%NULL%' ORDER BY distinct_id",
-        )
-        self.assertEqual(like_uppercase_null_result.results, [("d7",)])
-
-    @parameterized.expand(
-        [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
-        ]
-    )
-    def test_materialized_column_not_like_returns_correct_results(self, _, is_nullable) -> None:
-        """
-        Test that not like (case-sensitive) produces correct results for patterns that don't match sentinel values.
-        This works consistently across all column types.
-        """
-        if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
-            self.addCleanup(cleanup_materialized_columns)
-
-        _create_event(
-            team=self.team, distinct_id="d1", event="test_event", properties={"test_prop": "Hello@PostHog.com"}
-        )
-        _create_event(
-            team=self.team, distinct_id="d2", event="test_event", properties={"test_prop": "hello@posthog.com"}
-        )
-        _create_event(team=self.team, distinct_id="d3", event="test_event", properties={"test_prop": ""})
-        _create_event(team=self.team, distinct_id="d4", event="test_event", properties={"test_prop": "null"})
-        _create_event(team=self.team, distinct_id="d5", event="test_event", properties={})
-        _create_event(team=self.team, distinct_id="d6", event="test_event", properties={"test_prop": None})
-
-        # NOT LIKE '%PostHog%' should return all rows except d1, including NULL rows (d5, d6)
-        not_like_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop not like '%PostHog%' ORDER BY distinct_id",
-        )
-        self.assertEqual(not_like_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
-        assert not_like_result.clickhouse is not None
-        assert clean_varying_query_parts(not_like_result.clickhouse, replace_all_numbers=False) == self.snapshot
-
-    @parameterized.expand(
-        [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
-        ]
-    )
-    def test_materialized_column_not_like_with_sentinel_patterns(self, _, is_nullable) -> None:
-        """
-        Test not like with patterns that could match sentinel values ('', 'null').
-        These only work correctly for no materialized column or nullable materialized columns.
-
-        Non-nullable materialized columns use 'null' and '' as sentinel values, making it
-        impossible to distinguish between the sentinel and actual property values.
-        """
-        if is_nullable is False:
-            pytest.xfail(
-                "Non-nullable materialized columns cannot distinguish between the sentinel "
-                "value 'null' and an actual property value of 'null'. The nullIf wrapping "
-                "converts both to SQL NULL."
-            )
-
-        if is_nullable is not None:
-            materialize("events", "test_prop", is_nullable=is_nullable)
-            self.addCleanup(cleanup_materialized_columns)
-
-        _create_event(
-            team=self.team, distinct_id="d1", event="test_event", properties={"test_prop": "Hello@PostHog.com"}
-        )
-        _create_event(
-            team=self.team, distinct_id="d2", event="test_event", properties={"test_prop": "hello@posthog.com"}
-        )
-        _create_event(team=self.team, distinct_id="d3", event="test_event", properties={"test_prop": ""})
-        _create_event(team=self.team, distinct_id="d4", event="test_event", properties={"test_prop": "null"})
-        _create_event(team=self.team, distinct_id="d5", event="test_event", properties={})
-        _create_event(team=self.team, distinct_id="d6", event="test_event", properties={"test_prop": None})
-        _create_event(team=self.team, distinct_id="d7", event="test_event", properties={"test_prop": "NULL"})
-
-        # NOT LIKE '%null%' (case-sensitive) should exclude d4, include d7 (which has "NULL" not "null")
-        not_like_null_result = execute_hogql_query(
-            team=self.team,
-            query="SELECT distinct_id FROM events WHERE properties.test_prop not like '%null%' ORDER BY distinct_id",
-        )
-        self.assertEqual(not_like_null_result.results, [("d1",), ("d2",), ("d3",), ("d5",), ("d6",), ("d7",)])
+            not_ilike_matches = {d for (d,) in not_ilike_result.results}
+            assert not_ilike_matches == not_ilike_expected, "not_ilike " + str(pattern)
 
 
 class TestPrinted(APIBaseTest):

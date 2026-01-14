@@ -455,9 +455,9 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
 
         expected_columns = 13
         actual_columns = len(response.columns) if response.columns else 0
-        assert (
-            actual_columns == expected_columns
-        ), f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
+        assert actual_columns == expected_columns, (
+            f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
+        )
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
@@ -517,9 +517,9 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         # Verify the JOIN uses match_key instead of multiIf
         assert "campaign_costs.match_key" in response.hogql, "Expected match_key in campaign_costs"
         assert "ucg.match_key" in response.hogql, "Expected match_key in unified conversion goals"
-        assert (
-            "equals(campaign_costs.match_key, ucg.match_key)" in response.hogql
-        ), "Expected JOIN on match_key equality"
+        assert "equals(campaign_costs.match_key, ucg.match_key)" in response.hogql, (
+            "Expected JOIN on match_key equality"
+        )
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
@@ -569,9 +569,9 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
 
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
-        assert (
-            len(response.columns) == 15
-        ), "Should have 15 columns including Reported Conversion Value and multiple conversion goal columns"
+        assert len(response.columns) == 15, (
+            "Should have 15 columns including Reported Conversion Value and multiple conversion goal columns"
+        )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_comprehensive_marketing_analytics_basic(self):

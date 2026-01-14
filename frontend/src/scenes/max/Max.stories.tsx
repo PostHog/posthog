@@ -22,7 +22,6 @@ import {
     AssistantMessageType,
     AssistantToolCallMessage,
     MultiVisualizationMessage,
-    NotebookUpdateMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { ArtifactContentType, NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
@@ -32,6 +31,7 @@ import { FilterLogicalOperator, InsightShortId, PropertyFilterType, PropertyOper
 import { MaxInstance, MaxInstanceProps } from './Max'
 import conversationList from './__mocks__/conversationList.json'
 import { ToolRegistration } from './max-constants'
+import { AlertEntry, ChangelogEntry, maxChangelogLogic } from './maxChangelogLogic'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
@@ -796,66 +796,6 @@ MaxInstanceWithContextualTools.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
-}
-
-export const NotebookUpdateComponent: StoryFn = () => {
-    const notebookMessage: NotebookUpdateMessage = {
-        type: AssistantMessageType.Notebook,
-        notebook_id: 'nb_123456',
-        content: {
-            type: 'doc',
-            content: [
-                {
-                    type: 'paragraph',
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Analysis notebook has been updated with new insights',
-                        },
-                    ],
-                },
-            ],
-        },
-        id: 'notebook-update-message',
-    }
-
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                res(
-                    ctx.text(
-                        generateChunk([
-                            'event: conversation',
-                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                            'event: message',
-                            `data: ${JSON.stringify({ ...humanMessage, content: 'Update my analysis notebook' })}`,
-                            'event: message',
-                            `data: ${JSON.stringify(notebookMessage)}`,
-                        ])
-                    )
-                ),
-        },
-    })
-
-    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
-    const { askMax } = useActions(threadLogic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-
-    useEffect(() => {
-        if (dataProcessingAccepted) {
-            setTimeout(() => {
-                setConversationId(CONVERSATION_ID)
-                askMax('Update my analysis notebook')
-            }, 0)
-        }
-    }, [dataProcessingAccepted, setConversationId, askMax])
-
-    if (!dataProcessingAccepted) {
-        return <></>
-    }
-
-    return <Template />
 }
 
 export const PlanningComponent: StoryFn = () => {
@@ -2406,4 +2346,141 @@ export const NotebookArtifactWithLoadingAndErrors: StoryFn = () => {
     }
 
     return <Template />
+}
+
+// Changelog Stories
+
+const SAMPLE_CHANGELOG_ENTRIES: ChangelogEntry[] = [
+    {
+        title: 'SQL generation',
+        description: 'Max can now write and run SQL queries for you',
+        tag: 'new',
+    },
+    {
+        title: 'Faster responses',
+        description: 'Improved response times by up to 40%',
+        tag: 'improved',
+    },
+    {
+        title: 'Chart editing',
+        description: 'Edit visualization settings directly in conversation',
+        tag: 'beta',
+    },
+]
+
+const SAMPLE_WARNING_ALERT: AlertEntry = {
+    title: 'Service degraded',
+    description: 'Some AI features may be slower than usual',
+    severity: 'warning',
+}
+
+const SAMPLE_OUTAGE_ALERT: AlertEntry = {
+    title: 'Service outage',
+    description: 'AI features are temporarily unavailable. We are working on a fix.',
+    severity: 'error',
+}
+
+export const ChangelogOnly: StoryFn = () => {
+    const { setEntries, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, openChangelog])
+
+    return <Template />
+}
+ChangelogOnly.parameters = {
+    featureFlags: ['posthog-ai-changelog'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const AlertsOnly: StoryFn = () => {
+    const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setAlerts([SAMPLE_WARNING_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setAlerts, openChangelog])
+
+    return <Template />
+}
+AlertsOnly.parameters = {
+    featureFlags: ['posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const OutageAlert: StoryFn = () => {
+    const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setAlerts([SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setAlerts, openChangelog])
+
+    return <Template />
+}
+OutageAlert.parameters = {
+    featureFlags: ['posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const AlertsWithChangelog: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_WARNING_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+AlertsWithChangelog.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const OutageWithChangelog: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+OutageWithChangelog.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const MultipleAlerts: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_WARNING_ALERT, SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+MultipleAlerts.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
