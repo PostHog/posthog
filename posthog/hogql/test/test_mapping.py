@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from posthog.hogql.ast import DateType, FloatType, IntegerType
 from posthog.hogql.base import UnknownType
@@ -22,7 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
-class TestMappings(BaseTest):
+class TestMappings(ClickhouseTestMixin, BaseTest):
     snapshot: Any
 
     def _return_present_function(self, function: Optional[HogQLFunctionMeta]) -> HogQLFunctionMeta:
@@ -254,6 +254,31 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["json_agg_null_result"], None)
         self.assertEqual(result_dict["string_agg_null_result"], None)
         self.assertFalse(result_dict["every_null_result"])  # No values > 0
+
+    @freeze_time("2023-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_postgres_functions_snapshot(self):
+        response = execute_hogql_query(
+            """
+            WITH
+            date_functions AS (
+                SELECT
+                    to_timestamp(1672579532) as to_timestamp_result
+            )
+            SELECT
+                date_functions.*
+            FROM date_functions
+            """,
+            self.team,
+        )
+
+        # Convert results to a dictionary for easier assertions
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        # Date function assertions
+        self.assertEqual(result_dict["to_timestamp_result"], datetime(2023, 1, 1, 13, 25, 32))
 
     def test_function_mapping(self):
         response = execute_hogql_query(
