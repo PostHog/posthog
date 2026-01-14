@@ -14,24 +14,30 @@ export function HogFlowEditorPanelLogs(): JSX.Element | null {
 
     const actionId = selectedNode?.data.id
 
+    const shouldShowActionLevelLogs = workflow.trigger?.type !== 'batch'
+
     return (
         <>
             <div className="border-b">
                 <LemonButton to={urls.workflow(workflow.id, 'logs')} size="xsmall" sideIcon={<IconOpenInApp />}>
-                    Click here to open in full log viewer
+                    {shouldShowActionLevelLogs
+                        ? 'Click here to open in full log viewer'
+                        : 'Click here to open batch workflow invocations tab'}
                 </LemonButton>
             </div>
-            <div className="p-2 flex flex-col gap-2 overflow-y-auto">
-                <LogsViewer
-                    logicKey={`hog-flow-editor-panel-${actionId || 'all'}`}
-                    instanceLabel="workflow run"
-                    sourceType="hog_flow"
-                    sourceId={workflow.id}
-                    groupByInstanceId={!selectedNode}
-                    searchGroups={actionId ? [`[Action:${actionId}]`] : undefined}
-                    renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
-                />
-            </div>
+            {shouldShowActionLevelLogs && (
+                <div className="p-2 flex flex-col gap-2 overflow-y-auto">
+                    <LogsViewer
+                        logicKey={`hog-flow-editor-panel-${actionId || 'all'}`}
+                        instanceLabel="workflow run"
+                        sourceType="hog_flow"
+                        sourceId={workflow.id}
+                        groupByInstanceId={!selectedNode}
+                        searchGroups={actionId ? [`[Action:${actionId}]`] : undefined}
+                        renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
+                    />
+                </div>
+            )}
         </>
     )
 }

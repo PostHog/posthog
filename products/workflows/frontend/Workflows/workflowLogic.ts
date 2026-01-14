@@ -128,11 +128,15 @@ export const workflowLogic = kea<workflowLogicType>([
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+        triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string | null) => ({
             variables,
             scheduledAt,
         }),
-        triggerBatchWorkflow: (variables: Record<string, any>, filters: Record<string, any>, scheduledAt?: string) => ({
+        triggerBatchWorkflow: (
+            variables: Record<string, any>,
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
+            scheduledAt?: string | null
+        ) => ({
             variables,
             filters,
             scheduledAt,
