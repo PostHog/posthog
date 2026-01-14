@@ -437,6 +437,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentUpdated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
+        reportExperimentMetricsRefreshed: (
+            experiment: Experiment,
+            forceRefresh: boolean,
+            context?: {
+                triggered_by: 'manual' | 'auto-refresh'
+                auto_refresh_enabled?: boolean
+                auto_refresh_interval?: number
+            }
+        ) => ({
+            experiment,
+            forceRefresh,
+            context,
+        }),
+        reportExperimentAutoRefreshToggled: (experiment: Experiment, enabled: boolean, interval: number) => ({
+            experiment,
+            enabled,
+            interval,
+        }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
         reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
             experiment,
@@ -1134,6 +1152,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
                 duration,
+            })
+        },
+        reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
+            posthog.capture('experiment metrics refreshed', {
+                ...getEventPropertiesForExperiment(experiment),
+                force_refresh: forceRefresh,
+                triggered_by: context?.triggered_by || 'manual',
+                auto_refresh_enabled: context?.auto_refresh_enabled,
+                auto_refresh_interval: context?.auto_refresh_interval,
+            })
+        },
+        reportExperimentAutoRefreshToggled: ({ experiment, enabled, interval }) => {
+            posthog.capture('experiment auto refresh toggled', {
+                ...getEventPropertiesForExperiment(experiment),
+                enabled,
+                interval,
             })
         },
         reportExperimentLaunched: ({ experiment, launchDate }) => {

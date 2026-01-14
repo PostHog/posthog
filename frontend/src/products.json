@@ -8,7 +8,7 @@
             "intents": []
         },
         {
-            "path": "Conversations",
+            "path": "Support",
             "category": "Unreleased",
             "iconType": "conversations",
             "type": "conversations",
@@ -188,7 +188,7 @@
             "type": null,
             "intents": []
         },
-        { "path": "Conversations", "category": "Unreleased", "iconType": null, "type": null, "intents": [] },
+        { "path": "Support", "category": "Unreleased", "iconType": null, "type": null, "intents": [] },
         { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Sources",
