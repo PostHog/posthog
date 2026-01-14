@@ -153,18 +153,27 @@ class Resolver(CloningVisitor):
 
         # Visit the CTE expression (SELECT query) without creating a new CTE scope
         # This allows the CTE to reference previously defined CTEs in the same WITH clause
+        # We clone the expr to avoid modifying the input node
         cte_expr = clone_expr(node.expr)
         cte_expr = self.visit(cte_expr)
-        node.type = ast.CTETableType(name=node.name, select_query_type=cte_expr.type)
+
+        # Create a new CTE node instead of modifying the input
+        # This ensures we can resolve CTEs even if they appear multiple times
+        new_node = ast.CTE(
+            start=node.start,
+            end=node.end,
+            type=ast.CTETableType(name=node.name, select_query_type=cte_expr.type),
+            name=node.name,
+            expr=cte_expr,
+            cte_type=node.cte_type,
+        )
 
         self.cte_counter -= 1
 
-        node.expr = cte_expr
-
         # Add this CTE to the current scope so subsequent CTEs can reference it
-        self.ctes[node.name] = node
+        self.ctes[node.name] = new_node
 
-        return node
+        return new_node
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
@@ -175,21 +184,20 @@ class Resolver(CloningVisitor):
         # Save parent CTEs for nested queries (unless we're in a UNION where CTEs should accumulate)
         parent_ctes = self.ctes if not self.inside_union else {}
 
+        # Track CTEs defined at this level (will be attached to new_node)
+        current_level_ctes: dict[str, ast.CTE] | None = None
+
         # First step: resolve all the "WITH" CTEs onto "self.ctes" if there are any
         if node.ctes:
             # If not in a UNION, start with parent CTEs so this query can reference them
             if not self.inside_union:
                 self.ctes = dict(parent_ctes)
             # If in a UNION, CTEs accumulate in the shared union scope (don't create new dict)
+            current_level_ctes = {}
             for cte in node.ctes.values():
-                # Check for CTE name conflicts when hoisting from nested queries
-                if cte.name in parent_ctes:
-                    raise QueryError(
-                        f"CTE '{cte.name}' is already defined in an outer query. "
-                        f"CTE names must be unique when hoisting to the top level."
-                    )
-                self.visit(cte)
-            node_type.ctes = node.ctes
+                resolved_cte = self.visit(cte)
+                current_level_ctes[cte.name] = resolved_cte
+            node_type.ctes = current_level_ctes
         elif not self.inside_union:
             # No CTEs in this query, but inherit parent CTEs (if not in UNION)
             self.ctes = dict(parent_ctes)
@@ -202,8 +210,8 @@ class Resolver(CloningVisitor):
             start=node.start,
             end=node.end,
             type=node_type,
-            # Set CTEs on the first select query type
-            ctes=self.ctes if len(self.scopes) == 1 and self.cte_counter == 0 else None,
+            # Set CTEs only if they were defined at this level (use resolved CTEs)
+            ctes=current_level_ctes,
             # "select" needs a default value, so [] it is
             select=[],
         )
@@ -299,20 +307,9 @@ class Resolver(CloningVisitor):
 
         self.scopes.pop()
 
-        # Hoist CTEs from nested queries to the top level
-        # After visiting all subqueries, self.ctes may have accumulated CTEs from nested SELECT statements
-        # Put them on the top-level query node
-        if len(self.scopes) == 0 and self.cte_counter == 0 and not self.inside_union:
-            # We're at the top level - update the node's CTEs with any that were accumulated
-            if self.ctes:
-                new_node.ctes = self.ctes
-
-        # Keep accumulated CTEs from nested queries so they can be hoisted to the top level
-        # (unless we're in a UNION where CTEs should accumulate differently)
+        # Restore parent CTEs (unless we're in a UNION where CTEs should accumulate)
         if not self.inside_union:
-            # Merge parent CTEs with any new CTEs collected from this query and its subqueries
-            # Parent CTEs take precedence (they were defined first)
-            self.ctes = {**self.ctes, **parent_ctes}
+            self.ctes = parent_ctes
 
         return new_node
 
