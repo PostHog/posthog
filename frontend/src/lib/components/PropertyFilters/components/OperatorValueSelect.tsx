@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
@@ -5,7 +6,7 @@ import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemo
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -110,7 +111,8 @@ export function OperatorValueSelect({
     operatorAllowlist,
     forceSingleSelect,
 }: OperatorValueSelectProps): JSX.Element {
-    const semverTargetingEnabled = useFeatureFlag(FEATURE_FLAGS.SEMVER_TARGETING)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const semverTargetingEnabled = !!featureFlags[FEATURE_FLAGS.SEMVER_TARGETING]
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
 
