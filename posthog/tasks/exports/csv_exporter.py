@@ -13,6 +13,7 @@ from django.http import QueryDict
 
 import requests
 import structlog
+import posthoganalytics
 from openpyxl import Workbook
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
@@ -584,7 +585,19 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
 
     try:
         resource = exported_asset.export_context or {}
-        is_streamable = _is_streamable_hogql_query(resource)
+        team = exported_asset.team
+        is_streamable = _is_streamable_hogql_query(resource) and posthoganalytics.feature_enabled(
+            "buffer-tabular-export-to-disk",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
 
         with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
             if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:

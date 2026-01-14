@@ -1263,7 +1263,8 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_excel_streaming_saves_to_object_storage(self, mocked_uuidt: Any) -> None:
+    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
+    def test_excel_streaming_saves_to_object_storage(self, _mock_feature_enabled: Any, mocked_uuidt: Any) -> None:
         """Test that Excel streaming export saves to object storage and handles complex types."""
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         query_limit = 5
@@ -1314,7 +1315,10 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_streaming_saves_to_object_storage(self, mocked_uuidt: Any, csv_export_limit: int = 10) -> None:
+    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
+    def test_csv_streaming_saves_to_object_storage(
+        self, _mock_feature_enabled: Any, mocked_uuidt: Any, csv_export_limit: int = 10
+    ) -> None:
         """Test that CSV streaming export saves to object storage and handles complex types."""
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
@@ -1355,7 +1359,8 @@ class TestCSVExporter(APIBaseTest):
             assert "tag1" in lines[1]
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
-    def test_csv_streaming_uses_temp_file(self) -> None:
+    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
+    def test_csv_streaming_uses_temp_file(self, _mock_feature_enabled: Any) -> None:
         """Test that CSV streaming export writes to a temp file and cleans it up."""
         import tempfile
 
@@ -1396,7 +1401,8 @@ class TestCSVExporter(APIBaseTest):
         assert not os.path.exists(temp_file_paths[0]), "Temp file should be cleaned up after export"
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
-    def test_excel_streaming_uses_temp_file(self) -> None:
+    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
+    def test_excel_streaming_uses_temp_file(self, _mock_feature_enabled: Any) -> None:
         """Test that Excel streaming export writes to a temp file and cleans it up."""
         import tempfile
 
