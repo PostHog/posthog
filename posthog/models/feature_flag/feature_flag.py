@@ -207,28 +207,20 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         )
 
     @property
-    def evaluation_tags(self):
-        """
-        Backward compatibility alias for evaluation_contexts.
-        DEPRECATED: Use evaluation_contexts instead.
-        """
-        return self.evaluation_contexts
-
-    @property
     def evaluation_tag_names(self) -> list[str] | None:
         """
         Returns evaluation context tag names for this flag.
 
         Preferred source is the cache-populated list from Redis (set on instances
         as `_evaluation_tag_names`). If not present, falls back to the DB relation
-        via `evaluation_contexts` → `Tag.name`.
+        via `evaluation_tags` → `Tag.name`.
         """
         cached = getattr(self, "_evaluation_tag_names", None)
         if cached is not None:
             return cached
 
         try:
-            return [et.tag.name for et in self.evaluation_contexts.select_related("tag").all()]
+            return [et.tag.name for et in self.evaluation_tags.select_related("tag").all()]
         except (AttributeError, DatabaseError):
             return None
 
