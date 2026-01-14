@@ -211,6 +211,7 @@ class SecretAlert(APIView):
                     serializer.roll(key)
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
+            # GitHub sends "posthog_personal_api_key" for project secret tokens
             elif item["type"] == GITHUB_TYPE_FOR_PROJECT_SECRET:
                 found = False
                 try:
