@@ -5,6 +5,12 @@ import { hasScopes } from '@/lib/utils/api'
 import { MemoryCache } from '@/lib/utils/cache/MemoryCache'
 import { hash } from '@/lib/utils/helper-functions'
 
+// Annotations
+import createAnnotation from './annotations/create'
+import deleteAnnotation from './annotations/delete'
+import getAnnotation from './annotations/get'
+import getAllAnnotations from './annotations/getAll'
+import updateAnnotation from './annotations/update'
 // Dashboards
 import addInsightToDashboard from './dashboards/addInsight'
 import createDashboard from './dashboards/create'
@@ -70,6 +76,13 @@ import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 
 // Map of tool names to tool factory functions
 const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
+    // Annotations
+    'annotation-list': getAllAnnotations,
+    'annotation-get': getAnnotation,
+    'annotation-create': createAnnotation,
+    'annotation-update': updateAnnotation,
+    'annotation-delete': deleteAnnotation,
+
     // Feature Flags
     'feature-flag-get-definition': getFeatureFlagDefinition,
     'feature-flag-get-all': getAllFeatureFlags,

@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
 import {
+    CreateAnnotationInputSchema,
+    ListAnnotationsSchema,
+    UpdateAnnotationInputSchema,
+} from './annotations'
+import {
     AddInsightToDashboardSchema,
     CreateDashboardInputSchema,
     ListDashboardsSchema,
@@ -46,6 +51,28 @@ export const DashboardUpdateSchema = z.object({
 })
 
 export const DashboardReorderTilesSchema = ReorderDashboardTilesSchema
+
+// Annotations tools accept validated payloads under `data`
+export const AnnotationCreateSchema = z.object({
+    data: CreateAnnotationInputSchema,
+})
+
+export const AnnotationUpdateSchema = z.object({
+    annotationId: z.number().describe('The ID of the annotation to update'),
+    data: UpdateAnnotationInputSchema,
+})
+
+export const AnnotationDeleteSchema = z.object({
+    annotationId: z.number().describe('The ID of the annotation to delete'),
+})
+
+export const AnnotationGetSchema = z.object({
+    annotationId: z.number().describe('The ID of the annotation to retrieve'),
+})
+
+export const AnnotationGetAllSchema = z.object({
+    data: ListAnnotationsSchema.optional(),
+})
 
 export const DocumentationSearchSchema = z.object({
     query: z.string(),
