@@ -336,9 +336,7 @@ POSTGRESQL_DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             2,
             3,  # Allow optional timezone parameter
             signatures=[
-                ((StringType(), DateTimeType()), DateType()),
                 ((StringType(), DateTimeType()), DateTimeType()),
-                ((StringType(), DateTimeType(), StringType()), DateType()),
                 ((StringType(), DateTimeType(), StringType()), DateTimeType()),
             ],
         )

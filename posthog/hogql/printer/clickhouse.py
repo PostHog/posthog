@@ -69,9 +69,6 @@ class ClickHousePrinter(HogQLPrinter):
 
         return response
 
-    def _cte_print_settings(self, node: ast.SelectQuery) -> Literal["none", "first", "all"]:
-        return "all"
-
     def visit_select_query(self, node: ast.SelectQuery):
         if not self.context.enable_select_queries:
             raise InternalHogQLError("Full SELECT queries are disabled if context.enable_select_queries is False")

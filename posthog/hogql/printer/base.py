@@ -134,28 +134,19 @@ class HogQLPrinter(Visitor[str]):
         """
         Determines how CTEs (Common Table Expressions) should be printed for a SELECT query.
 
-        This method controls CTE printing behavior based on whether the query is part of a
-        UNION and its position within that UNION.
+        CTEs are now printed wherever they are defined, maintaining their original scope.
+        This applies to both HogQL and ClickHouse dialects.
 
         :param node: The SELECT query node being printed
         :type node: ast.SelectQuery
         :return: One of three CTE printing modes:
             - 'none': No CTEs should be printed (query has no CTEs)
-            - 'first': Print CTEs only for the first SELECT in a UNION or standalone SELECT
-            - 'all': Print CTEs for every SELECT statement (used in dialects where CTEs
-                     are scoped per SELECT, like ClickHouse)
+            - 'all': Print CTEs wherever they are defined
         :rtype: Literal['none', 'first', 'all']
 
         """
-        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
-        is_first_query_in_union = (
-            part_of_select_union
-            and isinstance(self.stack[0], ast.SelectSetQuery)
-            and self.stack[0].initial_select_query == node
-        )
-
-        if node.ctes and (is_first_query_in_union or not part_of_select_union):
-            return "first"
+        if node.ctes:
+            return "all"
 
         return "none"
 
