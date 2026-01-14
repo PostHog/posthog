@@ -5,17 +5,15 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import type { batchWorkflowJobsLogicType } from './batchWorkflowJobsLogicType'
-import { type HogFlowAction, HogFlowBatchJob } from './hogflows/types'
+import { HogFlowBatchJob } from './hogflows/types'
 
-export interface WorkflowLogicProps {
+export interface BatchWorkflowJobsLogicProps {
     id?: string
 }
 
-export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
-
 export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'batchWorkflowJobsLogic']),
-    props({ id: 'new' } as WorkflowLogicProps),
+    props({ id: 'new' } as BatchWorkflowJobsLogicProps),
     key((props) => props.id || 'new'),
     lazyLoaders(({ props }) => ({
         batchWorkflowJobs: [
