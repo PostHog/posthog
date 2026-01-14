@@ -221,7 +221,9 @@ export default function FeatureFlagProjects(): JSX.Element {
 
     useOnMountEffect(() => {
         loadProjectsWithCurrentFlag()
-        loadScheduledChanges()
+        if (featureFlag.id) {
+            loadScheduledChanges()
+        }
     })
 
     return (
