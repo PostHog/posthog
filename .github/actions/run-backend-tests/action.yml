@@ -153,6 +153,18 @@ runs:
               cd ..
               pip install ./common/hogql_parser
 
+        - name: Install Rust
+          uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+          with:
+              toolchain: stable
+
+        - name: Cache Rust dependencies
+          uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+
+        - name: Install sqlx-cli
+          shell: bash
+          run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
         - name: Set up needed files
           shell: bash
           run: |
@@ -187,9 +199,10 @@ runs:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
               CONCURRENCY: ${{ inputs.concurrency }}
               GROUP: ${{ inputs.group }}
+              PYTEST_TARGETS_INPUT: ${{ inputs.pytest-targets }}
           shell: bash
           run: | # async_migrations covered in ci-async-migrations.yml
-              pytest_targets="${{ inputs.pytest-targets }}"
+              pytest_targets="$PYTEST_TARGETS_INPUT"
               if [ -z "$pytest_targets" ]; then
                   if [ "$PERSON_ON_EVENTS_V2_ENABLED" = "true" ]; then
                       pytest_targets="./posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py"
