@@ -28,12 +28,24 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             table_name="test_table_1",
             table_columns={
                 "id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
-                "id_with_nulls": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+                "id_with_nulls": {
+                    "clickhouse": "Nullable(Int64)",
+                    "hogql": "IntegerDatabaseField",
+                },
                 "uuid": {"clickhouse": "String", "hogql": "StringDatabaseField"},
                 "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-                "event_name": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-                "properties": {"clickhouse": "Nullable(String)", "hogql": "StringJSONDatabaseField"},
+                "created": {
+                    "clickhouse": "DateTime64(3, 'UTC')",
+                    "hogql": "DateTimeDatabaseField",
+                },
+                "event_name": {
+                    "clickhouse": "String",
+                    "hogql": "StringDatabaseField",
+                },
+                "properties": {
+                    "clickhouse": "Nullable(String)",
+                    "hogql": "StringJSONDatabaseField",
+                },
             },
             test_bucket=TEST_BUCKET,
             team=self.team,
@@ -78,8 +90,16 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
     def test_funnels_data_warehouse_and_regular_nodes(self):
         table_name = self.setup_data_warehouse()
         with freeze_time("2025-11-07"):
-            _create_person(distinct_ids=["person1"], team_id=self.team.pk, uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539")
-            _create_person(distinct_ids=["person2"], team_id=self.team.pk, uuid="8cadb28f-1825-f158-73fa-3f228865b540")
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+            )
+            _create_person(
+                distinct_ids=["person2"],
+                team_id=self.team.pk,
+                uuid="8cadb28f-1825-f158-73fa-3f228865b540",
+            )
             journeys_for(
                 {
                     "person1": [
@@ -186,7 +206,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                 runner.calculate()
 
         assert type(exc_info.value).__name__ == "CHQueryErrorFunctionThrowIfValueIsNonZero"
-        assert "posthog_test_test_table_1_id_with_nulls must not be NULL" in str(exc_info.value)
+        assert "posthog_test_test_table_1.id_with_nulls, but a non-null value" in str(exc_info.value)
 
         # nulls can be filtered to make the query work
         not_null_filter: list[AnyPropertyFilter] = [
