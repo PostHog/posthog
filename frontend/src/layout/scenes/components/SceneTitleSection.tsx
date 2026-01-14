@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
+import { useEffect, useId, useState } from 'react'
 
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -21,6 +20,7 @@ import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
+import { sceneTitleEditorLogic } from './sceneTitleEditorLogic'
 
 export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
@@ -56,6 +56,11 @@ type ResourceType = {
 }
 
 type SceneMainTitleProps = {
+    /**
+     * Unique identifier for this title section (used for Kea logic keying)
+     * If not provided, a random ID will be generated
+     */
+    id?: string
     /**
      * null to hide the name,
      * undefined to show the default name
@@ -117,6 +122,7 @@ type SceneMainTitleProps = {
 }
 
 export function SceneTitleSection({
+    id,
     name,
     description,
     resourceType,
@@ -137,6 +143,8 @@ export function SceneTitleSection({
     const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
+    const fallbackId = useId()
+    const effectiveId = id ?? fallbackId
 
     const effectiveDescription = description
 
@@ -210,6 +218,7 @@ export function SceneTitleSection({
                                     {icon}
                                 </span>
                                 <SceneName
+                                    id={`${effectiveId}-name`}
                                     name={name}
                                     isLoading={isLoading}
                                     onChange={onNameChange}
@@ -233,6 +242,7 @@ export function SceneTitleSection({
             {effectiveDescription != null && (effectiveDescription || canEdit) && (
                 <div className="[&_svg]:size-6">
                     <SceneDescription
+                        id={`${effectiveId}-description`}
                         description={effectiveDescription}
                         markdown={markdown}
                         isLoading={isLoading}
@@ -250,6 +260,7 @@ export function SceneTitleSection({
 }
 
 type SceneNameProps = {
+    id: string
     name?: string
     isLoading?: boolean
     onChange?: (value: string) => void
@@ -260,6 +271,7 @@ type SceneNameProps = {
 }
 
 function SceneName({
+    id,
     name: initialName,
     isLoading = false,
     onChange,
@@ -268,40 +280,29 @@ function SceneName({
     renameDebounceMs = 100,
     saveOnBlur = false,
 }: SceneNameProps): JSX.Element {
-    const [name, setName] = useState(initialName)
-    const [isEditing, setIsEditing] = useState(forceEdit)
+    const logicProps = { id, onChange, debounceMs: renameDebounceMs, saveOnBlur }
+    const { value, isEditing, persistedValue } = useValues(sceneTitleEditorLogic(logicProps))
+    const { setValue, setIsEditing, onPropValueChange, triggerBlurSave } = useActions(sceneTitleEditorLogic(logicProps))
 
     const textClasses =
         'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
 
+    // Sync prop value to logic when it changes
     useEffect(() => {
         if (!isLoading) {
-            setName(initialName)
+            onPropValueChange(initialName ?? '')
         }
-    }, [initialName, isLoading])
+    }, [initialName, isLoading, onPropValueChange])
 
+    // Sync forceEdit to isEditing state
     useEffect(() => {
         if (!isLoading && forceEdit) {
             setIsEditing(true)
-        } else {
+        } else if (!forceEdit) {
             setIsEditing(false)
         }
-    }, [isLoading, forceEdit])
+    }, [isLoading, forceEdit, setIsEditing])
 
-    const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
-    }, renameDebounceMs)
-
-    const debouncedOnChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
-    }, renameDebounceMs)
-
-    // If onBlur is provided, we want to show a button that allows the user to edit the name
-    // Otherwise, we want to show the name as a text
     const Element =
         onChange && canEdit ? (
             <>
@@ -309,12 +310,9 @@ function SceneName({
                     <TextareaPrimitive
                         variant="default"
                         name="name"
-                        value={name || ''}
+                        value={value || ''}
                         onChange={(e) => {
-                            setName(e.target.value)
-                            if (!saveOnBlur) {
-                                debouncedOnChange(e.target.value)
-                            }
+                            setValue(e.target.value)
                         }}
                         data-attr="scene-title-textarea"
                         className={cn(
@@ -328,8 +326,8 @@ function SceneName({
                         placeholder="Enter name"
                         onBlur={() => {
                             // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && name !== initialName) {
-                                debouncedOnBlurSave(name || '')
+                            if (saveOnBlur && value !== persistedValue) {
+                                triggerBlurSave(value || '')
                             }
                             // Exit edit mode if not forced
                             if (!forceEdit) {
@@ -358,7 +356,7 @@ function SceneName({
                             fullWidth
                             truncate
                         >
-                            <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
+                            <span className="truncate">{value || <span className="text-tertiary">Unnamed</span>}</span>
                             {canEdit && !forceEdit && <IconPencil />}
                         </ButtonPrimitive>
                     </Tooltip>
@@ -366,7 +364,7 @@ function SceneName({
             </>
         ) : (
             <h1 className={cn(buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses}` }))}>
-                <span className="min-w-fit">{name || <span className="text-tertiary">Unnamed</span>}</span>
+                <span className="min-w-fit">{value || <span className="text-tertiary">Unnamed</span>}</span>
             </h1>
         )
 
@@ -382,6 +380,7 @@ function SceneName({
 }
 
 type SceneDescriptionProps = {
+    id: string
     description?: string | null
     markdown?: boolean
     isLoading?: boolean
@@ -393,6 +392,7 @@ type SceneDescriptionProps = {
 }
 
 function SceneDescription({
+    id,
     description: initialDescription,
     markdown = false,
     isLoading = false,
@@ -402,38 +402,29 @@ function SceneDescription({
     renameDebounceMs = 100,
     saveOnBlur = false,
 }: SceneDescriptionProps): JSX.Element | null {
-    const [description, setDescription] = useState(initialDescription)
-    const [isEditing, setIsEditing] = useState(forceEdit)
+    const logicProps = { id, onChange, debounceMs: renameDebounceMs, saveOnBlur }
+    const { value: description, isEditing, persistedValue } = useValues(sceneTitleEditorLogic(logicProps))
+    const { setValue, setIsEditing, onPropValueChange, triggerBlurSave } = useActions(sceneTitleEditorLogic(logicProps))
 
     const textClasses = 'text-sm my-0 select-auto'
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
 
+    // Sync prop value to logic when it changes
     useEffect(() => {
         if (!isLoading) {
-            setDescription(initialDescription)
+            onPropValueChange(initialDescription ?? '')
         }
-    }, [initialDescription, isLoading])
+    }, [initialDescription, isLoading, onPropValueChange])
 
+    // Sync forceEdit to isEditing state
     useEffect(() => {
         if (!isLoading && forceEdit) {
             setIsEditing(true)
-        } else {
+        } else if (!forceEdit) {
             setIsEditing(false)
         }
-    }, [isLoading, forceEdit])
-
-    const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
-    }, renameDebounceMs)
-
-    const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
-    }, renameDebounceMs)
+    }, [isLoading, forceEdit, setIsEditing])
 
     const Element =
         onChange && canEdit ? (
@@ -444,10 +435,7 @@ function SceneDescription({
                         name="description"
                         value={description || ''}
                         onChange={(e) => {
-                            setDescription(e.target.value)
-                            if (!saveOnBlur) {
-                                debouncedOnDescriptionChange(e.target.value)
-                            }
+                            setValue(e.target.value)
                         }}
                         data-attr="scene-description-textarea"
                         className={cn(
@@ -463,8 +451,8 @@ function SceneDescription({
                         placeholder={emptyText}
                         onBlur={() => {
                             // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && description !== initialDescription) {
-                                debouncedOnBlurSaveDescription(description || '')
+                            if (saveOnBlur && description !== persistedValue) {
+                                triggerBlurSave(description || '')
                             }
                             // Exit edit mode if not forced
                             if (!forceEdit) {
