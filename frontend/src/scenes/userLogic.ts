@@ -26,6 +26,7 @@ export const userLogic = kea<userLogicType>([
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
+        upgradeImpersonation: (reason: string) => ({ reason }),
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
             user,
             successCallback,
@@ -118,6 +119,19 @@ export const userLogic = kea<userLogicType>([
                     } catch (error: any) {
                         console.error(error)
                         actions.updateUserFailure(error.message)
+                        return values.user
+                    }
+                },
+                upgradeImpersonation: async ({ reason }) => {
+                    try {
+                        await api.create('admin/impersonation/upgrade/', { reason })
+                        lemonToast.success('Upgraded to read-write impersonation')
+                        // Reload user to get updated impersonation state
+                        actions.loadUser()
+                        return values.user
+                    } catch (error: any) {
+                        console.error(error)
+                        lemonToast.error('Failed to upgrade impersonation')
                         return values.user
                     }
                 },

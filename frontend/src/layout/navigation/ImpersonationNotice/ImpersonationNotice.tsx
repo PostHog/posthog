@@ -3,8 +3,8 @@ import './ImpersonationNotice.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconWarning } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconEllipsis, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { DraggableWithSnapZones } from 'lib/components/DraggableWithSnapZones'
 import { dayjs } from 'lib/dayjs'
@@ -12,6 +12,8 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
+
+import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
 function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
     const [now, setNow] = useState(dayjs())
@@ -47,7 +49,8 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
 
 export function ImpersonationNotice(): JSX.Element | null {
     const { user, userLoading } = useValues(userLogic)
-    const { logout, loadUser } = useActions(userLogic)
+    const { logout, loadUser, upgradeImpersonation } = useActions(userLogic)
+    const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false)
 
     const [isDragging, setIsDragging] = useState(false)
 
@@ -58,59 +61,86 @@ export function ImpersonationNotice(): JSX.Element | null {
     const isReadOnly = user.is_impersonated_read_only
 
     return (
-        <DraggableWithSnapZones
-            handle=".ImpersonationNotice__sidebar"
-            defaultSnapPosition="bottom-right"
-            persistKey="impersonation-notice-position"
-            onDragStart={() => setIsDragging(true)}
-            onDragStop={() => setIsDragging(false)}
-        >
-            <div
-                className={cn(
-                    'ImpersonationNotice',
-                    isDragging && 'ImpersonationNotice--dragging',
-                    isReadOnly ? 'ImpersonationNotice--read-only' : 'ImpersonationNotice--read-write'
-                )}
+        <>
+            <DraggableWithSnapZones
+                handle=".ImpersonationNotice__sidebar"
+                defaultSnapPosition="bottom-right"
+                persistKey="impersonation-notice-position"
+                onDragStart={() => setIsDragging(true)}
+                onDragStop={() => setIsDragging(false)}
             >
-                <div className="ImpersonationNotice__sidebar">
-                    <IconDragHandle className="ImpersonationNotice__drag-handle" />
-                </div>
-                <div className="ImpersonationNotice__main">
-                    <div className="ImpersonationNotice__header">
-                        <IconWarning className="ImpersonationNotice__warning-icon" />
-                        <span className="ImpersonationNotice__title">
-                            {isReadOnly ? 'Read-only impersonation' : 'Read-write impersonation'}
-                        </span>
+                <div
+                    className={cn(
+                        'ImpersonationNotice',
+                        isDragging && 'ImpersonationNotice--dragging',
+                        isReadOnly ? 'ImpersonationNotice--read-only' : 'ImpersonationNotice--read-write'
+                    )}
+                >
+                    <div className="ImpersonationNotice__sidebar">
+                        <IconDragHandle className="ImpersonationNotice__drag-handle" />
                     </div>
-                    <div className="ImpersonationNotice__content">
-                        <p className="ImpersonationNotice__message">
-                            Signed in as <span className="text-warning">{user.email}</span>
-                            {user.organization?.name && (
-                                <>
-                                    {' '}
-                                    from <span className="text-warning">{user.organization.name}</span>
-                                </>
+                    <div className="ImpersonationNotice__main">
+                        <div className="ImpersonationNotice__header">
+                            <IconWarning className="ImpersonationNotice__warning-icon" />
+                            <span className="ImpersonationNotice__title">
+                                {isReadOnly ? 'Read-only impersonation' : 'Read-write impersonation'}
+                            </span>
+                            {isReadOnly && (
+                                <LemonMenu
+                                    items={[
+                                        {
+                                            label: 'Upgrade to read-write',
+                                            onClick: () => setIsUpgradeModalOpen(true),
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton size="xsmall" icon={<IconEllipsis />} />
+                                </LemonMenu>
                             )}
-                            .
-                            {user.is_impersonated_until && (
-                                <>
-                                    {' '}
-                                    Expires in{' '}
-                                    <CountDown datetime={dayjs(user.is_impersonated_until)} callback={loadUser} />.
-                                </>
-                            )}
-                        </p>
-                        <div className="flex gap-2 justify-end">
-                            <LemonButton type="secondary" size="small" onClick={() => loadUser()} loading={userLoading}>
-                                Refresh
-                            </LemonButton>
-                            <LemonButton type="secondary" status="danger" size="small" onClick={() => logout()}>
-                                Log out
-                            </LemonButton>
+                        </div>
+                        <div className="ImpersonationNotice__content">
+                            <p className="ImpersonationNotice__message">
+                                Signed in as <span className="text-warning">{user.email}</span>
+                                {user.organization?.name && (
+                                    <>
+                                        {' '}
+                                        from <span className="text-warning">{user.organization.name}</span>
+                                    </>
+                                )}
+                                .
+                                {user.is_impersonated_until && (
+                                    <>
+                                        {' '}
+                                        Expires in{' '}
+                                        <CountDown datetime={dayjs(user.is_impersonated_until)} callback={loadUser} />.
+                                    </>
+                                )}
+                            </p>
+                            <div className="flex gap-2 justify-end">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => loadUser()}
+                                    loading={userLoading}
+                                >
+                                    Refresh
+                                </LemonButton>
+                                <LemonButton type="secondary" status="danger" size="small" onClick={() => logout()}>
+                                    Log out
+                                </LemonButton>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </DraggableWithSnapZones>
+            </DraggableWithSnapZones>
+            <ImpersonationReasonModal
+                isOpen={isUpgradeModalOpen}
+                onClose={() => setIsUpgradeModalOpen(false)}
+                onConfirm={upgradeImpersonation}
+                title="Upgrade to read-write impersonation"
+                description="Read-write mode allows you to make changes on behalf of the user. Please provide a reason for this upgrade."
+                confirmText="Upgrade"
+            />
+        </>
     )
 }

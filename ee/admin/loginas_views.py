@@ -1,8 +1,13 @@
+import json
+
+from django.http import Http404, JsonResponse
+from django.views.decorators.http import require_http_methods
+
 import posthoganalytics
 from loginas.utils import is_impersonated_session
 from loginas.views import user_login as loginas_user_login
 
-from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY
+from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY, is_read_only_impersonation
 from posthog.models import User
 
 
@@ -30,3 +35,35 @@ def loginas_user(request, user_id):
         )
 
     return response
+
+
+@require_http_methods(["POST"])
+def upgrade_impersonation(request):
+    """Upgrade from read-only to read-write impersonation"""
+    if not is_impersonated_session(request) or not is_read_only_impersonation(request):
+        raise Http404()
+
+    try:
+        data = json.loads(request.body)
+        reason = data.get("reason", "").strip()
+    except (json.JSONDecodeError, AttributeError):
+        reason = ""
+
+    if not reason:
+        return JsonResponse({"error": "A reason is required to upgrade impersonation"}, status=400)
+
+    if IMPERSONATION_READ_ONLY_SESSION_KEY in request.session:
+        del request.session[IMPERSONATION_READ_ONLY_SESSION_KEY]
+    request.session.modified = True
+
+    posthoganalytics.capture(
+        distinct_id=str(request.user.distinct_id),
+        event="impersonation_upgraded",
+        properties={
+            "user_id": request.user.id,
+            "user_email": request.user.email,
+            "reason": reason,
+        },
+    )
+
+    return JsonResponse({"success": True})
