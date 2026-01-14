@@ -217,7 +217,7 @@ def get_person_property_updates_from_clickhouse(
                         )
                     ) AS kv_tuple
                 WHERE e.team_id = %(team_id)s
-                  AND e.timestamp > %(bug_window_start)s
+                  AND e.timestamp >= %(bug_window_start)s
                   AND e.timestamp < now()
                   AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
                 -- Group by resolved person_id (not distinct_id) so argMax works across all distinct_ids
@@ -420,7 +420,7 @@ def get_raw_person_property_updates_from_clickhouse(
                         )
                     ) AS kv_tuple
                 WHERE e.team_id = %(team_id)s
-                  AND e.timestamp > %(bug_window_start)s
+                  AND e.timestamp >= %(bug_window_start)s
                   AND e.timestamp < %(bug_window_end)s
                   AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
                 GROUP BY if(notEmpty(o.distinct_id), o.person_id, e.person_id), kv_tuple.2, kv_tuple.1
