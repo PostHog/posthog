@@ -91,8 +91,8 @@ func uuidFromDistinctId(teamId int, distinctId string) string {
 func removeSubscription(subID uint64, subs []Subscription) []Subscription {
 	for i, sub := range subs {
 		if subID == sub.SubID {
-			if dropped := sub.DroppedEvents.Load(); dropped >= 0 {
-				log.Printf("Team %d Distinct Id %s dropped %d events", sub.TeamId, sub.DistinctId, dropped)
+			if dropped := sub.DroppedEvents.Load(); dropped > 0 {
+				log.Printf("Team %d dropped %d events", sub.TeamId, dropped)
 			}
 			metrics.SubTotal.Dec()
 			return slices.Delete(subs, i, i+1)
