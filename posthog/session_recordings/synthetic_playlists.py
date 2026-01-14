@@ -418,7 +418,7 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
             LIMIT 50000
         """
 
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         result = sync_execute(
             query,
             {
