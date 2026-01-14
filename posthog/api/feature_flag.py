@@ -204,23 +204,22 @@ class EvaluationTagsChecker:
 
 class EvaluationTagSerializerMixin(serializers.Serializer):
     """
-    Serializer mixin that handles evaluation contexts for feature flags.
-    Evaluation contexts mark which organizational tags also serve as runtime evaluation constraints.
+    Serializer mixin that handles evaluation tags for feature flags.
+    Evaluation tags mark which organizational tags also serve as runtime evaluation constraints.
 
-    Note: SDK clients must send 'evaluation_contexts' in their flag evaluation requests
-    for these constraints to take effect. Without this parameter, all flags are evaluated
-    regardless of their evaluation contexts.
+    Note: SDK clients can send 'evaluation_contexts' or 'evaluation_environments' in their flag
+    evaluation requests for these constraints to take effect. Without this parameter, all flags
+    are evaluated regardless of their evaluation tags.
     """
 
-    evaluation_contexts = serializers.ListField(required=False, write_only=True)
-    evaluation_tags = serializers.ListField(required=False, write_only=True)  # Deprecated: use evaluation_contexts
+    evaluation_tags = serializers.ListField(required=False, write_only=True)
 
     def validate(self, attrs):
-        """Validate that evaluation_contexts are a subset of tags.
+        """Validate that evaluation_tags are a subset of tags.
 
-        This ensures that evaluation contexts (which control runtime evaluation)
+        This ensures that evaluation tags (which control runtime evaluation)
         are always a subset of organizational tags. This maintains the conceptual
-        model where evaluation contexts are tags that ALSO serve as constraints.
+        model where evaluation tags are tags that ALSO serve as constraints.
         """
         attrs = super().validate(attrs)
 
@@ -233,15 +232,8 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if not self._is_evaluation_tags_feature_enabled():
             return attrs
 
-        # Get evaluation contexts from the request - prefer evaluation_contexts, fall back to evaluation_tags (deprecated)
-        evaluation_contexts = self.initial_data.get("evaluation_contexts") or self.initial_data.get("evaluation_tags")
-
-        # Normalize to evaluation_contexts for internal processing
-        if "evaluation_tags" in self.initial_data and "evaluation_contexts" not in self.initial_data:
-            # If only evaluation_tags provided, copy to evaluation_contexts
-            attrs["evaluation_contexts"] = self.initial_data.get("evaluation_tags")
-
-        evaluation_tags = evaluation_contexts  # Use evaluation_tags variable name for compatibility below
+        # Get evaluation tags from the request
+        evaluation_tags = self.initial_data.get("evaluation_tags")
 
         # Only validate if evaluation_tags are provided and non-empty
         # Note: evaluation_tags=[] is valid (clears all evaluation tags)
@@ -337,9 +329,8 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
     def to_representation(self, obj):
         ret = super().to_representation(obj)
 
-        # Include evaluation contexts in the serialized output
-        # Return both evaluation_contexts (new) and evaluation_tags (deprecated) during transition
-        evaluation_context_names = []
+        # Include evaluation tags in the serialized output
+        evaluation_tag_names = []
 
         if hasattr(obj, "evaluation_contexts"):
             # Django's prefetch_related creates a cache in _prefetched_objects_cache.
@@ -347,15 +338,13 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
             # we can access the contexts without hitting the database again.
             if hasattr(obj, "_prefetched_objects_cache") and "evaluation_contexts" in obj._prefetched_objects_cache:
                 # Use prefetched data (already in memory) - no DB query
-                evaluation_context_names = [et.tag.name for et in obj.evaluation_contexts.all()]
+                evaluation_tag_names = [et.tag.name for et in obj.evaluation_contexts.all()]
             else:
                 # Fallback to database query with select_related to minimize queries
                 # This should rarely happen as the viewset prefetches evaluation_contexts
-                evaluation_context_names = [et.tag.name for et in obj.evaluation_contexts.select_related("tag").all()]
+                evaluation_tag_names = [et.tag.name for et in obj.evaluation_contexts.select_related("tag").all()]
 
-        # Return both field names for backward compatibility during transition
-        ret["evaluation_contexts"] = evaluation_context_names
-        ret["evaluation_tags"] = evaluation_context_names  # Deprecated: use evaluation_contexts
+        ret["evaluation_tags"] = evaluation_tag_names
 
         return ret
 
@@ -521,38 +510,36 @@ class FeatureFlagSerializer(
         if not self._is_evaluation_tags_feature_enabled():
             return attrs
 
-        # Get evaluation_contexts from attrs (validated data)
-        # Note: The validate() method in EvaluationTagSerializerMixin already normalized
-        # evaluation_tags → evaluation_contexts, so we always use evaluation_contexts here
-        evaluation_contexts = attrs.get("evaluation_contexts")
+        # Get evaluation_tags from attrs (validated data)
+        evaluation_tags = attrs.get("evaluation_tags")
 
-        # Validate evaluation context requirements based on operation type
+        # Validate evaluation tag requirements based on operation type
         if request.method == "POST":
-            # Creating a new flag: require at least one evaluation context
-            if not evaluation_contexts:
+            # Creating a new flag: require at least one evaluation tag
+            if not evaluation_tags:
                 raise serializers.ValidationError(
                     "At least one evaluation environment tag is required to create a new feature flag."
                 )
         elif request.method in ["PUT", "PATCH"] and self.instance:
-            # Updating an existing flag: if it currently has evaluation contexts, require at least one in the update
-            # TRICKY: This creates asymmetric behavior - flags WITH eval contexts can't have them removed,
-            # but flags WITHOUT eval contexts aren't required to add them on update (only on creation).
-            # This is intentional: we enforce eval contexts going forward (new flags) without breaking
+            # Updating an existing flag: if it currently has evaluation tags, require at least one in the update
+            # TRICKY: This creates asymmetric behavior - flags WITH eval tags can't have them removed,
+            # but flags WITHOUT eval tags aren't required to add them on update (only on creation).
+            # This is intentional: we enforce eval tags going forward (new flags) without breaking
             # existing workflows (updating old flags that were created before the requirement).
 
-            # Check if evaluation contexts are already loaded to avoid extra query
+            # Check if evaluation tags are already loaded to avoid extra query
             if (
                 hasattr(self.instance, "_prefetched_objects_cache")
                 and "evaluation_contexts" in self.instance._prefetched_objects_cache
             ):
-                existing_eval_context_count = len(self.instance.evaluation_contexts.all())
+                existing_eval_tag_count = len(self.instance.evaluation_contexts.all())
             else:
-                existing_eval_context_count = self.instance.evaluation_contexts.count()
+                existing_eval_tag_count = self.instance.evaluation_contexts.count()
 
-            if existing_eval_context_count > 0:
-                # Flag currently has evaluation contexts, so we need to enforce the requirement
-                # Only validate if evaluation_contexts is explicitly provided in the request
-                if evaluation_contexts is not None and not evaluation_contexts:
+            if existing_eval_tag_count > 0:
+                # Flag currently has evaluation tags, so we need to enforce the requirement
+                # Only validate if evaluation_tags is explicitly provided in the request
+                if evaluation_tags is not None and not evaluation_tags:
                     raise serializers.ValidationError(
                         "Cannot remove all evaluation environment tags. At least one tag is required because "
                         "this flag already has evaluation contexts and the team requires them."
@@ -831,12 +818,7 @@ class FeatureFlagSerializer(
         validated_data["team_id"] = self.context["team_id"]
         validated_data["version"] = 1  # This is the first version of the feature flag
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        # Support both evaluation_contexts (new) and evaluation_tags (deprecated)
-        # Always pop both to ensure neither remains in validated_data
-        evaluation_contexts = validated_data.pop("evaluation_contexts", None)
-        evaluation_tags_deprecated = validated_data.pop("evaluation_tags", None)
-        evaluation_contexts = evaluation_contexts or evaluation_tags_deprecated
-        evaluation_tags = evaluation_contexts  # For backward compatibility in method calls
+        evaluation_tags = validated_data.pop("evaluation_tags", None)
         creation_context = validated_data.pop(
             "creation_context", "feature_flags"
         )  # default to "feature_flags" if an alternative value is not provided
@@ -886,9 +868,7 @@ class FeatureFlagSerializer(
 
         validated_data["last_modified_by"] = request.user
         # Prevent DRF from attempting to set reverse FK relation directly
-        # We manage evaluation contexts via _attempt_set_evaluation_tags below
-        # Support both evaluation_contexts (new) and evaluation_tags (deprecated)
-        validated_data.pop("evaluation_contexts", None)
+        # We manage evaluation tags via _attempt_set_evaluation_tags below
         validated_data.pop("evaluation_tags", None)
 
         if "deleted" in validated_data and validated_data["deleted"] is True:
@@ -970,9 +950,8 @@ class FeatureFlagSerializer(
 
         # Handle evaluation contexts (uses initial_data like TaggedItemSerializerMixin does)
         # Only update if explicitly provided in request, otherwise preserve existing contexts
-        # Support both evaluation_contexts (new) and evaluation_tags (deprecated)
-        if "evaluation_contexts" in self.initial_data or "evaluation_tags" in self.initial_data:
-            evaluation_data = self.initial_data.get("evaluation_contexts") or self.initial_data.get("evaluation_tags")
+        if "evaluation_tags" in self.initial_data:
+            evaluation_data = self.initial_data.get("evaluation_tags")
             self._attempt_set_evaluation_tags(evaluation_data, instance)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
