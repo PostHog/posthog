@@ -11,8 +11,18 @@ export interface ChangelogEntry {
     tag?: 'new' | 'improved' | 'beta'
 }
 
+export interface AlertEntry {
+    title: string
+    description: string
+    severity: 'warning' | 'error'
+}
+
 interface ChangelogPayload {
     entries: ChangelogEntry[]
+}
+
+interface AlertsPayload {
+    alerts: AlertEntry[]
 }
 
 const CHANGELOG_STORAGE_KEY = 'posthog_ai_changelog_last_seen'
@@ -43,6 +53,24 @@ function parseChangelogPayload(payload: unknown): ChangelogEntry[] {
             entry !== null &&
             typeof entry.title === 'string' &&
             typeof entry.description === 'string'
+    )
+}
+
+function parseAlertsPayload(payload: unknown): AlertEntry[] {
+    if (!payload || typeof payload !== 'object') {
+        return []
+    }
+    const typedPayload = payload as AlertsPayload
+    if (!Array.isArray(typedPayload.alerts)) {
+        return []
+    }
+    return typedPayload.alerts.filter(
+        (alert): alert is AlertEntry =>
+            typeof alert === 'object' &&
+            alert !== null &&
+            typeof alert.title === 'string' &&
+            typeof alert.description === 'string' &&
+            (alert.severity === 'warning' || alert.severity === 'error')
     )
 }
 
@@ -92,6 +120,7 @@ function getInitialState(): {
     entriesHash: string | null
     lastSeenHash: string | null
     isDismissed: boolean
+    alerts: AlertEntry[]
 } {
     const payload = getFeatureFlagPayload(FEATURE_FLAGS.POSTHOG_AI_CHANGELOG)
     const entries = parseChangelogPayload(payload)
@@ -99,7 +128,10 @@ function getInitialState(): {
     const lastSeenHash = getLastSeenHashFromStorage()
     const isDismissed = entriesHash ? isDismissedInStorage(entriesHash) : true
 
-    return { entries, entriesHash, lastSeenHash, isDismissed }
+    const alertsPayload = getFeatureFlagPayload(FEATURE_FLAGS.POSTHOG_AI_ALERTS)
+    const alerts = parseAlertsPayload(alertsPayload)
+
+    return { entries, entriesHash, lastSeenHash, isDismissed, alerts }
 }
 
 export const maxChangelogLogic = kea<maxChangelogLogicType>([
@@ -112,14 +144,33 @@ export const maxChangelogLogic = kea<maxChangelogLogicType>([
         enableChangelog: true,
         setLastSeenHash: (hash: string | null) => ({ hash }),
         setIsDismissed: (isDismissed: boolean) => ({ isDismissed }),
+        // For testing/storybook only
+        setEntries: (entries: ChangelogEntry[]) => ({ entries }),
+        setAlerts: (alerts: AlertEntry[]) => ({ alerts }),
     }),
 
     reducers(() => {
         const initial = getInitialState()
 
         return {
-            entries: [initial.entries, {}],
-            entriesHash: [initial.entriesHash, {}],
+            entries: [
+                initial.entries,
+                {
+                    setEntries: (_, { entries }) => entries,
+                },
+            ],
+            entriesHash: [
+                initial.entriesHash,
+                {
+                    setEntries: (_, { entries }) => (entries.length > 0 ? generateEntriesHash(entries) : null),
+                },
+            ],
+            alerts: [
+                initial.alerts,
+                {
+                    setAlerts: (_, { alerts }) => alerts,
+                },
+            ],
             isOpen: [
                 false,
                 {
@@ -138,6 +189,8 @@ export const maxChangelogLogic = kea<maxChangelogLogicType>([
                 initial.isDismissed,
                 {
                     setIsDismissed: (_, { isDismissed }) => isDismissed,
+                    // When entries are set for testing, reset dismissed state
+                    setEntries: () => false,
                 },
             ],
         }
@@ -164,13 +217,15 @@ export const maxChangelogLogic = kea<maxChangelogLogicType>([
 
     selectors({
         hasEntries: [(s) => [s.entries], (entries): boolean => entries.length > 0],
+        hasAlerts: [(s) => [s.alerts], (alerts): boolean => alerts.length > 0],
         hasUnread: [
             (s) => [s.entriesHash, s.lastSeenHash],
             (entriesHash, lastSeenHash): boolean => !!entriesHash && entriesHash !== lastSeenHash,
         ],
         isVisible: [
-            (s) => [s.hasEntries, s.isDismissed, s.isOpen],
-            (hasEntries, isDismissed, isOpen): boolean => hasEntries && (!isDismissed || isOpen),
+            (s) => [s.hasEntries, s.hasAlerts, s.isDismissed, s.isOpen],
+            (hasEntries, hasAlerts, isDismissed, isOpen): boolean =>
+                hasAlerts || (hasEntries && (!isDismissed || isOpen)),
         ],
     }),
 ])
