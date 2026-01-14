@@ -9,6 +9,7 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { AnyPropertyFilter, CustomerProfileScope, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CustomerProfileMenu } from 'products/customer_analytics/frontend/components/CustomerProfileMenu'
+import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
 import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 type PersonProfileCanvasProps = {
@@ -53,9 +54,11 @@ const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: personFilter }}>
             <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
-                <div className="flex items-start">
-                    <CustomerProfileMenu />
-                </div>
+                <FeedbackBanner
+                    feedbackButtonId="person-profile"
+                    message="We're improving the persons experience. Send us your feedback!"
+                />
+                <CustomerProfileMenu />
                 <Notebook
                     editable={false}
                     shortId={shortId}

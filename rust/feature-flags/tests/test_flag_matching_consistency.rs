@@ -127,7 +127,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
             );
             FeatureFlagMatcher::new(distinct_id, None, 1, router, cohort_cache, None, None)
         }
-        .get_match(&flags[0], None, None)
+        .get_match(&flags[0], None, None, None)
         .unwrap();
 
         if *result {
@@ -1225,7 +1225,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
             );
             FeatureFlagMatcher::new(distinct_id, None, 1, router, cohort_cache, None, None)
         }
-        .get_match(&flags[0], None, None)
+        .get_match(&flags[0], None, None, None)
         .unwrap();
 
         if let Some(variant) = &result {

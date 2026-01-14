@@ -130,6 +130,13 @@ class LLMProxyViewSet(viewsets.ViewSet):
             if not request.user or not request.user.is_authenticated:
                 return Response({"error": "You are not authorized to use this feature"}, status=401)
 
+            organization = request.user.organization
+            if not organization or not organization.customer_id:
+                return Response(
+                    {"error": "The playground requires a valid payment method on file to prevent abuse."},
+                    status=402,
+                )
+
             serializer = serializer_class(data=request.data)
             if not serializer.is_valid():
                 return Response({"error": serializer.errors}, status=400)

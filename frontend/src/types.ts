@@ -80,6 +80,8 @@ import { QueryContext } from '~/queries/types'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
+import { InferredSelector } from './toolbar/product-tours/elementInference'
+
 export enum ConversionRateInputType {
     MANUAL = 'manual',
     AUTOMATIC = 'automatic',
@@ -817,6 +819,15 @@ export enum PropertyOperator {
     NotIn = 'not_in',
     IsCleanedPathExact = 'is_cleaned_path_exact',
     FlagEvaluatesTo = 'flag_evaluates_to',
+    SemverEq = 'semver_eq',
+    SemverNeq = 'semver_neq',
+    SemverGt = 'semver_gt',
+    SemverGte = 'semver_gte',
+    SemverLt = 'semver_lt',
+    SemverLte = 'semver_lte',
+    SemverTilde = 'semver_tilde',
+    SemverCaret = 'semver_caret',
+    SemverWildcard = 'semver_wildcard',
 }
 
 export enum SavedInsightsTabs {
@@ -3323,7 +3334,10 @@ export interface ProductTourStep {
     content: Record<string, any> | null
     /** Pre-rendered HTML content for SDK consumption. Built from `content` on tour save. */
     contentHtml?: string
+    /** Tooltip position relative to element - for element steps */
     position?: 'top' | 'bottom' | 'left' | 'right'
+    /** Modal position on screen - for modal/survey steps */
+    modalPosition?: ScreenPosition
     /** Inline survey question config - only for survey steps */
     survey?: ProductTourSurveyQuestion
     /** ID of the auto-created survey for this step (set by backend) */
@@ -3332,6 +3346,10 @@ export interface ProductTourStep {
     progressionTrigger?: ProductTourProgressionTriggerType
     /** Custom width for the tooltip - can be a preset name or pixel value */
     maxWidth?: ProductTourStepWidth | number
+    /** Screenshot media ID from uploaded_media - for element steps */
+    screenshotMediaId?: string
+    /** enhanced element data for more reliable lookup at runtime */
+    inferenceData?: InferredSelector
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
@@ -3373,9 +3391,14 @@ export interface ProductTourAppearance {
     boxShadow?: string
     showOverlay?: boolean
     whiteLabel?: boolean
+    /** defaults to true, auto-set to false for announcements/banners */
+    dismissOnClickOutside?: boolean
 }
 
+export type ProductTourType = 'tour' | 'announcement'
+
 export interface ProductTourContent {
+    type?: ProductTourType
     steps: ProductTourStep[]
     appearance?: ProductTourAppearance
     conditions?: ProductTourDisplayConditions
@@ -3467,6 +3490,8 @@ export enum SurveyPosition {
     Right = 'right',
     NextToTrigger = 'next_to_trigger',
 }
+
+export type ScreenPosition = Exclude<SurveyPosition, SurveyPosition.NextToTrigger>
 
 export enum SurveyTabPosition {
     Top = 'top',
@@ -3976,6 +4001,7 @@ export enum PropertyType {
     Assignee = 'Assignee',
     StringArray = 'StringArray',
     Flag = 'Flag',
+    Semver = 'Semver',
 }
 
 export enum PropertyDefinitionType {
@@ -4618,6 +4644,7 @@ export const INTEGRATION_KINDS = [
     'tiktok-ads',
     'bing-ads',
     'vercel',
+    'azure-blob',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]

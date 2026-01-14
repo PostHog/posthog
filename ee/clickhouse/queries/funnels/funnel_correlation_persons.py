@@ -93,7 +93,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         )
 
         conversion_filter = (
-            f'AND actors.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'
+            f"AND actors.steps {'=' if self._filter.correlation_persons_converted else '<>'} target_step"
             if self._filter.correlation_persons_converted is not None
             else ""
         )
@@ -172,7 +172,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
         ) = self._funnel_correlation.get_funnel_actors_cte()
 
         conversion_filter = (
-            f'funnel_actors.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'
+            f"funnel_actors.steps {'=' if self._filter.correlation_persons_converted else '<>'} target_step"
             if self._filter.correlation_persons_converted is not None
             else ""
         )

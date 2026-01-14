@@ -4,7 +4,12 @@ import { encodeParams } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 
-import { DEFAULT_HEATMAP_FILTERS, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
+import {
+    DEFAULT_HEATMAP_FILTERS,
+    DEFAULT_HEATMAP_HEIGHT,
+    DEFAULT_HEATMAP_WIDTH,
+    calculateViewportRange,
+} from 'lib/components/IframedToolbarBrowser/utils'
 import {
     CommonFilters,
     HeatmapFilters,
@@ -224,6 +229,12 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 calculateViewportRange(heatmapFilters, windowWidthOverride ?? windowWidth),
         ],
 
+        // Derived width with default applied
+        widthOverride: [
+            (s) => [s.windowWidthOverride],
+            (windowWidthOverride: number | null): number => windowWidthOverride ?? DEFAULT_HEATMAP_WIDTH,
+        ],
+
         heatmapTooltipLabel: [
             (s) => [s.heatmapFilters],
             (heatmapFilters) => {
@@ -238,6 +249,29 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             (s) => [s.rawHeatmap, s.rawHeatmapLoading],
             (rawHeatmap, rawHeatmapLoading) => {
                 return rawHeatmap?.results.length === 0 && !rawHeatmapLoading
+            },
+        ],
+
+        maxYFromEvents: [
+            (s) => [s.heatmapElements],
+            (heatmapElements: HeatmapElement[]): number => {
+                if (!heatmapElements || heatmapElements.length === 0) {
+                    return 0
+                }
+                return Math.max(...heatmapElements.map((el: HeatmapElement) => el.y))
+            },
+        ],
+
+        // Derived height - automatically uses full page height when data is available
+        heightOverride: [
+            (s) => [s.maxYFromEvents],
+            (maxYFromEvents: number): number => {
+                const MAX_HEATMAP_HEIGHT = 40000
+                if (maxYFromEvents > 0) {
+                    const calculatedHeight = Math.ceil((maxYFromEvents + 100) / 100) * 100
+                    return Math.min(calculatedHeight, MAX_HEATMAP_HEIGHT)
+                }
+                return DEFAULT_HEATMAP_HEIGHT
             },
         ],
 
