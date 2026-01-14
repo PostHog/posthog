@@ -234,3 +234,235 @@
     'token': 'phc_12345',
   })
 # ---
+# name: TestRemoteConfigJS.test_renders_js_including_config
+  '''
+  (function() {
+    window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
+    window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
+      config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "logs": {"captureConsoleLogs": false}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "conversations": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
+      siteApps: []
+    }
+  })();
+  '''
+# ---
+# name: TestRemoteConfigJS.test_renders_js_including_site_apps
+  '''
+  (function() {
+    window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
+    window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
+      config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "logs": {"captureConsoleLogs": false}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "conversations": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
+      siteApps: []
+    }
+  })();
+  '''
+# ---
+# name: TestRemoteConfigJS.test_renders_js_including_site_functions
+  '''
+  (function() {
+    window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
+    window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
+      config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "logs": {"captureConsoleLogs": false}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "conversations": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
+      siteApps: [    
+      {
+        id: 'SITE_DESTINATION_ID',
+        init: function(config) { return     (function() {
+          function toString (value) { return __STLToString(value) }
+          function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }
+          function ilike (str, pattern) { return __like(str, pattern, true) }
+          function __like(str, pattern, caseInsensitive = false) {
+              if (caseInsensitive) {
+                  str = str.toLowerCase()
+                  pattern = pattern.toLowerCase()
+              }
+              pattern = String(pattern)
+                  .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
+                  .replaceAll('%', '.*')
+                  .replaceAll('_', '.')
+              return new RegExp(pattern).test(str)
+          }
+          function __getProperty(objectOrArray, key, nullish) {
+              if ((nullish && !objectOrArray) || key === 0) { return null }
+              if (Array.isArray(objectOrArray)) { return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key] }
+              else { return objectOrArray[key] }
+          }
+          function __STLToString(arg) {
+              if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; }
+              else if (arg && __isHogDateTime(arg)) { return __DateTimeToString(arg); }
+              return __printHogStringOutput(arg); }
+          function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
+          function __printHogValue(obj, marked = new Set()) {
+              if (typeof obj === 'object' && obj !== null && obj !== undefined) {
+                  if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj)) { return 'null'; }
+                  marked.add(obj);
+                  try {
+                      if (Array.isArray(obj)) {
+                          if (obj.__isHogTuple) { return obj.length < 2 ? `tuple(${obj.map((o) => __printHogValue(o, marked)).join(', ')})` : `(${obj.map((o) => __printHogValue(o, marked)).join(', ')})`; }
+                          return `[${obj.map((o) => __printHogValue(o, marked)).join(', ')}]`;
+                      }
+                      if (__isHogDateTime(obj)) { const millis = String(obj.dt); return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${__escapeString(obj.zone)})`; }
+                      if (__isHogDate(obj)) return `Date(${obj.year}, ${obj.month}, ${obj.day})`;
+                      if (__isHogError(obj)) { return `${String(obj.type)}(${__escapeString(obj.message)}${obj.payload ? `, ${__printHogValue(obj.payload, marked)}` : ''})`; }
+                      if (obj instanceof Map) { return `{${Array.from(obj.entries()).map(([key, value]) => `${__printHogValue(key, marked)}: ${__printHogValue(value, marked)}`).join(', ')}}`; }
+                      return `{${Object.entries(obj).map(([key, value]) => `${__printHogValue(key, marked)}: ${__printHogValue(value, marked)}`).join(', ')}}`;
+                  } finally {
+                      marked.delete(obj);
+                  }
+              } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
+              else if (obj === null || obj === undefined) return 'null';
+              else if (typeof obj === 'string') return __escapeString(obj);
+                      if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
+              return obj.toString();
+          }
+          function __isHogError(obj) {return obj && obj.__hogError__ === true}
+          function __escapeString(value) {
+              const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+              return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+          }
+          function __escapeIdentifier(identifier) {
+              const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
+              if (typeof identifier === 'number') return identifier.toString();
+              if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
+              return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
+          }
+          function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
+          function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
+          function __DateTimeToString(dt) {
+              if (__isHogDateTime(dt)) {
+                  const date = new Date(dt.dt * 1000);
+                  const timeZone = dt.zone || 'UTC';
+                  const milliseconds = Math.floor(dt.dt * 1000 % 1000);
+                  const options = { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+                  const formatter = new Intl.DateTimeFormat('en-US', options);
+                  const parts = formatter.formatToParts(date);
+                  let year, month, day, hour, minute, second;
+                  for (const part of parts) {
+                      switch (part.type) {
+                          case 'year': year = part.value; break;
+                          case 'month': month = part.value; break;
+                          case 'day': day = part.value; break;
+                          case 'hour': hour = part.value; break;
+                          case 'minute': minute = part.value; break;
+                          case 'second': second = part.value; break;
+                          default: break;
+                      }
+                  }
+                  const getOffset = (date, timeZone) => {
+                      const tzDate = new Date(date.toLocaleString('en-US', { timeZone }));
+                      const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+                      const offset = (tzDate - utcDate) / 60000; // in minutes
+                      const sign = offset >= 0 ? '+' : '-';
+                      const absOffset = Math.abs(offset);
+                      const hours = Math.floor(absOffset / 60);
+                      const minutes = absOffset % 60;
+                      return `${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                  };
+                  let offset = 'Z';
+                  if (timeZone !== 'UTC') {
+                      offset = getOffset(date, timeZone);
+                  }
+                  let isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+                  isoString += `.${milliseconds.toString().padStart(3, '0')}`;
+                  isoString += offset;
+                  return isoString;
+              }
+          }
+          function buildInputs(globals, initial) {
+          let inputs = {
+          };
+          let __getGlobal = (key) => key === 'inputs' ? inputs : globals[key];
+          return inputs;}
+          const source = (function () {let exports={};"use strict";;return exports;})();
+              let processEvent = undefined;
+              if ('onEvent' in source) {
+                  processEvent = function processEvent(globals, posthog) {
+                      if (!('onEvent' in source)) { return; };
+                      const inputs = buildInputs(globals);
+                      const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
+                      let __getGlobal = (key) => filterGlobals[key];
+                      const filterMatches = !!(!ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@posthog.com%") && ((!match(toString(__getProperty(__getGlobal("properties"), "$host", true)), "^(localhost|127\\.0\\.0\\.1)($|:)")) ?? 1) && (__getGlobal("event") == "$pageview"));
+                      if (!filterMatches) { return; }
+                      ;
+                  }
+              }
+          
+              function init(config) {
+                  const posthog = config.posthog;
+                  const callback = config.callback;
+                  if ('onLoad' in source) {
+                      const globals = {
+                          person: {
+                              properties: posthog.get_property('$stored_person_properties'),
+                          }
+                      }
+                      const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
+                      if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
+                  } else {
+                      callback(true);
+                  }
+          
+                  const response = {}
+          
+                  if (processEvent) {
+                      response.processEvent = (globals) => processEvent(globals, posthog)
+                  }
+          
+                  return response
+              }
+          
+              return { init: init };
+          })().init(config) } 
+      },    
+      {
+        id: 'SITE_APP_ID',
+        init: function(config) { return     (function() {
+          
+          function buildInputs(globals, initial) {
+          let inputs = {
+          };
+          let __getGlobal = (key) => key === 'inputs' ? inputs : globals[key];
+          return inputs;}
+          const source = (function () {let exports={};"use strict";;return exports;})();
+              let processEvent = undefined;
+              if ('onEvent' in source) {
+                  processEvent = function processEvent(globals, posthog) {
+                      if (!('onEvent' in source)) { return; };
+                      const inputs = buildInputs(globals);
+                      const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
+                      let __getGlobal = (key) => filterGlobals[key];
+                      const filterMatches = true;
+                      if (!filterMatches) { return; }
+                      ;
+                  }
+              }
+          
+              function init(config) {
+                  const posthog = config.posthog;
+                  const callback = config.callback;
+                  if ('onLoad' in source) {
+                      const globals = {
+                          person: {
+                              properties: posthog.get_property('$stored_person_properties'),
+                          }
+                      }
+                      const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
+                      if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
+                  } else {
+                      callback(true);
+                  }
+          
+                  const response = {}
+          
+                  if (processEvent) {
+                      response.processEvent = (globals) => processEvent(globals, posthog)
+                  }
+          
+                  return response
+              }
+          
+              return { init: init };
+          })().init(config) } 
+      }]
+    }
+  })();
+  '''
+# ---
