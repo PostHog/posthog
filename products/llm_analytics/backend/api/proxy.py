@@ -22,6 +22,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.monitoring import monitor
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.models import User
@@ -29,6 +30,7 @@ from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrot
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
+from products.llm_analytics.backend.api.metrics import track_latency
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
 from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
@@ -298,6 +300,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 return Response({"error": "Unsupported model"}, status=400)
 
     @action(detail=False, methods=["GET"])
+    @monitor(feature=None, endpoint="llm_analytics_proxy_models", method="GET")
     def models(self, request):
         """Return a list of available models across providers"""
         model_list: list[dict[str, str]] = []
@@ -313,11 +316,15 @@ class LLMProxyViewSet(viewsets.ViewSet):
         return Response(model_list)
 
     @action(detail=False, methods=["POST"])
+    @track_latency("llm_analytics_proxy_completion")
+    @monitor(feature=None, endpoint="llm_analytics_proxy_completion", method="POST")
     def completion(self, request, *args, **kwargs):
         return self._handle_request(
             request, LLMProxyCompletionSerializer, self._get_completion_provider, mode="completion"
         )
 
     @action(detail=False, methods=["POST"], url_path="fim/completion")
+    @track_latency("llm_analytics_proxy_fim_completion")
+    @monitor(feature=None, endpoint="llm_analytics_proxy_fim_completion", method="POST")
     def fimCompletion(self, request, *args, **kwargs):
         return self._handle_request(request, LLMProxyFIMSerializer, self._get_fim_provider, mode="fim")

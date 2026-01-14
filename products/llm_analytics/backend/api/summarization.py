@@ -33,6 +33,7 @@ from posthog.rate_limit import (
     LLMAnalyticsSummarizationSustainedThrottle,
 )
 
+from products.llm_analytics.backend.api.metrics import track_latency
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
 from products.llm_analytics.backend.text_repr.formatters import (
@@ -367,6 +368,7 @@ The response includes the summary text and optional metadata.
         """,
         tags=["LLM Analytics"],
     )
+    @track_latency("llm_analytics_summarize")
     @monitor(feature=None, endpoint="llm_analytics_summarize", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
         """
@@ -484,6 +486,7 @@ with their titles.
         tags=["LLM Analytics"],
     )
     @action(detail=False, methods=["post"], url_path="batch_check")
+    @track_latency("llm_analytics_summarize_batch_check")
     @monitor(feature=None, endpoint="llm_analytics_summarize_batch_check", method="POST")
     def batch_check(self, request: Request, **kwargs) -> Response:
         """

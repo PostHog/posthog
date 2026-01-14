@@ -33,6 +33,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.rate_limit import LLMAnalyticsTextReprBurstThrottle, LLMAnalyticsTextReprSustainedThrottle
 
+from products.llm_analytics.backend.api.metrics import track_latency
 from products.llm_analytics.backend.text_repr.formatters import (
     format_event_text_repr,
     format_trace_text_repr,
@@ -259,6 +260,7 @@ The response includes the formatted text and metadata about the rendering.
         """,
         tags=["LLM Analytics"],
     )
+    @track_latency("llm_analytics_text_repr")
     @monitor(feature=None, endpoint="llm_analytics_text_repr", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
         """

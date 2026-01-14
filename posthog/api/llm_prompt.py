@@ -7,6 +7,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.llm_prompt import LLMPrompt
@@ -103,6 +104,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
         url_path=r"name/(?P<prompt_name>[^/]+)",
         required_scopes=["llm_prompt:read"],
     )
+    @monitor(feature=None, endpoint="llm_analytics_prompts_get_by_name", method="GET")
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
         distinct_id = getattr(request.user, "distinct_id", None)
 
@@ -131,3 +133,23 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
 
         serializer = self.get_serializer(prompt)
         return Response(serializer.data)
+
+    @monitor(feature=None, endpoint="llm_analytics_prompts_list", method="GET")
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_prompts_retrieve", method="GET")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_prompts_create", method="POST")
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_prompts_update", method="PUT")
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_prompts_partial_update", method="PATCH")
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)

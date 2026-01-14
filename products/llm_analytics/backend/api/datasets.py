@@ -14,6 +14,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -198,6 +199,26 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
                 self.team,
             )
 
+    @monitor(feature=None, endpoint="llm_analytics_datasets_list", method="GET")
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_datasets_retrieve", method="GET")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_datasets_create", method="POST")
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_datasets_update", method="PUT")
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_datasets_partial_update", method="PATCH")
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
 
 class DatasetItemSerializer(serializers.ModelSerializer):
     class Meta:
@@ -312,6 +333,22 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                 self.team,
             )
 
+    @monitor(feature=None, endpoint="llm_analytics_dataset_items_retrieve", method="GET")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_dataset_items_create", method="POST")
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_dataset_items_update", method="PUT")
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llm_analytics_dataset_items_partial_update", method="PATCH")
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -327,5 +364,6 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
             ),
         ]
     )
+    @monitor(feature=None, endpoint="llm_analytics_dataset_items_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
