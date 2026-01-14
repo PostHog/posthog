@@ -67,7 +67,7 @@ function RateLimitBanner(): JSX.Element | null {
 function SubscriptionRequiredBanner(): JSX.Element | null {
     const { subscriptionRequired } = useValues(llmAnalyticsPlaygroundLogic)
 
-    if (!subscriptionRequired && false) {
+    if (!subscriptionRequired) {
         return null
     }
 
