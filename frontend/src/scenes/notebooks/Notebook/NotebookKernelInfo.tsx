@@ -9,6 +9,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { cpuCoreOptions, idleTimeoutOptions, memoryGbOptions, notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import { notebookLogic } from './notebookLogic'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const formatCores = (value: number): string => {
     const formatted = value % 1 === 0 ? value.toString() : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
@@ -29,6 +30,7 @@ const formatHourlyPrice = (value: number): string => `$${value.toFixed(4)} / h`
 
 export const NotebookKernelInfo = (): JSX.Element => {
     const { shortId } = useValues(notebookLogic)
+    const { setShowKernelInfo } = useActions(notebookSettingsLogic)
     const logic = notebookKernelInfoLogic({ shortId })
     const {
         kernelInfo,
@@ -71,6 +73,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
         <LemonWidget
             className="NotebookColumn__widget"
             title="Kernel info"
+            onClose={() => setShowKernelInfo(false)}
             actions={
                 <LemonButton
                     size="xsmall"

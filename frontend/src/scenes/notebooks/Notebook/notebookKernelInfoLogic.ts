@@ -7,7 +7,7 @@ import { PythonKernelExecuteResponse } from '../Nodes/pythonExecution'
 import type { notebookKernelInfoLogicType } from './notebookKernelInfoLogicType'
 
 export type NotebookKernelInfo = {
-    backend: 'docker' | 'modal'
+    backend: 'docker' | 'modal' | null
     status: string
     last_used_at?: string | null
     last_error?: string | null
@@ -152,7 +152,12 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             null as NotebookKernelInfo | null,
             {
                 loadKernelInfo: async () => {
-                    return (await api.notebooks.kernelStatus(props.shortId)) as NotebookKernelInfo
+                    try {
+                        const response = (await api.notebooks.kernelStatus(props.shortId)) as NotebookKernelInfo
+                        return response.backend ? response : null
+                    } catch {
+                        return null
+                    }
                 },
             },
         ],

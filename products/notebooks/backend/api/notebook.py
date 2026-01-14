@@ -524,7 +524,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             notebook.kernel_idle_timeout_seconds = serializer.validated_data["idle_timeout_seconds"]
             update_fields.append("kernel_idle_timeout_seconds")
 
-        notebook.save(update_fields=update_fields)
+        if notebook.pk:
+            notebook.save(update_fields=update_fields)
 
         return Response(
             {

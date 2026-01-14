@@ -267,10 +267,6 @@ class KernelRuntimeService:
         user_key = user.id if isinstance(user, User) else "anonymous"
         return f"{backend}:{notebook.team_id}:{notebook.short_id}:{user_key}"
 
-    def _ensure_modal_credentials(self) -> None:
-        if not self._has_modal_credentials():
-            raise RuntimeError("Modal credentials are required to start notebook kernels in production.")
-
     def _has_modal_credentials(self) -> bool:
         return all(os.environ.get(name, None) for name in self._MODAL_REQUIRED_ENV_VARS)
 
@@ -360,7 +356,7 @@ class KernelRuntimeService:
                 logger.warning("notebook_kernels_signal_registration_failed", signal=sig)
 
     def _ensure_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle:
-        backend = self._get_backend()
+        backend = self._get_backend(require_credentials=True)
         if backend is None:
             raise RuntimeError("Notebook sandbox provider is not configured.")
         key = self._get_kernel_key(notebook, user, backend)
@@ -379,9 +375,6 @@ class KernelRuntimeService:
             if handle:
                 self._kernels[key] = handle
                 return handle
-
-            if backend == KernelRuntime.Backend.MODAL:
-                self._ensure_modal_credentials()
 
             handle = self._create_kernel_handle(notebook, user, backend)
 
@@ -463,9 +456,14 @@ class KernelRuntimeService:
             backend=backend,
         ).update(status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now())
 
-    def _get_backend(self) -> str | None:
+    def _get_backend(self, *, require_credentials: bool = False) -> str | None:
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
         if provider is not None:
+            if provider == KernelRuntime.Backend.MODAL and not self._has_modal_credentials():
+                if require_credentials:
+                    raise RuntimeError("Modal credentials are required to start notebook kernels in production.")
+                logger.warning("notebook_kernel_modal_credentials_missing")
+                return None
             return provider
         if settings.DEBUG or settings.TEST:
             return KernelRuntime.Backend.DOCKER
@@ -525,6 +523,11 @@ class KernelRuntimeService:
         kernel_pid = int(pid_line) if pid_line.isdigit() else None
         if not kernel_pid:
             raise RuntimeError(f"Failed to start kernel process: {start_result.stdout} {start_result.stderr}")
+        pid_check = sandbox.execute(f"ps -p {kernel_pid}", timeout_seconds=int(self._startup_timeout))
+        if pid_check.exit_code != 0:
+            raise RuntimeError(
+                f"Kernel process exited immediately after startup: {pid_check.stdout} {pid_check.stderr}"
+            )
         return kernel_pid
 
     def _wait_for_kernel_ready(self, sandbox: Any, connection_file: str) -> None:
@@ -597,7 +600,9 @@ class KernelRuntimeService:
             "import base64\n"
             "import json\n"
             "import os\n"
+            "import sys\n"
             "import time\n"
+            "import traceback\n"
             "from queue import Empty\n"
             "from jupyter_client import KernelManager\n"
             "from jupyter_client.blocking import BlockingKernelClient\n"
@@ -615,12 +620,13 @@ class KernelRuntimeService:
             "        raise FileNotFoundError(connection_file)\n"
             "    time.sleep(0.1)\n"
             "\n"
-            "manager = KernelManager(connection_file=connection_file)\n"
-            "manager.load_connection_file()\n"
-            "client = manager.blocking_client()\n"
-            "client.load_connection_file(connection_file)\n"
-            "client.start_channels()\n"
+            "client = None\n"
             "try:\n"
+            "    manager = KernelManager(connection_file=connection_file)\n"
+            "    manager.load_connection_file()\n"
+            "    client = manager.blocking_client()\n"
+            "    client.load_connection_file(connection_file)\n"
+            "    client.start_channels()\n"
             "    client.wait_for_ready(timeout=timeout)\n"
             "    if action == 'ready':\n"
             "        print('ready')\n"
@@ -628,7 +634,7 @@ class KernelRuntimeService:
             "        msg_id = client.execute(code, stop_on_error=False, user_expressions=user_expressions)\n"
             "        stdout = []\n"
             "        stderr = []\n"
-            "        traceback = []\n"
+            "        traceback_lines = []\n"
             "        result = None\n"
             "        status = 'ok'\n"
             "        execution_count = None\n"
@@ -652,7 +658,7 @@ class KernelRuntimeService:
             "            if msg_type == 'error':\n"
             "                status = 'error'\n"
             "                error_name = content.get('ename')\n"
-            "                traceback = content.get('traceback', [])\n"
+            "                traceback_lines = content.get('traceback', [])\n"
             "        reply = None\n"
             "        try:\n"
             "            while True:\n"
@@ -669,7 +675,7 @@ class KernelRuntimeService:
             "            status = reply_content.get('status', status)\n"
             "            if status == 'error' and not error_name:\n"
             "                error_name = reply_content.get('ename')\n"
-            "                traceback = reply_content.get('traceback', traceback)\n"
+            "                traceback_lines = reply_content.get('traceback', traceback_lines)\n"
             "            user_expressions_result = reply_content.get('user_expressions')\n"
             "        payload_out = {\n"
             "            'status': status,\n"
@@ -678,15 +684,28 @@ class KernelRuntimeService:
             "            'result': result,\n"
             "            'execution_count': execution_count,\n"
             "            'error_name': error_name,\n"
-            "            'traceback': traceback,\n"
+            "            'traceback': traceback_lines,\n"
             "            'user_expressions': user_expressions_result,\n"
             "        }\n"
             "        print(json.dumps(payload_out))\n"
             "except Empty:\n"
             "    print(json.dumps({'status': 'timeout', 'stdout': '', 'stderr': '', 'result': None, "
             "'execution_count': None, 'error_name': None, 'traceback': [], 'user_expressions': None}))\n"
+            "except Exception as err:\n"
+            "    print(json.dumps({\n"
+            "        'status': 'error',\n"
+            "        'stdout': '',\n"
+            "        'stderr': str(err),\n"
+            "        'result': None,\n"
+            "        'execution_count': None,\n"
+            "        'error_name': err.__class__.__name__,\n"
+            "        'traceback': traceback.format_exception(type(err), err, err.__traceback__),\n"
+            "        'user_expressions': None,\n"
+            "    }))\n"
+            "    sys.exit(1)\n"
             "finally:\n"
-            "    client.stop_channels()\n"
+            "    if client:\n"
+            "        client.stop_channels()\n"
             "PY"
         )
 

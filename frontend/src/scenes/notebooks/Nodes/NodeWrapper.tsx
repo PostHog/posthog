@@ -16,7 +16,7 @@ import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { hashCodeForString } from 'lib/utils'
 import { useInView } from 'react-intersection-observer'
@@ -26,7 +26,6 @@ import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from 
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { PythonRunMenu } from './components/PythonRunMenu'
-import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
@@ -488,16 +487,14 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 }
 
 export const NotebookNodeChildRenderer = ({
-    nodeLogic,
+    // nodeLogic: nodeLogic,
     content,
 }: {
-    nodeLogic: BuiltLogic<notebookNodeLogicType>
+    // nodeLogic: BuiltLogic<notebookNodeLogicType>
     content: NotebookNodeResource
 }): JSX.Element => {
     const options = KNOWN_NODES[content.type]
 
-    // eslint-disable-next-line no-console
-    console.log(nodeLogic)
     // TODO: Respect attr changes
 
     // TODO: Allow deletion
@@ -510,10 +507,7 @@ export const NotebookNodeChildRenderer = ({
             nodeType={content.type}
             titlePlaceholder={options.titlePlaceholder}
             attributes={content.attrs}
-            updateAttributes={(newAttrs) => {
-                // eslint-disable-next-line no-console
-                console.log('updated called (TODO)', newAttrs)
-            }}
+            updateAttributes={() => undefined}
             selected={false}
         />
     )
