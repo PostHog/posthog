@@ -141,14 +141,17 @@ function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
     const statusLabel = getStatusLabel(issue.status)
     const statusTagType = getStatusTagType(issue.status)
 
+    // Materialized views don't have a user-accessible page, so we don't link them
+    const showLink = issue.url && issue.type !== 'materialized_view'
+
     return (
         <div className="border rounded p-3 bg-surface-primary">
             <div className="flex items-start gap-2">
                 <div className="mt-0.5">{getIssueIcon(issue.type)}</div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                        {issue.url ? (
-                            <Link to={issue.url} className="font-semibold truncate">
+                        {showLink ? (
+                            <Link to={issue.url!} className="font-semibold truncate">
                                 {issue.name}
                             </Link>
                         ) : (
@@ -167,6 +170,15 @@ function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
                     {issue.failed_at && (
                         <div className="text-xs text-muted">
                             {statusLabel} {humanFriendlyDetailedTime(issue.failed_at)}
+                        </div>
+                    )}
+                    {issue.type === 'materialized_view' && (
+                        <div className="text-xs text-muted mt-2">
+                            Please{' '}
+                            <Link to="https://posthog.com/support" target="_blank">
+                                contact support
+                            </Link>{' '}
+                            for help resolving this issue.
                         </div>
                     )}
                 </div>

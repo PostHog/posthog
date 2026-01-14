@@ -3,6 +3,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import { findElement, getElementPath } from 'posthog-js/dist/element-inference'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { uuid } from 'lib/utils'
@@ -20,9 +21,12 @@ import {
     ProductTourStep,
     ProductTourStepType,
     ProductTourSurveyQuestion,
+    ScreenPosition,
     StepOrderVersion,
+    SurveyPosition,
 } from '~/types'
 
+import { inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
 import { ElementScreenshot, captureAndUploadElementScreenshot, captureScreenshot, getElementMetadata } from './utils'
 
@@ -89,11 +93,38 @@ function isToolbarElement(element: HTMLElement): boolean {
 }
 
 /** Get the DOM element for a step, checking cached ref is still valid */
-export function getStepElement(step: TourStep): HTMLElement | null {
+export function getStepElement(step: TourStep, options?: { logInference?: boolean }): HTMLElement | null {
     if (step.element && document.body.contains(step.element)) {
         return step.element
     }
-    return step.selector ? (document.querySelector(step.selector) as HTMLElement | null) : null
+
+    const result = step.selector ? (document.querySelector(step.selector) as HTMLElement | null) : null
+
+    if (options?.logInference) {
+        // try finding element with inference, log the results
+        const inferredResult = step.inferenceData?.autoData ? findElement(step.inferenceData) : null
+        toolbarPosthogJS.capture('element inference debug', {
+            selector: step.selector ?? null,
+            autoDataPresent: !!step.inferenceData?.autoData,
+            normalFound: !!result,
+            inferenceFound: !!inferredResult,
+            elementsMatch: result === inferredResult,
+            ...(!!result && {
+                normalElement: getElementMetadata(result),
+            }),
+            ...(!!inferredResult && {
+                inferredElement: getElementMetadata(inferredResult),
+            }),
+            ...(result !== inferredResult && {
+                mismatchPaths: {
+                    normal: result ? getElementPath(result) : null,
+                    inferred: inferredResult ? getElementPath(inferredResult) : null,
+                },
+            }),
+        })
+    }
+
+    return result
 }
 
 /** Check if steps have changed compared to the latest version in history */
@@ -147,8 +178,9 @@ export const productToursLogic = kea<productToursLogicType>([
             selector?: string,
             survey?: ProductTourSurveyQuestion,
             progressionTrigger?: ProductTourProgressionTriggerType,
-            maxWidth?: number
-        ) => ({ content, selector, survey, progressionTrigger, maxWidth }),
+            maxWidth?: number,
+            modalPosition?: ScreenPosition
+        ) => ({ content, selector, survey, progressionTrigger, maxWidth, modalPosition }),
         cancelEditing: true,
         removeStep: (index: number) => ({ index }),
 
@@ -486,7 +518,7 @@ export const productToursLogic = kea<productToursLogicType>([
 
             // For element steps, try to find and highlight the element
             if (step.type === 'element') {
-                const element = getStepElement(step)
+                const element = getStepElement(step, { logInference: true })
                 if (element) {
                     element.scrollIntoView({ behavior: 'smooth', block: 'center' })
                     actions.selectElement(element)
@@ -515,6 +547,8 @@ export const productToursLogic = kea<productToursLogicType>([
             const isChangingExistingStep = tourForm && stepIndex < (tourForm.steps?.length ?? 0)
             const selector = elementToActionStep(element, dataAttributes).selector ?? ''
 
+            const inferenceData = inferSelector(element)?.selector
+
             const screenshotPromise = captureAndUploadElementScreenshot(element).catch((e) => {
                 console.warn('[Product Tours] Failed to capture element screenshot:', e)
                 return null
@@ -527,6 +561,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     selector,
                     element,
                     screenshotMediaId: undefined,
+                    inferenceData,
                 }
                 actions.setTourFormValue('steps', steps)
                 actions.setPendingScreenshotPromise(stepIndex, screenshotPromise)
@@ -540,7 +575,14 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
             }
         },
-        confirmStep: async ({ content, selector: selectorOverride, survey, progressionTrigger, maxWidth }) => {
+        confirmStep: async ({
+            content,
+            selector: selectorOverride,
+            survey,
+            progressionTrigger,
+            maxWidth,
+            modalPosition,
+        }) => {
             const { editorState, tourForm, selectedElement, pendingScreenshotPromise } = values
             if (editorState.mode !== 'editing' || !tourForm) {
                 return
@@ -553,6 +595,13 @@ export const productToursLogic = kea<productToursLogicType>([
             // For element steps, use selector from UI (which handles all derivation logic)
             // Preserve existing selector if none provided (e.g., editing content only)
             const selector = stepType === 'element' ? (selectorOverride ?? existingStep?.selector) : undefined
+            // Reuse stored inferenceData if element hasn't changed, otherwise recalculate
+            const inferenceData =
+                stepType === 'element' && selectedElement
+                    ? selectedElement === existingStep?.element
+                        ? existingStep?.inferenceData
+                        : inferSelector(selectedElement)?.selector
+                    : undefined
 
             let screenshotMediaId: string | undefined = existingStep?.screenshotMediaId
             if (stepType === 'element' && pendingScreenshotPromise?.stepIndex === stepIndex) {
@@ -569,10 +618,12 @@ export const productToursLogic = kea<productToursLogicType>([
                 selector,
                 content,
                 element: selectedElement ?? existingStep?.element,
+                inferenceData: inferenceData ?? existingStep?.inferenceData,
                 ...(survey ? { survey } : {}),
                 ...(progressionTrigger ? { progressionTrigger } : {}),
                 ...(maxWidth ? { maxWidth } : {}),
                 ...(screenshotMediaId ? { screenshotMediaId } : {}),
+                ...(stepType !== 'element' ? { modalPosition: modalPosition ?? SurveyPosition.MiddleCenter } : {}),
             }
 
             if (stepIndex < steps.length) {

@@ -35,6 +35,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     CleanupRunningJobsActivityInputs,
     CreateJobModelInputs,
     ModelNode,
+    NonRetryableException,
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
@@ -1643,6 +1644,58 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
 
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED
+
+
+async def test_materialize_model_empty_results(ateam, bucket_name, minio_client):
+    """Test that materialize_model raises NonRetryableException when query returns no results."""
+    query = "SELECT 1 WHERE 1 = 0"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="empty_results_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    async def mock_hogql_table(*args, **kwargs):
+        return
+        yield  # makes this a generator but nothing is ever yielded because of the return
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=0),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        with pytest.raises(NonRetryableException) as exc_info:
+            await materialize_model(
+                saved_query.id.hex,
+                ateam,
+                saved_query,
+                job,
+                unittest.mock.AsyncMock(),
+            )
+
+        assert "returned no results" in str(exc_info.value)
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.FAILED
+        assert job.error is not None
+        assert "returned no results" in job.error
+
+        await database_sync_to_async(saved_query.refresh_from_db)()
+        assert saved_query.latest_error is not None
+        assert "returned no results" in saved_query.latest_error
 
 
 child_ducklake_workflow_runs: list[dict] = []

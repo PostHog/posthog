@@ -1,14 +1,17 @@
+import asyncio
 from collections.abc import Generator
 from urllib.parse import urlparse
 
 import dagster
 import psycopg2
 import psycopg2.extras
+import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.redis import get_client, redis
+from posthog.utils import initialize_self_capture_api_token
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -83,6 +86,25 @@ class PostgresResource(dagster.ConfigurableResource):
             password=self.password,
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
+
+
+class PostHogAnalyticsResource(dagster.ConfigurableResource):
+    personal_api_key: str | None
+
+    def create_resource(self, context: dagster.InitResourceContext):
+        assert context.log is not None
+
+        context.log.info("Initializing PostHogAnalyticsResource")
+
+        if not (self.personal_api_key or "").strip() and not (posthoganalytics.personal_api_key or "").strip():
+            context.log.warning(
+                "Personal API key not set on the PostHogAnalyticsResource. Local feature flag evaluation will not work."
+            )
+
+        asyncio.run(initialize_self_capture_api_token())
+        posthoganalytics.personal_api_key = self.personal_api_key
+
+        return None
 
 
 class PostgresURLResource(dagster.ConfigurableResource):
