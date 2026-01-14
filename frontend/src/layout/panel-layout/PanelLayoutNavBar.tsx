@@ -11,12 +11,12 @@ import {
     IconFolderOpen,
     IconGear,
     IconHome,
-    IconNewspaper,
     IconPeople,
     IconSearch,
     IconShortcut,
     IconSidebarClose,
     IconSidebarOpen,
+    IconSparkles,
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -28,6 +28,7 @@ import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavP
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -61,7 +62,7 @@ import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelState
 import { RecentItemsMenu } from './ProjectTree/menus/RecentItemsMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
+    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -91,7 +92,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         activePanelIdentifier,
         activePanelIdentifierFromUrl,
         mainContentRef,
-        isLayoutPanelPinned,
         isLayoutNavCollapsed,
         isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
@@ -101,6 +101,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const isAiUx = useFeatureFlag('AI_UX')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -113,10 +114,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     }
 
     function handleStaticNavbarItemClick(to?: string, isKeyboardAction = false): void {
-        if (!isLayoutPanelPinned) {
-            clearActivePanelIdentifier()
-            showLayoutPanel(false)
-        }
+        clearActivePanelIdentifier()
+        showLayoutPanel(false)
 
         if (isKeyboardAction) {
             mainContentRef?.current?.focus()
@@ -135,9 +134,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Home' && currentPath === '/') {
             return true
         }
-        if (itemIdentifier === 'Feed' && currentPath === '/feed') {
-            return true
-        }
         if (itemIdentifier === 'Activity' && currentPath.startsWith('/activity/')) {
             return true
         }
@@ -145,6 +141,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             return true
         }
         if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
+            return true
+        }
+        if (itemIdentifier === 'ai' && currentPath.startsWith('/ai')) {
             return true
         }
 
@@ -171,6 +170,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         collapsedTooltip?: React.ReactNode | [React.ReactNode, React.ReactNode] // Open and closed tooltips
         documentationUrl?: string
     }[] = [
+        ...(isAiUx
+            ? [
+                  {
+                      identifier: 'ai',
+                      label: 'PostHog AI',
+                      icon: <IconSparkles />,
+                      to: urls.ai(),
+                      onClick: () => handleStaticNavbarItemClick(urls.ai(), true),
+                      collapsedTooltip: 'PostHog AI',
+                  },
+              ]
+            : []),
         {
             identifier: 'ProjectHomepage',
             label: 'Home',
@@ -190,18 +201,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
             collapsedTooltip: 'Search',
         },
-        ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
-            ? [
-                  {
-                      identifier: 'ProjectFeed',
-                      label: 'Feed',
-                      icon: <IconNewspaper />,
-                      to: urls.feed(),
-                      onClick: () => handleStaticNavbarItemClick(urls.feed(), true),
-                      collapsedTooltip: 'Feed',
-                  },
-              ]
-            : []),
         {
             identifier: 'Activity',
             label: 'Activity',
@@ -330,7 +329,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement: 'bottom',
                                     tooltip: 'Switch organization',
                                 }}
-                                iconOnly={isLayoutNavCollapsed}
                             />
                             <ProjectMenu
                                 buttonProps={{
@@ -341,7 +339,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement: 'bottom',
                                     tooltip: 'Switch project',
                                 }}
-                                iconOnly={isLayoutNavCollapsed}
                             />
 
                             <RecentItemsMenu />
@@ -350,8 +347,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
                         <ScrollableShadows
-                            className={cn('flex-1', { 'rounded-tr-sm': !isLayoutPanelVisible })}
-                            innerClassName="overflow-y-auto"
+                            className={cn('flex-1', { 'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive })}
+                            innerClassName="overflow-y-auto overflow-x-hidden"
                             direction="vertical"
                             styledScrollbars
                         >
@@ -501,6 +498,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltipPlacement="right"
                                 onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
                                 menuItem={!isLayoutNavCollapsed}
+                                className="hidden lg:flex"
                             >
                                 {isLayoutNavCollapsed ? (
                                     <>
@@ -621,9 +619,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
-                            className={cn('top-[var(--scene-layout-header-height)] right-[-1px]', {
-                                // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
-                                'top-[calc(var(--scene-layout-header-height)+10px)]': !firstTabIsActive,
+                            // top + 7px is to match rounded-lg border-radius on <main>
+                            className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4', {
+                                // // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
+                                'top-[var(--scene-layout-header-height)]': firstTabIsActive,
                                 'top-0': isLayoutPanelVisible,
                             })}
                             offset={0}

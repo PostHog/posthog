@@ -4,19 +4,25 @@ import { Form } from 'kea-forms'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { featureFlagLogic as featureFlagSceneLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductTourStep } from '~/types'
 
+import { AnnouncementContentEditor } from './AnnouncementContentEditor'
 import { AutoShowSection } from './components/AutoShowSection'
 import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { ProductTourCustomization } from './components/ProductTourCustomization'
+import { ProductTourStepsEditor } from './editor'
 import { ProductTourEditTab, productTourLogic } from './productTourLogic'
+import { isAnnouncement } from './productToursLogic'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     const {
@@ -31,6 +37,9 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
         productTourLogic({ id })
     )
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showStepsEditor = featureFlags[FEATURE_FLAGS.PRODUCT_TOURS_RICH_TEXT]
+
     if (!productTour) {
         return <LemonSkeleton />
     }
@@ -42,12 +51,12 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
             <SceneContent>
                 <SceneTitleSection
                     name={productTour.name}
-                    description="Edit product tour settings"
+                    description={isAnnouncement(productTour) ? 'Edit announcement' : 'Edit product tour settings'}
                     resourceType={{ type: 'product_tour' }}
                     isLoading={productTourLoading}
                     actions={
                         <>
-                            <EditInToolbarButton tourId={id} />
+                            {!isAnnouncement(productTour) && <EditInToolbarButton tourId={id} />}
                             <LemonButton type="secondary" size="small" onClick={() => editingProductTour(false)}>
                                 Cancel
                             </LemonButton>
@@ -68,6 +77,14 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     onChange={(newTab) => setEditTab(newTab as ProductTourEditTab)}
                     tabs={[
                         { key: ProductTourEditTab.Configuration, label: 'Configuration' },
+                        ...(showStepsEditor
+                            ? [
+                                  {
+                                      key: ProductTourEditTab.Steps,
+                                      label: isAnnouncement(productTour) ? 'Content' : 'Steps',
+                                  },
+                              ]
+                            : []),
                         { key: ProductTourEditTab.Customization, label: 'Customization' },
                     ]}
                 />
@@ -79,14 +96,6 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                 placeholder="Tour name"
                                 value={productTourForm.name}
                                 onChange={(value) => setProductTourFormValue('name', value)}
-                            />
-                        </LemonField>
-
-                        <LemonField name="description" label="Description">
-                            <LemonInput
-                                placeholder="Optional description"
-                                value={productTourForm.description}
-                                onChange={(value) => setProductTourFormValue('description', value)}
                             />
                         </LemonField>
 
@@ -123,7 +132,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                                     </Tooltip>
                                                 </h5>
                                                 <BindLogic
-                                                    logic={featureFlagLogic}
+                                                    logic={featureFlagSceneLogic}
                                                     props={{
                                                         id: productTour.internal_targeting_flag?.id
                                                             ? String(productTour.internal_targeting_flag.id)
@@ -192,6 +201,31 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                         </div>
                     </div>
                 )}
+
+                {editTab === ProductTourEditTab.Steps &&
+                    (isAnnouncement(productTour) ? (
+                        <AnnouncementContentEditor
+                            step={productTourForm.content?.steps?.[0]}
+                            appearance={productTourForm.content?.appearance}
+                            onChange={(step: ProductTourStep) => {
+                                setProductTourFormValue('content', {
+                                    ...productTourForm.content,
+                                    steps: [step],
+                                })
+                            }}
+                        />
+                    ) : (
+                        <ProductTourStepsEditor
+                            steps={productTourForm.content?.steps ?? []}
+                            appearance={productTourForm.content?.appearance}
+                            onChange={(steps: ProductTourStep[]) => {
+                                setProductTourFormValue('content', {
+                                    ...productTourForm.content,
+                                    steps,
+                                })
+                            }}
+                        />
+                    ))}
 
                 {editTab === ProductTourEditTab.Customization && (
                     <ProductTourCustomization

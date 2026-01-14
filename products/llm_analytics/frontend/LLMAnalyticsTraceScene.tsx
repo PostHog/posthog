@@ -44,6 +44,7 @@ import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
+import { ClustersTabContent } from './components/ClustersTabContent'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
@@ -67,6 +68,7 @@ import {
     getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
+    isTraceLevel,
     removeMilliseconds,
 } from './utils'
 
@@ -86,9 +88,18 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 }
 
 function TraceSceneWrapper(): JSX.Element {
-    const { eventId, searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
-    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, eventMetadata } =
-        useValues(llmAnalyticsTraceDataLogic)
+    const { searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
+    const {
+        enrichedTree,
+        trace,
+        event,
+        responseLoading,
+        responseError,
+        feedbackEvents,
+        metricEvents,
+        eventMetadata,
+        effectiveEventId,
+    } = useValues(llmAnalyticsTraceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -140,7 +151,7 @@ function TraceSceneWrapper(): JSX.Element {
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar
                             trace={trace}
-                            eventId={eventId}
+                            eventId={effectiveEventId}
                             tree={enrichedTree}
                             showBillingInfo={showBillingInfo}
                         />
@@ -686,6 +697,11 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
+        const showClustersTab = !!event && isTraceLevel(event) && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+
+        // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
+        const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
+
         // Only pre-load for generation events ($ai_input/$ai_output_choices).
         // TODO: Figure out why spans can't load properties async
         const eventData = isGenerationEvent
@@ -815,11 +831,25 @@ const EventContent = React.memo(
                                 {
                                     key: TraceViewMode.Conversation,
                                     label: 'Conversation',
+                                    'data-attr': 'llma-trace-conversation-tab',
                                     content: (
                                         <>
-                                            {displayOption === DisplayOption.TextView &&
-                                            (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
-                                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) ? (
+                                            {isTopLevelTraceWithoutContent ? (
+                                                <InsightEmptyState
+                                                    heading="No top-level trace event"
+                                                    detail={
+                                                        <>
+                                                            This trace doesn't have an associated <code>$ai_trace</code>{' '}
+                                                            event.
+                                                            <br />
+                                                            Click on individual generations in the tree to view their
+                                                            content.
+                                                        </>
+                                                    }
+                                                />
+                                            ) : displayOption === DisplayOption.TextView &&
+                                              (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
+                                                  featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) ? (
                                                 isLLMEvent(event) &&
                                                 (event.event === '$ai_generation' ||
                                                     event.event === '$ai_span' ||
@@ -891,6 +921,7 @@ const EventContent = React.memo(
                                 {
                                     key: TraceViewMode.Raw,
                                     label: 'Raw',
+                                    'data-attr': 'llma-trace-raw-tab',
                                     content: (
                                         <div className="p-2">
                                             <JSONViewer src={event} collapsed={2} />
@@ -909,6 +940,7 @@ const EventContent = React.memo(
                                                       </LemonTag>
                                                   </>
                                               ),
+                                              'data-attr': 'llma-trace-summary-tab',
                                               content: (
                                                   <SummaryViewDisplay
                                                       trace={!isLLMEvent(event) ? event : undefined}
@@ -925,6 +957,7 @@ const EventContent = React.memo(
                                           {
                                               key: TraceViewMode.Evals,
                                               label: 'Evaluations',
+                                              'data-attr': 'llma-trace-evals-tab',
                                               content: (
                                                   <EvalsTabContent
                                                       generationEventId={event.id}
@@ -933,6 +966,22 @@ const EventContent = React.memo(
                                                       distinctId={trace.person.distinct_id}
                                                   />
                                               ),
+                                          },
+                                      ]
+                                    : []),
+                                ...(showClustersTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Clusters,
+                                              label: (
+                                                  <>
+                                                      Clusters{' '}
+                                                      <LemonTag className="ml-1" type="completion">
+                                                          Alpha
+                                                      </LemonTag>
+                                                  </>
+                                              ),
+                                              content: <ClustersTabContent />,
                                           },
                                       ]
                                     : []),

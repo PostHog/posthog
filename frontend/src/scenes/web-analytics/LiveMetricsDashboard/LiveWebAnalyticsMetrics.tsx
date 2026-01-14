@@ -1,37 +1,18 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 
 import { LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { ChartDataPoint, DeviceBreakdownItem, PathItem } from './LiveWebAnalyticsMetricsTypes'
 import { DeviceBreakdownChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 
 const STATS_POLL_INTERVAL_MS = 30000
-
-const pathColumns: LemonTableColumns<PathItem> = [
-    {
-        title: 'Path',
-        dataIndex: 'path',
-        key: 'path',
-        render: (_, record) => (
-            <span className="font-mono text-xs truncate max-w-80 block" title={record.path}>
-                {record.path}
-            </span>
-        ),
-    },
-    {
-        title: 'Views',
-        dataIndex: 'views',
-        key: 'views',
-        align: 'right',
-        render: (_, record) => <span className="font-semibold">{record.views.toLocaleString()}</span>,
-    },
-]
+const ROW_HEIGHT = 36
 
 const StatsHeader = ({
     liveUserCount,
@@ -100,7 +81,77 @@ const ChartsSection = ({
     )
 }
 
+const AnimatedPathRow = ({
+    item,
+    offset,
+    positionDelta,
+    deltaVersion,
+}: {
+    item: PathItem
+    offset: number
+    positionDelta: number
+    deltaVersion: number
+}): JSX.Element => {
+    const currentOffsetRef = useRef(offset)
+    const shouldSkipAnimation = currentOffsetRef.current === offset
+
+    useLayoutEffect(() => {
+        currentOffsetRef.current = offset
+    }, [offset])
+
+    return (
+        <div
+            className={clsx(
+                'flex items-center justify-between px-3 absolute w-full left-0 ease-out border-b border-border',
+                shouldSkipAnimation ? 'duration-0' : 'transition-transform duration-500'
+            )}
+            style={{
+                height: ROW_HEIGHT,
+                transform: `translateY(${offset}px)`,
+            }}
+        >
+            <div className="flex items-center gap-2">
+                <span className="font-mono text-xs truncate max-w-72" title={item.path}>
+                    {item.path}
+                </span>
+                {positionDelta !== 0 && (
+                    <span
+                        key={`${positionDelta}-${deltaVersion}`}
+                        className={clsx(
+                            'flex items-center text-xs font-semibold animate-fade-out-delayed',
+                            positionDelta < 0 ? 'text-success' : 'text-danger'
+                        )}
+                    >
+                        {positionDelta < 0 ? '↑' : '↓'}
+                        {Math.abs(positionDelta)}
+                    </span>
+                )}
+            </div>
+            <span className="font-semibold text-sm">{item.views.toLocaleString()}</span>
+        </div>
+    )
+}
+
 const PathsTable = ({ paths, isLoading }: { paths: PathItem[]; isLoading: boolean }): JSX.Element => {
+    const prevPositionsRef = useRef<Map<string, number>>(new Map())
+    const deltaVersionRef = useRef(0)
+
+    const positionDeltas = new Map<string, number>()
+    paths.forEach((item, index) => {
+        const prevPosition = prevPositionsRef.current.get(item.path)
+        if (prevPosition !== undefined && prevPosition !== index) {
+            positionDeltas.set(item.path, index - prevPosition)
+        }
+    })
+
+    if (positionDeltas.size > 0) {
+        deltaVersionRef.current++
+    }
+
+    useLayoutEffect(() => {
+        prevPositionsRef.current = new Map(paths.map((item, index) => [item.path, index]))
+    }, [paths])
+
     return (
         <div className="bg-bg-light rounded-lg border p-4">
             <h3 className="text-sm font-semibold mb-4">Top pages (last 30 minutes)</h3>
@@ -110,16 +161,26 @@ const PathsTable = ({ paths, isLoading }: { paths: PathItem[]; isLoading: boolea
                         <LemonSkeleton key={i} className="h-8" />
                     ))}
                 </div>
+            ) : paths.length === 0 ? (
+                <div className="text-center py-6 text-muted">No pageviews recorded in the last 30 minutes</div>
             ) : (
-                <LemonTable
-                    columns={pathColumns}
-                    dataSource={paths}
-                    rowKey="path"
-                    size="small"
-                    emptyState={
-                        <div className="text-center py-6 text-muted">No pageviews recorded in the last 30 minutes</div>
-                    }
-                />
+                <>
+                    <div className="flex items-center justify-between px-3 py-2 border-b text-xs font-semibold text-muted uppercase">
+                        <span>Path</span>
+                        <span>Views</span>
+                    </div>
+                    <div className="relative" style={{ height: paths.length * ROW_HEIGHT }}>
+                        {paths.map((item, index) => (
+                            <AnimatedPathRow
+                                key={item.path}
+                                item={item}
+                                offset={index * ROW_HEIGHT}
+                                positionDelta={positionDeltas.get(item.path) ?? 0}
+                                deltaVersion={deltaVersionRef.current}
+                            />
+                        ))}
+                    </div>
+                </>
             )}
         </div>
     )

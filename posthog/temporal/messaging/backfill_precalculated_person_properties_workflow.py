@@ -1,4 +1,3 @@
-import json
 import time
 import asyncio
 import datetime as dt
@@ -148,7 +147,9 @@ async def backfill_precalculated_person_properties_activity(
                 "offset": current_offset,
             }
 
-            persons = []
+            batch_count = 0
+            events_to_produce = []
+
             with tags_context(
                 team_id=inputs.team_id,
                 feature=Feature.BEHAVIORAL_COHORTS,
@@ -157,59 +158,54 @@ async def backfill_precalculated_person_properties_activity(
             ):
                 async with get_client(team_id=inputs.team_id) as client:
                     async for row in client.stream_query_as_jsonl(persons_query, query_parameters=query_params):
-                        persons.append(row)
+                        batch_count += 1
+                        person_id = str(row["person_id"])
+                        person_properties = row.get("properties") or {}
+                        distinct_ids = row["distinct_ids"]
+
+                        for filter_info in inputs.filters:
+                            # Evaluate person against filter using HogQL bytecode
+                            globals_dict = {
+                                "person": {
+                                    "id": person_id,
+                                    "properties": person_properties,
+                                },
+                                "project": {
+                                    "id": inputs.team_id,
+                                },
+                            }
+
+                            try:
+                                result = await asyncio.to_thread(
+                                    execute_bytecode, filter_info.bytecode, globals_dict, timeout=10
+                                )
+                                matches = bool(result.result) if result else False
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error evaluating person {person_id} against filter {filter_info.condition_hash}: {e}",
+                                    person_id=person_id,
+                                    condition_hash=filter_info.condition_hash,
+                                    error=str(e),
+                                )
+                                matches = False
+
+                            # ALWAYS emit - both matches and non-matches for EACH distinct_id
+                            for distinct_id in distinct_ids:
+                                event = {
+                                    "distinct_id": distinct_id,
+                                    "person_id": person_id,
+                                    "team_id": inputs.team_id,
+                                    "condition": filter_info.condition_hash,
+                                    "matches": matches,
+                                    "source": f"cohort_backfill_{inputs.cohort_id}",
+                                }
+                                events_to_produce.append(event)
 
             # No more persons, we're done
-            if not persons:
+            if batch_count == 0:
                 break
 
-            logger.info(f"Fetched {len(persons)} persons at offset {current_offset}")
-
-            # Evaluate each person against each filter
-            events_to_produce = []
-
-            for person in persons:
-                person_id = str(person["person_id"])
-                person_properties = json.loads(person["properties"]) if person["properties"] else {}
-                distinct_ids = person["distinct_ids"]
-
-                for filter_info in inputs.filters:
-                    # Evaluate person against filter using HogQL bytecode
-                    globals_dict = {
-                        "person": {
-                            "id": person_id,
-                            "properties": person_properties,
-                        },
-                        "project": {
-                            "id": inputs.team_id,
-                        },
-                    }
-
-                    try:
-                        result = await asyncio.to_thread(
-                            execute_bytecode, filter_info.bytecode, globals_dict, timeout=10
-                        )
-                        matches = bool(result.result) if result else False
-                    except Exception as e:
-                        logger.warning(
-                            f"Error evaluating person {person_id} against filter {filter_info.condition_hash}: {e}",
-                            person_id=person_id,
-                            condition_hash=filter_info.condition_hash,
-                            error=str(e),
-                        )
-                        matches = False
-
-                    # ALWAYS emit - both matches and non-matches for EACH distinct_id
-                    for distinct_id in distinct_ids:
-                        event = {
-                            "distinct_id": distinct_id,
-                            "person_id": person_id,
-                            "team_id": inputs.team_id,
-                            "condition": filter_info.condition_hash,
-                            "matches": matches,
-                            "source": f"cohort_backfill_{inputs.cohort_id}",
-                        }
-                        events_to_produce.append(event)
+            logger.info(f"Streamed {batch_count} persons at offset {current_offset}")
 
             # Produce events to Kafka in batches
             if events_to_produce:
@@ -226,14 +222,14 @@ async def backfill_precalculated_person_properties_activity(
                 total_events_produced += len(events_to_produce)
                 logger.info(f"Produced {len(events_to_produce)} events for batch at offset {current_offset}")
 
-            total_processed += len(persons)
-            current_offset += len(persons)
+            total_processed += batch_count
+            current_offset += batch_count
 
             # Update heartbeat
             heartbeater.details = (f"Processed {total_processed} persons, produced {total_events_produced} events",)
 
             # If we got fewer persons than batch_size, we're done
-            if len(persons) < current_batch_size:
+            if batch_count < current_batch_size:
                 break
 
         end_time = time.time()

@@ -37,19 +37,22 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
             props.tags ?? ([] as string[]),
             {
                 setLocalTags: (_, { tags }) => tags,
+                cancelEditing: () => props.tags ?? [],
             },
         ],
         localEvaluationTags: [
             props.evaluationTags ?? ([] as string[]),
             {
                 setLocalEvaluationTags: (_, { evaluationTags }) => evaluationTags,
+                cancelEditing: () => props.evaluationTags ?? [],
             },
         ],
     })),
 
     propsChanged(({ actions, props, values }, oldProps) => {
-        // Only sync from props when not editing - if props change during editing
-        // (e.g., websocket update), we preserve the user's local edits
+        // Only sync from props when not editing - if props change during editing, we preserve the user's local edits.
+        // Reference equality is intentional: parent components should pass new array
+        // references when data changes (standard React immutability pattern).
         if (!values.isEditing) {
             if (props.tags !== oldProps.tags) {
                 actions.setLocalTags(props.tags)
@@ -60,12 +63,15 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
         }
     }),
 
-    listeners(({ values }) => ({
+    listeners(({ props, values }) => ({
         saveTagsAndEvaluationTags: () => {
-            featureFlagLogic.actions.saveFeatureFlag({
-                tags: values.localTags,
-                evaluation_tags: values.localEvaluationTags,
-            })
+            const { flagId } = props
+            if (typeof flagId === 'number') {
+                featureFlagLogic({ id: flagId }).actions.saveFeatureFlag({
+                    tags: values.localTags,
+                    evaluation_tags: values.localEvaluationTags,
+                })
+            }
         },
     })),
 ])
