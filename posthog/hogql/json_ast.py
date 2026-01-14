@@ -81,17 +81,17 @@ def _deserialize_node(data: Any) -> Any:
             continue
 
         if isinstance(value, dict) and "node" not in value and key in ("window_exprs", "ctes"):
-            deserialized_value = {k: _deserialize_node(v) for k, v in value.items()}
+            deserialized_value: Any = {k: _deserialize_node(v) for k, v in value.items()}
         else:
             deserialized_value = _deserialize_node(value)
 
-        if key in type_hints:
-            field_type = type_hints[key]
-            if hasattr(field_type, "__members__") and isinstance(deserialized_value, str):
-                try:
-                    deserialized_value = field_type[deserialized_value]
-                except KeyError:
-                    pass
+            if key in type_hints:
+                field_type = type_hints[key]
+                if hasattr(field_type, "__members__") and isinstance(deserialized_value, str):
+                    try:
+                        deserialized_value = field_type[deserialized_value]
+                    except KeyError:
+                        pass
 
         kwargs[key] = deserialized_value
 
