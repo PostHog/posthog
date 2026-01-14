@@ -170,11 +170,11 @@ jobs:
                   fi
 
     # Bazel tests for isolated products
-    # Runs target-determinator to find affected targets, then runs tests
-    # Outputs run_legacy to signal if legacy Django tests also need to run
+    # Runs target-determinator only when it can help skip Django tests
+    # Otherwise runs all product tests and skips the cold-start cost
     bazel-tests:
         needs: changes
-        if: needs.changes.outputs.products == 'true'
+        if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
         name: Bazel tests (products)
@@ -270,17 +270,53 @@ jobs:
             - name: Determine affected targets
               id: determine
               run: |
-                  # For pushes to master, run all product tests and legacy
+                  LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
+                  PRODUCTS_CHANGED="${{ needs.changes.outputs.products }}"
+
+                  # For pushes to master, run all tests
                   if [[ "${{ github.event_name }}" != "pull_request" ]]; then
                     echo "Push to master - running all tests"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
                     echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
+                    echo "use_target_determinator=false" >> $GITHUB_OUTPUT
                     exit 0
                   fi
 
-                  # For PRs, use target-determinator to find affected targets
+                  # If legacy changed, skip target-determinator - run everything
+                  # (we know Django must run anyway, no point analyzing)
+                  if [[ "$LEGACY_CHANGED" == "true" ]]; then
+                    echo "Legacy code changed - running all tests, skipping target-determinator"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
+                    echo "use_target_determinator=false" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  # Check if any bazelified product changed (cheap file check)
                   git fetch origin ${{ github.base_ref }}
-                  echo "Running: target-determinator -targets=//products/... origin/${{ github.base_ref }}"
+                  CHANGED_PRODUCTS=$(git diff --name-only origin/${{ github.base_ref }}..HEAD | grep "^products/" | cut -d/ -f2 | sort -u || true)
+
+                  BAZELIFIED_CHANGED=false
+                  for product in $CHANGED_PRODUCTS; do
+                    if [[ -f "products/$product/backend/BUILD.bazel" ]]; then
+                      BAZELIFIED_CHANGED=true
+                      echo "Bazelified product changed: $product"
+                      break
+                    fi
+                  done
+
+                  if [[ "$BAZELIFIED_CHANGED" == "false" ]]; then
+                    echo "Only non-bazelified products changed - running all tests, skipping target-determinator"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
+                    echo "use_target_determinator=false" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  # Only bazelified products changed - worth running target-determinator
+                  # This is the one case where we might skip Django tests
+                  echo "Only bazelified products changed - running target-determinator"
+                  echo "use_target_determinator=true" >> $GITHUB_OUTPUT
 
                   if ! TARGETS=$(target-determinator -targets="//products/..." "origin/${{ github.base_ref }}" 2>&1); then
                     echo "target-determinator failed:"
@@ -300,7 +336,7 @@ jobs:
                     echo "Product changes affect legacy code - pytest will run"
                   else
                     echo "run_legacy=false" >> $GITHUB_OUTPUT
-                    echo "No legacy impact from product changes"
+                    echo "No legacy impact - Django tests can be skipped!"
                   fi
 
                   # Extract bazel test targets
