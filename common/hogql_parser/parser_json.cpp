@@ -1950,10 +1950,10 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         json["value"] = "NaN";
       }
     } else if (text.find(".") != string::npos || text.find("e") != string::npos) {
-      json["value"] = stod(text);  // Float
+      json["value"] = Json(stod(text));  // Float
       return json;
     } else {
-      json["value"] = stoll(text);  // Integer
+      json["value"] = Json(stoll(text));  // Integer
       return json;
     }
 

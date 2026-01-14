@@ -9,6 +9,10 @@ import inspect
 from typing import Any, get_type_hints
 
 from posthog.hogql import ast
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    SyntaxError as HogQLSyntaxError,
+)
 
 
 def deserialize_ast(json_str: str) -> ast.AST:
@@ -43,11 +47,6 @@ def _deserialize_node(data: Any) -> Any:
         return data
 
     if "error" in data and data["error"] is True:
-        from posthog.hogql.errors import (
-            ExposedHogQLError,
-            SyntaxError as HogQLSyntaxError,
-        )
-
         error_type = data.get("type", "Error")
         message = data.get("message", "Unknown error")
         start = data.get("start", {})
@@ -81,11 +80,7 @@ def _deserialize_node(data: Any) -> Any:
             kwargs[key] = value["offset"]
             continue
 
-        if (
-            isinstance(value, dict)
-            and "node" not in value
-            and key in ("window_exprs", "ctes", "limit_by", "expressions")
-        ):
+        if isinstance(value, dict) and "node" not in value and key in ("window_exprs", "ctes"):
             deserialized_value = {k: _deserialize_node(v) for k, v in value.items()}
         else:
             deserialized_value = _deserialize_node(value)
