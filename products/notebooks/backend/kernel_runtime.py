@@ -7,7 +7,7 @@ import base64
 import signal
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -15,6 +15,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
 from posthog.redis import get_client
 
@@ -463,6 +464,7 @@ class KernelRuntimeService:
         try:
             kernel_pid = self._start_kernel_process(sandbox, connection_file)
             self._wait_for_kernel_ready(sandbox, connection_file)
+            self._bootstrap_kernel(sandbox, connection_file, notebook, user)
         except Exception as err:
             self._mark_runtime_error(runtime, "Failed to start kernel in sandbox")
             with suppress(Exception):
@@ -522,6 +524,97 @@ class KernelRuntimeService:
         result = sandbox.execute(command, timeout_seconds=int(self._startup_timeout))
         if result.exit_code != 0:
             raise RuntimeError(f"Kernel did not become ready: {result.stdout} {result.stderr}")
+
+    def _bootstrap_kernel(
+        self, sandbox: SandboxProtocol, connection_file: str, notebook: Notebook, user: User | None
+    ) -> None:
+        code = self._build_kernel_bootstrap_code(notebook, user)
+        if not code:
+            return
+        payload = {
+            "connection_file": connection_file,
+            "timeout": int(self._startup_timeout),
+            "code": code,
+            "user_expressions": None,
+        }
+        command = self._build_kernel_command(payload, action="execute")
+        result = sandbox.execute(command, timeout_seconds=int(self._startup_timeout))
+        if result.exit_code != 0:
+            logger.warning(
+                "notebook_kernel_bootstrap_failed",
+                stdout=result.stdout,
+                stderr=result.stderr,
+                notebook_short_id=notebook.short_id,
+            )
+            return
+        lines = result.stdout.strip().splitlines()
+        if not lines:
+            logger.warning("notebook_kernel_bootstrap_missing_output", notebook_short_id=notebook.short_id)
+            return
+        try:
+            payload_out = json.loads(lines[-1])
+        except json.JSONDecodeError:
+            logger.warning(
+                "notebook_kernel_bootstrap_unparseable",
+                stdout=result.stdout,
+                notebook_short_id=notebook.short_id,
+            )
+            return
+        if payload_out.get("status") not in ("ok", None):
+            logger.warning(
+                "notebook_kernel_bootstrap_error",
+                status=payload_out.get("status"),
+                stderr=payload_out.get("stderr"),
+                traceback=payload_out.get("traceback"),
+                notebook_short_id=notebook.short_id,
+            )
+
+    def _build_kernel_bootstrap_code(self, notebook: Notebook, user: User | None) -> str:
+        api_url = f"{settings.SITE_URL.rstrip('/')}/api/projects/{notebook.team_id}/query/"
+        hogql_token = ""
+        if user:
+            hogql_token = encode_jwt(
+                {"id": user.id},
+                expiry_delta=timedelta(minutes=15),
+                audience=PosthogJwtAudience.IMPERSONATED_USER,
+            )
+        payload = {
+            "api_url": api_url,
+            "hogql_token": hogql_token,
+        }
+        encoded = json.dumps(payload)
+        return (
+            "import json\n"
+            "import duckdb\n"
+            "import requests\n"
+            "from typing import Any, Sequence\n"
+            "\n"
+            f"_bootstrap_payload = json.loads({encoded!r})\n"
+            "_duckdb_connection = duckdb.connect(database=':memory:')\n"
+            "\n"
+            "def duck_execute(sql: str, parameters: Sequence[Any] | dict[str, Any] | None = None) -> list[tuple]:\n"
+            "    if parameters is None:\n"
+            "        return _duckdb_connection.execute(sql).fetchall()\n"
+            "    return _duckdb_connection.execute(sql, parameters).fetchall()\n"
+            "\n"
+            "_HOGQL_ENDPOINT = _bootstrap_payload['api_url']\n"
+            "_HOGQL_TOKEN = _bootstrap_payload['hogql_token']\n"
+            "\n"
+            "def hogql_execute(query: str, *, refresh: str | None = None) -> dict[str, Any]:\n"
+            "    if not _HOGQL_TOKEN:\n"
+            "        raise RuntimeError('HogQL token is not available for this kernel.')\n"
+            "    payload = {'query': {'kind': 'HogQLQuery', 'query': query}}\n"
+            "    if refresh:\n"
+            "        payload['refresh'] = refresh\n"
+            "    response = requests.post(\n"
+            "        _HOGQL_ENDPOINT,\n"
+            "        json=payload,\n"
+            "        headers={'Authorization': f'Bearer {_HOGQL_TOKEN}'},\n"
+            "        timeout=30,\n"
+            "    )\n"
+            "    response.raise_for_status()\n"
+            "    return response.json()\n"
+        )
 
     def _reuse_kernel_handle_for_backend(
         self, notebook: Notebook, user: User | None, backend: str
