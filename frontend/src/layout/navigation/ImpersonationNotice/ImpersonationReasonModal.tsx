@@ -27,7 +27,6 @@ export function ImpersonationReasonModal({
 
     const handleConfirm = (): void => {
         onConfirm(reason)
-        setReason('')
     }
 
     const handleClose = (): void => {
@@ -49,7 +48,7 @@ export function ImpersonationReasonModal({
                         type="primary"
                         onClick={handleConfirm}
                         loading={loading}
-                        disabledReason={!reason.trim() ? 'Please provide a reason' : undefined}
+                        disabledReason={!loading && !reason.trim() ? 'Please provide a reason' : undefined}
                     >
                         {confirmText}
                     </LemonButton>

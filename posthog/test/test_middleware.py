@@ -1060,7 +1060,7 @@ class TestUpgradeImpersonation(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        self.client = DjangoClient()
+        self.client = DjangoClient()  # type: ignore[assignment]
         self.client.force_login(self.user)
 
     def login_as_read_only(self):

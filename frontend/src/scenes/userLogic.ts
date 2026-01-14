@@ -130,7 +130,7 @@ export const userLogic = kea<userLogicType>([
 
                         // optimistically update user to read-write rather than
                         // waiting for `loadUser` to complete
-                        return { ...values.user, is_impersonated_read_only: false }
+                        return values.user ? { ...values.user, is_impersonated_read_only: false } : null
                     } catch (error: any) {
                         console.error(error)
                         lemonToast.error('Failed to upgrade impersonation')
