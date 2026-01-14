@@ -13,7 +13,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "if [[ \"$CLAUDE_FILE_PATHS\" == *.py ]]; then flox activate -- bash -c \"ruff check $CLAUDE_FILE_PATHS --fix && ruff format $CLAUDE_FILE_PATHS\"; fi"
+                        "command": "for f in $CLAUDE_FILE_PATHS; do [[ \"$f\" == *.py ]] && PY_FILES=\"$PY_FILES $f\"; done; [ -n \"$PY_FILES\" ] && flox activate -- bash -c \"ruff check $PY_FILES --fix && ruff format $PY_FILES\""
                     }
                 ]
             }
