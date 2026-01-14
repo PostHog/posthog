@@ -75,7 +75,7 @@ import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentSceneLogic } from './experimentSceneLogic'
-import { experimentsLogic } from './experimentsLogic'
+import { experimentsLogic, getShippedVariantKey, isSingleVariantShipped } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     conversionRateForVariant,
@@ -1970,18 +1970,11 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         isSingleVariantShipped: [
             (s) => [s.experiment],
-            (experiment: Experiment): boolean => {
-                const filters = experiment.feature_flag?.filters
-
-                return (
-                    !!filters &&
-                    Array.isArray(filters.groups?.[0]?.properties) &&
-                    filters.groups?.[0]?.properties?.length === 0 &&
-                    filters.groups?.[0]?.rollout_percentage === 100 &&
-                    (filters.multivariate?.variants?.some(({ rollout_percentage }) => rollout_percentage === 100) ||
-                        false)
-                )
-            },
+            (experiment: Experiment): boolean => isSingleVariantShipped(experiment),
+        ],
+        shippedVariantKey: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string | null => getShippedVariantKey(experiment),
         ],
         hasPrimaryMetricSet: [
             (s) => [s.primaryMetricsLengthWithSharedMetrics],
