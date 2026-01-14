@@ -140,7 +140,6 @@ jobs:
                   name: junit-results-hogvm
                   path: junit.xml
 
-
     check-package-version:
         name: Check HogVM TypeScript package version and detect an update
         needs: hog-tests

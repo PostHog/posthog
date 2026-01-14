@@ -998,7 +998,6 @@ jobs:
                   name: junit-results-backend-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: junit.xml
 
-
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
         name: Commit snapshot changes
