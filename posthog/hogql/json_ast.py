@@ -28,6 +28,17 @@ NODE_MAP = {
 }
 
 
+def _convert_special_float(value: str) -> float:
+    """Convert string representation of special float values to actual floats."""
+    if value == "Infinity":
+        return float("inf")
+    elif value == "-Infinity":
+        return float("-inf")
+    elif value == "NaN":
+        return float("nan")
+    raise ValueError(f"Unknown special float value: {value}")
+
+
 def _deserialize_node(data: Any) -> Any:
     """Recursively deserialize a JSON node into an AST object."""
     if data is None:
@@ -37,13 +48,6 @@ def _deserialize_node(data: Any) -> Any:
         return [_deserialize_node(item) for item in data]
 
     if not isinstance(data, dict):
-        if isinstance(data, str):
-            if data == "Infinity":
-                return float("inf")
-            elif data == "-Infinity":
-                return float("-inf")
-            elif data == "NaN":
-                return float("nan")
         return data
 
     if "error" in data and data["error"] is True:
@@ -73,12 +77,18 @@ def _deserialize_node(data: Any) -> Any:
 
     kwargs = {}
     for key, value in data.items():
-        if key == "node":
+        if key in ("node", "value_type"):
             continue
 
         if key in ("start", "end") and isinstance(value, dict) and "offset" in value:
             kwargs[key] = value["offset"]
             continue
+
+        # Handle special float values for Constant nodes
+        if node_type == "Constant" and key == "value" and data.get("value_type") == "number":
+            if isinstance(value, str) and value in ("Infinity", "-Infinity", "NaN"):
+                kwargs[key] = _convert_special_float(value)
+                continue
 
         if isinstance(value, dict) and "node" not in value and key in ("window_exprs", "ctes"):
             deserialized_value: Any = {k: _deserialize_node(v) for k, v in value.items()}

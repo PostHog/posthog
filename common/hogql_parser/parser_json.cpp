@@ -1942,6 +1942,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     if (text.find("inf") != string::npos || text.find("nan") != string::npos) {
       // Handle special number cases (infinity and NaN)
+      // Mark these with value_type="number" so the deserializer knows to convert them
       if (!text.compare("-inf")) {
         json["value"] = "-Infinity";
       } else if (!text.compare("inf")) {
@@ -1949,6 +1950,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       } else {
         json["value"] = "NaN";
       }
+      json["value_type"] = "number";
     } else if (text.find(".") != string::npos || text.find("e") != string::npos) {
       json["value"] = Json(stod(text));  // Float
       return json;
