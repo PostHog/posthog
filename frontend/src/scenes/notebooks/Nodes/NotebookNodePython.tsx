@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { type ReactNode, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
@@ -12,6 +12,7 @@ import { NotebookNodeAttributeProperties, NotebookNodeType } from '../types'
 import { VariableUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionResult } from './pythonExecution'
+import { renderAnsiText } from './utils'
 
 export type NotebookNodePythonAttributes = {
     code: string
@@ -121,109 +122,6 @@ const VariableDependencyBadge = ({
             </button>
         </Popover>
     )
-}
-
-type AnsiState = {
-    fgClassName?: string
-    isBold?: boolean
-}
-
-const ANSI_FG_CLASSNAMES: Record<number, string> = {
-    30: 'text-muted',
-    31: 'text-red',
-    32: 'text-green',
-    33: 'text-yellow',
-    34: 'text-blue',
-    35: 'text-purple',
-    36: 'text-blue',
-    37: 'text-default',
-    90: 'text-muted',
-    91: 'text-red',
-    92: 'text-green',
-    93: 'text-yellow',
-    94: 'text-blue',
-    95: 'text-purple',
-    96: 'text-blue',
-    97: 'text-default',
-}
-
-const applyAnsiCodes = (codes: number[], state: AnsiState): AnsiState => {
-    let nextState: AnsiState = { ...state }
-
-    for (const code of codes) {
-        if (code === 0) {
-            nextState = {}
-            continue
-        }
-
-        if (code === 1) {
-            nextState.isBold = true
-            continue
-        }
-
-        if (code === 22) {
-            nextState.isBold = false
-            continue
-        }
-
-        if (code === 39) {
-            delete nextState.fgClassName
-            continue
-        }
-
-        const fgClassName = ANSI_FG_CLASSNAMES[code]
-        if (fgClassName) {
-            nextState.fgClassName = fgClassName
-        }
-    }
-
-    return nextState
-}
-
-const renderAnsiText = (value: string): ReactNode => {
-    if (!value.includes('\u001b[')) {
-        return value
-    }
-
-    const segments: ReactNode[] = []
-    const ansiRegex = /\u001b\[([0-9;]*)m/g
-    let lastIndex = 0
-    let match = ansiRegex.exec(value)
-    let state: AnsiState = {}
-
-    const pushSegment = (text: string): void => {
-        if (!text) {
-            return
-        }
-
-        const className = clsx(state.fgClassName, state.isBold && 'font-semibold')
-        if (className) {
-            segments.push(
-                <span key={`${segments.length}-${lastIndex}`} className={className}>
-                    {text}
-                </span>
-            )
-        } else {
-            segments.push(text)
-        }
-    }
-
-    while (match) {
-        pushSegment(value.slice(lastIndex, match.index))
-        const codes = match[1]
-            ? match[1]
-                  .split(';')
-                  .map((code) => Number.parseInt(code, 10))
-                  .filter((code) => Number.isFinite(code))
-            : [0]
-        state = applyAnsiCodes(codes, state)
-        lastIndex = match.index + match[0].length
-        match = ansiRegex.exec(value)
-    }
-
-    pushSegment(value.slice(lastIndex))
-
-    return segments
 }
 
 const OutputBlock = ({

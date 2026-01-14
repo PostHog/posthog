@@ -13,7 +13,7 @@ import {
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonMenu, LemonMenuItems, LemonMenuOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
@@ -25,21 +25,12 @@ import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
+import { PythonRunMenu } from './components/PythonRunMenu'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import {
-    IconChevronDown,
-    IconCollapse,
-    IconCopy,
-    IconEllipsis,
-    IconExpand,
-    IconPencil,
-    IconPlay,
-    IconPlus,
-    IconX,
-} from '@posthog/icons'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlus, IconX } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -161,27 +152,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const pythonCodeHash = hashCodeForString(pythonAttributes.code ?? '')
     const pythonIsStale = pythonExecutionCodeHash !== null && pythonExecutionCodeHash !== pythonCodeHash
     const pythonIsFresh = pythonExecutionCodeHash !== null && pythonExecutionCodeHash === pythonCodeHash
-    const pythonRunIconClass = pythonIsFresh ? 'text-success' : pythonIsStale ? 'text-danger' : undefined
-    const pythonRunTooltip = 'Run Python cell. ' + (pythonRunQueued ? 'Queued.' : pythonIsStale ? 'Stale.' : '')
-
-    const pythonRunMenuItems: LemonMenuItems = [
-        {
-            label: 'Run (auto)',
-            onClick: () => void runPythonNodeWithMode({ mode: 'auto' }),
-        },
-        {
-            label: 'Run cell + upstream',
-            onClick: () => void runPythonNodeWithMode({ mode: 'cell_upstream' }),
-        },
-        {
-            label: 'Run cell',
-            onClick: () => void runPythonNodeWithMode({ mode: 'cell' }),
-        },
-        {
-            label: 'Run cell + downstream',
-            onClick: () => void runPythonNodeWithMode({ mode: 'cell_downstream' }),
-        },
-    ]
 
     const menuItems: LemonMenuItems = [
         {
@@ -259,25 +229,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                 )}
 
                                                 {isPythonNode ? (
-                                                    <LemonButton
-                                                        onClick={() => void runPythonNodeWithMode({ mode: 'auto' })}
-                                                        size="small"
-                                                        icon={<IconPlay className={pythonRunIconClass} />}
-                                                        loading={pythonRunLoading || pythonRunQueued}
+                                                    <PythonRunMenu
+                                                        isFresh={pythonIsFresh}
+                                                        isStale={pythonIsStale}
+                                                        loading={pythonRunLoading}
+                                                        queued={pythonRunQueued}
                                                         disabledReason={pythonRunDisabledReason}
-                                                        tooltip={pythonRunTooltip}
-                                                        sideAction={{
-                                                            icon: <IconChevronDown />,
-                                                            dropdown: {
-                                                                placement: 'bottom-end',
-                                                                overlay: (
-                                                                    <LemonMenuOverlay items={pythonRunMenuItems} />
-                                                                ),
-                                                            },
-                                                            divider: false,
-                                                            'aria-label': 'Open run options',
-                                                            disabledReason: pythonRunDisabledReason,
-                                                        }}
+                                                        onRun={(mode) => void runPythonNodeWithMode({ mode })}
                                                     />
                                                 ) : null}
 
