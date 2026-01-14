@@ -1,4 +1,4 @@
-# Dockerfile for the base sandbox image (AI commands).
+# Dockerfile for the base sandbox image.
 
 FROM ubuntu:24.04
 

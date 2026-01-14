@@ -77,7 +77,6 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
     if template == SandboxTemplate.DEFAULT_BASE:
         if settings.DEBUG:
-            modal.enable_output()
             dockerfile_path = os.path.join(
                 settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
             )
@@ -131,7 +130,6 @@ class ModalSandbox:
     def create(config: SandboxConfig) -> "ModalSandbox":
         try:
             app = ModalSandbox._get_default_app()
-            modal.enable_output()
             image = _get_template_image(config.template)
 
             if config.snapshot_id:
