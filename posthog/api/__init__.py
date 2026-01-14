@@ -109,6 +109,7 @@ from . import (
     plugin,
     plugin_log_entry,
     proxy_record,
+    push_subscription,
     query,
     quick_filters,
     scheduled_change,
@@ -289,6 +290,9 @@ register_grandfathered_environment_nested_viewset(
 )
 register_grandfathered_environment_nested_viewset(
     r"integrations", integration.IntegrationViewSet, "environment_integrations", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
+    r"push_subscriptions", push_subscription.PushSubscriptionViewSet, "environment_push_subscriptions", ["team_id"]
 )
 register_grandfathered_environment_nested_viewset(
     r"ingestion_warnings",
