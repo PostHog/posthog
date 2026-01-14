@@ -100,6 +100,16 @@ class OrganizationFeatureFlagView(
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
                 seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
             )
+            
+            # Also include cohorts from scheduled changes if copying schedules
+            if copy_schedule:
+                schedule_cohort_ids = self._extract_cohort_ids_from_schedules(flag_to_copy)
+                for cohort_id in schedule_cohort_ids:
+                    if cohort_id not in seen_cohorts_cache:
+                        cohort = Cohort.objects.filter(id=cohort_id, team=flag_to_copy.team, deleted=False).first()
+                        if cohort:
+                            seen_cohorts_cache[cohort_id] = cohort
+                            sorted_cohort_ids.append(cohort_id)
 
             # destination cohort id is different from original cohort id - create mapping
             name_to_dest_cohort_id: dict[str, int] = {}
@@ -317,3 +327,30 @@ class OrganizationFeatureFlagView(
                             continue
 
         return updated_payload
+
+    def _extract_cohort_ids_from_schedules(self, flag):
+        """Extract all cohort IDs referenced in pending scheduled changes."""
+        from posthog.models.scheduled_change import ScheduledChange
+        
+        cohort_ids = set()
+        schedules = ScheduledChange.objects.filter(
+            record_id=str(flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            executed_at__isnull=True,
+            team=flag.team,
+        )
+        
+        for schedule in schedules:
+            payload = schedule.payload
+            # Check for cohorts in AddReleaseCondition operations
+            if "filters" in payload and "groups" in payload["filters"]:
+                for group in payload["filters"]["groups"]:
+                    for prop in group.get("properties", []):
+                        if isinstance(prop, dict) and prop.get("type") == "cohort":
+                            try:
+                                cohort_id = int(prop["value"])
+                                cohort_ids.add(cohort_id)
+                            except (ValueError, TypeError):
+                                continue
+        
+        return list(cohort_ids)
