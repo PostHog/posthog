@@ -35,6 +35,10 @@ PROJECT_SECRET_API_KEY_LEAKED_COUNTER = Counter(
     "Number of valid Project Secret API Keys identified by GitHub secrets scanning",
 )
 
+# GitHub sends swapped type names - these constants clarify the mismatch
+GITHUB_TYPE_FOR_PERSONAL_API_KEY = "posthog_feature_flags_secure_api_key"
+GITHUB_TYPE_FOR_PROJECT_SECRET = "posthog_personal_api_key"
+
 
 class SignatureVerificationError(Exception):
     pass
@@ -93,7 +97,7 @@ def verify_github_signature(payload: str, kid: str, sig: str) -> None:
 
 class SecretAlertSerializer(serializers.Serializer):
     token = serializers.CharField()
-    type = serializers.ChoiceField(choices=["posthog_personal_api_key", "posthog_feature_flags_secure_api_key"])
+    type = serializers.ChoiceField(choices=[GITHUB_TYPE_FOR_PERSONAL_API_KEY, GITHUB_TYPE_FOR_PROJECT_SECRET])
     url = serializers.CharField(allow_blank=True)
     source: Any = serializers.CharField()
 
@@ -175,17 +179,17 @@ class SecretAlert(APIView):
             # Debug info while token lookups continue to fail
             token_debug = {
                 "token_length": len(token),
-                "token_prefix": token[:10] if len(token) > 10 else "[REDACTED]",
-                "token_suffix": token[-8:] if len(token) > 8 else "[REDACTED]",
+                "token_prefix": token[:8],
+                "token_suffix": token[-4:],
             }
 
-            if item["type"] == "posthog_personal_api_key":
+            if item["type"] == GITHUB_TYPE_FOR_PERSONAL_API_KEY:
                 key_lookup = find_personal_api_key(token)
                 posthoganalytics.capture(
                     distinct_id=None,
                     event="github_secret_alert",
                     properties={
-                        "type": item["type"],
+                        "type": "personal_api_key",
                         "source": item["source"],
                         "url": item["url"],
                         "found": key_lookup is not None,
@@ -207,7 +211,7 @@ class SecretAlert(APIView):
                     serializer.roll(key)
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
-            elif item["type"] == "posthog_feature_flags_secure_api_key":
+            elif item["type"] == GITHUB_TYPE_FOR_PROJECT_SECRET:
                 found = False
                 try:
                     _ = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
@@ -224,7 +228,7 @@ class SecretAlert(APIView):
                     distinct_id=None,
                     event="github_secret_alert",
                     properties={
-                        "type": item["type"],
+                        "type": "project_secret_api_key",
                         "source": item["source"],
                         "url": item["url"],
                         "found": found,
