@@ -1,0 +1,171 @@
+name: Sync ClickHouse Versions
+
+on:
+    schedule:
+        - cron: '0 6 * * *'
+    workflow_dispatch: # Manual trigger for testing
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    sync:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Get app token for infra repo
+              id: infra-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_CLOUD_INFRA_WORKFLOW_TRIGGER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_CLOUD_INFRA_WORKFLOW_TRIGGER_PRIVATE_KEY }}
+
+            - name: Get app token for PR creation
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+
+            - uses: actions/checkout@v6
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Fetch ClickHouse versions from infra repo
+              id: fetch-versions
+              env:
+                  GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+              run: |
+                  errors=""
+
+                  # Fetch and validate a ClickHouse version from a file in posthog-cloud-infra
+                  # Usage: fetch_infra_version <name> <file_path> <grep_pattern> <sed_pattern>
+                  fetch_infra_version() {
+                    local name="$1"
+                    local file_path="$2"
+                    local grep_pattern="$3"
+                    local sed_pattern="$4"
+
+                    local version=$(gh api "repos/PostHog/posthog-cloud-infra/contents/$file_path" \
+                      --jq '.content' 2>/dev/null | base64 --decode 2>/dev/null | \
+                      grep -m 1 -E "$grep_pattern" | sed -E "$sed_pattern" || echo "")
+
+                    if [ -z "$version" ]; then
+                      errors="${errors}- **$name**: Failed to fetch from \`$file_path\`\n"
+                    elif ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                      errors="${errors}- **$name**: Invalid version format: \`$version\` (expected X.Y.Z.W)\n"
+                    fi
+
+                    echo "$version"
+                  }
+
+                  # Terraform/Terragrunt files use: clickhouse_version = "X.Y.Z.W"
+                  tf_grep='clickhouse_version'
+                  tf_sed='s/.*"([^"]+)".*/\1/'
+
+                  # Ansible files use: clickhouse_version: X.Y.Z.W
+                  ansible_grep='clickhouse_version:'
+                  ansible_sed='s/.*: *([0-9.]+).*/\1/'
+
+                  production=$(fetch_infra_version "Production" "terraform/environments/aws-accnt-prod/us-east-1/clickhouse/clickhouse.tf" "$tf_grep" "$tf_sed")
+                  production_eu=$(fetch_infra_version "Production EU" "terraform/environments/aws-accnt-prod-eu/eu-central-1/clickhouse/clickhouse.tf" "$tf_grep" "$tf_sed")
+                  production_us=$(fetch_infra_version "Production US" "terraform/environments/aws-accnt-clickhouse-prod-us/us-east-1/clickhouse/terragrunt.hcl" "$tf_grep" "$tf_sed")
+                  dev=$(fetch_infra_version "Dev" "terraform/environments/aws-accnt-dev/us-east-1/clickhouse/clickhouse.tf" "$tf_grep" "$tf_sed")
+                  hobby=$(fetch_infra_version "Hobby" "ansible/roles/clickhouse/defaults/main.yml" "$ansible_grep" "$ansible_sed")
+
+                  # Local version from docker-compose (extract from this repo)
+                  local_version=$(grep -oP 'clickhouse/clickhouse-server:\K[0-9.]+' docker-compose.base.yml | head -1)
+                  if [ -z "$local_version" ]; then
+                    local_version="$production"
+                    echo "::warning::Could not extract local version from docker-compose.base.yml, using production"
+                  fi
+
+                  if [ -n "$errors" ]; then
+                    echo "::error::Failed to fetch ClickHouse versions. File paths in posthog-cloud-infra may have changed."
+                    echo ""
+                    echo "Errors:"
+                    echo -e "$errors"
+                    echo ""
+                    echo "Please update the file paths in .github/workflows/sync-clickhouse-versions.yml"
+                    exit 1
+                  fi
+
+                  echo "production=$production" >> $GITHUB_OUTPUT
+                  echo "production_eu=$production_eu" >> $GITHUB_OUTPUT
+                  echo "production_us=$production_us" >> $GITHUB_OUTPUT
+                  echo "dev=$dev" >> $GITHUB_OUTPUT
+                  echo "hobby=$hobby" >> $GITHUB_OUTPUT
+                  echo "local=$local_version" >> $GITHUB_OUTPUT
+                  echo "::notice::Production: $production, Production EU: $production_eu, Production US: $production_us, Dev: $dev, Hobby: $hobby, Local: $local_version"
+
+            - name: Update .github/clickhouse-versions.json
+              run: |
+                  production="${{ steps.fetch-versions.outputs.production }}"
+                  production_eu="${{ steps.fetch-versions.outputs.production_eu }}"
+                  production_us="${{ steps.fetch-versions.outputs.production_us }}"
+                  dev="${{ steps.fetch-versions.outputs.dev }}"
+                  hobby="${{ steps.fetch-versions.outputs.hobby }}"
+                  local_version="${{ steps.fetch-versions.outputs.local }}"
+
+                  # Build JSON with all versions (CI handles deduplication)
+                  jq -n \
+                    --arg production "clickhouse/clickhouse-server:$production" \
+                    --arg production_eu "clickhouse/clickhouse-server:$production_eu" \
+                    --arg production_us "clickhouse/clickhouse-server:$production_us" \
+                    --arg dev "clickhouse/clickhouse-server:$dev" \
+                    --arg hobby "clickhouse/clickhouse-server:$hobby" \
+                    --arg local "clickhouse/clickhouse-server:$local_version" \
+                    '{
+                      production: $production,
+                      production_eu: $production_eu,
+                      production_us: $production_us,
+                      dev: $dev,
+                      hobby: $hobby,
+                      local: $local
+                    }' > .github/clickhouse-versions.json
+
+                  echo "Updated .github/clickhouse-versions.json:"
+                  cat .github/clickhouse-versions.json
+
+            - name: Check for changes
+              id: check-changes
+              run: |
+                  if git diff --quiet; then
+                    echo "changed=false" >> $GITHUB_OUTPUT
+                    echo "No changes detected"
+                  else
+                    echo "changed=true" >> $GITHUB_OUTPUT
+                    echo "Changes detected:"
+                    git diff --stat
+                  fi
+
+            - name: Create Pull Request
+              if: steps.check-changes.outputs.changed == 'true'
+              uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # v8.0.0
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  commit-message: 'chore(ci): sync ClickHouse versions from infra'
+                  title: 'chore(ci): sync ClickHouse versions from infra'
+                  body: |
+                      Automated sync of ClickHouse versions from posthog-cloud-infra.
+
+                      **Current versions:**
+                      | Environment | Version |
+                      |-------------|---------|
+                      | Production | `${{ steps.fetch-versions.outputs.production }}` |
+                      | Production EU | `${{ steps.fetch-versions.outputs.production_eu }}` |
+                      | Production US | `${{ steps.fetch-versions.outputs.production_us }}` |
+                      | Dev | `${{ steps.fetch-versions.outputs.dev }}` |
+                      | Hobby/Ansible | `${{ steps.fetch-versions.outputs.hobby }}` |
+                      | Local | `${{ steps.fetch-versions.outputs.local }}` |
+
+                      **Files updated:**
+                      - `.github/clickhouse-versions.json` - version definitions (source of truth)
+
+                      This PR was automatically created by the daily sync workflow.
+                  branch: chore/sync-clickhouse-versions
+                  base: master
+                  delete-branch: true
+                  labels: |
+                      automated
+                      infrastructure

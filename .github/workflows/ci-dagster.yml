@@ -60,6 +60,7 @@ jobs:
                         - 'products/**/*'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
+                        - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
@@ -68,13 +69,35 @@ jobs:
                         # These scripts are used in the CI
                         - bin/check_kafka_clickhouse_up
 
+    get-clickhouse-versions:
+        name: Get ClickHouse versions
+        needs: [changes]
+        if: needs.changes.outputs.dagster == 'true'
+        runs-on: ubuntu-latest
+        outputs:
+            production: ${{ steps.read-versions.outputs.production }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout-cone-mode: false
+            - name: Read ClickHouse versions from JSON
+              id: read-versions
+              run: |
+                  production=$(jq -r '.production' .github/clickhouse-versions.json)
+                  if [ -z "$production" ] || [ "$production" = "null" ]; then
+                    echo "::error::No production version found in .github/clickhouse-versions.json"
+                    exit 1
+                  fi
+                  echo "production=[\"$production\"]" >> $GITHUB_OUTPUT
+
     dagster:
         name: Dagster tests
-        needs: changes
+        needs: [changes, get-clickhouse-versions]
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
+                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.production) }}
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
         steps:
@@ -91,7 +114,7 @@ jobs:
 
             - name: Start stack with Docker Compose
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ matrix.clickhouse-server-image }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 

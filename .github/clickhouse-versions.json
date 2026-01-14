@@ -1,0 +1,8 @@
+{
+    "production": "clickhouse/clickhouse-server:25.3.6.56",
+    "production_eu": "clickhouse/clickhouse-server:25.3.6.56",
+    "production_us": "clickhouse/clickhouse-server:25.8.11.66",
+    "dev": "clickhouse/clickhouse-server:25.6.9.98",
+    "hobby": "clickhouse/clickhouse-server:25.8.12.129",
+    "local": "clickhouse/clickhouse-server:25.8.12.129"
+}

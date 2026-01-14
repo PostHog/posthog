@@ -103,6 +103,7 @@ jobs:
                         - common/plugin_transpiler/src # Used for transpiling plugins
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
+                        - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
@@ -479,7 +480,7 @@ jobs:
                   fi
 
     django:
-        needs: [changes, detect-snapshot-mode]
+        needs: [changes, detect-snapshot-mode, get-clickhouse-versions]
         if: needs.changes.outputs.backend == 'true'
         # increase for tmate testing
         timeout-minutes: 30
@@ -491,7 +492,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.12.12']
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
+                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.primary) }}
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
@@ -542,121 +543,101 @@ jobs:
                 include:
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 7
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 8
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 9
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 10
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 7
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 8
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 9
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 10
@@ -944,7 +925,7 @@ jobs:
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only upload timing data on main branch to avoid artifact bloat from PRs
-              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
+              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && contains(needs.get-clickhouse-versions.outputs.primary, matrix.clickhouse-server-image) }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -991,6 +972,76 @@ jobs:
                   name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
+
+    get-clickhouse-versions:
+        name: Get ClickHouse versions
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: ubuntu-latest
+        outputs:
+            # Primary version for main Django tests (JSON array for matrix)
+            primary: ${{ steps.read-versions.outputs.primary }}
+            # Primary version as plain string (for comparisons)
+            primary-image: ${{ steps.read-versions.outputs.primary-image }}
+            # All unique versions for compat tests
+            all: ${{ steps.read-versions.outputs.all }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout-cone-mode: false
+            - name: Read ClickHouse versions from JSON
+              id: read-versions
+              run: |
+                  # Primary version for main Django tests (use production, as JSON array for matrix)
+                  primary=$(jq -r '.production' .github/clickhouse-versions.json)
+                  if [ -z "$primary" ] || [ "$primary" = "null" ]; then
+                    echo "::error::No production version found in .github/clickhouse-versions.json"
+                    exit 1
+                  fi
+                  echo "primary=[\"$primary\"]" >> $GITHUB_OUTPUT
+                  echo "primary-image=$primary" >> $GITHUB_OUTPUT
+                  echo "Primary version for Django tests: $primary"
+
+                  # All unique versions for compat tests
+                  all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
+                  if [ "$all" = "[]" ] || [ -z "$all" ]; then
+                    echo "::error::No versions found in .github/clickhouse-versions.json"
+                    exit 1
+                  fi
+                  echo "all=$all" >> $GITHUB_OUTPUT
+                  echo "All versions for compat tests: $all"
+
+    clickhouse-compat:
+        name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
+        needs: [changes, get-clickhouse-versions]
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: depot-ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.all) }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 1
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+            - name: Run ClickHouse compat tests
+              uses: ./.github/actions/run-backend-tests
+              with:
+                  python-version: '3.12.12'
+                  clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
+                  segment: 'Core'
+                  concurrency: 1
+                  group: 1
+                  person-on-events: false
+                  pytest-targets: 'posthog/clickhouse ee/clickhouse'
+                  primary-clickhouse-image: ${{ needs.get-clickhouse-versions.outputs.primary-image }}
 
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
@@ -1064,7 +1115,7 @@ jobs:
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
-        needs: [django, check-migrations, async-migrations, handle-snapshots]
+        needs: [django, clickhouse-compat, check-migrations, async-migrations, handle-snapshots]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -1075,6 +1126,11 @@ jobs:
                   # Otherwise, it will be 'failure'.
                   if [[ "${{ needs.django.result }}" != "success" && "${{ needs.django.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the Django test matrix failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.clickhouse-compat.result }}" != "success" && "${{ needs.clickhouse-compat.result }}" != "skipped" ]]; then
+                    echo "ClickHouse compat tests failed."
                     exit 1
                   fi
 
@@ -1100,11 +1156,11 @@ jobs:
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
-        needs: [changes]
+        needs: [changes, get-clickhouse-versions]
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
+                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.primary) }}
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         steps:

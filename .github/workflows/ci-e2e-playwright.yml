@@ -92,12 +92,35 @@ jobs:
                         # Make sure we run if someone is explicitly changes the workflow
                         - .github/workflows/ci-e2e-playwright.yml
                         - .github/actions/build-n-cache-image/action.yml
+                        - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
                         - Dockerfile
                         - playwright/**
+
+    get-clickhouse-versions:
+        name: Get ClickHouse versions
+        needs: [changes]
+        if: needs.changes.outputs.shouldRun == 'true'
+        runs-on: ubuntu-latest
+        outputs:
+            production: ${{ steps.read-versions.outputs.production }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout-cone-mode: false
+            - name: Read ClickHouse versions from JSON
+              id: read-versions
+              run: |
+                  production=$(jq -r '.production' .github/clickhouse-versions.json)
+                  if [ -z "$production" ] || [ "$production" = "null" ]; then
+                    echo "::error::No production version found in .github/clickhouse-versions.json"
+                    exit 1
+                  fi
+                  echo "production=$production" >> $GITHUB_OUTPUT
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -127,7 +150,7 @@ jobs:
 
     playwright:
         name: Playwright E2E tests
-        needs: [changes, detect-snapshot-mode]
+        needs: [changes, detect-snapshot-mode, get-clickhouse-versions]
         if: needs.changes.outputs.shouldRun == 'true'
         runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
@@ -146,7 +169,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
+                  export CLICKHOUSE_SERVER_IMAGE=${{ needs.get-clickhouse-versions.outputs.production }}
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
