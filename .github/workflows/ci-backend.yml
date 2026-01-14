@@ -673,7 +673,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get-clickhouse-versions.outputs.primary-image }}
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
@@ -1177,7 +1177,7 @@ jobs:
 
             - name: Start stack with Docker Compose
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ matrix.clickhouse-server-image }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get-clickhouse-versions.outputs.primary-image }}
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d &
 
