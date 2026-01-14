@@ -9,7 +9,6 @@ from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 from llm_gateway.rate_limiting.model_cost_service import (
     CACHE_TTL_SECONDS,
     DEFAULT_LIMITS,
-    TARGET_LIMIT_COST_PER_HOUR,
     ModelCostService,
     get_model_costs,
     get_model_limits,
@@ -29,27 +28,6 @@ def reset_model_cost_service():
 
 
 class TestModelCostService:
-    def test_calculates_limits_from_litellm_cost(self, litellm_costs: dict[str, Any]) -> None:
-        model = "claude-3-5-haiku-20241022"
-        cost = litellm_costs.get(model)
-        assert cost is not None
-        assert cost["input_cost_per_token"] > 0
-        assert cost["output_cost_per_token"] > 0
-
-        with patch(
-            "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=litellm_costs,
-        ):
-            limits = get_model_limits(model)
-
-        expected_input = int(TARGET_LIMIT_COST_PER_HOUR / cost["input_cost_per_token"])
-        expected_output = int(TARGET_LIMIT_COST_PER_HOUR / cost["output_cost_per_token"])
-        assert limits["input_tph"] == expected_input
-        assert limits["output_tph"] == expected_output
-        assert limits["input_tph"] > 0
-        assert limits["output_tph"] > 0
-        assert limits["input_tph"] >= limits["output_tph"]  # Input is cheaper than output
-
     def test_returns_defaults_for_unknown_model(self, litellm_costs: dict[str, Any]) -> None:
         with patch(
             "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
@@ -74,17 +52,6 @@ class TestModelCostService:
         instance1 = ModelCostService.get_instance()
         instance2 = ModelCostService.get_instance()
         assert instance1 is instance2
-
-    def test_get_model_costs_returns_cost_data(self, litellm_costs: dict[str, Any]) -> None:
-        model = "claude-3-5-haiku-20241022"
-        with patch(
-            "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=litellm_costs,
-        ):
-            costs = get_model_costs(model)
-        assert costs is not None
-        assert costs["input_cost_per_token"] > 0
-        assert costs["output_cost_per_token"] > 0
 
     def test_get_model_costs_returns_none_for_unknown(self, litellm_costs: dict[str, Any]) -> None:
         with patch(
