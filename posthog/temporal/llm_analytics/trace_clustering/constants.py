@@ -20,6 +20,8 @@ DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-clustering"
+COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"
+COORDINATOR_SCHEDULE_ID = "llma-trace-clustering-coordinator-schedule"
 
 # Activity timeouts (per activity type)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
@@ -75,7 +77,7 @@ ALLOWED_TEAM_IDS: list[int] = [
 ]
 
 # Cluster labeling agent configuration
-LABELING_AGENT_MODEL = "claude-sonnet-4-5"  # Claude Sonnet 4.5 for reasoning
+LABELING_AGENT_MODEL = "gpt-5.1"  # OpenAI GPT-5.1 for reasoning
 LABELING_AGENT_MAX_ITERATIONS = 50  # Max agent iterations before forced finalization
 LABELING_AGENT_RECURSION_LIMIT = 150  # LangGraph recursion limit (> 2 * max_iterations)
 LABELING_AGENT_TIMEOUT = 600.0  # 10 minutes for full agent run

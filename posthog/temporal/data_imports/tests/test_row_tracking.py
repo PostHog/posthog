@@ -78,7 +78,7 @@ class TestRowTracking(BaseTest):
             return will_hit_billing_limit(team_id=self.team.pk, source=source, logger=self._logger())
 
     def _create_source(self) -> ExternalDataSource:
-        with freeze_time(datetime(2023, 12, 20)):
+        with freeze_time(datetime(2023, 12, 1)):
             return ExternalDataSource.objects.create(team=self.team)
 
     def test_row_tracking(self):
@@ -97,6 +97,21 @@ class TestRowTracking(BaseTest):
         )
 
         assert self._run(source, 10) is True
+
+    def test_row_tracking_with_free_rows(self):
+        source = self._create_source()
+        ExternalDataJob.objects.create(
+            team=self.team,
+            rows_synced=11,
+            pipeline=source,
+            finished_at=datetime(2023, 12, 2),
+            billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+        )
+
+        # 11 rows were during the free sync period and so we've not hit the 10 row limit yet
+
+        assert self._run(source, 10) is False
 
     def test_row_tracking_with_previous_incomplete_jobs(self):
         source = self._create_source()

@@ -1,29 +1,12 @@
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { NodeEventCapture } from '@posthog/shared-onboarding/product-analytics/_snippets/node-event-capture'
+import { NodeJSInstallation } from '@posthog/shared-onboarding/product-analytics/nodejs'
 
-import { SDKInstallNodeInstructions } from '../sdk-install-instructions'
-
-function NodeCaptureSnippet(): JSX.Element {
-    return (
-        <CodeSnippet language={Language.JavaScript}>
-            {`client.capture({
-    distinctId: 'test-id',
-    event: 'test-event'
-})
-
-// Send queued events immediately. Use for example in a serverless environment
-// where the program may terminate before everything is sent.
-// Use \`client.flush()\` instead if you still need to send more events or fetch feature flags.
-client.shutdown()`}
-        </CodeSnippet>
-    )
-}
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export function ProductAnalyticsNodeInstructions(): JSX.Element {
     return (
-        <>
-            <SDKInstallNodeInstructions />
-            <h3>Send an Event</h3>
-            <NodeCaptureSnippet />
-        </>
+        <OnboardingDocsContentWrapper snippets={{ NodeEventCapture }}>
+            <NodeJSInstallation />
+        </OnboardingDocsContentWrapper>
     )
 }

@@ -1,4 +1,1311 @@
 # serializer version: 1
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_0_no_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_0_no_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%posthog%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_0_no_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_0_no_mat_col.3
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), ''), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_0_no_mat_col.4
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_1_nullable_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, %(hogql_val_0)s), events.mat_test_prop IS NOT NULL))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_1_nullable_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%posthog%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_1_nullable_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%null%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_1_nullable_mat_col.3
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, ''), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_1_nullable_mat_col.4
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_2_non_nullable_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), ilike(events.mat_test_prop, %(hogql_val_0)s))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_2_non_nullable_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ilike(events.mat_test_prop, '%posthog%'))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_2_non_nullable_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_2_non_nullable_mat_col.3
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), ''), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_returns_correct_results_2_non_nullable_mat_col.4
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_with_sentinel_patterns_0_no_mat_col
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_with_sentinel_patterns_0_no_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), ''), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_with_sentinel_patterns_0_no_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_with_sentinel_patterns_1_nullable_mat_col
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%null%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_with_sentinel_patterns_1_nullable_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, ''), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_ilike_with_sentinel_patterns_1_nullable_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_0_no_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_0_no_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%PostHog%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_0_no_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%posthog%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_0_no_mat_col.3
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_0_no_mat_col.4
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%NULL%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_1_nullable_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), and(like(events.mat_test_prop, %(hogql_val_0)s), events.mat_test_prop IS NOT NULL))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_1_nullable_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(like(events.mat_test_prop, '%PostHog%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_1_nullable_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(like(events.mat_test_prop, '%posthog%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_1_nullable_mat_col.3
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(like(events.mat_test_prop, '%null%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_1_nullable_mat_col.4
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(like(events.mat_test_prop, '%NULL%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_2_non_nullable_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), like(events.mat_test_prop, %(hogql_val_0)s))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_2_non_nullable_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), like(events.mat_test_prop, '%PostHog%'))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_2_non_nullable_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), like(events.mat_test_prop, '%posthog%'))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_2_non_nullable_mat_col.3
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_returns_correct_results_2_non_nullable_mat_col.4
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), like(events.mat_test_prop, '%NULL%'))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_with_sentinel_patterns_0_no_mat_col
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_with_sentinel_patterns_0_no_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%NULL%'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_with_sentinel_patterns_1_nullable_mat_col
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(like(events.mat_test_prop, '%null%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_like_with_sentinel_patterns_1_nullable_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(like(events.mat_test_prop, '%NULL%'), events.mat_test_prop IS NOT NULL))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_returns_correct_results_0_no_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), ifNull(notILike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 1))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_returns_correct_results_0_no_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%posthog%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_returns_correct_results_0_no_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_returns_correct_results_1_nullable_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), ifNull(notILike(events.mat_test_prop, %(hogql_val_0)s), 1))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_returns_correct_results_1_nullable_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(events.mat_test_prop, '%posthog%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_returns_correct_results_1_nullable_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(events.mat_test_prop, '%null%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_returns_correct_results_2_non_nullable_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), notILike(events.mat_test_prop, %(hogql_val_0)s))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_returns_correct_results_2_non_nullable_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), notILike(events.mat_test_prop, '%posthog%'))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_returns_correct_results_2_non_nullable_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_with_sentinel_patterns_0_no_mat_col
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_ilike_with_sentinel_patterns_1_nullable_mat_col
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(events.mat_test_prop, '%null%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_returns_correct_results_0_no_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), ifNull(notLike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 1))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_returns_correct_results_0_no_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notLike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%PostHog%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_returns_correct_results_0_no_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notLike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_returns_correct_results_1_nullable_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), ifNull(notLike(events.mat_test_prop, %(hogql_val_0)s), 1))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_returns_correct_results_1_nullable_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notLike(events.mat_test_prop, '%PostHog%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_returns_correct_results_1_nullable_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notLike(events.mat_test_prop, '%null%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_returns_correct_results_2_non_nullable_mat_col
+  '''
+  SELECT
+      events.distinct_id AS distinct_id
+  FROM
+      events
+  WHERE
+      and(equals(events.team_id, 99999), notLike(events.mat_test_prop, %(hogql_val_0)s))
+  ORDER BY
+      events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_returns_correct_results_2_non_nullable_mat_col.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), notLike(events.mat_test_prop, '%PostHog%'))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_returns_correct_results_2_non_nullable_mat_col.2
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notLike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_with_sentinel_patterns_0_no_mat_col
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notLike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '%null%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_not_like_with_sentinel_patterns_1_nullable_mat_col
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notLike(events.mat_test_prop, '%null%'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_optimization_returns_correct_results_0_nullable
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (equals(events.mat_test_prop, 'target_value')
+                                            AND (events.mat_test_prop IS NOT NULL)))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_optimization_returns_correct_results_0_nullable.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notEquals(events.mat_test_prop, 'target_value'), 1))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_optimization_returns_correct_results_1_not_nullable
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), equals(events.mat_test_prop, 'target_value'))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_materialized_column_optimization_returns_correct_results_1_not_nullable.1
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), notEquals(events.mat_test_prop, 'target_value'))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_person_property_is_not_set_behavior_0_materialized_joined
+  '''
+  SELECT events.distinct_id AS distinct_id,
+         events__person.properties___email AS email_value,
+         isNull(events__person.properties___email) AS is_not_set_result,
+         or(isNull(events__person.properties___email), not(JSONHas(events__person.properties, 'email'))) AS is_not_set_result_historical
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  LEFT JOIN
+    (SELECT person.id AS id,
+            nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email,
+            person.properties AS properties
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))
+  ORDER BY distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_person_property_is_not_set_behavior_1_materialized_on_events
+  '''
+  SELECT events.distinct_id AS distinct_id,
+         nullIf(nullIf(events.mat_pp_email, ''), 'null') AS email_value,
+         isNull(nullIf(nullIf(events.mat_pp_email, ''), 'null')) AS is_not_set_result,
+         or(isNull(nullIf(nullIf(events.mat_pp_email, ''), 'null')), not(JSONHas(events.person_properties, 'email'))) AS is_not_set_result_historical
+  FROM events
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))
+  ORDER BY distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_person_property_is_not_set_behavior_2_not_materialized_joined
+  '''
+  SELECT events.distinct_id AS distinct_id,
+         events__person.properties___email AS email_value,
+         isNull(events__person.properties___email) AS is_not_set_result,
+         or(isNull(events__person.properties___email), not(JSONHas(events__person.properties, 'email'))) AS is_not_set_result_historical
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  LEFT JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            person.properties AS properties
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))
+  ORDER BY distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestMaterializedColumnOptimization.test_person_property_is_not_set_behavior_3_not_materialized_on_events
+  '''
+  SELECT events.distinct_id AS distinct_id,
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '') AS email_value,
+         isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')) AS is_not_set_result,
+         or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), not(JSONHas(events.person_properties, 'email'))) AS is_not_set_result_historical
+  FROM events
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))
+  ORDER BY distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestPrinter.test_large_pretty_print
   '''
   SELECT

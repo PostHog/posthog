@@ -142,7 +142,10 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeType,
             knownStartingPosition,
         }),
-        addSavedInsightToNotebook: (insightShortId: InsightShortId) => ({ insightShortId }),
+        addSavedInsightToNotebook: (insightShortId: InsightShortId, insertionPosition: number | null = null) => ({
+            insightShortId,
+            insertionPosition,
+        }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
@@ -620,8 +623,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             )
         },
-        addSavedInsightToNotebook: async ({ insightShortId }) => {
-            actions.insertAfterLastNode({
+        addSavedInsightToNotebook: async ({ insightShortId, insertionPosition }) => {
+            const content = {
                 type: NotebookNodeType.Query,
                 attrs: {
                     query: {
@@ -629,7 +632,13 @@ export const notebookLogic = kea<notebookLogicType>([
                         shortId: insightShortId,
                     },
                 },
-            })
+            }
+
+            if (insertionPosition !== null) {
+                values.editor?.insertContentAt(insertionPosition, content)
+            } else {
+                actions.insertAfterLastNode(content)
+            }
             lemonToast.success('Insight added to notebook')
         },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {

@@ -5,6 +5,7 @@ import { BatchExportService } from '~/types'
 import IconWorkflows from 'public/hedgehog/mail-hog.png'
 import IconHTTP from 'public/hedgehog/running-hog.png'
 import IconS3 from 'public/services/aws-s3.png'
+import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBigQuery from 'public/services/bigquery.png'
 import IconDatabricks from 'public/services/databricks.png'
 import IconPostgres from 'public/services/postgres.png'
@@ -16,6 +17,7 @@ export function getBatchExportUrl(service: BatchExportService['type']): string {
 }
 
 export const BATCH_EXPORT_ICON_MAP: Record<BatchExportService['type'], string> = {
+    AzureBlob: IconAzureBlob,
     BigQuery: IconBigQuery,
     Postgres: IconPostgres,
     Redshift: IconRedshift,

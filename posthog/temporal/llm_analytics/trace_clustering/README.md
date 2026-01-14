@@ -140,7 +140,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 
 **Activity 2 (Label)** - LangGraph agent:
 
-- Runs a multi-turn LangGraph agent powered by Claude Sonnet 4 (`claude-sonnet-4-20250514`)
+- Runs a multi-turn LangGraph agent powered by OpenAI GPT-5.1 (`gpt-5.1`)
 - Agent explores clusters using tools (overview, trace titles, trace details)
 - Iteratively generates distinctive labels for each cluster
 - Ensures labels differentiate clusters from each other
@@ -187,7 +187,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 **`labeling_agent/`** - LangGraph agent for cluster labeling:
 
 - Multi-turn agent that explores clusters and generates distinctive labels
-- Uses Claude Sonnet 4 with 6 tools for cluster exploration
+- Uses OpenAI GPT-5.1 with 6 tools for cluster exploration
 - See `labeling_agent/README.md` for detailed architecture
 
 **`event_emission.py`** - Event building and emission:
@@ -314,7 +314,7 @@ if results:
 
 ### Scheduled Execution
 
-The coordinator workflow (`trace-clustering-coordinator`) runs on a schedule and:
+The coordinator workflow (`llma-trace-clustering-coordinator`) runs on a schedule and:
 
 1. Processes teams from the `ALLOWED_TEAM_IDS` allowlist
 2. Spawns clustering workflow for each team in parallel
@@ -336,26 +336,27 @@ To add new teams, simply add their IDs to this list.
 
 Key constants in `constants.py`:
 
-| Constant                            | Default                    | Description                                   |
-| ----------------------------------- | -------------------------- | --------------------------------------------- |
-| `WORKFLOW_NAME`                     | llma-trace-clustering      | Temporal workflow name                        |
-| `DEFAULT_LOOKBACK_DAYS`             | 7                          | Days of trace history to analyze              |
-| `DEFAULT_MAX_SAMPLES`               | 1000                       | Maximum traces to sample                      |
-| `MIN_TRACES_FOR_CLUSTERING`         | 20                         | Minimum traces required for workflow          |
-| `COMPUTE_ACTIVITY_TIMEOUT`          | 120s                       | Clustering compute timeout                    |
-| `EMIT_ACTIVITY_TIMEOUT`             | 60s                        | Event emission timeout                        |
-| `LABELING_AGENT_MODEL`              | claude-sonnet-4-20250514   | Claude model for labeling agent               |
-| `LABELING_AGENT_MAX_ITERATIONS`     | 50                         | Max agent iterations before finalization      |
-| `LABELING_AGENT_RECURSION_LIMIT`    | 150                        | LangGraph recursion limit                     |
-| `LABELING_AGENT_TIMEOUT`            | 600.0                      | Full agent run timeout (seconds)              |
-| `DEFAULT_HDBSCAN_MIN_SAMPLES`       | 5                          | Min samples for HDBSCAN core points           |
-| `DEFAULT_MIN_CLUSTER_SIZE_FRACTION` | 0.01                       | Min cluster size as fraction of total samples |
-| `DEFAULT_UMAP_N_COMPONENTS`         | 100                        | UMAP dimensions for clustering                |
-| `DEFAULT_UMAP_N_NEIGHBORS`          | 15                         | UMAP neighborhood size                        |
-| `DEFAULT_UMAP_MIN_DIST`             | 0.0                        | UMAP min distance (tighter for clustering)    |
-| `NOISE_CLUSTER_ID`                  | -1                         | HDBSCAN noise/outlier cluster ID              |
-| `LLMA_TRACE_DOCUMENT_TYPE`          | llm-trace-summary-detailed | Document type filter for embeddings           |
-| `ALLOWED_TEAM_IDS`                  | [1, 2, 112495]             | Teams to process (allowlist approach)         |
+| Constant                            | Default                           | Description                                   |
+| ----------------------------------- | --------------------------------- | --------------------------------------------- |
+| `WORKFLOW_NAME`                     | llma-trace-clustering             | Temporal workflow name                        |
+| `COORDINATOR_WORKFLOW_NAME`         | llma-trace-clustering-coordinator | Temporal coordinator workflow name            |
+| `DEFAULT_LOOKBACK_DAYS`             | 7                                 | Days of trace history to analyze              |
+| `DEFAULT_MAX_SAMPLES`               | 1000                              | Maximum traces to sample                      |
+| `MIN_TRACES_FOR_CLUSTERING`         | 20                                | Minimum traces required for workflow          |
+| `COMPUTE_ACTIVITY_TIMEOUT`          | 120s                              | Clustering compute timeout                    |
+| `EMIT_ACTIVITY_TIMEOUT`             | 60s                               | Event emission timeout                        |
+| `LABELING_AGENT_MODEL`              | gpt-5.1                           | OpenAI model for labeling agent               |
+| `LABELING_AGENT_MAX_ITERATIONS`     | 50                                | Max agent iterations before finalization      |
+| `LABELING_AGENT_RECURSION_LIMIT`    | 150                               | LangGraph recursion limit                     |
+| `LABELING_AGENT_TIMEOUT`            | 600.0                             | Full agent run timeout (seconds)              |
+| `DEFAULT_HDBSCAN_MIN_SAMPLES`       | 5                                 | Min samples for HDBSCAN core points           |
+| `DEFAULT_MIN_CLUSTER_SIZE_FRACTION` | 0.01                              | Min cluster size as fraction of total samples |
+| `DEFAULT_UMAP_N_COMPONENTS`         | 100                               | UMAP dimensions for clustering                |
+| `DEFAULT_UMAP_N_NEIGHBORS`          | 15                                | UMAP neighborhood size                        |
+| `DEFAULT_UMAP_MIN_DIST`             | 0.0                               | UMAP min distance (tighter for clustering)    |
+| `NOISE_CLUSTER_ID`                  | -1                                | HDBSCAN noise/outlier cluster ID              |
+| `LLMA_TRACE_DOCUMENT_TYPE`          | llm-trace-summary-detailed        | Document type filter for embeddings           |
+| `ALLOWED_TEAM_IDS`                  | [1, 2, 112495]                    | Teams to process (allowlist approach)         |
 
 ## Processing Flow
 
@@ -419,7 +420,7 @@ Test coverage:
 - **hdbscan**: Density-based clustering algorithm
 - **umap-learn**: Dimensionality reduction for clustering and visualization
 - **numpy**: Vector operations and distance calculations
-- **langchain-anthropic**: Claude API integration for labeling agent
+- **langchain-openai**: OpenAI API integration for labeling agent
 - **langgraph**: Agent orchestration framework
 - **Temporal**: Workflow orchestration
 

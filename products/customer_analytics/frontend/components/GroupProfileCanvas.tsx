@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -11,6 +12,7 @@ import { AnyPropertyFilter, CustomerProfileScope, Group, PropertyFilterType, Pro
 
 import { customerProfileLogic } from '../customerProfileLogic'
 import { CustomerProfileMenu } from './CustomerProfileMenu'
+import { FeedbackBanner } from './FeedbackBanner'
 
 interface GroupProfileCanvasProps {
     group: Group
@@ -25,11 +27,15 @@ export const GroupProfileCanvas = ({ group, tabId }: GroupProfileCanvasProps): J
     const groupTypeIndex = group.group_type_index
     const mode = 'canvas'
     const shortId = `${mode}-${groupKey}-${tabId}`
-    const customerProfileLogicProps = {
-        attrs: {
+    const attrs = useMemo(
+        () => ({
             groupKey,
             groupTypeIndex,
-        },
+        }),
+        [groupKey, groupTypeIndex]
+    )
+    const customerProfileLogicProps = {
+        attrs,
         scope: CustomerProfileScope[`GROUP_${groupTypeIndex}`],
         key: `customer-profile-${groupKey}-${tabId}`,
         canvasShortId: shortId,
@@ -54,9 +60,11 @@ export const GroupProfileCanvas = ({ group, tabId }: GroupProfileCanvasProps): J
         <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: groupFilter }}>
             <BindLogic logic={groupLogic} props={{ groupKey, groupTypeIndex, tabId }}>
                 <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
-                    <div className="flex items-start">
-                        <CustomerProfileMenu />
-                    </div>
+                    <FeedbackBanner
+                        feedbackButtonId="group-profile"
+                        message="We're improving the groups experience. Send us your feedback!"
+                    />
+                    <CustomerProfileMenu />
                     <Notebook
                         editable={false}
                         shortId={shortId}

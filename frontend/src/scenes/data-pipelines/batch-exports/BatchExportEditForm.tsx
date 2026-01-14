@@ -293,9 +293,14 @@ export function BatchExportsEditFields({
                             name="endpoint_url"
                             label="Endpoint URL"
                             showOptional
-                            info={<>Only required if exporting to an S3-compatible blob storage (like MinIO)</>}
+                            info={
+                                <>
+                                    Only required if exporting to an S3-compatible blob storage (like Google Cloud
+                                    Storage, Cloudflare R2, MinIO, or others)
+                                </>
+                            }
                         >
-                            <LemonInput placeholder={isNew ? 'e.g. https://your-minio-host:9000' : 'Leave unchanged'} />
+                            <LemonInput placeholder={isNew ? 'e.g. https://your-minio-host:9000' : ''} />
                         </LemonField>
 
                         <LemonField
@@ -730,6 +735,130 @@ export function BatchExportsEditFields({
                                 )}
                             </LemonField>
                         ) : null}
+                    </>
+                ) : batchExportConfigForm.destination === 'AzureBlob' ? (
+                    <>
+                        <LemonField name="integration_id" label="Azure connection">
+                            {({ value, onChange }) => (
+                                <IntegrationChoice integration="azure-blob" value={value} onChange={onChange} />
+                            )}
+                        </LemonField>
+
+                        <LemonField
+                            name="container_name"
+                            label="Container name"
+                            info={
+                                <>
+                                    The name of the Azure Blob Storage container where data will be exported. The
+                                    container must already exist.
+                                </>
+                            }
+                        >
+                            <LemonInput placeholder="my-export-container" />
+                        </LemonField>
+
+                        <LemonField
+                            name="prefix"
+                            label="Blob prefix"
+                            showOptional
+                            info={
+                                <>
+                                    Optional prefix for blob names. Supports template variables: {'{year}'}, {'{month}'}
+                                    , {'{day}'}, {'{hour}'}, {'{minute}'}, {'{data_interval_start}'},{' '}
+                                    {'{data_interval_end}'}.
+                                </>
+                            }
+                        >
+                            <LemonInput placeholder="posthog/events/" />
+                        </LemonField>
+
+                        <div className="flex gap-4">
+                            <LemonField
+                                name="file_format"
+                                label="Format"
+                                className="flex-1"
+                                info="We recommend Parquet with zstd compression for the best performance"
+                            >
+                                <LemonSelect
+                                    options={[
+                                        { value: 'Parquet', label: 'Apache Parquet' },
+                                        { value: 'JSONLines', label: 'JSON lines' },
+                                    ]}
+                                />
+                            </LemonField>
+
+                            <LemonField
+                                name="max_file_size_mb"
+                                label="Max file size (MiB)"
+                                showOptional
+                                className="flex-1"
+                                info={
+                                    <>
+                                        Files over this max file size will be split into multiple files. Leave empty or
+                                        set to 0 for no splitting regardless of file size.
+                                    </>
+                                }
+                            >
+                                <LemonInput type="number" min={0} />
+                            </LemonField>
+                        </div>
+
+                        <LemonField name="compression" label="Compression">
+                            {({ value, onChange }) => {
+                                const parquetCompressionOptions = [
+                                    { value: 'zstd', label: 'zstd' },
+                                    { value: 'lz4', label: 'lz4' },
+                                    { value: 'snappy', label: 'snappy' },
+                                    { value: 'gzip', label: 'gzip' },
+                                    { value: 'brotli', label: 'brotli' },
+                                    { value: null, label: 'No compression' },
+                                ]
+                                const jsonLinesCompressionOptions = [
+                                    { value: 'gzip', label: 'gzip' },
+                                    { value: 'brotli', label: 'brotli' },
+                                    { value: null, label: 'No compression' },
+                                ]
+                                const compressionOptions =
+                                    batchExportConfigForm.file_format === 'Parquet'
+                                        ? parquetCompressionOptions
+                                        : batchExportConfigForm.file_format === 'JSONLines'
+                                          ? jsonLinesCompressionOptions
+                                          : []
+
+                                const isSelectedCompressionOptionValid = (val: string | null): boolean => {
+                                    if (batchExportConfigForm.file_format === 'Parquet') {
+                                        return parquetCompressionOptions.some((option) => option.value === val)
+                                    } else if (batchExportConfigForm.file_format === 'JSONLines') {
+                                        return jsonLinesCompressionOptions.some((option) => option.value === val)
+                                    }
+                                    return false
+                                }
+
+                                React.useEffect(() => {
+                                    if (!configurationChanged) {
+                                        return
+                                    }
+                                    if (isNew && batchExportConfigForm.file_format === 'JSONLines') {
+                                        onChange(null)
+                                    } else if (isNew && batchExportConfigForm.file_format === 'Parquet') {
+                                        onChange('zstd')
+                                    } else if (!isSelectedCompressionOptionValid(value)) {
+                                        onChange(null)
+                                    }
+                                }, [configurationChanged, batchExportConfigForm.file_format, isNew]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+                                return (
+                                    <LemonSelect
+                                        options={compressionOptions}
+                                        value={value}
+                                        onChange={onChange}
+                                        placeholder={
+                                            !batchExportConfigForm.file_format ? 'Select file format first' : undefined
+                                        }
+                                    />
+                                )
+                            }}
+                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'HTTP' ? (
                     <>

@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -52,6 +53,137 @@ from posthog.utils import get_from_dict_or_attr
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+
+
+def parse_semver(value: str) -> tuple[str, str, str]:
+    """
+    Parse a semver string into (major, minor, patch) components.
+
+    - Strips pre-release suffixes (e.g., -alpha.1)
+    - Defaults missing components to "0" (e.g., 1.0 -> 1.0.0)
+
+    Returns tuple of strings for direct use in version string construction.
+    Raises ValueError if parsing fails.
+    """
+    # Strip pre-release suffix (everything after first hyphen)
+    base_version = value.split("-")[0]
+
+    parts = base_version.split(".")
+    if len(parts) < 1 or not parts[0]:
+        raise ValueError("Invalid semver format")
+
+    major = parts[0]
+    minor = parts[1] if len(parts) > 1 else "0"
+    patch = parts[2] if len(parts) > 2 else "0"
+
+    # Validate they're actually integers
+    int(major), int(minor), int(patch)
+
+    return (major, minor, patch)
+
+
+def semver_range_compare(
+    expr: ast.Expr,
+    value: ast.Any,
+    operator_name: str,
+    bounds_calculator: Callable[[str], tuple[str, str]],
+) -> ast.And:
+    """
+    Build a semver range comparison AST (lower_bound <= expr < upper_bound).
+
+    Args:
+        expr: The expression to compare (e.g., person.properties.app_version)
+        value: The semver value from the filter
+        operator_name: Name for error messages (e.g., "Tilde", "Caret", "Wildcard")
+        bounds_calculator: Function that takes the value and returns (lower_bound, upper_bound)
+
+    Returns:
+        AST node representing: sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
+    """
+    if not isinstance(value, str):
+        raise QueryError(f"{operator_name} operator requires a semver string value")
+
+    try:
+        lower_bound, upper_bound = bounds_calculator(value)
+    except (ValueError, IndexError):
+        raise QueryError(f"{operator_name} operator requires a valid semver string (e.g., '1.2.3')")
+
+    return ast.And(
+        exprs=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=lower_bound)]),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=upper_bound)]),
+            ),
+        ]
+    )
+
+
+def _tilde_bounds(value: str) -> tuple[str, str]:
+    """~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)"""
+    parts = value.split("-")[0].split(".")
+    if len(parts) < 2:
+        raise ValueError("Tilde operator requires at least major.minor version")
+    major, minor, patch = parse_semver(value)
+    next_minor = str(int(minor) + 1)
+    return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
+
+
+def _caret_bounds(value: str) -> tuple[str, str]:
+    """
+    Caret operator follows semver spec:
+    ^1.2.3 means >=1.2.3 <2.0.0
+    ^0.2.3 means >=0.2.3 <0.3.0
+    ^0.0.3 means >=0.0.3 <0.0.4
+    The leftmost non-zero component determines the upper bound.
+    """
+    major, minor, patch = parse_semver(value)
+    lower_bound = f"{major}.{minor}.{patch}"
+
+    if int(major) > 0:
+        upper_bound = f"{int(major) + 1}.0.0"
+    elif int(minor) > 0:
+        upper_bound = f"0.{int(minor) + 1}.0"
+    else:
+        upper_bound = f"0.0.{int(patch) + 1}"
+
+    return lower_bound, upper_bound
+
+
+def _wildcard_bounds(value: str) -> tuple[str, str]:
+    """
+    Wildcard matching:
+    1.* means >=1.0.0 <2.0.0
+    1.2.* means >=1.2.0 <1.3.0
+    1.2.3.* means >=1.2.3.0 <1.2.4.0
+    """
+    # Remove trailing .* if present
+    value = value.rstrip(".*")
+    if not value:
+        raise ValueError("Invalid wildcard pattern")
+
+    # Strip pre-release suffix before counting parts
+    base_value = value.split("-")[0]
+    parts = base_value.split(".")
+
+    if len(parts) == 1:
+        major = parts[0]
+        int(major)  # Validate
+        return f"{major}.0.0", f"{int(major) + 1}.0.0"
+    elif len(parts) == 2:
+        major, minor = parts[0], parts[1]
+        int(major), int(minor)  # Validate
+        return f"{major}.{minor}.0", f"{major}.{int(minor) + 1}.0"
+    else:
+        major, minor, patch = parts[0], parts[1], parts[2]
+        int(major), int(minor), int(patch)  # Validate
+        return f"{major}.{minor}.{patch}.0", f"{major}.{minor}.{int(patch) + 1}.0"
+
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
 
@@ -270,6 +402,48 @@ def _expr_to_compare_op(
             raise Exception("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
         return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
+    elif operator == PropertyOperator.SEMVER_EQ:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_NEQ:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_GT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_GTE:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_LT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_LTE:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_TILDE:
+        return semver_range_compare(expr, value, "Tilde", _tilde_bounds)
+    elif operator == PropertyOperator.SEMVER_CARET:
+        return semver_range_compare(expr, value, "Caret", _caret_bounds)
+    elif operator == PropertyOperator.SEMVER_WILDCARD:
+        return semver_range_compare(expr, value, "Wildcard", _wildcard_bounds)
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
