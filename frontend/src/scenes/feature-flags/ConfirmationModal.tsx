@@ -104,7 +104,11 @@ export function openConfirmationModal({
                             {dependentFlags.map((flag, index) => (
                                 <span key={flag.id}>
                                     {index > 0 && (index === dependentFlags.length - 1 ? ' and ' : ', ')}
-                                    <Link to={urls.featureFlag(flag.id)} target="_blank">
+                                    <Link
+                                        to={urls.featureFlag(flag.id)}
+                                        target="_blank"
+                                        aria-label={`Open ${flag.key}`}
+                                    >
                                         <strong>{flag.key}</strong>
                                     </Link>
                                 </span>
