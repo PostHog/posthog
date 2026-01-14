@@ -251,7 +251,7 @@ RUN apt-get update && \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "gettext-base" \
-    "ffmpeg=7:5.1.7-0+deb12u1" \
+    "ffmpeg=7:5.1.8-0+deb12u1" \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \

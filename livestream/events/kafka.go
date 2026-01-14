@@ -277,12 +277,12 @@ func (c *PostHogKafkaConsumer) IncomingRatio() float64 {
 
 func applyKafkaConfigOverrides(config *kafka.ConfigMap, kafkaConfig configs.KafkaConfig) {
 	if kafkaConfig.SessionTimeoutMs > 0 {
-		config.SetKey("session.timeout.ms", kafkaConfig.SessionTimeoutMs)
+		_ = config.SetKey("session.timeout.ms", kafkaConfig.SessionTimeoutMs)
 	}
 	if kafkaConfig.HeartbeatIntervalMs > 0 {
-		config.SetKey("heartbeat.interval.ms", kafkaConfig.HeartbeatIntervalMs)
+		_ = config.SetKey("heartbeat.interval.ms", kafkaConfig.HeartbeatIntervalMs)
 	}
 	if kafkaConfig.MaxPollIntervalMs > 0 {
-		config.SetKey("max.poll.interval.ms", kafkaConfig.MaxPollIntervalMs)
+		_ = config.SetKey("max.poll.interval.ms", kafkaConfig.MaxPollIntervalMs)
 	}
 }
