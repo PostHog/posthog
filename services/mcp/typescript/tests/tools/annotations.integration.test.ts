@@ -26,7 +26,8 @@ describe('Annotations', { concurrent: false }, () => {
         insights: [],
         dashboards: [],
         surveys: [],
-        annotations: [],
+        actions: [],
+        annotations: []
     }
 
     beforeAll(async () => {
@@ -48,7 +49,7 @@ describe('Annotations', { concurrent: false }, () => {
                 data: {
                     content: generateUniqueKey('Test annotation'),
                     date_marker: new Date().toISOString(),
-                    scope: 'project',
+                    scope: 'project' as const,
                 },
             }
 
@@ -93,7 +94,7 @@ describe('Annotations', { concurrent: false }, () => {
                 data: {
                     content: generateUniqueKey('Original annotation'),
                     date_marker: new Date().toISOString(),
-                    scope: 'project',
+                    scope: 'project' as const,
                 },
             }
 
@@ -125,7 +126,7 @@ describe('Annotations', { concurrent: false }, () => {
                 data: {
                     content: generateUniqueKey('Get test annotation'),
                     date_marker: new Date().toISOString(),
-                    scope: 'project',
+                    scope: 'project' as const,
                 },
             }
 
@@ -178,7 +179,7 @@ describe('Annotations', { concurrent: false }, () => {
 
             const listParams = {
                 data: {
-                    scope: 'dashboard',
+                    scope: 'dashboard' as const,
                 },
             }
 
@@ -187,7 +188,7 @@ describe('Annotations', { concurrent: false }, () => {
 
             expect(Array.isArray(annotations)).toBe(true)
             // The created annotation should be in the filtered results
-            const foundAnnotation = annotations.find((a) => a.id === createdAnnotation.id)
+            const foundAnnotation = annotations.find((a: typeof annotations[0]) => a.id === createdAnnotation.id)
             expect(foundAnnotation).toBeTruthy()
         })
     })
@@ -201,7 +202,7 @@ describe('Annotations', { concurrent: false }, () => {
                 data: {
                     content: generateUniqueKey('Delete test annotation'),
                     date_marker: new Date().toISOString(),
-                    scope: 'project',
+                    scope: 'project' as const,
                 },
             }
 
@@ -231,7 +232,7 @@ describe('Annotations', { concurrent: false }, () => {
                 data: {
                     content: generateUniqueKey('Workflow test annotation'),
                     date_marker: new Date().toISOString(),
-                    scope: 'project',
+                    scope: 'project' as const,
                 },
             }
 

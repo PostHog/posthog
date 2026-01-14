@@ -24,6 +24,7 @@ import {
     ListSurveysInputSchema,
     UpdateSurveyInputSchema,
 } from './surveys'
+import { CreateActionInputSchema, ListActionsInputSchema, UpdateActionInputSchema } from './actions'
 
 export const DashboardAddInsightSchema = z.object({
     data: AddInsightToDashboardSchema,
@@ -415,3 +416,46 @@ export const QueryRunInputSchema = z.object({
 })
 
 export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeValuesInputSchema }
+
+// Actions
+export const ActionCreateSchema = CreateActionInputSchema
+
+export const ActionDeleteSchema = z.object({
+    actionId: z.number().int().positive().describe('The ID of the action to delete'),
+})
+
+export const ActionGetSchema = z.object({
+    actionId: z.number().int().positive().describe('The ID of the action to retrieve'),
+})
+
+export const ActionGetAllSchema = z.object({
+    data: ListActionsInputSchema.optional(),
+})
+
+export const ActionUpdateSchema = z.object({
+    actionId: z.number().int().positive().describe('The ID of the action to update'),
+    data: UpdateActionInputSchema,
+})
+
+// Entity Search
+export const EntitySearchSchema = z.object({
+    query: z.string().min(1).describe('Search query to find entities by name or description'),
+    entities: z
+        .array(
+            z.enum([
+                'insight',
+                'dashboard',
+                'experiment',
+                'feature_flag',
+                'notebook',
+                'action',
+                'cohort',
+                'event_definition',
+                'survey',
+            ])
+        )
+        .optional()
+        .describe(
+            'Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey'
+        ),
+})

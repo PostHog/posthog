@@ -740,5 +740,89 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "actions-get-all": {
+        "description": "Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not supported on this endpoint.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Get all actions in the project.",
+        "title": "Get all actions",
+        "required_scopes": ["action:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "action-get": {
+        "description": "Get a specific action by ID. Returns the action configuration including all steps and their trigger conditions.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Get a specific action by ID.",
+        "title": "Get action",
+        "required_scopes": ["action:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "action-create": {
+        "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. Each action can have multiple steps (OR conditions). Use actions to create composite events for insights and funnels. Example: Create a 'Sign Up Click' action with steps matching button clicks on the signup page.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Create a new action in the project.",
+        "title": "Create action",
+        "required_scopes": ["action:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "action-update": {
+        "description": "Update an existing action by ID. Can update name, description, steps, tags, and Slack notification settings.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Update an existing action.",
+        "title": "Update action",
+        "required_scopes": ["action:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "action-delete": {
+        "description": "Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but historical data is preserved.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Delete an action by ID.",
+        "title": "Delete action",
+        "required_scopes": ["action:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "entity-search": {
+        "description": "Search for PostHog entities by name or description. Can search across multiple entity types including insights, dashboards, experiments, feature flags, notebooks, actions, cohorts, event definitions, and surveys. Use this to find entities when you know part of their name. Returns matching entities with their IDs and URLs.",
+        "category": "Search",
+        "feature": "search",
+        "summary": "Search for entities by name or description.",
+        "title": "Search entities",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     }
 }

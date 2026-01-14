@@ -21,7 +21,8 @@ describe('LLM Analytics', { concurrent: false }, () => {
         insights: [],
         dashboards: [],
         surveys: [],
-        annotations: [],
+        actions: [],
+        annotations: []
     }
 
     beforeAll(async () => {
