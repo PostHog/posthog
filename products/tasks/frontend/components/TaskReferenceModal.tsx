@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPerson, IconX } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -56,72 +55,22 @@ export function TaskReferenceModal({ isOpen, onClose, reference }: TaskReference
         return <></>
     }
 
-    const timestamp = reference.timestamp ? dayjs(reference.timestamp) : null
-
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} simple title="" width={1400} closable hideCloseButton>
+        <LemonModal isOpen={isOpen} onClose={onClose} simple title="" width={1200} closable hideCloseButton>
             <LemonModal.Content embedded>
                 <div className="flex flex-col">
-                    {/* Header */}
-                    <header className="flex items-center justify-between p-4 border-b">
-                        <div className="flex-1 min-w-0">
-                            <h2 className="text-lg font-semibold mb-1 line-clamp-2">
-                                {reference.content || 'Reference'}
-                            </h2>
-                            <div className="flex items-center gap-3 text-sm text-muted">
-                                <span className="font-mono">
-                                    {reference.start_time} - {reference.end_time}
-                                </span>
-                                {timestamp && <span>{timestamp.format('MMM D, YYYY HH:mm')}</span>}
-                            </div>
-                        </div>
-                        <LemonButton size="small" icon={<IconX />} onClick={onClose} />
+                    <header className="flex items-center justify-between gap-2 p-2 border-b">
+                        <span className="text-sm text-muted-alt flex-1 min-w-0 truncate">
+                            {reference.content || 'Reference'}
+                        </span>
+                        <LemonButton size="xsmall" icon={<IconX />} onClick={onClose} />
                     </header>
-
-                    {/* Context Grid */}
-                    <div className="grid grid-cols-2 gap-6 p-4 border-b bg-bg-light">
-                        {/* User Info */}
-                        <div className="space-y-3">
-                            <h4 className="text-xs font-semibold text-muted uppercase">User</h4>
-                            <div className="flex items-center gap-2">
-                                <IconPerson className="w-4 h-4 text-muted" />
-                                <span className="font-mono text-sm truncate" title={reference.distinct_id}>
-                                    {reference.distinct_id}
-                                </span>
-                            </div>
-                            <div>
-                                <span className="text-xs text-muted">Session ID</span>
-                                <p className="font-mono text-xs truncate" title={reference.session_id}>
-                                    {reference.session_id}
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Clustering Info */}
-                        <div className="space-y-3">
-                            <h4 className="text-xs font-semibold text-muted uppercase">Clustering</h4>
-                            {reference.distance_to_centroid !== null && (
-                                <div>
-                                    <span className="text-xs text-muted">Distance to centroid</span>
-                                    <p className="text-sm font-mono">{reference.distance_to_centroid.toFixed(4)}</p>
-                                </div>
-                            )}
-                            <div>
-                                <span className="text-xs text-muted">Linked at</span>
-                                <p className="text-sm">{dayjs(reference.created_at).format('MMM D, YYYY HH:mm')}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Player */}
-                    <div className="w-full">
-                        <SessionRecordingPlayer
-                            sessionRecordingId={sessionRecordingId}
-                            playerKey={playerKey}
-                            autoPlay={false}
-                            noBorder
-                        />
-                    </div>
+                    <SessionRecordingPlayer
+                        sessionRecordingId={sessionRecordingId}
+                        playerKey={playerKey}
+                        autoPlay={false}
+                        noBorder
+                    />
                 </div>
             </LemonModal.Content>
         </LemonModal>

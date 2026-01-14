@@ -52,7 +52,6 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         updateRun: (run: TaskRun) => ({ run }),
         // Reference actions
         setSelectedReference: (reference: TaskReference | null) => ({ reference }),
-        loadMoreReferences: true,
     }),
 
     reducers(({ props }) => ({
@@ -95,15 +94,6 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             null as TaskReference | null,
             {
                 setSelectedReference: (_, { reference }) => reference,
-            },
-        ],
-        referencesOffset: [
-            0,
-            {
-                loadReferencesSuccess: (state, { referencesResponse }) =>
-                    state + (referencesResponse?.results.length ?? 0),
-                loadMoreReferencesSuccess: (state, { referencesResponse }) =>
-                    state + (referencesResponse?.results.length ?? 0),
             },
         ],
     })),
@@ -162,17 +152,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             null as TaskReferencesResponse | null,
             {
                 loadReferences: async () => {
-                    const response = await api.tasks.getReferences(props.taskId, 10, 0)
-                    return response
-                },
-                loadMoreReferences: async () => {
-                    const newResponse = await api.tasks.getReferences(props.taskId, 10, values.referencesOffset)
-                    // Merge with existing results
-                    const existingResults = values.referencesResponse?.results ?? []
-                    return {
-                        ...newResponse,
-                        results: [...existingResults, ...newResponse.results],
-                    }
+                    return await api.tasks.getReferences(props.taskId)
                 },
             },
         ],
@@ -223,11 +203,6 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             (task): boolean => task?.origin_product === OriginProduct.SESSION_SUMMARIES,
         ],
         references: [(s) => [s.referencesResponse], (response): TaskReference[] => response?.results ?? []],
-        referencesCount: [(s) => [s.referencesResponse], (response): number => response?.count ?? 0],
-        hasMoreReferences: [
-            (s) => [s.references, s.referencesCount],
-            (references, count): boolean => references.length < count,
-        ],
     }),
 
     listeners(({ actions, values, props }) => ({

@@ -1,5 +1,5 @@
 import { IconPerson, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -8,9 +8,7 @@ import { TaskReference } from '../types'
 export interface TaskReferenceListProps {
     references: TaskReference[]
     loading: boolean
-    hasMore: boolean
     onReferenceClick: (reference: TaskReference) => void
-    onLoadMore: () => void
 }
 
 function ReferenceItem({ reference, onClick }: { reference: TaskReference; onClick: () => void }): JSX.Element {
@@ -45,13 +43,7 @@ function ReferenceItem({ reference, onClick }: { reference: TaskReference; onCli
     )
 }
 
-export function TaskReferenceList({
-    references,
-    loading,
-    hasMore,
-    onReferenceClick,
-    onLoadMore,
-}: TaskReferenceListProps): JSX.Element {
+export function TaskReferenceList({ references, loading, onReferenceClick }: TaskReferenceListProps): JSX.Element {
     if (loading && references.length === 0) {
         return (
             <div className="space-y-3">
@@ -74,13 +66,6 @@ export function TaskReferenceList({
             {references.map((reference) => (
                 <ReferenceItem key={reference.id} reference={reference} onClick={() => onReferenceClick(reference)} />
             ))}
-            {hasMore && (
-                <div className="pt-2">
-                    <LemonButton type="secondary" size="small" onClick={onLoadMore} loading={loading} fullWidth center>
-                        Show more references
-                    </LemonButton>
-                </div>
-            )}
         </div>
     )
 }
