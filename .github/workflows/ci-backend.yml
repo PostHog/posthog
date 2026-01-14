@@ -339,8 +339,8 @@ jobs:
                     echo "No legacy impact - Django tests can be skipped!"
                   fi
 
-                  # Extract bazel test targets
-                  TEST_TARGETS=$(echo "$TARGETS" | tr ' ' '\n' | grep -E '(_test$|_tests$|:tests)' | grep -v legacy_pytest | tr '\n' ' ' || true)
+                  # Extract bazel test targets (only actual test rules, not internal artifacts like .venv)
+                  TEST_TARGETS=$(echo "$TARGETS" | tr ' ' '\n' | grep -E '(_test$|:tests$)' | grep -v legacy_pytest | tr '\n' ' ' || true)
                   if [[ -n "$TEST_TARGETS" ]]; then
                     echo "bazel_targets=$TEST_TARGETS" >> $GITHUB_OUTPUT
                     echo "Test targets: $TEST_TARGETS"
