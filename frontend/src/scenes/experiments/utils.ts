@@ -297,9 +297,13 @@ export function getViewRecordingFiltersLegacy(
         return []
     } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
-            const exposure_filter = seriesToFilterLegacy(metric.exposure_query.series[0], featureFlagKey, variantKey)
-            if (exposure_filter) {
-                filters.push(exposure_filter)
+            const exposureSeries = metric.exposure_query.series[0]
+            // Experiments don't support GroupNode yet - skip if it's a group
+            if (exposureSeries.kind !== NodeKind.GroupNode) {
+                const exposure_filter = seriesToFilterLegacy(exposureSeries, featureFlagKey, variantKey)
+                if (exposure_filter) {
+                    filters.push(exposure_filter)
+                }
             }
         } else {
             filters.push({
@@ -322,9 +326,13 @@ export function getViewRecordingFiltersLegacy(
                 ],
             })
         }
-        const count_filter = seriesToFilterLegacy(metric.count_query.series[0], featureFlagKey, variantKey)
-        if (count_filter) {
-            filters.push(count_filter)
+        const countSeries = metric.count_query.series[0]
+        // Experiments don't support GroupNode yet - skip if it's a group
+        if (countSeries.kind !== NodeKind.GroupNode) {
+            const count_filter = seriesToFilterLegacy(countSeries, featureFlagKey, variantKey)
+            if (count_filter) {
+                filters.push(count_filter)
+            }
         }
         return filters
     }
