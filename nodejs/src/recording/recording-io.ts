@@ -4,16 +4,22 @@ import { isCloud } from '../utils/env-utils'
 import { BaseKeyStore } from './keystore'
 
 export abstract class BaseRecordingEncryptor {
+    abstract start(): Promise<void>
     abstract encryptBlock(sessionId: string, teamId: number, clearText: Buffer): Promise<Buffer>
 }
 
 export abstract class BaseRecordingDecryptor {
+    abstract start(): Promise<void>
     abstract decryptBlock(sessionId: string, teamId: number, cipherText: Buffer): Promise<Buffer>
 }
 
 export class PassthroughRecordingEncryptor extends BaseRecordingEncryptor {
     constructor(_keyStore: BaseKeyStore) {
         super()
+    }
+
+    start(): Promise<void> {
+        return Promise.resolve()
     }
 
     encryptBlock(_sessionId: string, _teamId: number, clearText: Buffer): Promise<Buffer> {
@@ -26,22 +32,22 @@ export class PassthroughRecordingDecryptor extends BaseRecordingDecryptor {
         super()
     }
 
+    start(): Promise<void> {
+        return Promise.resolve()
+    }
+
     decryptBlock(_sessionId: string, _teamId: number, cipherText: Buffer): Promise<Buffer> {
         return Promise.resolve(cipherText)
     }
 }
 
 export class RecordingEncryptor extends BaseRecordingEncryptor {
-    private keyStore: BaseKeyStore
-
-    private constructor(keyStore: BaseKeyStore) {
+    constructor(private keyStore: BaseKeyStore) {
         super()
-        this.keyStore = keyStore
     }
 
-    static async create(keyStore: BaseKeyStore): Promise<RecordingEncryptor> {
+    async start(): Promise<void> {
         await sodium.ready
-        return new RecordingEncryptor(keyStore)
     }
 
     async encryptBlock(sessionId: string, teamId: number, clearText: Buffer): Promise<Buffer> {
@@ -55,16 +61,12 @@ export class RecordingEncryptor extends BaseRecordingEncryptor {
 }
 
 export class RecordingDecryptor extends BaseRecordingDecryptor {
-    private keyStore: BaseKeyStore
-
-    private constructor(keyStore: BaseKeyStore) {
+    constructor(private keyStore: BaseKeyStore) {
         super()
-        this.keyStore = keyStore
     }
 
-    static async create(keyStore: BaseKeyStore): Promise<RecordingDecryptor> {
+    async start(): Promise<void> {
         await sodium.ready
-        return new RecordingDecryptor(keyStore)
     }
 
     async decryptBlock(sessionId: string, teamId: number, cipherText: Buffer): Promise<Buffer> {
@@ -77,16 +79,16 @@ export class RecordingDecryptor extends BaseRecordingDecryptor {
     }
 }
 
-export async function getBlockEncryptor(keyStore: BaseKeyStore): Promise<BaseRecordingEncryptor> {
+export function getBlockEncryptor(keyStore: BaseKeyStore): BaseRecordingEncryptor {
     if (isCloud()) {
-        return RecordingEncryptor.create(keyStore)
+        return new RecordingEncryptor(keyStore)
     }
     return new PassthroughRecordingEncryptor(keyStore)
 }
 
-export async function getBlockDecryptor(keyStore: BaseKeyStore): Promise<BaseRecordingDecryptor> {
+export function getBlockDecryptor(keyStore: BaseKeyStore): BaseRecordingDecryptor {
     if (isCloud()) {
-        return RecordingDecryptor.create(keyStore)
+        return new RecordingDecryptor(keyStore)
     }
     return new PassthroughRecordingDecryptor(keyStore)
 }

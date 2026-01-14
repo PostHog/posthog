@@ -5,7 +5,7 @@ import { LRUCache } from 'lru-cache'
 
 import { RetentionService } from '../session-recording/retention/retention-service'
 import { TeamService } from '../session-recording/teams/team-service'
-import { Hub, RedisPool } from '../types'
+import { RedisPool } from '../types'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { isCloud } from '../utils/env-utils'
 import { parseJSON } from '../utils/json-parse'
@@ -24,6 +24,7 @@ export interface SessionKey {
 }
 
 export abstract class BaseKeyStore {
+    abstract start(): Promise<void>
     abstract generateKey(sessionId: string, teamId: number): Promise<SessionKey>
     abstract getKey(sessionId: string, teamId: number): Promise<SessionKey>
     abstract deleteKey(sessionId: string, teamId: number): Promise<boolean>
@@ -31,6 +32,10 @@ export abstract class BaseKeyStore {
 }
 
 export class PassthroughKeyStore extends BaseKeyStore {
+    start(): Promise<void> {
+        return Promise.resolve()
+    }
+
     generateKey(_sessionId: string, _teamId: number): Promise<SessionKey> {
         return Promise.resolve({
             plaintextKey: Buffer.alloc(0),
@@ -63,7 +68,7 @@ export class KeyStore extends BaseKeyStore {
     // Since Kafka partitions by session ID, the same session always hits the same consumer
     private readonly memoryCache: LRUCache<string, SessionKey>
 
-    private constructor(
+    constructor(
         private redisPool: RedisPool,
         private dynamoDBClient: DynamoDBClient,
         private kmsClient: KMSClient,
@@ -77,15 +82,8 @@ export class KeyStore extends BaseKeyStore {
         })
     }
 
-    static async create(
-        redisPool: RedisPool,
-        dynamoDBClient: DynamoDBClient,
-        kmsClient: KMSClient,
-        retentionService: RetentionService,
-        teamService: TeamService
-    ): Promise<KeyStore> {
+    async start(): Promise<void> {
         await sodium.ready
-        return new KeyStore(redisPool, dynamoDBClient, kmsClient, retentionService, teamService)
     }
 
     private cacheKey(sessionId: string, teamId: number): string {
@@ -335,20 +333,25 @@ export class KeyStore extends BaseKeyStore {
     }
 }
 
-export async function getKeyStore(hub: Hub, region: string): Promise<BaseKeyStore> {
+interface KeyStoreConfig {
+    redisUrl: string
+    redisPoolMinSize: number
+    redisPoolMaxSize: number
+}
+
+export function getKeyStore(config: KeyStoreConfig, teamService: TeamService, region: string): BaseKeyStore {
     if (isCloud()) {
         const kmsClient = new KMSClient({ region })
         const dynamoDBClient = new DynamoDBClient({ region })
         const redisPool = createRedisPoolFromConfig({
-            connection: { url: hub.REDIS_URL, name: 'session-recording-keystore' },
-            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+            connection: { url: config.redisUrl, name: 'session-recording-keystore' },
+            poolMinSize: config.redisPoolMinSize,
+            poolMaxSize: config.redisPoolMaxSize,
         })
 
-        const teamService = new TeamService(hub.postgres)
         const retentionService = new RetentionService(redisPool, teamService)
 
-        return KeyStore.create(redisPool, dynamoDBClient, kmsClient, retentionService, teamService)
+        return new KeyStore(redisPool, dynamoDBClient, kmsClient, retentionService, teamService)
     }
     return new PassthroughKeyStore()
 }

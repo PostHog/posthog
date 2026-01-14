@@ -1,5 +1,6 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
+import { TeamService } from '../session-recording/teams/team-service'
 import { Hub } from '../types'
 import { BaseKeyStore } from './keystore'
 import { getKeyStore } from './keystore'
@@ -35,9 +36,14 @@ describe('RecordingApi', () => {
         mockHub = {
             SESSION_RECORDING_V2_S3_REGION: 'us-west-2',
             SESSION_RECORDING_V2_S3_ENDPOINT: undefined,
+            REDIS_URL: 'redis://localhost:6379',
+            REDIS_POOL_MIN_SIZE: 1,
+            REDIS_POOL_MAX_SIZE: 10,
+            postgres: {} as any,
         }
 
         mockKeyStore = {
+            start: jest.fn(),
             generateKey: jest.fn(),
             getKey: jest.fn(),
             deleteKey: jest.fn(),
@@ -45,10 +51,11 @@ describe('RecordingApi', () => {
         } as unknown as jest.Mocked<BaseKeyStore>
 
         mockDecryptor = {
+            start: jest.fn().mockResolvedValue(undefined),
             decryptBlock: jest.fn(),
         } as unknown as jest.Mocked<BaseRecordingDecryptor>
-        ;(getKeyStore as jest.Mock).mockResolvedValue(mockKeyStore)
-        ;(getBlockDecryptor as jest.Mock).mockResolvedValue(mockDecryptor)
+        ;(getKeyStore as jest.Mock).mockReturnValue(mockKeyStore)
+        ;(getBlockDecryptor as jest.Mock).mockReturnValue(mockDecryptor)
 
         recordingApi = new RecordingApi(mockHub as Hub)
     })
@@ -90,7 +97,15 @@ describe('RecordingApi', () => {
                 endpoint: undefined,
                 forcePathStyle: undefined,
             })
-            expect(getKeyStore).toHaveBeenCalledWith(mockHub, 'us-west-2')
+            expect(getKeyStore).toHaveBeenCalledWith(
+                {
+                    redisUrl: 'redis://localhost:6379',
+                    redisPoolMinSize: 1,
+                    redisPoolMaxSize: 10,
+                },
+                expect.any(TeamService),
+                'us-west-2'
+            )
             expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
         })
 

@@ -6,8 +6,8 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { PassthroughKeyStore } from '../recording/keystore'
-import { PassthroughRecordingEncryptor } from '../recording/recording-io'
+import { BaseKeyStore, getKeyStore } from '../recording/keystore'
+import { BaseRecordingEncryptor, getBlockEncryptor } from '../recording/recording-io'
 import {
     HealthCheckResult,
     PluginServerService,
@@ -90,6 +90,8 @@ export class SessionRecordingIngester {
     private readonly overflowTopic: string
     private readonly topTracker: TopTracker
     private topTrackerLogInterval?: NodeJS.Timeout
+    private readonly keyStore: BaseKeyStore
+    private readonly encryptor: BaseRecordingEncryptor
 
     constructor(
         private hub: SessionRecordingIngesterHub,
@@ -223,10 +225,17 @@ export class SessionRecordingIngester {
             localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
         })
 
-        // TODO: Initialize real KeyStore and RecordingEncryptor for cloud deployments
-        // For now, use passthrough implementations that don't encrypt
-        const keyStore = new PassthroughKeyStore()
-        const encryptor = new PassthroughRecordingEncryptor(keyStore)
+        const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        this.keyStore = getKeyStore(
+            {
+                redisUrl: hub.REDIS_URL,
+                redisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                redisPoolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+            },
+            teamService,
+            region
+        )
+        this.encryptor = getBlockEncryptor(this.keyStore)
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
@@ -238,8 +247,8 @@ export class SessionRecordingIngester {
             consoleLogStore,
             sessionTracker,
             sessionFilter,
-            keyStore,
-            encryptor,
+            keyStore: this.keyStore,
+            encryptor: this.encryptor,
         })
     }
 
@@ -367,6 +376,9 @@ export class SessionRecordingIngester {
             librdKafkaVersion: librdkafkaVersion,
             kafkaCapabilities: features,
         })
+
+        await this.keyStore.start()
+        await this.encryptor.start()
 
         // Initialize overflow producer if not consuming from overflow
         if (!this.consumeOverflow) {

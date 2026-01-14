@@ -203,6 +203,7 @@ describe('SessionBatchRecorder', () => {
         } as unknown as jest.Mocked<SessionFilter>
 
         mockKeyStore = {
+            start: jest.fn().mockResolvedValue(undefined),
             generateKey: jest.fn().mockResolvedValue({
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
@@ -220,6 +221,7 @@ describe('SessionBatchRecorder', () => {
         } as unknown as jest.Mocked<BaseKeyStore>
 
         mockEncryptor = {
+            start: jest.fn().mockResolvedValue(undefined),
             encryptBlock: jest.fn().mockImplementation((_sessionId, _teamId, buffer) => Promise.resolve(buffer)),
         } as unknown as jest.Mocked<BaseRecordingEncryptor>
 

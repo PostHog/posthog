@@ -4,7 +4,7 @@ import { Redis } from 'ioredis'
 
 import { RetentionService } from '../session-recording/retention/retention-service'
 import { TeamService } from '../session-recording/teams/team-service'
-import { Hub, RedisPool } from '../types'
+import { RedisPool } from '../types'
 import * as redisUtils from '../utils/db/redis'
 import * as envUtils from '../utils/env-utils'
 import { KeyStore, PassthroughKeyStore, SessionKey, getKeyStore } from './keystore'
@@ -31,8 +31,8 @@ describe('KeyStore', () => {
     const mockEncryptedKey = new Uint8Array([101, 102, 103, 104, 105])
     const mockNonce = new Uint8Array([201, 202, 203, 204, 205, 206, 207, 208])
 
-    describe('create', () => {
-        it('should create a KeyStore instance after sodium is ready', async () => {
+    describe('create and start', () => {
+        it('should create a KeyStore instance and initialize sodium on start', async () => {
             const redisClient = { get: jest.fn(), setex: jest.fn() } as unknown as jest.Mocked<Redis>
             const redisPool = {
                 acquire: jest.fn().mockResolvedValue(redisClient),
@@ -47,7 +47,8 @@ describe('KeyStore', () => {
                 getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
             } as unknown as jest.Mocked<TeamService>
 
-            const store = await KeyStore.create(redisPool, dynamoDBClient, kmsClient, retentionService, teamService)
+            const store = new KeyStore(redisPool, dynamoDBClient, kmsClient, retentionService, teamService)
+            await store.start()
 
             expect(store).toBeInstanceOf(KeyStore)
         })
@@ -87,13 +88,8 @@ describe('KeyStore', () => {
             getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
         } as unknown as jest.Mocked<TeamService>
 
-        keyStore = await KeyStore.create(
-            mockRedisPool,
-            mockDynamoDBClient,
-            mockKMSClient,
-            mockRetentionService,
-            mockTeamService
-        )
+        keyStore = new KeyStore(mockRedisPool, mockDynamoDBClient, mockKMSClient, mockRetentionService, mockTeamService)
+        await keyStore.start()
     })
 
     afterEach(() => {
@@ -410,6 +406,12 @@ describe('PassthroughKeyStore', () => {
         keyStore = new PassthroughKeyStore()
     })
 
+    describe('start', () => {
+        it('should complete without error', async () => {
+            await expect(keyStore.start()).resolves.toBeUndefined()
+        })
+    })
+
     describe('generateKey', () => {
         it('should return empty keys with encryptedSession false', async () => {
             const result = await keyStore.generateKey('session-123', 1)
@@ -448,7 +450,8 @@ describe('PassthroughKeyStore', () => {
 })
 
 describe('getKeyStore', () => {
-    let mockHub: Partial<Hub>
+    let mockConfig: { redisUrl: string; redisPoolMinSize: number; redisPoolMaxSize: number }
+    let mockTeamService: jest.Mocked<TeamService>
     let mockRedisClient: jest.Mocked<Redis>
     let mockRedisPool: jest.Mocked<RedisPool>
 
@@ -465,23 +468,28 @@ describe('getKeyStore', () => {
         } as unknown as jest.Mocked<RedisPool>
         ;(redisUtils.createRedisPoolFromConfig as jest.Mock).mockReturnValue(mockRedisPool)
 
-        mockHub = {
-            postgres: {} as any,
+        mockConfig = {
+            redisUrl: 'redis://localhost:6379',
+            redisPoolMinSize: 1,
+            redisPoolMaxSize: 10,
         }
+        mockTeamService = {
+            getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
+        } as unknown as jest.Mocked<TeamService>
     })
 
-    it('should return KeyStore when running on cloud', async () => {
+    it('should return KeyStore when running on cloud', () => {
         ;(envUtils.isCloud as jest.Mock).mockReturnValue(true)
 
-        const keyStore = await getKeyStore(mockHub as Hub, 'us-east-1')
+        const keyStore = getKeyStore(mockConfig, mockTeamService, 'us-east-1')
 
         expect(keyStore).toBeInstanceOf(KeyStore)
     })
 
-    it('should return PassthroughKeyStore when not running on cloud', async () => {
+    it('should return PassthroughKeyStore when not running on cloud', () => {
         ;(envUtils.isCloud as jest.Mock).mockReturnValue(false)
 
-        const keyStore = await getKeyStore(mockHub as Hub, 'us-east-1')
+        const keyStore = getKeyStore(mockConfig, mockTeamService, 'us-east-1')
 
         expect(keyStore).toBeInstanceOf(PassthroughKeyStore)
     })
