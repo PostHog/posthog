@@ -196,17 +196,23 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     for attempt in 0..max_attempts {
         // Try to receive all available batches without blocking
-        while let Ok(batch_result) = batch_rx.try_recv() {
-            let (msgs, errs) = batch_result.unpack();
-            if !errs.is_empty() {
-                panic!("Errors in batch: {errs:?}");
+        loop {
+            match batch_rx.try_recv() {
+                Ok(batch_result) => {
+                    let (msgs, errs) = batch_result.unpack();
+                    if !errs.is_empty() {
+                        panic!("Errors in batch: {errs:?}");
+                    }
+                    assert!(
+                        msgs.len() <= 3,
+                        "Batch size should be at most 3, got: {}",
+                        msgs.len()
+                    );
+                    msgs_recv += msgs.len();
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break, // No more messages right now
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break, // Channel closed
             }
-            assert!(
-                msgs.len() <= 3,
-                "Batch size should be at most 3, got: {}",
-                msgs.len()
-            );
-            msgs_recv += msgs.len();
         }
 
         // If we've received all messages, break early
