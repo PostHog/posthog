@@ -27,7 +27,7 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.utils import absolute_uri
 
 from ...clickhouse.client.escape import substitute_params
-from ...exceptions import QuerySizeExceeded
+from ...exceptions import ClickHouseQuerySizeExceeded
 from ...hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
 from ...hogql.query import HogQLQueryExecutor, LimitContext
 from ...hogql_queries.insights.trends.breakdown import (
@@ -342,7 +342,7 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
-        except QuerySizeExceeded:
+        except ClickHouseQuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
                 raise
 
