@@ -205,7 +205,12 @@ import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow, HogFlowAction, HogFlowTemplate } from 'products/workflows/frontend/Workflows/hogflows/types'
+import {
+    HogFlow,
+    HogFlowAction,
+    HogFlowBatchJob,
+    HogFlowTemplate,
+} from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
@@ -4734,9 +4739,14 @@ const api = {
             hogFlowId: HogFlow['id'],
             data: {
                 variables: Record<string, HogQLVariable>
+                filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+                scheduled_at?: string | null
             }
         ): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
+        },
+        async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<PaginatedResponse<HogFlowBatchJob[]>> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
         },
     },
     hogFlowTemplates: {

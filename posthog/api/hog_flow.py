@@ -31,6 +31,8 @@ from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
 
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+
 logger = structlog.get_logger(__name__)
 
 
@@ -427,19 +429,23 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             }
         )
 
-    @action(detail=True, methods=["POST"])
+    @action(detail=True, methods=["GET", "POST"])
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
         except Exception:
-            raise exceptions.NotFound(f"HogFlow {kwargs.get('pk')} not found")
+            raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")
 
-        serializer = HogFlowBatchJobSerializer(
-            data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
-        )
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=400)
+        if request.method == "POST":
+            serializer = HogFlowBatchJobSerializer(
+                data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
+            )
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=400)
 
-        batch_job = serializer.save()
-
-        return Response(HogFlowBatchJobSerializer(batch_job).data)
+            batch_job = serializer.save()
+            return Response(HogFlowBatchJobSerializer(batch_job).data)
+        else:
+            batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow).order_by("-created_at")
+            serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
+            return Response(serializer.data)
