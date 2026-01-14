@@ -1749,6 +1749,32 @@ class FeatureFlagViewSet(
             status=200,
         )
 
+    @action(methods=["POST"], detail=True)
+    def has_active_dependents(self, request: request.Request, **kwargs):
+        """
+        Deprecated: Use GET /dependent_flags instead.
+        This will be safe to delete some time after GET /dependent_flags has been live.
+        """
+        response = self.dependent_flags(request, **kwargs)
+        dependent_flags = response.data
+        return Response(
+            {
+                "has_active_dependents": len(dependent_flags) > 0,
+                "dependent_flags": dependent_flags,
+                "warning": (
+                    (
+                        f"This feature flag is used by {len(dependent_flags)} other active "
+                        f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
+                        f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
+                        f"to evaluate this condition as false."
+                    )
+                    if dependent_flags
+                    else None
+                ),
+            },
+            status=200,
+        )
+
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,
         responses={
