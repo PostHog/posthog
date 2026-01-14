@@ -212,7 +212,7 @@ def _build_query(
     if add_sampling:
         if table_type == "view":
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value} AND random() < 0.01"
+                "SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value} AND random() < 0.01"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
@@ -221,7 +221,7 @@ def _build_query(
             )
         else:
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} >= {last_value}"
+                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} > {last_value}"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
@@ -229,7 +229,7 @@ def _build_query(
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
     else:
-        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
+        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
             incremental_field=sql.Identifier(incremental_field),
