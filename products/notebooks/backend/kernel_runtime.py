@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import json
 import atexit
 import base64
@@ -161,7 +162,27 @@ class KernelRuntimeService:
                     break
 
         if not handle:
-            return False
+            runtime = (
+                KernelRuntime.objects.filter(
+                    team_id=notebook.team_id,
+                    notebook_short_id=notebook.short_id,
+                    user=user if isinstance(user, User) else None,
+                    status__in=[KernelRuntime.Status.STARTING, KernelRuntime.Status.RUNNING],
+                )
+                .exclude(backend__isnull=True)
+                .order_by("-last_used_at")
+                .first()
+            )
+            if not runtime:
+                return False
+            handle = _KernelHandle(
+                runtime=runtime,
+                lock=threading.RLock(),
+                started_at=runtime.created_at,
+                last_activity_at=runtime.last_used_at,
+                backend=runtime.backend,
+                sandbox_id=runtime.sandbox_id,
+            )
 
         with handle.lock:
             self._shutdown_handle(handle, status=KernelRuntime.Status.STOPPED)
@@ -225,7 +246,7 @@ class KernelRuntimeService:
             raise RuntimeError("Modal credentials are required to start notebook kernels in production.")
 
     def _has_modal_credentials(self) -> bool:
-        return all(getattr(settings, name, None) for name in self._MODAL_REQUIRED_ENV_VARS)
+        return all(os.environ.get(name, None) for name in self._MODAL_REQUIRED_ENV_VARS)
 
     def _get_sandbox_class(self, backend: str) -> type[SandboxClass]:
         if backend == KernelRuntime.Backend.MODAL:
@@ -415,6 +436,9 @@ class KernelRuntimeService:
         ).update(status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now())
 
     def _get_backend(self) -> str:
+        provider = getattr(settings, "SANDBOX_PROVIDER", None)
+        if provider in (KernelRuntime.Backend.DOCKER, KernelRuntime.Backend.MODAL):
+            return provider
         if self._has_modal_credentials():
             return KernelRuntime.Backend.MODAL
         if settings.DEBUG or settings.TEST:
