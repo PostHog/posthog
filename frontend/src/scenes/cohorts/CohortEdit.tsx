@@ -368,8 +368,12 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                     {isCalculatingOrPending ? (
                                                         <LemonBanner type="warning">
                                                             {isPendingCalculation && !cohort.is_calculating
-                                                                ? "We're queuing the calculation. It should be ready in a few minutes."
-                                                                : "We're calculating the cohort. It should be ready in a few minutes."}
+                                                                ? cohort.last_calculation
+                                                                    ? "We're queuing a recalculation. The table below shows results from the previous calculation."
+                                                                    : "We're queuing the calculation. It should be ready in a few minutes."
+                                                                : cohort.last_calculation
+                                                                  ? "We're recalculating the cohort. The table below shows results from the previous calculation."
+                                                                  : "We're calculating the cohort. It should be ready in a few minutes."}
                                                         </LemonBanner>
                                                     ) : cohort.errors_calculating ? (
                                                         <LemonBanner
@@ -572,7 +576,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             hideTitleAndDescription
                                         >
                                             <div className="relative min-h-[400px]">
-                                                {isCalculatingOrPending ? (
+                                                {isCalculatingOrPending && !cohort.last_calculation ? (
                                                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-bg-light">
                                                         <Spinner size="large" />
                                                         <p className="text-muted mt-4">
