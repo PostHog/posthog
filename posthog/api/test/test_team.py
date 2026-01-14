@@ -1142,21 +1142,21 @@ def team_api_test_factory():
 
         def test_turn_on_logs_capture_console_log(self):
             response = self.client.get("/api/environments/@current/")
-            assert response.json()["logs_settings"]["capture_console_logs"] is False
+            assert response.json()["logs"]["capture_console_logs"] is False
 
             response = self.client.patch(
                 "/api/environments/@current/", {"logs_settings": {"capture_console_logs": True}}
             )
             assert response.status_code == status.HTTP_200_OK
             response = self.client.get("/api/environments/@current/")
-            assert response.json()["logs_settings"]["capture_console_logs"] is True
+            assert response.json()["logs"]["capture_console_logs"] is True
 
             response = self.client.patch(
                 "/api/environments/@current/", {"logs_settings": {"capture_console_logs": False}}
             )
             assert response.status_code == status.HTTP_200_OK
             response = self.client.get("/api/environments/@current/")
-            assert response.json()["logs_settings"]["capture_console_logs"] is False
+            assert response.json()["logs"]["capture_console_logs"] is False
 
         def test_configure_exception_autocapture_event_dropping(self):
             response = self.client.get("/api/environments/@current/")

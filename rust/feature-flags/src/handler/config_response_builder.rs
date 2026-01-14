@@ -881,17 +881,27 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert_eq!(response.config.logs, None);
+        assert_eq!(
+            response.config.logs,
+            Some(LogsConfig {
+                capture_console_logs: Some(false),
+            })
+        );
     }
 
     #[test]
-    fn test_logs_config_none() {
+    fn test_logs_config_default() {
         let mut response = create_base_response();
         let config = Config::default_test_config();
         let team = create_base_team();
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert_eq!(response.config.logs, None);
+        assert_eq!(
+            response.config.logs,
+            Some(LogsConfig {
+                capture_console_logs: Some(false),
+            })
+        );
     }
 }
