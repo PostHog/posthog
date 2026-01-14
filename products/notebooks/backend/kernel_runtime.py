@@ -9,7 +9,7 @@ import threading
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
 from django.utils import timezone
 
@@ -18,7 +18,7 @@ import structlog
 from posthog.models import User
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
-from products.tasks.backend.services.sandbox import SandboxConfig, SandboxTemplate
+from products.tasks.backend.services.sandbox import ExecutionResult, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = structlog.get_logger(__name__)
 
@@ -66,6 +66,24 @@ class _KernelHandle:
     execution_count: int = 0
     backend: str = KernelRuntime.Backend.DOCKER
     sandbox_id: str | None = None
+
+
+class SandboxProtocol(Protocol):
+    id: str
+
+    def execute(self, command: str, timeout_seconds: int) -> ExecutionResult: ...
+
+    def destroy(self) -> None: ...
+
+    def get_status(self) -> SandboxStatus: ...
+
+
+class SandboxClass(Protocol):
+    @classmethod
+    def create(cls, config: SandboxConfig) -> SandboxProtocol: ...
+
+    @classmethod
+    def get_by_id(cls, sandbox_id: str) -> SandboxProtocol: ...
 
 
 @dataclass
@@ -209,7 +227,7 @@ class KernelRuntimeService:
     def _has_modal_credentials(self) -> bool:
         return all(os.getenv(name) for name in self._MODAL_REQUIRED_ENV_VARS)
 
-    def _get_sandbox_class(self, backend: str) -> type:
+    def _get_sandbox_class(self, backend: str) -> type[SandboxClass]:
         if backend == KernelRuntime.Backend.MODAL:
             from products.tasks.backend.services.modal_sandbox import ModalSandbox
 

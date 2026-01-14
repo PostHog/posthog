@@ -31,10 +31,11 @@ DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
+SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 
 
 @lru_cache(maxsize=2)
-def _get_sandbox_image_reference(image: str) -> str:
+def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     """Modal caches sandbox images indefinitely. This function resolves the digest of the master tag
     so Modal fetches the correct version. Queries GHCR once per deployment.
     """
