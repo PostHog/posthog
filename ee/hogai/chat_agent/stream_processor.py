@@ -10,7 +10,6 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantUpdateEvent,
     FailureMessage,
-    NotebookUpdateMessage,
     SubagentUpdateEvent,
 )
 
@@ -249,7 +248,7 @@ class BaseStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateType]):
         These messages are returned as-is regardless of where in the nesting hierarchy they are.
         """
         # These message types are always returned as-is
-        if isinstance(message, NotebookUpdateMessage | FailureMessage | ArtifactMessage):
+        if isinstance(message, FailureMessage | ArtifactMessage):
             return message
 
         return None

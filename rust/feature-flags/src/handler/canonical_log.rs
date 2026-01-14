@@ -87,6 +87,8 @@ pub struct FlagsCanonicalLogLine {
     pub team_id: Option<i32>,
     pub distinct_id: Option<String>,
     pub device_id: Option<String>,
+    /// The anonymous distinct ID sent with the request for experience continuity.
+    pub anon_distinct_id: Option<String>,
 
     // Populated during flag evaluation
     pub flags_evaluated: usize,
@@ -150,6 +152,7 @@ impl Default for FlagsCanonicalLogLine {
             team_id: None,
             distinct_id: None,
             device_id: None,
+            anon_distinct_id: None,
             flags_evaluated: 0,
             flags_experience_continuity: 0,
             flags_disabled: false,
@@ -199,6 +202,7 @@ impl FlagsCanonicalLogLine {
             team_id = self.team_id,
             distinct_id = self.distinct_id.as_deref(),
             device_id = self.device_id.as_deref(),
+            anon_distinct_id = self.anon_distinct_id.as_deref(),
             ip = %self.ip,
             user_agent = user_agent,
             lib = self.lib,
@@ -265,6 +269,7 @@ mod tests {
         assert!(log.team_id.is_none());
         assert!(log.distinct_id.is_none());
         assert!(log.device_id.is_none());
+        assert!(log.anon_distinct_id.is_none());
         assert_eq!(log.flags_evaluated, 0);
         assert_eq!(log.flags_experience_continuity, 0);
         assert!(!log.flags_disabled);

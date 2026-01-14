@@ -40,7 +40,7 @@ import {
 import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
 import { productTourLogic } from './productTourLogic'
-import { getProductTourStatus, isProductTourRunning, productToursLogic } from './productToursLogic'
+import { getProductTourStatus, isAnnouncement, isProductTourRunning, productToursLogic } from './productToursLogic'
 
 export function ProductTourView({ id }: { id: string }): JSX.Element {
     const { productTour, productTourLoading, tourStats, tourStatsLoading, dateRange, targetingFlagFilters } = useValues(
@@ -59,7 +59,6 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
 
     const status = getProductTourStatus(productTour)
     const isRunning = isProductTourRunning(productTour)
-    const hasUrlCondition = !!productTour.content?.conditions?.url
 
     return (
         <SceneContent>
@@ -115,7 +114,6 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                disabledReason={!hasUrlCondition ? 'Set a URL pattern before launching' : undefined}
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Launch this product tour?',
@@ -229,8 +227,12 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                                     }
                                 />
                                 <LemonDivider />
-                                <StepsFunnel tour={productTour} dateRange={dateRange} />
-                                <LemonDivider />
+                                {!isAnnouncement(productTour) && (
+                                    <>
+                                        <StepsFunnel tour={productTour} dateRange={dateRange} />
+                                        <LemonDivider />
+                                    </>
+                                )}
                                 <TargetingSummary tour={productTour} targetingFlagFilters={targetingFlagFilters} />
                             </div>
                         ),
