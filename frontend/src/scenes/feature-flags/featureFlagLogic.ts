@@ -799,7 +799,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // Only load and apply default evaluation contexts if BOTH conditions are met:
                     // 1. The feature flag is enabled globally
                     // 2. The team has enabled default evaluation contexts
-                    const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_CONTEXTS]
+                    const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]
                     const isTeamEnabled = values.currentTeam?.default_evaluation_contexts_enabled
 
                     if (isFeatureEnabled && isTeamEnabled) {

@@ -19,7 +19,7 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
     const { addTag, removeTag, toggleEnabled, setNewTagInput, setIsAdding } = useActions(defaultEvaluationContextsLogic)
 
     // Check if feature flag is enabled
-    if (!featureFlags[FEATURE_FLAGS.DEFAULT_EVALUATION_CONTEXTS]) {
+    if (!featureFlags[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]) {
         return null
     }
 
