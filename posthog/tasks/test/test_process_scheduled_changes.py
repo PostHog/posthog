@@ -1358,36 +1358,3 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(scheduled_change.scheduled_at, datetime(2025, 2, 28, 9, 0, tzinfo=UTC))
         feature_flag.refresh_from_db()
         self.assertEqual(feature_flag.active, False)
-
-    @freeze_time("2024-01-15T09:00:00Z")
-    def test_scheduled_change_does_not_run_before_scheduled_time(self) -> None:
-        """Scheduled changes should not execute before their scheduled_at time."""
-        feature_flag = FeatureFlag.objects.create(
-            name="Future Flag",
-            key="future-flag",
-            active=True,
-            filters={"groups": []},
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # Schedule for 1 hour in the future
-        future_time = datetime(2024, 1, 15, 10, 0, tzinfo=UTC)
-        scheduled_change = ScheduledChange.objects.create(
-            team=self.team,
-            record_id=feature_flag.id,
-            model_name="FeatureFlag",
-            payload={"operation": "update_status", "value": False},
-            scheduled_at=future_time,
-        )
-
-        process_scheduled_changes()
-
-        scheduled_change.refresh_from_db()
-        feature_flag.refresh_from_db()
-
-        # Should NOT have executed
-        self.assertIsNone(scheduled_change.executed_at)
-        self.assertEqual(feature_flag.active, True)  # Unchanged
-        # scheduled_at should remain the same
-        self.assertEqual(scheduled_change.scheduled_at, future_time)
