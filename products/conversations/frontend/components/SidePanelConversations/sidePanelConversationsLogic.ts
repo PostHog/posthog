@@ -1,4 +1,5 @@
-import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -21,6 +22,9 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
         'SidePanelConversations',
         'sidePanelConversationsLogic',
     ]),
+    connect({
+        values: [sidePanelStateLogic, ['sidePanelOpen']],
+    }),
     actions({
         setView: (view: SidePanelViewState) => ({ view }),
         setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
@@ -41,6 +45,9 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
         markAsRead: (ticketId: string) => ({ ticketId }),
         goBack: true,
         startNewConversation: true,
+        initConversations: true,
+        startPolling: true,
+        stopPolling: true,
     }),
     reducers({
         view: [
@@ -132,7 +139,7 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
                 })),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadTickets: async () => {
             try {
                 const response = await posthog.conversations.getTickets({ limit: 50 })
@@ -226,62 +233,62 @@ export const sidePanelConversationsLogic = kea<sidePanelConversationsLogicType>(
                 console.error('Failed to mark as read:', e)
             }
         },
-    })),
-    afterMount(({ actions, values, cache }) => {
-        // Check if conversations are ready and load tickets
-        const initConversations = async (): Promise<void> => {
-            try {
-                // Check if conversations are enabled (via remote config)
-                if (posthog.conversations.isAvailable()) {
-                    actions.setConversationsReady(true)
-                    actions.loadTickets()
-                    actions.setConversationsInitialized(true)
-                    return
-                }
-
-                // Poll for availability with timeout
-                const maxAttempts = 5
-                for (let attempt = 0; attempt < maxAttempts; attempt++) {
-                    await new Promise((resolve) => setTimeout(resolve, 1000))
-                    if (posthog.conversations.isAvailable()) {
-                        actions.setConversationsReady(true)
+        initConversations: () => {
+            if (posthog.conversations.isAvailable()) {
+                actions.setConversationsReady(true)
+                actions.setConversationsInitialized(true)
+                actions.loadTickets()
+            } else {
+                // Not available yet, mark as initialized but not ready
+                // Will retry when side panel opens
+                actions.setConversationsInitialized(true)
+            }
+        },
+        startPolling: () => {
+            if (cache.pollingInterval) {
+                return // Already polling
+            }
+            cache.pollingInterval = setInterval(() => {
+                if (
+                    values.sidePanelOpen &&
+                    values.conversationsReady &&
+                    values.tickets.length > 0 &&
+                    values.pollingFailures < MAX_POLLING_FAILURES
+                ) {
+                    if (!values.ticketsLoading) {
                         actions.loadTickets()
-                        actions.setConversationsInitialized(true)
-                        return
+                    }
+                    if (values.view === 'chat' && values.currentTicket && !values.messagesLoading) {
+                        actions.loadMessages(values.currentTicket.id)
                     }
                 }
-                console.warn('Conversations not enabled for this team')
-                actions.setConversationsInitialized(true)
-            } catch (e) {
-                console.error('Failed to initialize conversations:', e)
-                actions.setConversationsInitialized(true)
+            }, TICKETS_POLL_INTERVAL)
+        },
+        stopPolling: () => {
+            if (cache.pollingInterval) {
+                clearInterval(cache.pollingInterval)
+                cache.pollingInterval = null
             }
-        }
-        void initConversations()
-
-        // Start polling interval - checks conditions inside
-        cache.pollingInterval = setInterval(() => {
-            const { sidePanelOpen } = sidePanelStateLogic.values
-            if (
-                sidePanelOpen &&
-                values.conversationsReady &&
-                values.tickets.length > 0 &&
-                values.pollingFailures < MAX_POLLING_FAILURES
-            ) {
-                // Only poll if not currently loading to avoid request pile-up
-                if (!values.ticketsLoading) {
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
+        sidePanelOpen: (open: boolean) => {
+            if (open) {
+                // Check availability on-demand when panel opens
+                if (!values.conversationsReady && posthog.conversations.isAvailable()) {
+                    actions.setConversationsReady(true)
                     actions.loadTickets()
                 }
-                // Also reload messages if viewing a chat
-                if (values.view === 'chat' && values.currentTicket && !values.messagesLoading) {
-                    actions.loadMessages(values.currentTicket.id)
-                }
+                actions.startPolling()
+            } else {
+                actions.stopPolling()
             }
-        }, TICKETS_POLL_INTERVAL)
+        },
+    })),
+    afterMount(({ actions }) => {
+        actions.initConversations()
     }),
-    beforeUnmount(({ cache }) => {
-        if (cache.pollingInterval) {
-            clearInterval(cache.pollingInterval)
-        }
+    beforeUnmount(({ actions }) => {
+        actions.stopPolling()
     }),
 ])
