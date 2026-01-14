@@ -35,7 +35,7 @@ export function TaskReferenceModal({ isOpen, onClose, reference }: TaskReference
     const logicProps = {
         sessionRecordingId,
         playerKey,
-        autoPlay: false,
+        autoPlay: true,
     }
 
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
@@ -59,16 +59,14 @@ export function TaskReferenceModal({ isOpen, onClose, reference }: TaskReference
         <LemonModal isOpen={isOpen} onClose={onClose} simple title="" width={1200} closable hideCloseButton>
             <LemonModal.Content embedded>
                 <div className="flex flex-col">
-                    <header className="flex items-center justify-between gap-2 p-2 border-b">
-                        <span className="text-sm text-muted-alt flex-1 min-w-0 truncate">
-                            {reference.content || 'Reference'}
-                        </span>
+                    <header className="flex items-start justify-between gap-2 p-3 border-b">
+                        <h3 className="font-medium flex-1 min-w-0">{reference.content || 'Reference'}</h3>
                         <LemonButton size="xsmall" icon={<IconX />} onClick={onClose} />
                     </header>
                     <SessionRecordingPlayer
                         sessionRecordingId={sessionRecordingId}
                         playerKey={playerKey}
-                        autoPlay={false}
+                        autoPlay={true}
                         noBorder
                     />
                 </div>

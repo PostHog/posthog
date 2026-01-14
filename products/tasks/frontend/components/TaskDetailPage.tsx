@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArchive, IconExternal, IconGithub, IconPerson, IconPlay, IconTarget } from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -177,14 +177,22 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                         </div>
                     </div>
                     {/* Reference list */}
-                    <div className="flex-1 overflow-auto p-4">
-                        <h3 className="text-sm font-semibold mb-3">References ({task.reference_count})</h3>
-                        <TaskReferenceList
-                            references={references}
-                            loading={referencesResponseLoading}
-                            onReferenceClick={setSelectedReference}
-                        />
-                    </div>
+                    <LemonCollapse
+                        panels={[
+                            {
+                                key: 'references',
+                                header: `References (${task.reference_count})`,
+                                content: (
+                                    <TaskReferenceList
+                                        references={references}
+                                        loading={referencesResponseLoading}
+                                        onReferenceClick={setSelectedReference}
+                                    />
+                                ),
+                            },
+                        ]}
+                        defaultActiveKey="references"
+                    />
                     <TaskReferenceModal
                         isOpen={!!selectedReference}
                         onClose={() => setSelectedReference(null)}

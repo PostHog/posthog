@@ -1,7 +1,9 @@
-import { IconPerson, IconPlay } from '@posthog/icons'
+import { IconPlay } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
+import { colonDelimitedDuration } from 'lib/utils'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { TaskReference } from '../types'
 
@@ -12,8 +14,6 @@ export interface TaskReferenceListProps {
 }
 
 function ReferenceItem({ reference, onClick }: { reference: TaskReference; onClick: () => void }): JSX.Element {
-    const timestamp = reference.timestamp ? dayjs(reference.timestamp) : null
-
     return (
         <button
             onClick={onClick}
@@ -26,15 +26,13 @@ function ReferenceItem({ reference, onClick }: { reference: TaskReference; onCli
                 <div className="flex-1 min-w-0">
                     <p className="text-sm mb-1 line-clamp-2">{reference.content || 'No description available'}</p>
                     <div className="flex items-center gap-3 text-xs text-muted">
-                        <span className="flex items-center gap-1">
-                            <IconPerson className="w-3 h-3" />
-                            <span className="font-mono truncate max-w-[120px]" title={reference.distinct_id}>
-                                {reference.distinct_id}
-                            </span>
-                        </span>
-                        {timestamp && <span>{timestamp.format('MMM D, HH:mm')}</span>}
+                        <PersonDisplay person={{ distinct_id: reference.distinct_id }} withIcon="xs" noPopover noLink />
+                        {reference.timestamp && (
+                            <TZLabel time={reference.timestamp} formatDate="MMM D" formatTime="HH:mm" />
+                        )}
                         <span className="font-mono">
-                            {reference.start_time} - {reference.end_time}
+                            {colonDelimitedDuration(reference.start_time)} -{' '}
+                            {colonDelimitedDuration(reference.end_time)}
                         </span>
                     </div>
                 </div>
