@@ -551,10 +551,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             )
         except SandboxProvisionError as err:
             logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": str(err)}, status=503)
+            return Response({"detail": "Failed to execute notebook code."}, status=503)
         except RuntimeError as err:
             logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": str(err)}, status=503)
+            return Response({"detail": "Failed to execute notebook code."}, status=503)
 
         return Response(execution.as_dict())
 
