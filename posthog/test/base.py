@@ -921,7 +921,9 @@ def cleanup_materialized_columns():
 
 
 @contextmanager
-def materialized(table, property, create_minmax_index: bool = False) -> Iterator[MaterializedColumn]:
+def materialized(
+    table, property, create_minmax_index: bool = False, is_nullable: bool = False
+) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
         from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, materialize
@@ -930,7 +932,7 @@ def materialized(table, property, create_minmax_index: bool = False) -> Iterator
 
     column = None
     try:
-        column = materialize(table, property, create_minmax_index=create_minmax_index)
+        column = materialize(table, property, create_minmax_index=create_minmax_index, is_nullable=is_nullable)
         yield column
     finally:
         if create_minmax_index and column is not None:
@@ -1112,13 +1114,13 @@ class BaseTestMigrations(QueryMatchingTest):
 
     migrate_from: str
     migrate_to: str
-    apps: Optional[any] = None
+    apps: Optional[Any] = None
     assert_snapshots = False
 
     def setUp(self):
-        assert hasattr(self, "migrate_from") and hasattr(
-            self, "migrate_to"
-        ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
+            "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        )
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)

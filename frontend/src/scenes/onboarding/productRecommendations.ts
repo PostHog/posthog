@@ -37,7 +37,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         products: [ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY, ProductKey.WEB_ANALYTICS],
         recommendedForRoles: [
             { role: UserRole.Marketing, banner: 'Great for marketers' },
-            { role: UserRole.Product, banner: 'Great for product managers' },
+            { role: UserRole.Product, banner: 'Great for PMs' },
             { role: UserRole.Data, banner: 'Great for data teams' },
             { role: UserRole.Founder, banner: 'Great for founders' },
             { role: UserRole.Leadership, banner: 'Great for leadership' },
@@ -61,7 +61,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         products: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS],
         recommendedForRoles: [
             { role: UserRole.Engineering, banner: 'Great for engineers' },
-            { role: UserRole.Product, banner: 'Great for product managers' },
+            { role: UserRole.Product, banner: 'Great for PMs' },
         ],
     },
     {
@@ -71,7 +71,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         iconKey: 'IconMessage',
         iconColor: 'rgb(243 84 84)',
         products: [ProductKey.SURVEYS, ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY],
-        recommendedForRoles: [{ role: UserRole.Sales, banner: 'Great for sales & success teams' }],
+        recommendedForRoles: [{ role: UserRole.Sales, banner: 'Great for sales teams' }],
     },
     {
         key: 'monitor_ai',

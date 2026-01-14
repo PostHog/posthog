@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
-import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
@@ -616,12 +615,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             recommendedProducts,
         }),
         reportOnboardingUseCaseSkipped: true,
-        // command bar
-        reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
-        reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
-        reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
-        reportCommandBarActionSearch: (query: string) => ({ query }),
-        reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
+        reportOnboardingProductSelectionPath: (
+            path: 'ai' | 'use_case' | 'browsing_history' | 'manual',
+            properties?: {
+                useCase?: string
+                recommendedProducts?: string[]
+                hasBrowsingHistory?: boolean
+            }
+        ) => ({ path, properties }),
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -1592,6 +1593,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportOnboardingUseCaseSkipped: () => {
             posthog.capture('onboarding use case skipped')
+        },
+        reportOnboardingProductSelectionPath: ({ path, properties }) => {
+            posthog.capture('onboarding product selection path', {
+                path,
+                use_case: properties?.useCase,
+                recommended_products: properties?.recommendedProducts,
+                has_browsing_history: properties?.hasBrowsingHistory,
+            })
         },
         reportSDKSelected: ({ sdk }) => {
             posthog.capture('sdk selected', {

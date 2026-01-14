@@ -1,10 +1,11 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SemanticVersion, diffVersions, parseVersion, versionToString } from 'lib/utils/semver'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { sidePanelSdkDoctorLogicType } from './sidePanelSdkDoctorLogicType'
 
@@ -106,6 +107,10 @@ const DEVICE_CONTEXT_CONFIG = {
 export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSdkDoctorLogic']),
 
+    connect({
+        values: [preflightLogic, ['isCloudOrDev']],
+    }),
+
     actions({
         snoozeSdkDoctor: true,
         unsnooze: true,
@@ -152,11 +157,13 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                 return Object.fromEntries(
                     Object.entries(rawData).map(([sdkType, teamSdkUsage]) => {
+                        const isSingleVersion = teamSdkUsage.usage.length === 1
                         const releasesInfo = teamSdkUsage.usage.map((usageEntry) =>
                             computeAugmentedInfoRelease(
                                 sdkType as SdkType,
                                 usageEntry,
-                                parseVersion(teamSdkUsage.latest_version)
+                                parseVersion(teamSdkUsage.latest_version),
+                                isSingleVersion
                             )
                         )
 
@@ -249,6 +256,10 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     }),
 
     afterMount(({ actions, values }) => {
+        if (!values.isCloudOrDev) {
+            return
+        }
+
         actions.loadRawData()
 
         if (values.snoozedUntil && new Date(values.snoozedUntil) < new Date()) {
@@ -290,7 +301,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 function computeAugmentedInfoRelease(
     type: SdkType,
     usageEntry: TeamSdkUsageEntry,
-    latestVersion: SemanticVersion
+    latestVersion: SemanticVersion,
+    isSingleVersion: boolean = false
 ): AugmentedTeamSdkVersionsInfoRelease {
     try {
         // Parse versions for comparison
@@ -346,8 +358,15 @@ function computeAugmentedInfoRelease(
         // Smart version detection based on semver difference
         let isOutdated = false
 
-        // Apply grace period first - don't flag anything <7 days old
-        if (isRecentRelease) {
+        // Single version case: only warn if >30 days old to avoid false positives after upgrades
+        // When a user upgrades, old events from the previous version are still in the 7-day window
+        // but no new events with the new version exist yet, causing confusing "Outdated" warnings
+        const SINGLE_VERSION_GRACE_PERIOD_DAYS = 30
+
+        if (isSingleVersion && diff && diff.kind !== 'patch') {
+            isOutdated = daysSinceRelease !== undefined && daysSinceRelease > SINGLE_VERSION_GRACE_PERIOD_DAYS
+        } else if (isRecentRelease) {
+            // Apply grace period - don't flag anything <7 days old
             isOutdated = false
         } else if (diff) {
             switch (diff.kind) {

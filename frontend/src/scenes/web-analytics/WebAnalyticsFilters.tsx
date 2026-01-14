@@ -28,6 +28,8 @@ import { PropertyMathType } from '~/types'
 
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
+import { FilterPresetsDropdown } from './WebAnalyticsFilterPresets'
+import { WebAnalyticsFiltersV2MigrationBanner } from './WebAnalyticsFiltersV2MigrationBanner'
 import { WebConversionGoal } from './WebConversionGoal'
 import {
     WEB_ANALYTICS_PROPERTY_ALLOW_LIST,
@@ -35,6 +37,7 @@ import {
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
 import { ProductTab } from './common'
+import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
@@ -43,28 +46,33 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
         isPathCleaningEnabled,
     } = useValues(webAnalyticsLogic)
     const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <FilterBar
-            top={tabs}
-            left={
-                <>
-                    <ReloadAll iconOnly />
-                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-                    <WebAnalyticsCompareFilter />
-                </>
-            }
-            right={
-                <>
-                    <ShareButton />
-                    <WebVitalsPercentileToggle />
-                    <FiltersPopover />
-                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
-                    <WebAnalyticsDomainSelector />
-                    <TableSortingIndicator />
-                </>
-            }
-        />
+        <>
+            <WebAnalyticsFiltersV2MigrationBanner />
+            <FilterBar
+                top={tabs}
+                left={
+                    <>
+                        <ReloadAll iconOnly />
+                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                        <WebAnalyticsCompareFilter />
+                    </>
+                }
+                right={
+                    <>
+                        <ShareButton />
+                        <WebVitalsPercentileToggle />
+                        {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && <FilterPresetsDropdown />}
+                        <FiltersPopover />
+                        <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+                        <WebAnalyticsDomainSelector />
+                        <TableSortingIndicator />
+                    </>
+                }
+            />
+        </>
     )
 }
 
@@ -77,7 +85,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
+    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
         return <CondensedWebAnalyticsFilterBar tabs={tabs} />
     }
 
@@ -99,7 +107,6 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
             }
             right={
                 <>
-                    {featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && <ShareButton />}
                     <WebAnalyticsCompareFilter />
 
                     <WebConversionGoal />
@@ -234,7 +241,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
         scope: Scene.WebAnalytics,
     })
 
-    if (featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
+    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
         return (
             <LemonSelect
                 size="small"
@@ -326,8 +333,17 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
 }
 
 const ShareButton = (): JSX.Element => {
+    const { activePreset } = useValues(webAnalyticsFilterPresetsLogic)
+
     const handleShare = (): void => {
-        void copyToClipboard(window.location.href, 'link')
+        const url = new URL(window.location.href)
+
+        if (activePreset) {
+            url.search = ''
+            url.searchParams.set('presetId', activePreset.short_id)
+        }
+
+        void copyToClipboard(url.toString(), 'link')
     }
 
     return (

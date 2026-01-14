@@ -201,13 +201,11 @@ mod tests {
     use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN};
     use crate::flags::flag_service::FlagService;
     use crate::utils::test_utils::{
-        insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client,
+        insert_new_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
+        setup_redis_client, setup_team_hypercache_reader,
     };
     use bytes::Bytes;
     use serde_json::json;
-
-    // Default cache TTL for tests: 5 days in seconds
-    const DEFAULT_CACHE_TTL_SECONDS: u64 = 432000;
 
     #[test]
     fn empty_distinct_id_is_accepted() {
@@ -488,13 +486,14 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+
         let flag_service = FlagService::new(
             redis_client.clone(),
-            None, // No dedicated flags Redis in tests
             pg_client.clone(),
-            DEFAULT_CACHE_TTL_SECONDS,
-            DEFAULT_CACHE_TTL_SECONDS,
-            crate::config::DEFAULT_TEST_CONFIG.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
         );
 
         match flag_service.verify_token(&token).await {
@@ -507,6 +506,8 @@ mod tests {
     async fn test_error_cases() {
         let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
 
         // Test invalid token
         let flag_request = FlagRequest {
@@ -519,11 +520,9 @@ mod tests {
 
         let flag_service = FlagService::new(
             redis_client.clone(),
-            None, // No dedicated flags Redis in tests
             pg_client.clone(),
-            DEFAULT_CACHE_TTL_SECONDS,
-            DEFAULT_CACHE_TTL_SECONDS,
-            crate::config::DEFAULT_TEST_CONFIG.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
         );
         assert!(matches!(
             flag_service.verify_token(&result).await,

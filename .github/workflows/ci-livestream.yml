@@ -1,6 +1,9 @@
 name: Livestream
 
 on:
+    push:
+        branches:
+            - master
     pull_request:
         paths:
             - '.github/workflows/ci-livestream.yml'
@@ -12,12 +15,19 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Set up Go
-              uses: actions/setup-go@v6
+              uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
               with:
-                  go-version: 1.24
+                  go-version: '1.24'
+
+            - name: Run golangci-lint
+              uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+              with:
+                  version: latest
+                  working-directory: livestream
+                  args: --timeout=5m
 
             - name: Run tests
               run: cd livestream && go test -v

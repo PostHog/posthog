@@ -39,7 +39,7 @@ pub fn login(host_override: Option<String>) -> Result<()> {
     if !io::stdout().is_terminal() {
         bail!("Failed to login. If you are running on a CI, skip this step and use POSTHOG_CLI_HOST, POSTHOG_CLI_ENV_ID, POSTHOG_CLI_TOKEN env variables when running commands")
     }
-    login_with_use_cases(host_override, vec!["schema", "error_tracking"])
+    login_with_use_cases(host_override, vec!["schema", "error_tracking", "endpoints"])
 }
 
 pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>) -> Result<()> {

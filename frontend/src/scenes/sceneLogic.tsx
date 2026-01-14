@@ -7,8 +7,6 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
-import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -269,9 +267,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
 const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WAREHOUSE]
 
 const pathPrefixesOnboardingNotRequiredFor = [
-    urls.onboarding(''),
-    urls.useCaseSelection(),
-    urls.products(),
+    urls.onboarding(),
     '/settings',
     urls.organizationBilling(),
     urls.billingAuthorizationStatus(),
@@ -318,14 +314,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [
-            router,
-            ['locationChanged', 'push'],
-            commandBarLogic,
-            ['setCommandBar'],
-            inviteLogic,
-            ['hideInviteModal'],
-        ],
+        actions: [router, ['locationChanged', 'push'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
@@ -1003,21 +992,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             persistTabs(values.tabs, values.homepage)
 
-            // Open search or command bar
-            const params = new URLSearchParams(search)
-            const searchBar = params.get('searchBar')
-            const commandBar = params.get('commandBar')
-
-            if (searchBar !== null) {
-                actions.setCommandBar(BarStatus.SHOW_SEARCH, searchBar)
-                params.delete('searchBar')
-                router.actions.replace(pathname, params, hash)
-            } else if (commandBar !== null) {
-                actions.setCommandBar(BarStatus.SHOW_ACTIONS, commandBar)
-                params.delete('commandBar')
-                router.actions.replace(pathname, params, hash)
-            }
-
             // Remove trailing slash
             if (pathname !== '/' && pathname.endsWith('/')) {
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
@@ -1039,7 +1013,8 @@ export const sceneLogic = kea<sceneLogicType>([
                 !equal(lastParams.params, params.params) ||
                 JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
             ) {
-                posthog.capture('$pageview')
+                const productKey = values.productFromUrl
+                posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
             }
 
             if (tabId !== lastTabId) {
@@ -1167,11 +1142,11 @@ export const sceneLogic = kea<sceneLogicType>([
                                 // Check if user is coming from a coupon campaign link
                                 const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
                                 if (campaign) {
-                                    router.actions.replace(urls.onboardingCoupon(campaign), { next: nextUrl })
+                                    router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
                                     return
                                 }
 
-                                router.actions.replace(urls.useCaseSelection(), nextUrl ? { next: nextUrl } : undefined)
+                                router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
                                 return
                             }
 
@@ -1190,7 +1165,10 @@ export const sceneLogic = kea<sceneLogicType>([
                                     )
 
                                     router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
+                                        urls.onboarding({
+                                            productKey: productKeyFromUrl,
+                                            stepKey: OnboardingStepKey.INSTALL,
+                                        })
                                     )
                                     return
                                 }
