@@ -8,26 +8,31 @@ import { teamLogic } from 'scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 
 import { ProjectAccountFiltersSetting } from './TestAccountFiltersConfig'
+import type {
+    cohortsModelType,
+    eventUsageLogicType,
+    revenueAnalyticsSettingsLogicType,
+} from './TestAccountFiltersConfig.testType'
 
 jest.mock('lib/components/PropertyFilters/PropertyFilters', () => ({
     PropertyFilters: () => null,
 }))
 
 jest.mock('~/models/cohortsModel', () => {
-    const { kea } = jest.requireActual('kea')
+    const { kea } = jest.requireActual('kea') as { kea: any }
 
     const cohortsModel = kea({
         path: ['models', 'cohortsModel', 'mock'],
         reducers: {
             cohortsById: [{}, {}],
         },
-    })
+    }) as cohortsModelType
 
     return { cohortsModel }
 })
 
 jest.mock('products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic', () => {
-    const { kea } = jest.requireActual('kea')
+    const { kea } = jest.requireActual('kea') as { kea: any }
 
     const revenueAnalyticsSettingsLogic = kea({
         path: ['scenes', 'data-management', 'revenue', 'revenueAnalyticsSettingsLogic', 'mock'],
@@ -38,24 +43,25 @@ jest.mock('products/revenue_analytics/frontend/settings/revenueAnalyticsSettings
             filterTestAccounts: [
                 false,
                 {
-                    updateFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
+                    updateFilterTestAccounts: (_: boolean, { filterTestAccounts }: { filterTestAccounts: boolean }) =>
+                        filterTestAccounts,
                 },
             ],
         },
-    })
+    }) as revenueAnalyticsSettingsLogicType
 
     return { revenueAnalyticsSettingsLogic }
 })
 
 jest.mock('lib/utils/eventUsageLogic', () => {
-    const { kea } = jest.requireActual('kea')
+    const { kea } = jest.requireActual('kea') as { kea: any }
 
     const eventUsageLogic = kea({
         path: ['lib', 'utils', 'eventUsageLogic', 'mock'],
         actions: {
             reportTestAccountFiltersUpdated: (filters: any) => ({ filters }),
         },
-    })
+    }) as eventUsageLogicType
 
     return { eventUsageLogic }
 })

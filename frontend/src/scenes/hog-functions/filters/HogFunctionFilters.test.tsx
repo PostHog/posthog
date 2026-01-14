@@ -9,37 +9,39 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
+import type { CohortPropertyFilter, TeamType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from './HogFunctionFilters'
+import type { groupsModelType, teamLogicType } from './HogFunctionFilters.testType'
 
 jest.mock('lib/hooks/useFeatureFlag', () => ({
     useFeatureFlag: jest.fn(() => false),
 }))
 
 jest.mock('scenes/teamLogic', () => {
-    const { kea } = jest.requireActual('kea')
+    const { kea } = jest.requireActual('kea') as { kea: any }
 
     const teamLogic = kea({
         path: ['scenes', 'teamLogic'],
         actions: {
-            loadCurrentTeamSuccess: (team: any) => ({ team }),
+            loadCurrentTeamSuccess: (team: TeamType) => ({ team }),
         },
         reducers: {
             currentTeam: [
-                null,
+                null as TeamType | null,
                 {
-                    loadCurrentTeamSuccess: (_, { team }) => team,
+                    loadCurrentTeamSuccess: (_: TeamType | null, { team }: { team: TeamType }) => team,
                 },
             ],
             currentTeamId: [
-                null,
+                null as number | null,
                 {
-                    loadCurrentTeamSuccess: (_, { team }) => team?.id ?? null,
+                    loadCurrentTeamSuccess: (_: number | null, { team }: { team: TeamType }) => team?.id ?? null,
                 },
             ],
         },
-    })
+    }) as teamLogicType
 
     return { teamLogic }
 })
@@ -86,7 +88,7 @@ jest.mock('lib/components/PropertyFilters/PropertyFilters', () => ({
 }))
 
 jest.mock('~/models/groupsModel', () => {
-    const { kea } = jest.requireActual('kea')
+    const { kea } = jest.requireActual('kea') as { kea: any }
 
     const groupsModel = kea({
         path: ['models', 'groupsModel', 'mock'],
@@ -94,7 +96,7 @@ jest.mock('~/models/groupsModel', () => {
             groupTypes: [() => [], () => new Map()],
             groupsTaxonomicTypes: [() => [], () => []],
         },
-    })
+    }) as groupsModelType
 
     return { groupsModel }
 })
@@ -104,7 +106,7 @@ jest.mock('scenes/insights/filters/ActionFilter/ActionFilter', () => ({
 }))
 
 describe('HogFunctionFilters', () => {
-    const cohortFilter = {
+    const cohortFilter: CohortPropertyFilter = {
         type: PropertyFilterType.Cohort,
         key: 'id',
         value: 123,
