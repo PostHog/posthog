@@ -3391,9 +3391,14 @@ export interface ProductTourAppearance {
     boxShadow?: string
     showOverlay?: boolean
     whiteLabel?: boolean
+    /** defaults to true, auto-set to false for announcements/banners */
+    dismissOnClickOutside?: boolean
 }
 
+export type ProductTourType = 'tour' | 'announcement'
+
 export interface ProductTourContent {
+    type?: ProductTourType
     steps: ProductTourStep[]
     appearance?: ProductTourAppearance
     conditions?: ProductTourDisplayConditions
@@ -4000,6 +4005,7 @@ export enum PropertyType {
     Assignee = 'Assignee',
     StringArray = 'StringArray',
     Flag = 'Flag',
+    Semver = 'Semver',
 }
 
 export enum PropertyDefinitionType {
