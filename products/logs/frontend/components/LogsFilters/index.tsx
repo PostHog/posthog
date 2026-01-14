@@ -5,18 +5,21 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
 import { DateRangeFilter } from 'products/logs/frontend/filters/DateRangeFilter'
+import { LogsDateRangePicker } from 'products/logs/frontend/filters/LogsDateRangePicker/LogsDateRangePicker'
 import { ServiceFilter } from 'products/logs/frontend/filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/filters/SeverityLevelsFilter'
 import { logsLogic } from 'products/logs/frontend/logsLogic'
 
 export const LogsFilters = (): JSX.Element => {
-    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsLogic)
-    const { runQuery, zoomDateRange, setLiveTailRunning } = useActions(logsLogic)
+    const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
+    const { logsLoading, liveTailRunning, liveTailDisabledReason, dateRange } = useValues(logsLogic)
+    const { runQuery, zoomDateRange, setLiveTailRunning, setDateRange } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
@@ -38,7 +41,11 @@ export const LogsFilters = (): JSX.Element => {
                         type="secondary"
                         onClick={() => zoomDateRange(0.5)}
                     />
-                    <DateRangeFilter />
+
+                    {!newLogsDateRangePicker && <DateRangeFilter />}
+                    {newLogsDateRangePicker && (
+                        <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
+                    )}
 
                     <LemonButton
                         size="small"
@@ -46,9 +53,10 @@ export const LogsFilters = (): JSX.Element => {
                         type="secondary"
                         onClick={() => runQuery()}
                         loading={logsLoading || liveTailRunning}
+                        className="min-w-24"
                         disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
                     >
-                        {liveTailRunning ? 'Tailing...' : logsLoading ? 'Loading...' : 'Search'}
+                        {liveTailRunning ? 'Tailing...' : 'Refresh'}
                     </LemonButton>
                     <AppShortcut
                         name="LogsLiveTail"

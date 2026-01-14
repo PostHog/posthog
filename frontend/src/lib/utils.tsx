@@ -263,6 +263,15 @@ export const stringOperatorMap: Record<string, string> = {
     not_regex: "≁ doesn't match regex",
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+    semver_eq: '= equals (semver)',
+    semver_neq: '≠ not equal (semver)',
+    semver_gt: '> greater than (semver)',
+    semver_gte: '≥ greater than or equal (semver)',
+    semver_lt: '< less than (semver)',
+    semver_lte: '≤ less than or equal (semver)',
+    semver_tilde: '~ tilde range (semver)',
+    semver_caret: '^ caret range (semver)',
+    semver_wildcard: '* wildcard (semver)',
 }
 
 export const stringArrayOperatorMap: Record<string, string> = {
@@ -330,15 +339,15 @@ export const cleanedPathOperatorMap: Record<string, string> = {
 }
 
 export const semverOperatorMap: Record<string, string> = {
-    semver_eq: '= equals',
-    semver_neq: '≠ not equal',
-    semver_gt: '> greater than',
-    semver_gte: '≥ greater than or equal',
-    semver_lt: '< less than',
-    semver_lte: '≤ less than or equal',
-    semver_tilde: '~ tilde range',
-    semver_caret: '^ caret range',
-    semver_wildcard: '* wildcard',
+    semver_eq: '= equals (semver)',
+    semver_neq: '≠ not equal (semver)',
+    semver_gt: '> greater than (semver)',
+    semver_gte: '≥ greater than or equal (semver)',
+    semver_lt: '< less than (semver)',
+    semver_lte: '≤ less than or equal (semver)',
+    semver_tilde: '~ tilde range (semver)',
+    semver_caret: '^ caret range (semver)',
+    semver_wildcard: '* wildcard (semver)',
 }
 
 export const assigneeOperatorMap: Record<string, string> = {
@@ -351,7 +360,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...assigneeOperatorMap,
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
-    ...stringOperatorMap,
+    ...semverOperatorMap,
     ...stringArrayOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
@@ -361,7 +370,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...cohortOperatorMap,
     ...featureFlagOperatorMap,
     ...cleanedPathOperatorMap,
-    ...semverOperatorMap,
+    ...stringOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -377,6 +386,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Flag: featureFlagOperatorMap,
     Assignee: assigneeOperatorMap,
     StringArray: stringArrayOperatorMap,
+    Semver: semverOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -405,6 +415,20 @@ export function isOperatorCohort(operator: PropertyOperator): boolean {
 
 export function isOperatorRegex(operator: PropertyOperator): boolean {
     return [PropertyOperator.Regex, PropertyOperator.NotRegex].includes(operator)
+}
+
+export function isOperatorSemver(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.SemverEq,
+        PropertyOperator.SemverNeq,
+        PropertyOperator.SemverGt,
+        PropertyOperator.SemverGte,
+        PropertyOperator.SemverLt,
+        PropertyOperator.SemverLte,
+        PropertyOperator.SemverTilde,
+        PropertyOperator.SemverCaret,
+        PropertyOperator.SemverWildcard,
+    ].includes(operator)
 }
 
 export function isOperatorRange(operator: PropertyOperator): boolean {

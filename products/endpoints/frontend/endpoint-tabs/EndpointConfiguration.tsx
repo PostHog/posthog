@@ -83,7 +83,7 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                 </LemonField.Pure>
                 <LemonField.Pure
                     label="Materialization"
-                    info="Pre-compute and store query results in S3 for faster response times. Best for queries that don't need real-time data."
+                    info="Pre-compute and store query results in S3 for faster response times. Best for queries that don't need real-time data. Enabled by default for new endpoints."
                 >
                     <LemonSwitch
                         label="Enable materialization"
