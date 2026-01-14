@@ -188,7 +188,7 @@ describe('cohortEditLogic', () => {
             cleanup()
         })
 
-        it('shows pending state when pending_version is set but is_calculating is false', async () => {
+        it('shows in progress state when pending_version is set but is_calculating is false', async () => {
             const cohortId = 1
 
             useMocks({
@@ -208,8 +208,8 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} tabId="test-tab" />)
 
-            const pendingElements = await screen.findAllByText('Pending...')
-            expect(pendingElements.length).toBeGreaterThan(0)
+            const inProgressElements = await screen.findAllByText('In progress...')
+            expect(inProgressElements.length).toBeGreaterThan(0)
             const queueingElements = screen.getAllByText(
                 "We're queuing the calculation. It should be ready in a few minutes."
             )
@@ -267,8 +267,8 @@ describe('cohortEditLogic', () => {
             await screen.findByText(
                 "We're queuing a recalculation. The table below shows results from the previous calculation."
             )
-            const pendingElements = screen.getAllByText('Pending...')
-            expect(pendingElements.length).toBeGreaterThan(0)
+            const inProgressElements = screen.getAllByText('In progress...')
+            expect(inProgressElements.length).toBeGreaterThan(0)
         })
 
         it('hides loading state when calculation is complete', async () => {
@@ -293,7 +293,6 @@ describe('cohortEditLogic', () => {
 
             // Wait a bit for component to render then verify no loading states
             await new Promise((resolve) => setTimeout(resolve, 100))
-            expect(screen.queryAllByText('Pending...')).toHaveLength(0)
             expect(screen.queryAllByText('In progress...')).toHaveLength(0)
         })
     })

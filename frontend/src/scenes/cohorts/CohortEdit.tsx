@@ -349,11 +349,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                         {isCalculatingOrPending ? (
                                                             <div className="flex items-center gap-x-2">
                                                                 <Spinner size="small" />
-                                                                <span className="text-muted">
-                                                                    {isPendingCalculation && !cohort.is_calculating
-                                                                        ? 'Pending...'
-                                                                        : 'In progress...'}
-                                                                </span>
+                                                                <span className="text-muted">In progress...</span>
                                                             </div>
                                                         ) : cohort.last_calculation ? (
                                                             <TZLabel time={cohort.last_calculation} />
