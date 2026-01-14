@@ -644,3 +644,36 @@ class TestHogFlowAPI(APIBaseTest):
         action_types = [action["type"] for action in flow.actions]
         assert "delay" in action_types  # Delay is present
         assert action_types.count("function") == 2  # Two function actions
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_hog_flow_batch_jobs_endpoint_creates_job(self, mock_create_invocation):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        batch_job_data = {
+            "variables": [{"key": "first_name", "value": "Test"}],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", batch_job_data)
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["hog_flow"] == flow_id
+        assert response.json()["variables"] == batch_job_data["variables"]
+        assert response.json()["status"] == "queued"
+        mock_create_invocation.assert_called_once()
+
+    def test_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
+        batch_job_data = {"variables": [{"key": "first_name", "value": "Test"}]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/99999/batch_jobs", batch_job_data)
+
+        assert response.status_code == 404, response.json()

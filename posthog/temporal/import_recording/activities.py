@@ -78,6 +78,75 @@ async def import_recording_data(input: ImportContext) -> None:
     logger.info(f"Imported {len(data_files)} recording data files")
 
 
+# Query uses input() function with JSONEachRow to pass data in request body (not query string)
+# This avoids HTTP 400 errors when block_first_timestamps/block_last_timestamps/block_urls are large
+REPLAY_INSERT_QUERY = """
+INSERT INTO writable_session_replay_events (
+    session_id,
+    team_id,
+    distinct_id,
+    min_first_timestamp,
+    max_last_timestamp,
+    first_url,
+    click_count,
+    keypress_count,
+    mouse_activity_count,
+    active_milliseconds,
+    console_log_count,
+    console_warn_count,
+    console_error_count,
+    snapshot_source,
+    snapshot_library,
+    retention_period_days,
+    block_first_timestamps,
+    block_last_timestamps,
+    block_urls
+)
+SELECT
+    any(session_id),
+    any(team_id),
+    any(distinct_id),
+    any(min_first_timestamp),
+    any(max_last_timestamp),
+    argMinState(first_url, min_first_timestamp),
+    any(click_count),
+    any(keypress_count),
+    any(mouse_activity_count),
+    any(active_milliseconds),
+    any(console_log_count),
+    any(console_warn_count),
+    any(console_error_count),
+    argMinState(snapshot_source, min_first_timestamp),
+    argMinState(snapshot_library, min_first_timestamp),
+    any(retention_period_days),
+    any(block_first_timestamps),
+    any(block_last_timestamps),
+    any(block_urls)
+FROM input('
+    session_id String,
+    team_id Int64,
+    distinct_id String,
+    min_first_timestamp DateTime64(6, \\'UTC\\'),
+    max_last_timestamp DateTime64(6, \\'UTC\\'),
+    first_url Nullable(String),
+    click_count Int64,
+    keypress_count Int64,
+    mouse_activity_count Int64,
+    active_milliseconds Int64,
+    console_log_count Int64,
+    console_warn_count Int64,
+    console_error_count Int64,
+    snapshot_source LowCardinality(Nullable(String)),
+    snapshot_library Nullable(String),
+    retention_period_days Int64,
+    block_first_timestamps Array(DateTime64(6, \\'UTC\\')),
+    block_last_timestamps Array(DateTime64(6, \\'UTC\\')),
+    block_urls Array(String)
+')
+FORMAT JSONEachRow
+"""
+
+
 @activity.defn
 async def import_replay_clickhouse_rows(input: ImportContext) -> None:
     logger = LOGGER.bind()
@@ -93,99 +162,36 @@ async def import_replay_clickhouse_rows(input: ImportContext) -> None:
 
     logger.info(f"Importing {len(rows)} replay event rows")
 
-    query = """
-        INSERT INTO writable_session_replay_events (
-            session_id,
-            team_id,
-            distinct_id,
-            min_first_timestamp,
-            max_last_timestamp,
-            first_url,
-            click_count,
-            keypress_count,
-            mouse_activity_count,
-            active_milliseconds,
-            console_log_count,
-            console_warn_count,
-            console_error_count,
-            snapshot_source,
-            snapshot_library,
-            retention_period_days,
-            block_first_timestamps,
-            block_last_timestamps,
-            block_urls
-        )
-        SELECT
-            any(session_id),
-            any(team_id),
-            any(distinct_id),
-            any(min_first_timestamp),
-            any(max_last_timestamp),
-            argMinState(first_url, min_first_timestamp),
-            any(click_count),
-            any(keypress_count),
-            any(mouse_activity_count),
-            any(active_milliseconds),
-            any(console_log_count),
-            any(console_warn_count),
-            any(console_error_count),
-            argMinState(snapshot_source, min_first_timestamp),
-            argMinState(snapshot_library, min_first_timestamp),
-            any(retention_period_days),
-            any(block_first_timestamps),
-            any(block_last_timestamps),
-            any(block_urls)
-        FROM (
-            SELECT
-                %(session_id)s as session_id,
-                %(team_id)s as team_id,
-                %(distinct_id)s as distinct_id,
-                CAST(%(min_first_timestamp)s AS DateTime64(6, 'UTC')) as min_first_timestamp,
-                CAST(%(max_last_timestamp)s AS DateTime64(6, 'UTC')) as max_last_timestamp,
-                CAST(%(first_url)s AS Nullable(String)) as first_url,
-                %(click_count)s as click_count,
-                %(keypress_count)s as keypress_count,
-                %(mouse_activity_count)s as mouse_activity_count,
-                %(active_milliseconds)s as active_milliseconds,
-                %(console_log_count)s as console_log_count,
-                %(console_warn_count)s as console_warn_count,
-                %(console_error_count)s as console_error_count,
-                CAST(%(snapshot_source)s AS LowCardinality(Nullable(String))) as snapshot_source,
-                CAST(NULL AS Nullable(String)) as snapshot_library,
-                %(retention_period_days)s as retention_period_days,
-                %(block_first_timestamps)s as block_first_timestamps,
-                %(block_last_timestamps)s as block_last_timestamps,
-                %(block_urls)s as block_urls
-        )
-    """
-
-    ch_query_id = str(uuid4())
-    logger.info(f"Inserting into ClickHouse with query_id: {ch_query_id}")
-
     try:
         async with get_client() as client:
-            for row in rows:
-                query_parameters = {
-                    "session_id": row["session_id"],
-                    "team_id": input.team_id,
-                    "distinct_id": row["distinct_id"],
-                    "min_first_timestamp": row["start_time"],
-                    "max_last_timestamp": row["end_time"],
-                    "first_url": row["first_url"],
-                    "click_count": row["click_count"],
-                    "keypress_count": row["keypress_count"],
-                    "mouse_activity_count": row["mouse_activity_count"],
-                    "active_milliseconds": row["active_seconds"] * 1000,
-                    "console_log_count": row["console_log_count"],
-                    "console_warn_count": row["console_warn_count"],
-                    "console_error_count": row["console_error_count"],
-                    "snapshot_source": row["snapshot_source"],
-                    "retention_period_days": row["retention_period_days"],
-                    "block_first_timestamps": row["block_first_timestamps"],
-                    "block_last_timestamps": row["block_last_timestamps"],
-                    "block_urls": row["block_urls"],
-                }
-                await client.execute_query(query, query_parameters=query_parameters, query_id=ch_query_id)
+            for idx, row in enumerate(rows):
+                json_row = json.dumps(
+                    {
+                        "session_id": row["session_id"],
+                        "team_id": int(input.team_id),
+                        "distinct_id": row["distinct_id"],
+                        "min_first_timestamp": row["start_time"],
+                        "max_last_timestamp": row["end_time"],
+                        "first_url": row["first_url"],
+                        "click_count": int(row["click_count"]),
+                        "keypress_count": int(row["keypress_count"]),
+                        "mouse_activity_count": int(row["mouse_activity_count"]),
+                        "active_milliseconds": int(row["active_seconds"] * 1000),
+                        "console_log_count": int(row["console_log_count"]),
+                        "console_warn_count": int(row["console_warn_count"]),
+                        "console_error_count": int(row["console_error_count"]),
+                        "snapshot_source": row["snapshot_source"],
+                        "snapshot_library": None,
+                        "retention_period_days": int(row["retention_period_days"]),
+                        "block_first_timestamps": row["block_first_timestamps"],
+                        "block_last_timestamps": row["block_last_timestamps"],
+                        "block_urls": row["block_urls"],
+                    }
+                )
+                full_query = REPLAY_INSERT_QUERY + "\n" + json_row
+                ch_query_id = str(uuid4())
+                await client.execute_query(full_query, query_id=ch_query_id)
+                logger.info(f"Inserted row {idx + 1}/{len(rows)} with query_id: {ch_query_id}")
     except Exception:
         logger.exception("Failed to import replay event rows")
         raise
@@ -228,13 +234,10 @@ async def import_event_clickhouse_rows(input: ImportContext) -> None:
         ) VALUES
     """
 
-    ch_query_id = str(uuid4())
-    logger.info(f"Inserting into ClickHouse with query_id: {ch_query_id}")
-
     try:
         async with get_client() as client:
-            for row in rows:
-                data_tuple = (
+            for idx, row in enumerate(rows):
+                row_tuple = (
                     row["uuid"],
                     input.team_id,
                     row["event"],
@@ -246,7 +249,9 @@ async def import_event_clickhouse_rows(input: ImportContext) -> None:
                     row["person_properties"],
                     row["elements_chain"],
                 )
-                await client.execute_query(query, data_tuple, query_id=ch_query_id)
+                ch_query_id = str(uuid4())
+                await client.execute_query(query, row_tuple, query_id=ch_query_id)
+                logger.info(f"Inserted row {idx + 1}/{len(rows)} with query_id: {ch_query_id}")
     except Exception:
         logger.exception("Failed to import event rows")
         raise

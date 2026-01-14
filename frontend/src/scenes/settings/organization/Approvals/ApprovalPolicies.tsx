@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonSelect, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -22,6 +24,7 @@ export function ApprovalPolicies(): JSX.Element {
     const { loadPolicies, deletePolicy } = useActions(approvalPoliciesLogic)
     const [editingPolicy, setEditingPolicy] = useState<ApprovalPolicy | null>(null)
     const [isCreating, setIsCreating] = useState(false)
+    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     useEffect(() => {
         loadPolicies()
@@ -73,6 +76,7 @@ export function ApprovalPolicies(): JSX.Element {
                                 onClick={() => {
                                     setEditingPolicy(policy)
                                 }}
+                                disabledReason={restrictionReason}
                             >
                                 Edit
                             </LemonButton>
@@ -98,6 +102,7 @@ export function ApprovalPolicies(): JSX.Element {
                                         },
                                     })
                                 }}
+                                disabledReason={restrictionReason}
                             >
                                 Delete
                             </LemonButton>
@@ -111,7 +116,7 @@ export function ApprovalPolicies(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-end items-center">
-                <LemonButton type="primary" onClick={() => setIsCreating(true)}>
+                <LemonButton type="primary" onClick={() => setIsCreating(true)} disabledReason={restrictionReason}>
                     Add policy
                 </LemonButton>
             </div>

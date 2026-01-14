@@ -103,9 +103,10 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             },
         ],
         isMaterialized: [
-            null as boolean | null,
+            true as boolean | null,
             {
                 setIsMaterialized: (_, { isMaterialized }) => isMaterialized,
+                loadEndpointSuccess: (_, { endpoint }) => endpoint?.is_materialized ?? null,
             },
         ],
     }),
@@ -186,7 +187,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             actions.setPayloadJson(initialPayload)
             actions.setCacheAge(endpoint?.cache_age_seconds ?? null)
             actions.setSyncFrequency(endpoint?.materialization?.sync_frequency ?? null)
-            actions.setIsMaterialized(endpoint?.is_materialized ?? null)
         },
     })),
     tabAwareUrlToAction(({ actions, values }) => ({

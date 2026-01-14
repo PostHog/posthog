@@ -139,6 +139,12 @@ bin/mprocs*.local.yaml
 # Ignore bin lockfiles
 bin/*.lock
 
+# Avoid commiting built binaries, they can be built locally easily
+# We deploy them to releases via the `build-hobby-installer.yml` workflow
+bin/hobby-installer-*
+bin/hobby-installer/hobby-installer
+bin/hobby-installer/hobby-installer.log
+
 # Debug output of our session summaries product
 .session-summaries
 
