@@ -71,8 +71,21 @@ export const NotebookKernelInfo = (): JSX.Element => {
         if (!kernelInfo) {
             return null
         }
+        if (actionInFlight.stop) {
+            return { label: 'Stopping', tone: 'warning' }
+        }
+        if (actionInFlight.restart) {
+            return { label: 'Restarting', tone: 'warning' }
+        }
+        if (actionInFlight.start && kernelInfo.status !== 'starting') {
+            return { label: 'Starting', tone: 'warning' }
+        }
         return statusTone[kernelInfo.status] ?? { label: kernelInfo.status, tone: 'default' }
-    }, [kernelInfo])
+    }, [actionInFlight.restart, actionInFlight.start, actionInFlight.stop, kernelInfo])
+
+    const isStarting = kernelInfo?.status === 'starting' || actionInFlight.start
+    const isBusyStatus = isStarting || actionInFlight.stop || actionInFlight.restart
+    const hasActionInFlight = Object.values(actionInFlight).some(Boolean)
 
     const isModalKernel = kernelInfo?.backend === 'modal'
     const selectedCpu = cpuCoreOptions[cpuIndex]
@@ -100,7 +113,13 @@ export const NotebookKernelInfo = (): JSX.Element => {
             className="NotebookColumn__widget"
             title="Kernel info"
             actions={
-                <LemonButton size="xsmall" type="secondary" onClick={() => loadKernelInfo()}>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={() => loadKernelInfo()}
+                    loading={actionInFlight.refresh}
+                    disabled={hasActionInFlight && !actionInFlight.refresh}
+                >
                     Refresh
                 </LemonButton>
             }
@@ -114,6 +133,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                 <div className="space-y-3 p-3">
                     <div className="flex flex-wrap items-center gap-2">
                         {statusInfo ? <LemonTag type={statusInfo.tone}>{statusInfo.label}</LemonTag> : null}
+                        {isBusyStatus ? <Spinner size="small" textColored /> : null}
                         <LemonTag type="default">{kernelInfo.backend === 'modal' ? 'Modal' : 'Local'}</LemonTag>
                         {kernelInfo.cpu_cores ? (
                             <LemonTag type="default">{formatCores(kernelInfo.cpu_cores)}</LemonTag>
@@ -139,7 +159,9 @@ export const NotebookKernelInfo = (): JSX.Element => {
                             size="small"
                             type="secondary"
                             onClick={() => startKernel()}
-                            disabled={actionInFlight || isRunning}
+                            loading={actionInFlight.start || isStarting}
+                            disabled={(hasActionInFlight && !actionInFlight.start) || isRunning}
+                            disabledReason={isRunning ? 'Kernel already running' : undefined}
                         >
                             Start
                         </LemonButton>
@@ -147,7 +169,9 @@ export const NotebookKernelInfo = (): JSX.Element => {
                             size="small"
                             type="secondary"
                             onClick={() => stopKernel()}
-                            disabled={actionInFlight || !isRunning}
+                            loading={actionInFlight.stop}
+                            disabled={(hasActionInFlight && !actionInFlight.stop) || !isRunning}
+                            disabledReason={!isRunning ? 'Kernel is not running' : undefined}
                         >
                             Stop
                         </LemonButton>
@@ -155,7 +179,8 @@ export const NotebookKernelInfo = (): JSX.Element => {
                             size="small"
                             type="secondary"
                             onClick={() => restartKernel()}
-                            disabled={actionInFlight}
+                            loading={actionInFlight.restart}
+                            disabled={hasActionInFlight && !actionInFlight.restart}
                         >
                             Restart
                         </LemonButton>
@@ -228,7 +253,8 @@ export const NotebookKernelInfo = (): JSX.Element => {
                                         idle_timeout_seconds: idleTimeoutSeconds,
                                     })
                                 }
-                                disabled={!isModalKernel || !hasConfigChanges || actionInFlight}
+                                loading={actionInFlight.save}
+                                disabled={!isModalKernel || !hasConfigChanges || hasActionInFlight}
                                 disabledReason={
                                     !isModalKernel
                                         ? 'Scaling options are available for Modal kernels.'
@@ -249,7 +275,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                                         kernelInfo.idle_timeout_seconds ?? idleTimeoutOptions[1].value
                                     )
                                 }}
-                                disabled={!hasConfigChanges || actionInFlight}
+                                disabled={!hasConfigChanges || hasActionInFlight}
                             >
                                 Cancel
                             </LemonButton>
@@ -270,7 +296,8 @@ export const NotebookKernelInfo = (): JSX.Element => {
                                 type="primary"
                                 onClick={() => executeKernel(code)}
                                 disabledReason={!code.trim() ? 'Enter code to execute' : undefined}
-                                disabled={actionInFlight}
+                                loading={actionInFlight.execute}
+                                disabled={hasActionInFlight && !actionInFlight.execute}
                             >
                                 Execute
                             </LemonButton>
