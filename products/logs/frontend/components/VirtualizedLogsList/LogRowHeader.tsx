@@ -5,6 +5,7 @@ import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 
 import {
     CHECKBOX_WIDTH,
+    EXPAND_WIDTH,
     MIN_ATTRIBUTE_COLUMN_WIDTH,
     RESIZER_HANDLE_WIDTH,
     ROW_GAP,
@@ -64,6 +65,7 @@ export function LogRowHeader({
                         size="small"
                     />
                 </div>
+                <div style={{ width: EXPAND_WIDTH, flexShrink: 0 }} />
             </div>
 
             {/* Timestamp */}
