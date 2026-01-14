@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConfig'
+import { UsageMetricsConfig, UsageMetricsModal } from 'scenes/settings/environment/UsageMetricsConfig'
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -44,13 +44,15 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     const logic = dataNodeLogic(dataNodeLogicProps)
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
+    const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId }
+    const { openModal } = useActions(usageMetricsConfigLogic(usageMetricsConfigLogicProps))
 
     useEffect(() => {
         setActions([
             {
                 text: 'Add metric',
                 icon: <IconPlusSmall />,
-                onClick: () => toggleEditing(true),
+                onClick: openModal,
             },
             {
                 text: 'Refresh',
@@ -77,22 +79,30 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     const hasResults = results.length > 0
 
     if (!hasResults) {
-        return <UsageMetricsEmptyState />
+        return (
+            <BindLogic logic={usageMetricsConfigLogic} props={usageMetricsConfigLogicProps}>
+                <UsageMetricsEmptyState />
+                <UsageMetricsModal />
+            </BindLogic>
+        )
     }
 
     return (
-        <div className="@container">
-            <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
-                {results.map((metric) => (
-                    <UsageMetricCard key={metric.id} metric={metric} />
-                ))}
+        <BindLogic logic={usageMetricsConfigLogic} props={usageMetricsConfigLogicProps}>
+            <div className="@container">
+                <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
+                    {results.map((metric) => (
+                        <UsageMetricCard key={metric.id} metric={metric} />
+                    ))}
+                </div>
+                <UsageMetricsModal />
             </div>
-        </div>
+        </BindLogic>
     )
 }
 
 function UsageMetricsEmptyState(): JSX.Element {
-    const { toggleEditing } = useActions(notebookNodeLogic)
+    const { openModal } = useActions(usageMetricsConfigLogic)
     return (
         <ProductIntroduction
             productName="Customer analytics"
@@ -101,7 +111,7 @@ function UsageMetricsEmptyState(): JSX.Element {
             isEmpty={true}
             productKey={ProductKey.CUSTOMER_ANALYTICS}
             className="border-none"
-            action={() => toggleEditing(true)}
+            action={() => openModal()}
         />
     )
 }
@@ -128,7 +138,6 @@ export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsag
     titlePlaceholder: 'Usage',
     Component,
     Settings,
-    settingsIcon: 'gear',
     resizeable: false,
     expandable: true,
     startExpanded: true,

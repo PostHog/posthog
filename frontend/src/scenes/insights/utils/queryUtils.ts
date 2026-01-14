@@ -171,16 +171,10 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             detailedResultsAggregationType: undefined,
             showFullUrls: undefined,
             selectedInterval: undefined,
+            funnelStepReference: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined
-
-        if (isInsightQueryWithSeries(cleanedQuery)) {
-            cleanedQuery.series = cleanedQuery.series.map((entity) => {
-                const { custom_name, ...cleanedEntity } = entity
-                return cleanedEntity
-            })
-        }
 
         if (isInsightQueryWithDisplay(cleanedQuery)) {
             cleanedQuery[insightFilterKey].display =

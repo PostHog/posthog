@@ -44,6 +44,12 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
         mock_stream_processor = MagicMock()
         mock_stream_processor.mark_id_as_streamed = MagicMock()
 
+        # Create a proper mock graph class that returns a mock when instantiated
+        mock_graph_class = MagicMock()
+        mock_graph_instance = MagicMock()
+        mock_graph_instance.compile_full_graph = MagicMock(return_value=mock_graph)
+        mock_graph_class.return_value = mock_graph_instance
+
         class TestRunner(BaseAgentRunner):
             def get_initial_state(self):
                 return AssistantState(messages=[])
@@ -55,7 +61,7 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             team=self.team,
             conversation=self.conversation,
             user=self.user,
-            graph_class=cast(type[BaseAssistantGraph], mock_graph),
+            graph_class=cast(type[BaseAssistantGraph], mock_graph_class),
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
             stream_processor=mock_stream_processor,

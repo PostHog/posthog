@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
@@ -16,6 +17,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
+from posthog.security.url_validation import is_url_allowed
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import DeliverSubscriptionReportActivityInputs
 from posthog.utils import str_to_bool
@@ -72,6 +74,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
+        # SSRF protection for webhook subscriptions
+        target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
+        target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else None)
+        if target_type == Subscription.SubscriptionTarget.WEBHOOK and target_value:
+            allowed, error = is_url_allowed(target_value)
+            if not allowed:
+                raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
+
         return attrs
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
@@ -122,6 +132,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
+@extend_schema(tags=["core"])
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "subscription"
     queryset = Subscription.objects.all()

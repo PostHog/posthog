@@ -14,7 +14,8 @@ mod tests {
             flag_match_reason::FeatureFlagMatchReason,
             flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
             flag_matching_utils::{
-                get_fetch_calls_count, reset_fetch_calls_count, set_feature_flag_hash_key_overrides,
+                get_fetch_calls_count, get_hash_key_override_lookup_count, reset_fetch_calls_count,
+                reset_hash_key_override_lookup_count, set_feature_flag_hash_key_overrides,
             },
             flag_models::{
                 FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
@@ -22,7 +23,10 @@ mod tests {
             },
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-        utils::test_utils::{create_test_flag, TestContext},
+        utils::{
+            graph_utils::build_dependency_graph,
+            test_utils::{create_test_flag, TestContext},
+        },
     };
 
     #[tokio::test]
@@ -97,7 +101,7 @@ mod tests {
             .await
             .unwrap();
 
-        let match_result = matcher.get_match(&flag, None, None).unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None).unwrap();
         assert!(match_result.matches);
         assert_eq!(match_result.variant, None);
 
@@ -118,7 +122,7 @@ mod tests {
             .await
             .unwrap();
 
-        let match_result = matcher.get_match(&flag, None, None).unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None).unwrap();
         assert!(!match_result.matches);
         assert_eq!(match_result.variant, None);
 
@@ -139,7 +143,7 @@ mod tests {
             .await
             .unwrap();
 
-        let match_result = matcher.get_match(&flag, None, None).unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None).unwrap();
 
         // Expecting false for non-existent distinct_id
         assert!(!match_result.matches);
@@ -201,7 +205,15 @@ mod tests {
             flags: vec![flag.clone()],
         };
         let result = matcher
-            .evaluate_all_feature_flags(flags, Some(overrides), None, None, Uuid::new_v4(), None)
+            .evaluate_all_feature_flags(
+                flags,
+                Some(overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
             .await;
         assert!(!result.errors_while_computing_flags);
         assert_eq!(
@@ -290,6 +302,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -380,6 +393,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -403,7 +417,15 @@ mod tests {
         {
             // Leaf flag evaluates to false
             let result = matcher
-                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
+                .evaluate_all_feature_flags(
+                    flags.clone(),
+                    None,
+                    None,
+                    None,
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                )
                 .await;
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
@@ -533,6 +555,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -555,6 +578,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -577,6 +601,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -688,7 +713,15 @@ mod tests {
         reset_fetch_calls_count();
 
         let result = matcher
-            .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
+            .evaluate_all_feature_flags(
+                flags.clone(),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
             .await;
         // Add this assertion to check the call count
         let fetch_calls = get_fetch_calls_count();
@@ -823,8 +856,10 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
+            // Cycle errors still cause errors_while_computing_flags to be true
             assert!(result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("independent_flag").unwrap().to_value(),
@@ -838,16 +873,29 @@ mod tests {
                 result.flags.get("parent_flag").unwrap().to_value(),
                 FlagValue::Boolean(true)
             );
+            // Cycle nodes are removed from the graph
             assert!(!result.flags.contains_key("cycle_start_flag"));
             assert!(!result.flags.contains_key("cycle_middle_flag"));
             assert!(!result.flags.contains_key("cycle_node"));
-            assert!(!result.flags.contains_key("missing_dependency_flag"));
+            // Missing dependency flag is included with enabled=false (fail closed)
+            let missing_dep_flag = result.flags.get("missing_dependency_flag").unwrap();
+            assert!(!missing_dep_flag.enabled);
+            assert_eq!(missing_dep_flag.reason.code, "missing_dependency");
         }
         {
             // Leaf flag evaluates to false
             let result = matcher
-                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
+                .evaluate_all_feature_flags(
+                    flags.clone(),
+                    None,
+                    None,
+                    None,
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                )
                 .await;
+            // Cycle errors still cause errors_while_computing_flags to be true
             assert!(result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("independent_flag").unwrap().to_value(),
@@ -861,10 +909,14 @@ mod tests {
                 result.flags.get("parent_flag").unwrap().to_value(),
                 FlagValue::Boolean(false)
             );
+            // Cycle nodes are removed from the graph
             assert!(!result.flags.contains_key("cycle_start_flag"));
             assert!(!result.flags.contains_key("cycle_middle_flag"));
             assert!(!result.flags.contains_key("cycle_node"));
-            assert!(!result.flags.contains_key("missing_dependency_flag"));
+            // Missing dependency flag is included with enabled=false (fail closed)
+            let missing_dep_flag = result.flags.get("missing_dependency_flag").unwrap();
+            assert!(!missing_dep_flag.enabled);
+            assert_eq!(missing_dep_flag.reason.code, "missing_dependency");
         }
     }
 
@@ -967,6 +1019,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -990,6 +1043,7 @@ mod tests {
                     None,
                     Uuid::new_v4(),
                     None,
+                    false,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -1005,7 +1059,15 @@ mod tests {
         {
             // Leaf flag evaluates to false
             let result = matcher
-                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
+                .evaluate_all_feature_flags(
+                    flags.clone(),
+                    None,
+                    None,
+                    None,
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                )
                 .await;
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
@@ -1044,7 +1106,7 @@ mod tests {
             Some(group_type_mapping_cache),
             Some(groups),
         );
-        let variant = matcher.get_matching_variant(&flag, None).unwrap();
+        let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
         assert!(variant.is_some(), "No variant was selected");
         assert!(
             ["control", "test", "test2"].contains(&variant.unwrap().as_str()),
@@ -1081,7 +1143,7 @@ mod tests {
             None,
         );
 
-        let variant = matcher.get_matching_variant(&flag, None).unwrap();
+        let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
         assert!(variant.is_some());
         assert!(["control", "test", "test2"].contains(&variant.unwrap().as_str()));
     }
@@ -1132,7 +1194,7 @@ mod tests {
             None,
         );
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, None, None)
+            .is_condition_match(&flag, &condition, None, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1194,7 +1256,7 @@ mod tests {
             .flag_evaluation_state
             .add_flag_evaluation_result(1, FlagValue::Boolean(true));
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, None, None)
+            .is_condition_match(&flag, &condition, None, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1310,6 +1372,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -1377,7 +1440,7 @@ mod tests {
                     None,
                     None,
                 );
-                matcher.get_match(&flag_clone, None, None).unwrap()
+                matcher.get_match(&flag_clone, None, None, None).unwrap()
             }));
         }
 
@@ -1465,7 +1528,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(result.matches);
     }
@@ -1510,7 +1573,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         // With empty distinct_id and 100% rollout, the flag should match
         // This is consistent with the Python implementation
@@ -1557,14 +1620,14 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(!result.matches);
 
         // Now set the rollout percentage to 100%
         flag.filters.groups[0].rollout_percentage = Some(100.0);
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(result.matches);
     }
@@ -1618,7 +1681,7 @@ mod tests {
         // Run the test multiple times to simulate distribution
         for i in 0..1000 {
             matcher.distinct_id = format!("user_{i}");
-            let variant = matcher.get_matching_variant(&flag, None).unwrap();
+            let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
             match variant.as_deref() {
                 Some("control") => control_count += 1,
                 Some("test") => test_count += 1,
@@ -1689,7 +1752,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(!result.matches);
     }
@@ -1753,7 +1816,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         // The match should fail due to invalid data type
         assert!(!result.matches);
@@ -1800,7 +1863,7 @@ mod tests {
         );
 
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &flag.filters.groups[0], None, None)
+            .is_condition_match(&flag, &flag.filters.groups[0], None, None, &None)
             .unwrap();
 
         assert!(is_match);
@@ -1884,7 +1947,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(result.matches);
     }
@@ -2117,7 +2180,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let result = matcher.get_match(&flag, None, None).unwrap();
+            let result = matcher.get_match(&flag, None, None, None).unwrap();
             assert_eq!(
                 result.matches,
                 should_match,
@@ -2262,9 +2325,13 @@ mod tests {
             .await
             .unwrap();
 
-        let result_test_id = matcher_test_id.get_match(&flag, None, None).unwrap();
-        let result_example_id = matcher_example_id.get_match(&flag, None, None).unwrap();
-        let result_another_id = matcher_another_id.get_match(&flag, None, None).unwrap();
+        let result_test_id = matcher_test_id.get_match(&flag, None, None, None).unwrap();
+        let result_example_id = matcher_example_id
+            .get_match(&flag, None, None, None)
+            .unwrap();
+        let result_another_id = matcher_another_id
+            .get_match(&flag, None, None, None)
+            .unwrap();
 
         assert!(result_test_id.matches);
         assert!(result_test_id.reason == FeatureFlagMatchReason::SuperConditionValue);
@@ -2368,7 +2435,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(result.matches);
         assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
@@ -2509,9 +2576,13 @@ mod tests {
             .await
             .unwrap();
 
-        let result_test_id = matcher_test_id.get_match(&flag, None, None).unwrap();
-        let result_example_id = matcher_example_id.get_match(&flag, None, None).unwrap();
-        let result_another_id = matcher_another_id.get_match(&flag, None, None).unwrap();
+        let result_test_id = matcher_test_id.get_match(&flag, None, None, None).unwrap();
+        let result_example_id = matcher_example_id
+            .get_match(&flag, None, None, None)
+            .unwrap();
+        let result_another_id = matcher_another_id
+            .get_match(&flag, None, None, None)
+            .unwrap();
 
         assert!(!result_test_id.matches);
         assert_eq!(
@@ -2626,7 +2697,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(result.matches);
     }
@@ -2722,7 +2793,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(result.matches);
     }
@@ -2813,7 +2884,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         // The user matches the cohort, but the flag is set to NotIn, so it should evaluate to false
         assert!(!result.matches);
@@ -2935,7 +3006,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(result.matches);
     }
@@ -3031,7 +3102,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         // The user does not match the cohort, and the flag is set to In, so it should evaluate to false
         assert!(!result.matches);
@@ -3127,7 +3198,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(
             result.matches,
@@ -3210,7 +3281,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(
             !result.matches,
@@ -3298,7 +3369,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(
             result.matches,
@@ -3391,7 +3462,7 @@ mod tests {
             None,
         );
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         assert!(
             !result.matches,
@@ -3488,6 +3559,7 @@ mod tests {
             Some("hash_key_continuity".to_string()),
             Uuid::new_v4(),
             None,
+            false,
         )
         .await;
 
@@ -3573,7 +3645,7 @@ mod tests {
             Some(group_type_mapping_cache),
             None,
         )
-        .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None)
+        .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
         .await;
 
         assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
@@ -3708,6 +3780,7 @@ mod tests {
             Some("hash_key_mixed".to_string()),
             Uuid::new_v4(),
             None,
+            false,
         )
         .await;
 
@@ -3813,7 +3886,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
 
         // The condition matches and has a variant override, so it should return "control"
         // regardless of what the hash-based variant computation would return
@@ -3869,7 +3942,7 @@ mod tests {
             .unwrap();
 
         let result_invalid = matcher
-            .get_match(&flag_invalid_override, None, None)
+            .get_match(&flag_invalid_override, None, None, None)
             .unwrap();
 
         // The condition matches but has an invalid variant override,
@@ -4044,7 +4117,9 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag_with_holdout, None, None).unwrap();
+        let result = matcher
+            .get_match(&flag_with_holdout, None, None, None)
+            .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("second-variant".to_string()));
         assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
@@ -4070,7 +4145,9 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher2.get_match(&flag_with_holdout, None, None).unwrap();
+        let result = matcher2
+            .get_match(&flag_with_holdout, None, None, None)
+            .unwrap();
 
         assert!(result.matches);
         assert_eq!(result.variant, Some("holdout".to_string()));
@@ -4078,7 +4155,7 @@ mod tests {
 
         // same should hold true for a different feature flag when within holdout
         let result = matcher2
-            .get_match(&other_flag_with_holdout, None, None)
+            .get_match(&other_flag_with_holdout, None, None, None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("holdout".to_string()));
@@ -4086,7 +4163,7 @@ mod tests {
 
         // Test with matcher1 (outside holdout) to verify different variants
         let result = matcher
-            .get_match(&other_flag_with_holdout, None, None)
+            .get_match(&other_flag_with_holdout, None, None, None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("third-variant".to_string()));
@@ -4094,14 +4171,14 @@ mod tests {
 
         // when holdout exists but is zero, should default to regular flag evaluation
         let result = matcher
-            .get_match(&flag_without_holdout, None, None)
+            .get_match(&flag_without_holdout, None, None, None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("second-variant".to_string()));
         assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
 
         let result = matcher2
-            .get_match(&flag_without_holdout, None, None)
+            .get_match(&flag_without_holdout, None, None, None)
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("second-variant".to_string()));
@@ -4174,7 +4251,7 @@ mod tests {
             None,
             None,
         );
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
         assert_eq!(
             result,
             FeatureFlagMatch {
@@ -4197,7 +4274,7 @@ mod tests {
             None,
             None,
         );
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
         assert_eq!(
             result,
             FeatureFlagMatch {
@@ -4220,7 +4297,7 @@ mod tests {
             None,
             None,
         );
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
         assert_eq!(
             result,
             FeatureFlagMatch {
@@ -4322,7 +4399,7 @@ mod tests {
             .unwrap();
 
         // This should not throw DependencyNotFound because we skip dependency graph evaluation for static cohorts
-        let result = matcher.get_match(&flag, None, None);
+        let result = matcher.get_match(&flag, None, None, None);
         assert!(result.is_ok(), "Should not throw DependencyNotFound error");
 
         let match_result = result.unwrap();
@@ -4392,6 +4469,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -4458,7 +4536,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result_numeric = matcher_numeric.get_match(&flag, None, None).unwrap();
+        let result_numeric = matcher_numeric.get_match(&flag, None, None, None).unwrap();
 
         // Test with string group key (same value)
         let groups_string = HashMap::from([("organization".to_string(), json!("123"))]);
@@ -4478,7 +4556,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result_string = matcher_string.get_match(&flag, None, None).unwrap();
+        let result_string = matcher_string.get_match(&flag, None, None, None).unwrap();
 
         // Both should match and produce the same result
         assert!(result_numeric.matches, "Numeric group key should match");
@@ -4510,7 +4588,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result_float = matcher_float.get_match(&flag, None, None).unwrap();
+        let result_float = matcher_float.get_match(&flag, None, None, None).unwrap();
         assert!(result_float.matches, "Float group key should match");
 
         // Test with invalid group key type (should use empty string and not match this specific case)
@@ -4531,7 +4609,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result_bool = matcher_bool.get_match(&flag, None, None).unwrap();
+        let result_bool = matcher_bool.get_match(&flag, None, None, None).unwrap();
         // Boolean group key should use empty string identifier, which returns hash 0.0, making flag evaluate to false
         assert!(
             !result_bool.matches,
@@ -4675,7 +4753,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
         assert!(result.matches, "Super condition user should match");
         assert_eq!(
             result.reason,
@@ -4700,7 +4778,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
         assert!(!result.matches, "PostHog user should not match");
         assert_eq!(
             result.reason,
@@ -4725,7 +4803,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = matcher.get_match(&flag, None, None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None).unwrap();
         assert!(!result.matches, "Regular user should not match");
         assert_eq!(
             result.reason,
@@ -4798,7 +4876,7 @@ mod tests {
             .await
             .unwrap();
 
-        let match_result = matcher.get_match(&flag, None, None).unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None).unwrap();
         assert!(match_result.matches);
         assert_eq!(match_result.variant, None);
     }
@@ -4853,7 +4931,7 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let high_device_result = matcher.get_match(&flag, None, None).unwrap();
+        let high_device_result = matcher.get_match(&flag, None, None, None).unwrap();
         assert!(
             high_device_result.matches,
             "device-high hash should fall inside rollout"
@@ -4874,7 +4952,9 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let same_device_result = matcher_same_device.get_match(&flag, None, None).unwrap();
+        let same_device_result = matcher_same_device
+            .get_match(&flag, None, None, None)
+            .unwrap();
         assert_eq!(
             high_device_result.matches, same_device_result.matches,
             "device hashing should ignore distinct_id changes"
@@ -4895,7 +4975,7 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let low_device_result = matcher_low.get_match(&flag, None, None).unwrap();
+        let low_device_result = matcher_low.get_match(&flag, None, None, None).unwrap();
         assert!(
             !low_device_result.matches,
             "device-low hash should fall outside rollout"
@@ -4929,7 +5009,7 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let match_from_distinct = matcher.get_match(&flag, None, None).unwrap();
+        let match_from_distinct = matcher.get_match(&flag, None, None, None).unwrap();
         assert!(
             match_from_distinct.matches,
             "fallback distinct hash should fall inside rollout"
@@ -4950,7 +5030,7 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let high_distinct_result = matcher_high.get_match(&flag, None, None).unwrap();
+        let high_distinct_result = matcher_high.get_match(&flag, None, None, None).unwrap();
         assert!(
             !high_distinct_result.matches,
             "fallback distinct hash should fall outside rollout"
@@ -4985,7 +5065,7 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let high_distinct_result = matcher.get_match(&flag, None, None).unwrap();
+        let high_distinct_result = matcher.get_match(&flag, None, None, None).unwrap();
         assert!(
             !high_distinct_result.matches,
             "distinct-id bucketing should ignore device_id input"
@@ -5006,7 +5086,7 @@ mod tests {
             .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
-        let low_distinct_result = matcher_low.get_match(&flag, None, None).unwrap();
+        let low_distinct_result = matcher_low.get_match(&flag, None, None, None).unwrap();
         assert!(
             low_distinct_result.matches,
             "distinct-id bucketing should follow the distinct hash even when device_id exists"
@@ -5136,6 +5216,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5176,6 +5257,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5210,6 +5292,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5246,6 +5329,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5403,6 +5487,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5443,6 +5528,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5483,6 +5569,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5519,6 +5606,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5559,6 +5647,7 @@ mod tests {
                 None,
                 Uuid::new_v4(),
                 None,
+                false,
             )
             .await;
 
@@ -5660,7 +5749,7 @@ mod tests {
         user_properties.insert("email".to_string(), json!("specific@example.com"));
 
         let result = matcher
-            .get_match(&flag, Some(user_properties), None)
+            .get_match(&flag, Some(user_properties), None, None)
             .unwrap();
         assert!(result.matches, "Flag should match for specific user");
         assert_eq!(
@@ -5689,7 +5778,7 @@ mod tests {
         other_properties.insert("email".to_string(), json!("other@example.com"));
 
         let result2 = matcher2
-            .get_match(&flag, Some(other_properties), None)
+            .get_match(&flag, Some(other_properties), None, None)
             .unwrap();
         assert!(result2.matches, "Flag should match for other user");
         assert_eq!(
@@ -5757,6 +5846,10 @@ mod tests {
             flags: vec![flag_with_continuity, flag_without_continuity],
         };
 
+        // Build dependency graph for the flags
+        let graph_result =
+            build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
+
         // Test the scenario where hash key override reading fails
         // This simulates the case where we have experience continuity flags but hash override reads fail
         let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
@@ -5764,14 +5857,15 @@ mod tests {
             group_property_overrides: None,
             hash_key_overrides: None, // hash_key_overrides (None simulates read failure)
             hash_key_override_error: true, // hash_key_override_error (simulates the error occurred)
+            request_hash_key_override: None,
         };
 
         let response = matcher
             .evaluate_flags_with_overrides(
-                flags,
                 overrides,
                 Uuid::new_v4(),
-                None, // flag_keys
+                graph_result.graph,
+                graph_result.flags_with_missing_deps,
             )
             .await;
 
@@ -5850,7 +5944,7 @@ mod tests {
             None,
         );
 
-        let match_result = matcher.get_match(&flag, None, None).unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None).unwrap();
         assert!(!match_result.matches, "Disabled flag should not match");
         assert_eq!(
             match_result.reason,
@@ -5916,6 +6010,10 @@ mod tests {
             flags: vec![base_flag, dependent_flag],
         };
 
+        // Build dependency graph for the flags
+        let graph_result =
+            build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
+
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
@@ -5928,7 +6026,12 @@ mod tests {
         );
 
         let result = matcher
-            .evaluate_flags_with_overrides(flags, Default::default(), Uuid::new_v4(), None)
+            .evaluate_flags_with_overrides(
+                Default::default(),
+                Uuid::new_v4(),
+                graph_result.graph,
+                graph_result.flags_with_missing_deps,
+            )
             .await;
 
         // Base flag should be disabled
@@ -5951,6 +6054,910 @@ mod tests {
         assert_ne!(
             dependent_result.reason.code, "flag_disabled",
             "Dependent flag should not have flag_disabled reason"
+        );
+    }
+
+    // ======== Integration tests for experience continuity optimization ========
+
+    #[tokio::test]
+    async fn test_optimization_enabled_100_percent_rollout_evaluates_correctly() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "optimization_user_1".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "opt_user@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Create a flag with 100% rollout and experience continuity enabled
+        // This flag should NOT need a hash key override lookup
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("opt_100_percent".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity = true
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            true, // optimization enabled
+        )
+        .await;
+
+        // Verify the optimization actually skipped the hash key override lookup
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 0,
+            "100% rollout flag should skip hash key override lookup, but got {lookup_count} lookups"
+        );
+
+        // Flag should evaluate correctly even with optimization enabled
+        assert!(
+            result.flags.get("opt_100_percent").unwrap().enabled,
+            "100% rollout flag should be enabled with optimization"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optimization_enabled_partial_rollout_evaluates_correctly() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "optimization_user_2".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "opt_user2@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Create a flag with 50% rollout and experience continuity enabled
+        // This flag SHOULD need a hash key override lookup
+        let flag = create_test_flag(
+            Some(2),
+            Some(team.id),
+            None,
+            Some("opt_partial_rollout".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity = true
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            true, // optimization enabled
+        )
+        .await;
+
+        // Verify the lookup DID happen for partial rollout (optimization doesn't skip it)
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 1,
+            "Partial rollout flag should perform hash key override lookup, but got {lookup_count} lookups"
+        );
+
+        // Flag should evaluate (result depends on hash)
+        assert!(
+            result.flags.contains_key("opt_partial_rollout"),
+            "Partial rollout flag should be evaluated with optimization"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optimization_enabled_multivariate_evaluates_correctly() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "optimization_user_3".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "opt_user3@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Create a multivariate flag with experience continuity
+        // This flag SHOULD need a hash key override lookup
+        let flag = create_test_flag(
+            Some(3),
+            Some(team.id),
+            None,
+            Some("opt_multivariate".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            name: Some("Control".to_string()),
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "test".to_string(),
+                            name: Some("Test".to_string()),
+                            rollout_percentage: 50.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity = true
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            true, // optimization enabled
+        )
+        .await;
+
+        // Verify the lookup DID happen for multivariate (optimization doesn't skip it)
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 1,
+            "Multivariate flag should perform hash key override lookup, but got {lookup_count} lookups"
+        );
+
+        // Flag should evaluate with a variant
+        let flag_result = result.flags.get("opt_multivariate").unwrap();
+        assert!(
+            flag_result.enabled,
+            "Multivariate flag should be enabled with optimization"
+        );
+        assert!(
+            flag_result.variant.is_some(),
+            "Multivariate flag should have a variant assigned"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optimization_enabled_multivariate_with_100_percent_variant() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "optimization_user_4".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "opt_user4@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Create a multivariate flag where one variant is at 100%
+        // This flag should NOT need a hash key override lookup (optimization applies)
+        let flag = create_test_flag(
+            Some(4),
+            Some(team.id),
+            None,
+            Some("opt_multivariate_100".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            name: Some("Control".to_string()),
+                            rollout_percentage: 100.0, // 100% variant
+                        },
+                        MultivariateFlagVariant {
+                            key: "test".to_string(),
+                            name: Some("Test".to_string()),
+                            rollout_percentage: 0.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity = true
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            true, // optimization enabled
+        )
+        .await;
+
+        // Verify the optimization skipped the lookup (100% variant = no hashing needed)
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 0,
+            "Multivariate flag with 100% variant should skip hash key override lookup, but got {lookup_count} lookups"
+        );
+
+        // Flag should evaluate with the 100% variant
+        let flag_result = result.flags.get("opt_multivariate_100").unwrap();
+        assert!(
+            flag_result.enabled,
+            "Flag with 100% variant should be enabled"
+        );
+        assert_eq!(
+            flag_result.variant,
+            Some("control".to_string()),
+            "Should get the 100% variant"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optimization_disabled_legacy_behavior() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "legacy_user".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "legacy@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Create a flag with 100% rollout and experience continuity
+        let flag = create_test_flag(
+            Some(5),
+            Some(team.id),
+            None,
+            Some("legacy_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // ensure_experience_continuity = true
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            false, // optimization disabled (legacy behavior)
+        )
+        .await;
+
+        // Flag should still evaluate correctly in legacy mode
+        assert!(
+            result.flags.get("legacy_flag").unwrap().enabled,
+            "Flag should be enabled in legacy mode"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optimization_mixed_flags() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "mixed_user".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "mixed@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Flag 1: 100% rollout with continuity (can be optimized)
+        let flag_optimizable = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag_optimizable".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        // Flag 2: 50% rollout with continuity (needs lookup)
+        let flag_needs_lookup = create_test_flag(
+            Some(2),
+            Some(team.id),
+            None,
+            Some("flag_needs_lookup".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        // Flag 3: 100% rollout without continuity (no lookup needed)
+        let flag_no_continuity = create_test_flag(
+            Some(3),
+            Some(team.id),
+            None,
+            Some("flag_no_continuity".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(false),
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![
+                flag_optimizable.clone(),
+                flag_needs_lookup.clone(),
+                flag_no_continuity.clone(),
+            ],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            None,
+            true, // optimization enabled
+        )
+        .await;
+
+        // Verify the lookup DID happen because flag_needs_lookup requires it.
+        // Even though flag_optimizable could be optimized, the presence of
+        // flag_needs_lookup forces a lookup for all flags with experience continuity.
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 1,
+            "Mixed flags should perform lookup when at least one flag needs it, but got {lookup_count} lookups"
+        );
+
+        // All flags should be evaluated
+        assert!(
+            result.flags.contains_key("flag_optimizable"),
+            "Optimizable flag should be evaluated"
+        );
+        assert!(
+            result.flags.contains_key("flag_needs_lookup"),
+            "Needs-lookup flag should be evaluated"
+        );
+        assert!(
+            result.flags.contains_key("flag_no_continuity"),
+            "No-continuity flag should be evaluated"
+        );
+
+        // 100% rollout flags should be enabled
+        assert!(
+            result.flags.get("flag_optimizable").unwrap().enabled,
+            "100% rollout flag should be enabled"
+        );
+        assert!(
+            result.flags.get("flag_no_continuity").unwrap().enabled,
+            "100% rollout no-continuity flag should be enabled"
+        );
+
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    /// Tests that flag_keys filtering is applied before computing optimization stats.
+    /// When only optimizable flags are requested via flag_keys, the lookup should be skipped
+    /// even if other flags (not being evaluated) would require it.
+    #[tokio::test]
+    async fn test_optimization_respects_flag_keys_filter() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "flag_keys_user".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "flag_keys@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Flag 1: 100% rollout with continuity (can be optimized)
+        let flag_optimizable = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag_optimizable".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        // Flag 2: 50% rollout with continuity (needs lookup)
+        let flag_needs_lookup = create_test_flag(
+            Some(2),
+            Some(team.id),
+            None,
+            Some("flag_needs_lookup".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag_optimizable.clone(), flag_needs_lookup.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            Some(vec!["flag_optimizable".to_string()]), // Only request the optimizable flag
+            true,                                       // optimization enabled
+        )
+        .await;
+
+        // Verify the lookup was SKIPPED because we only requested flag_optimizable,
+        // which is 100% rollout and doesn't need the hash key override lookup.
+        // The flag_needs_lookup exists but wasn't requested, so it shouldn't trigger a lookup.
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 0,
+            "Lookup should be skipped when flag_keys filters to only optimizable flags, but got {lookup_count} lookups"
+        );
+
+        // Only the requested flag should be evaluated
+        assert!(
+            result.flags.contains_key("flag_optimizable"),
+            "Optimizable flag should be evaluated"
+        );
+        assert!(
+            !result.flags.contains_key("flag_needs_lookup"),
+            "Needs-lookup flag should NOT be evaluated when not in flag_keys"
+        );
+
+        // The optimizable flag should be enabled (100% rollout)
+        assert!(
+            result.flags.get("flag_optimizable").unwrap().enabled,
+            "100% rollout flag should be enabled"
+        );
+
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
+        );
+    }
+
+    /// Tests that hash key lookup is NOT skipped when a requested flag depends on a flag that needs it.
+    /// This ensures the optimization correctly considers transitive dependencies.
+    ///
+    /// Scenario:
+    /// - Flag B: 50% rollout + experience continuity (needs hash lookup)
+    /// - Flag A: 100% rollout + experience continuity, depends on Flag B (doesn't need lookup itself)
+    /// - User requests only Flag A via flag_keys
+    /// - The lookup should happen because Flag B (a dependency) requires it
+    #[tokio::test]
+    async fn test_optimization_considers_dependencies_for_flag_keys() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "dependency_user".to_string();
+
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "test@example.com"})),
+            )
+            .await
+            .unwrap();
+
+        // Flag B: 50% rollout with experience continuity (NEEDS hash lookup)
+        // This is the dependency that requires the hash key override
+        let flag_needs_lookup = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag_needs_lookup".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0), // Partial rollout means we need consistent bucketing
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // experience continuity enabled
+        );
+
+        // Flag A: Depends on Flag B, with 100% rollout and experience continuity.
+        // This flag itself wouldn't need a hash lookup (100% rollout), but its dependency does.
+        let flag_depends_on_b = create_test_flag(
+            Some(2),
+            Some(team.id),
+            None,
+            Some("flag_depends_on_b".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "1".to_string(), // depends on flag with id=1
+                        value: Some(json!(true)),
+                        operator: Some(OperatorType::FlagEvaluatesTo),
+                        prop_type: PropertyType::Flag,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0), // 100% rollout - doesn't need lookup on its own
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true), // experience continuity enabled
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag_needs_lookup.clone(), flag_depends_on_b.clone()],
+        };
+
+        // Reset counter before the test
+        reset_hash_key_override_lookup_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id".to_string()),
+            Uuid::new_v4(),
+            Some(vec!["flag_depends_on_b".to_string()]), // Only request the dependent flag
+            true,                                        // optimization enabled
+        )
+        .await;
+
+        // The lookup SHOULD happen because flag_needs_lookup (a dependency) requires it,
+        // even though flag_depends_on_b itself wouldn't need it (100% rollout).
+        // Before the fix, this would incorrectly be 0.
+        let lookup_count = get_hash_key_override_lookup_count();
+        assert_eq!(
+            lookup_count, 1,
+            "Hash key lookup should happen because dependency flag_needs_lookup requires it"
+        );
+
+        // The dependent flag should be evaluated
+        assert!(
+            result.flags.contains_key("flag_depends_on_b"),
+            "Dependent flag should be evaluated"
+        );
+
+        // The dependency flag should also be in the result since it was evaluated as a dependency
+        assert!(
+            result.flags.contains_key("flag_needs_lookup"),
+            "Dependency flag should also be evaluated"
+        );
+
+        assert!(
+            !result.errors_while_computing_flags,
+            "No errors should occur"
         );
     }
 }
