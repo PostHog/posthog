@@ -33,6 +33,7 @@ from posthog.utils import relative_date_parse
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.tasks.backend.services.sandbox import SandboxStatus
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
 logger = structlog.get_logger(__name__)
@@ -467,10 +468,32 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         sandbox_config = build_notebook_sandbox_config(notebook)
         cpu_cores = sandbox_config.cpu_cores
 
+        status = runtime.status if runtime else KernelRuntime.Status.STOPPED
+        if (
+            runtime
+            and runtime.sandbox_id
+            and runtime.backend
+            in (
+                KernelRuntime.Backend.MODAL,
+                KernelRuntime.Backend.DOCKER,
+            )
+        ):
+            try:
+                sandbox_class = service._get_sandbox_class(runtime.backend)
+                sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
+                if sandbox.get_status() != SandboxStatus.RUNNING:
+                    status = KernelRuntime.Status.STOPPED
+            except Exception:
+                status = KernelRuntime.Status.STOPPED
+
+        if runtime and status == KernelRuntime.Status.STOPPED and runtime.status != KernelRuntime.Status.STOPPED:
+            runtime.status = KernelRuntime.Status.STOPPED
+            runtime.save(update_fields=["status"])
+
         return Response(
             {
                 "backend": backend,
-                "status": runtime.status if runtime else KernelRuntime.Status.STOPPED,
+                "status": status,
                 "last_used_at": runtime.last_used_at.isoformat() if runtime else None,
                 "last_error": runtime.last_error if runtime else None,
                 "runtime_id": str(runtime.id) if runtime else None,

@@ -65,6 +65,8 @@ export const NotebookKernelInfo = (): JSX.Element => {
     } = useActions(logic)
     const showLoadingState = kernelInfoLoading && !kernelInfo
 
+    const isDockerKernel = kernelInfo?.backend === 'docker'
+
     return (
         <LemonWidget
             className="NotebookColumn__widget"
@@ -92,14 +94,16 @@ export const NotebookKernelInfo = (): JSX.Element => {
                         {statusInfo ? <LemonTag type={statusInfo.tone}>{statusInfo.label}</LemonTag> : null}
                         {isBusyStatus ? <Spinner size="small" textColored /> : null}
                         {actionInFlight.refresh ? <Spinner size="small" textColored /> : null}
-                        <LemonTag type="default">{kernelInfo.backend === 'modal' ? 'Modal' : 'Local'}</LemonTag>
-                        {kernelInfo.cpu_cores ? (
+                        <LemonTag type="default">
+                            {kernelInfo.backend === 'modal' ? 'Modal' : 'Local - Docker'}
+                        </LemonTag>
+                        {kernelInfo.cpu_cores && !isDockerKernel ? (
                             <LemonTag type="default">{formatCores(kernelInfo.cpu_cores)}</LemonTag>
                         ) : null}
-                        {kernelInfo.memory_gb ? (
+                        {kernelInfo.memory_gb && !isDockerKernel ? (
                             <LemonTag type="default">{formatMemory(kernelInfo.memory_gb)} RAM</LemonTag>
                         ) : null}
-                        {kernelInfo.disk_size_gb ? (
+                        {kernelInfo.disk_size_gb && !isDockerKernel ? (
                             <LemonTag type="default">{kernelInfo.disk_size_gb} GB disk</LemonTag>
                         ) : null}
                     </div>
@@ -147,99 +151,99 @@ export const NotebookKernelInfo = (): JSX.Element => {
                         <div className="space-y-1">
                             <div className="text-xs flex justify-between items-center gap-2">
                                 <div className="font-semibold text-muted uppercase tracking-wide">Compute profile</div>
-                                <span className="font-semibold">
-                                    {formatHourlyPrice(
-                                        selectedCpu * CPU_PRICE_PER_CORE_HOUR +
-                                            selectedMemory * MEMORY_PRICE_PER_GIB_HOUR
-                                    )}
-                                </span>
+                                {isModalKernel ? (
+                                    <span className="font-semibold">
+                                        {formatHourlyPrice(
+                                            selectedCpu * CPU_PRICE_PER_CORE_HOUR +
+                                                selectedMemory * MEMORY_PRICE_PER_GIB_HOUR
+                                        )}
+                                    </span>
+                                ) : null}
                             </div>
-                            <div className="text-xs text-muted">
-                                CPU and RAM are reservations. Usage can burst above the configured values.
-                            </div>
-                        </div>
-                        <div className="space-y-3">
-                            <div className="space-y-1">
-                                <div className="flex items-center justify-between text-xs">
-                                    <span className="font-semibold text-muted">CPU</span>
-                                    <span className="font-semibold">{formatCores(selectedCpu)} </span>
+                            {isModalKernel ? (
+                                <div className="text-xs text-muted">
+                                    CPU and RAM are reservations. Usage can burst above the configured values.
                                 </div>
-                                <div className={!isModalKernel ? 'pointer-events-none opacity-50' : undefined}>
-                                    <LemonSlider
-                                        value={cpuIndex}
-                                        min={0}
-                                        max={cpuCoreOptions.length - 1}
-                                        step={1}
-                                        onChange={(value) => setCpuIndex(value)}
+                            ) : (
+                                <div className="text-sm text-muted">Using docker-based local kernel.</div>
+                            )}
+                        </div>
+                        {isModalKernel ? (
+                            <>
+                                <div className="space-y-3">
+                                    <div className="space-y-1">
+                                        <div className="flex items-center justify-between text-xs">
+                                            <span className="font-semibold text-muted">CPU</span>
+                                            <span className="font-semibold">{formatCores(selectedCpu)} </span>
+                                        </div>
+                                        <LemonSlider
+                                            value={cpuIndex}
+                                            min={0}
+                                            max={cpuCoreOptions.length - 1}
+                                            step={1}
+                                            onChange={(value) => setCpuIndex(value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="flex items-center justify-between text-xs">
+                                            <span className="font-semibold text-muted">RAM</span>
+                                            <span className="font-semibold">{formatMemory(selectedMemory)}</span>
+                                        </div>
+                                        <LemonSlider
+                                            value={memoryIndex}
+                                            min={0}
+                                            max={memoryGbOptions.length - 1}
+                                            step={1}
+                                            onChange={(value) => setMemoryIndex(value)}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <div className="text-xs font-semibold text-muted uppercase tracking-wide">
+                                        Idle timeout
+                                    </div>
+                                    <LemonSelect
+                                        value={idleTimeoutSeconds}
+                                        options={idleTimeoutOptions}
+                                        onChange={(value) => setIdleTimeoutSeconds(value)}
+                                        size="small"
                                     />
+                                    <div className="text-xs text-muted">
+                                        Automatically stop after this period of inactivity.
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="space-y-1">
-                                <div className="flex items-center justify-between text-xs">
-                                    <span className="font-semibold text-muted">RAM</span>
-                                    <span className="font-semibold">{formatMemory(selectedMemory)}</span>
+                                <div className="flex flex-wrap gap-2">
+                                    <LemonButton
+                                        size="small"
+                                        type="primary"
+                                        onClick={() =>
+                                            saveKernelConfig({
+                                                cpu_cores: selectedCpu,
+                                                memory_gb: selectedMemory,
+                                                idle_timeout_seconds: idleTimeoutSeconds,
+                                            })
+                                        }
+                                        loading={actionInFlight.save}
+                                        disabled={!hasConfigChanges || hasActionInFlight}
+                                        disabledReason={
+                                            hasConfigChanges ? undefined : 'No configuration changes to save'
+                                        }
+                                    >
+                                        Save changes
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => {
+                                            resetConfigToKernel()
+                                        }}
+                                        disabled={!hasConfigChanges || hasActionInFlight}
+                                    >
+                                        Cancel
+                                    </LemonButton>
                                 </div>
-                                <div className={!isModalKernel ? 'pointer-events-none opacity-50' : undefined}>
-                                    <LemonSlider
-                                        value={memoryIndex}
-                                        min={0}
-                                        max={memoryGbOptions.length - 1}
-                                        step={1}
-                                        onChange={(value) => setMemoryIndex(value)}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="space-y-1">
-                            <div className="text-xs font-semibold text-muted uppercase tracking-wide">Idle timeout</div>
-                            <LemonSelect
-                                value={idleTimeoutSeconds}
-                                options={idleTimeoutOptions}
-                                onChange={(value) => setIdleTimeoutSeconds(value)}
-                                size="small"
-                                disabled={!isModalKernel}
-                                disabledReason={
-                                    !isModalKernel ? 'Scaling options are available for Modal kernels.' : undefined
-                                }
-                            />
-                            <div className="text-xs text-muted">
-                                Automatically stop after this period of inactivity.
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <LemonButton
-                                size="small"
-                                type="primary"
-                                onClick={() =>
-                                    saveKernelConfig({
-                                        cpu_cores: selectedCpu,
-                                        memory_gb: selectedMemory,
-                                        idle_timeout_seconds: idleTimeoutSeconds,
-                                    })
-                                }
-                                loading={actionInFlight.save}
-                                disabled={!isModalKernel || !hasConfigChanges || hasActionInFlight}
-                                disabledReason={
-                                    !isModalKernel
-                                        ? 'Scaling options are available for Modal kernels.'
-                                        : hasConfigChanges
-                                          ? undefined
-                                          : 'No configuration changes to save'
-                                }
-                            >
-                                Save changes
-                            </LemonButton>
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                onClick={() => {
-                                    resetConfigToKernel()
-                                }}
-                                disabled={!hasConfigChanges || hasActionInFlight}
-                            >
-                                Cancel
-                            </LemonButton>
-                        </div>
+                            </>
+                        ) : null}
                     </div>
                     <div className="space-y-3 border-t border-border pt-3">
                         <div className="text-xs font-semibold text-muted uppercase tracking-wide">Execute code</div>
