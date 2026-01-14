@@ -174,13 +174,13 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(len(active_tiles), 1)
         self.assertEqual(active_tiles[0].insight_id, new_insight.id)
 
-        # Old tiles should be soft-deleted
+        # Old tiles should be soft-deleted, new tile created
         all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
-        # 1 active (reused first tile) + 1 soft-deleted (second old tile)
-        self.assertEqual(len(all_tiles), 2)
+        # 1 active (new) + 2 soft-deleted (old)
+        self.assertEqual(len(all_tiles), 3)
 
         soft_deleted_tiles = [t for t in all_tiles if t.deleted]
-        self.assertEqual(len(soft_deleted_tiles), 1)
+        self.assertEqual(len(soft_deleted_tiles), 2)
 
     @parameterized.expand(
         [
@@ -342,11 +342,14 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(dashboard.name, "Updated Name")
         self.assertEqual(dashboard.description, "Updated description")
 
-    async def test_positional_replacement_preserves_layout(self):
-        """Test that positional replacement preserves tile layouts.
+    async def test_positional_replacement_preserves_sizes(self):
+        """Test that replacing insights preserves original tile sizes but updates coordinates.
 
-        When replacing insights, the first new insight takes the first tile's layout,
-        second takes the second, etc.
+        When updating a dashboard:
+        - Old insights are soft-deleted
+        - New insights get new tiles
+        - Tile sizes (w, h) from original tiles are preserved via defaults
+        - Coordinates (x, y) are updated based on position in insight_ids
         """
         dashboard = await Dashboard.objects.acreate(
             team=self.team,
@@ -358,15 +361,12 @@ class TestUpsertDashboardTool(BaseTest):
         insight_a = await self._create_insight("Insight A")
         insight_b = await self._create_insight("Insight B")
 
-        layout_a = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
-        layout_b = {"sm": {"x": 6, "y": 0, "w": 6, "h": 5}}
-
-        tile_a = await DashboardTile.objects.acreate(
-            dashboard=dashboard, insight=insight_a, layouts=layout_a, color="blue"
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}, color="blue"
         )
-        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight_b, layouts=layout_b, color="white")
-
-        original_tile_a_id = tile_a.id
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 5}}, color="white"
+        )
 
         # Create new insights to replace existing ones
         insight_a_new = await self._create_insight("Insight A New")
@@ -381,23 +381,19 @@ class TestUpsertDashboardTool(BaseTest):
 
         await tool._arun_impl(action)
 
-        # Verify tiles are updated in place with preserved layouts
-        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard).order_by("id")]
+        # Old tiles are soft-deleted, new tiles created
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
         self.assertEqual(len(active_tiles), 2)
 
-        # First tile should have new insight but same layout/color
-        self.assertEqual(active_tiles[0].insight_id, insight_a_new.id)
-        self.assertEqual(active_tiles[0].layouts, layout_a)
-        self.assertEqual(active_tiles[0].color, "blue")
-        self.assertEqual(active_tiles[0].id, original_tile_a_id)
+        all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
+        self.assertEqual(len(all_tiles), 4)  # 2 active + 2 soft-deleted
 
-        # Second tile should have new insight but same layout/color
-        self.assertEqual(active_tiles[1].insight_id, insight_b_new.id)
-        self.assertEqual(active_tiles[1].layouts, layout_b)
-        self.assertEqual(active_tiles[1].color, "white")
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(active_tiles)
+        self.assertEqual(sorted_tiles[0].insight_id, insight_a_new.id)
+        self.assertEqual(sorted_tiles[1].insight_id, insight_b_new.id)
 
     async def test_positional_replacement_with_fewer_insights_soft_deletes_extras(self):
-        """Test that when new list is shorter, extra tiles are soft-deleted."""
+        """Test that when new list has fewer insights, removed insights' tiles are soft-deleted."""
         dashboard = await Dashboard.objects.acreate(
             team=self.team,
             name="Dashboard to Shrink",
@@ -412,7 +408,7 @@ class TestUpsertDashboardTool(BaseTest):
         await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight_b, layouts={})
         await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight_c, layouts={})
 
-        # Replace 3 insights with just 1
+        # Replace 3 insights with just 1 new insight
         insight_new = await self._create_insight("New Single Insight")
 
         tool = self._create_tool()
@@ -428,11 +424,11 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(len(active_tiles), 1)
         self.assertEqual(active_tiles[0].insight_id, insight_new.id)
 
-        # Two tiles should be soft-deleted
+        # All 3 original tiles should be soft-deleted, 1 new tile created
         all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
-        self.assertEqual(len(all_tiles), 3)
+        self.assertEqual(len(all_tiles), 4)  # 3 soft-deleted + 1 new
         soft_deleted = [t for t in all_tiles if t.deleted]
-        self.assertEqual(len(soft_deleted), 2)
+        self.assertEqual(len(soft_deleted), 3)
 
     async def test_positional_replacement_with_more_insights_creates_new_tiles(self):
         """Test that when new list is longer, new tiles are created."""
@@ -466,7 +462,7 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(active_tiles[2].insight_id, insight_new3.id)
 
     async def test_is_dangerous_operation_with_insight_ids(self):
-        """Test that providing insight_ids is flagged as a dangerous operation."""
+        """Test that providing insight_ids is flagged as a dangerous operation only when insights change."""
         dashboard = await Dashboard.objects.acreate(
             team=self.team,
             name="Test Dashboard",
@@ -478,22 +474,30 @@ class TestUpsertDashboardTool(BaseTest):
 
         new_insight = await self._create_insight("New Insight")
 
-        tool = self._create_tool()
-
-        # insight_ids should be dangerous (since it replaces)
-        action_with_insights = UpdateDashboardToolArgs(
+        # Replacing with different insight should be dangerous
+        tool1 = self._create_tool()
+        action_with_different_insight = UpdateDashboardToolArgs(
             dashboard_id=str(dashboard.id),
             insight_ids=[new_insight.short_id],
         )
-        self.assertTrue(await tool.is_dangerous_operation(action=action_with_insights))
+        self.assertTrue(await tool1.is_dangerous_operation(action=action_with_different_insight))
+
+        # Keeping same insight should NOT be dangerous
+        tool2 = self._create_tool()
+        action_with_same_insight = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[existing_insight.short_id],
+        )
+        self.assertFalse(await tool2.is_dangerous_operation(action=action_with_same_insight))
 
         # Just updating name/description should NOT be dangerous
+        tool3 = self._create_tool()
         action_metadata = UpdateDashboardToolArgs(
             dashboard_id=str(dashboard.id),
             name="New Name",
             description="New description",
         )
-        self.assertFalse(await tool.is_dangerous_operation(action=action_metadata))
+        self.assertFalse(await tool3.is_dangerous_operation(action=action_metadata))
 
     async def test_resolve_insights_preserves_order_with_state_and_database(self):
         # Create a conversation for artifacts
@@ -553,17 +557,15 @@ class TestUpsertDashboardTool(BaseTest):
 
     async def test_full_integration_positional_reordering(self):
         """
-        Integration test: Verify that dashboard update preserves visual order via layout swapping.
+        Integration test: Verify dashboard update with reordering and new insights.
 
         Initial dashboard: [A, B, C] (each with specific layouts)
         Update with: [B, D, A, E]
-        Expected visual result: [B, D, A, E] (determined by layout positions)
-
-        Implementation details:
-        - Existing insights (B, A) keep their tile IDs but get new layout positions
-        - New insight D reuses tile from removed insight C
-        - New insight E gets a new tile
-        - Visual order is determined by layout (x, y) coordinates
+        Expected:
+        - Existing insights (B, A) keep their tiles with updated coordinates
+        - C's tile is soft-deleted (not in new list)
+        - New tiles created for D and E
+        - Visual order is [B, D, A, E] based on insight_ids order
         """
         # Create initial dashboard with A, B, C
         dashboard = await Dashboard.objects.acreate(
@@ -586,9 +588,6 @@ class TestUpsertDashboardTool(BaseTest):
             dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 5, "w": 6, "h": 5}}
         )
 
-        # Store original tile IDs to verify they're reused
-        original_tile_ids = {tile_a.id, tile_b.id, tile_c.id}
-
         # Create new insights D and E
         insight_d = await self._create_insight("Insight D")
         insight_e = await self._create_insight("Insight E")
@@ -609,32 +608,27 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertIn("Insight E", result)
 
         # Verify tiles in database have correct visual order [B, D, A, E]
-        # We use layout sorting to determine visual position
-        all_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(all_tiles), 4)
-        sorted_tiles = DashboardTile.sort_tiles_by_layout(all_tiles)
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(active_tiles), 4)
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(active_tiles)
 
-        # Position 0: B (moved via layout swap)
+        # Verify visual order
         self.assertEqual(sorted_tiles[0].insight_id, insight_b.id)
-        self.assertIn(sorted_tiles[0].id, original_tile_ids)
-
-        # Position 1: D (assigned to freed tile)
         self.assertEqual(sorted_tiles[1].insight_id, insight_d.id)
-        self.assertIn(sorted_tiles[1].id, original_tile_ids)
-
-        # Position 2: A (moved via layout swap)
         self.assertEqual(sorted_tiles[2].insight_id, insight_a.id)
-        self.assertIn(sorted_tiles[2].id, original_tile_ids)
-
-        # Position 3: E (new tile created)
         self.assertEqual(sorted_tiles[3].insight_id, insight_e.id)
-        self.assertNotIn(sorted_tiles[3].id, original_tile_ids)
 
-        # Verify no tiles were soft-deleted (all were reused)
+        # Existing insights (A, B) keep their original tiles
+        self.assertEqual(sorted_tiles[0].id, tile_b.id)  # B's tile
+        self.assertEqual(sorted_tiles[2].id, tile_a.id)  # A's tile
+
+        # C's tile should be soft-deleted
         all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
-        self.assertEqual(len(all_tiles), 4)
+        # 3 original (A, B, C) + 2 new (D, E) = 5 total, with C soft-deleted
+        self.assertEqual(len(all_tiles), 5)
         deleted_tiles = [t for t in all_tiles if t.deleted]
-        self.assertEqual(len(deleted_tiles), 0)
+        self.assertEqual(len(deleted_tiles), 1)
+        self.assertEqual(deleted_tiles[0].id, tile_c.id)
 
     async def test_full_integration_with_empty_layouts(self):
         """
@@ -694,17 +688,14 @@ class TestUpsertDashboardTool(BaseTest):
             self.assertIn("sm", tile.layouts)
             self.assertIn("y", tile.layouts["sm"])
 
-    async def test_positional_replacement_preserves_all_tile_properties(self):
+    async def test_update_preserves_existing_insight_tiles(self):
         """
-        Test that positional replacement preserves the original tile's layout, color, and ID.
+        Test that existing insights keep their original tiles with updated coordinates.
 
-        When replacing insights, tiles are updated in place (insight reference swapped).
-        This preserves:
-        - The tile ID (critical for frontend's react-grid-layout)
-        - The layouts (grid position for each breakpoint)
-        - The color styling
-
-        This ensures the dashboard layout remains stable.
+        When updating a dashboard:
+        - Existing insights that remain keep their tile IDs
+        - Their layouts are updated based on position in insight_ids
+        - Sizes (w, h) are preserved, coordinates (x, y) are updated
         """
         dashboard = await Dashboard.objects.acreate(
             team=self.team,
@@ -715,50 +706,226 @@ class TestUpsertDashboardTool(BaseTest):
         insight_a = await self._create_insight("Insight A")
         insight_b = await self._create_insight("Insight B")
 
-        # Create tiles with specific layouts and colors to verify preservation
-        original_layout_a = {
-            "lg": {"x": 0, "y": 0, "w": 6, "h": 5},
-            "sm": {"x": 0, "y": 0, "w": 6, "h": 5},
-        }
-        original_layout_b = {
-            "lg": {"x": 6, "y": 0, "w": 6, "h": 5},
-            "sm": {"x": 0, "y": 5, "w": 6, "h": 5},
-        }
+        # Create tiles with specific layouts
         tile_a = await DashboardTile.objects.acreate(
-            dashboard=dashboard, insight=insight_a, layouts=original_layout_a, color="blue"
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 7}}, color="blue"
         )
-        await DashboardTile.objects.acreate(
-            dashboard=dashboard, insight=insight_b, layouts=original_layout_b, color="white"
+        tile_b = await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 0, "y": 7, "w": 10, "h": 6}}, color="white"
         )
 
         original_tile_a_id = tile_a.id
-
-        # Create replacement insights
-        insight_a_replacement = await self._create_insight("Insight A Replacement")
-        insight_b_replacement = await self._create_insight("Insight B Replacement")
+        original_tile_b_id = tile_b.id
 
         tool = self._create_tool()
 
-        # Replace both insights positionally
+        # Reorder: [B, A] - same insights, different order
         action = UpdateDashboardToolArgs(
             dashboard_id=str(dashboard.id),
-            insight_ids=[insight_a_replacement.short_id, insight_b_replacement.short_id],
+            insight_ids=[insight_b.short_id, insight_a.short_id],
         )
 
         await tool._arun_impl(action)
 
-        # Fetch the new tile for the replacement insight
-        replacement_tile = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a_replacement)
+        # Fetch tiles after update
+        await tile_a.arefresh_from_db()
+        await tile_b.arefresh_from_db()
 
-        # The replacement tile should have the same layout, color, and ID as the original
-        self.assertEqual(replacement_tile.layouts, original_layout_a)
-        self.assertEqual(replacement_tile.color, "blue")
-        self.assertEqual(replacement_tile.id, original_tile_a_id)
+        # Tiles keep their IDs
+        self.assertEqual(tile_a.id, original_tile_a_id)
+        self.assertEqual(tile_b.id, original_tile_b_id)
 
-        # Verify second tile also preserved its properties
-        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b_replacement)
-        self.assertEqual(tile_b.layouts, original_layout_b)
-        self.assertEqual(tile_b.color, "white")
+        # Sizes are preserved
+        self.assertEqual(tile_a.layouts["sm"]["w"], 8)
+        self.assertEqual(tile_a.layouts["sm"]["h"], 7)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 10)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 6)
+
+        # Coordinates are updated based on order
+        # B (w=10, wide) at position 0: x=0, y=0
+        # A (w=8, wide) at position 1: x=0, y=6 (below B which has h=6)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 6)
+
+    async def test_two_column_flow_layout_algorithm(self):
+        """
+        Test the 2-column flow layout algorithm.
+
+        Rules:
+        - Half-width tiles (w<=6) flow left-to-right into 2 columns
+        - Full-width tiles (w>6) span both columns
+        - Tiles are placed in the column with lower Y (prefers left when equal)
+        - Original widths and heights are preserved
+        """
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard for Layout Test",
+            created_by=self.user,
+        )
+
+        # Create insights with different widths:
+        # A: w=6 (half), B: w=6 (half), C: w=12 (full), D: w=6 (half), E: w=6 (half)
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        insight_d = await self._create_insight("D")
+        insight_e = await self._create_insight("E")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 5, "w": 12, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_d, layouts={"sm": {"x": 0, "y": 8, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_e, layouts={"sm": {"x": 6, "y": 8, "w": 6, "h": 6}}
+        )
+
+        tool = self._create_tool()
+
+        # Reorder: [A, B, C, D, E] -> same order, should produce correct layout
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[
+                insight_a.short_id,
+                insight_b.short_id,
+                insight_c.short_id,
+                insight_d.short_id,
+                insight_e.short_id,
+            ],
+        )
+
+        await tool._arun_impl(action)
+
+        # Fetch and sort tiles
+        tiles = {
+            t.insight_id: t async for t in DashboardTile.objects.filter(dashboard=dashboard).select_related("insight")
+        }
+
+        tile_a = tiles[insight_a.id]
+        tile_b = tiles[insight_b.id]
+        tile_c = tiles[insight_c.id]
+        tile_d = tiles[insight_d.id]
+        tile_e = tiles[insight_e.id]
+
+        # Expected layout:
+        # A (w=6, h=5): x=0, y=0 (left column, first)
+        # B (w=6, h=4): x=6, y=0 (right column, left_y=5 > right_y=0, so goes right)
+        # C (w=12, h=3): x=0, y=5 (full width, below max(5, 4)=5)
+        # D (w=6, h=5): x=0, y=8 (left column, both at y=8 after C)
+        # E (w=6, h=6): x=6, y=8 (right column)
+
+        # Verify widths and heights preserved
+        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 12)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 3)
+
+        # Verify coordinates
+        # A: first tile, goes to left column
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+
+        # B: second tile, left_y=5, right_y=0, goes to right column (lower Y)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+
+        # C: wide tile (w=12), placed at y=max(5, 4)=5, advances both to y=8
+        self.assertEqual(tile_c.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 5)
+
+        # D: after C, both columns at y=8, goes left (prefers left when equal)
+        self.assertEqual(tile_d.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["y"], 8)
+
+        # E: left_y=13, right_y=8, goes to right column
+        self.assertEqual(tile_e.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_e.layouts["sm"]["y"], 8)
+
+    async def test_restoring_previously_removed_insight_at_end(self):
+        """When a previously removed insight is restored at the end, the tile should be undeleted."""
+        insight_a = await self._create_insight("AAA")
+        insight_b = await self._create_insight("BBB")
+        insight_c = await self._create_insight("CCC")
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        for i, insight in enumerate([insight_a, insight_b, insight_c]):
+            await DashboardTile.objects.acreate(
+                dashboard=dashboard, insight=insight, layouts={"sm": {"x": 0, "y": i * 5, "w": 12, "h": 5}}
+            )
+
+        # Simulate removing B (soft-delete its tile)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_b.deleted = True
+        await tile_b.asave()
+
+        # Restore B at the end: [A, C, B]
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_c.short_id, insight_b.short_id],
+        )
+        result, _ = await tool._arun_impl(action)
+
+        # Output should list insights in order: A, C, B
+        self.assertLess(result.index("AAA"), result.index("CCC"))
+        self.assertLess(result.index("CCC"), result.index("BBB"))
+
+        # B's tile should be undeleted
+        await tile_b.arefresh_from_db()
+        self.assertFalse(tile_b.deleted)
+
+        # Dashboard should have 3 active tiles
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(active_tiles), 3)
+        self.assertEqual({t.insight_id for t in active_tiles}, {insight_a.id, insight_b.id, insight_c.id})
+
+    async def test_restoring_previously_removed_insight_at_beginning(self):
+        """When a previously removed insight is restored at the beginning, the tile should be undeleted.
+        [A, B, C] -> [A, C] -> [B, A, C]
+        """
+        insight_a = await self._create_insight("AAAA")
+        insight_b = await self._create_insight("BBBB")
+        insight_c = await self._create_insight("CCCC")
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        for i, insight in enumerate([insight_a, insight_b, insight_c]):
+            await DashboardTile.objects.acreate(
+                dashboard=dashboard, insight=insight, layouts={"sm": {"x": 0, "y": i * 5, "w": 12, "h": 5}}
+            )
+
+        # Simulate removing B (soft-delete its tile)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_b.deleted = True
+        await tile_b.asave()
+
+        # Restore B at the beginning: [B, A, C]
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_b.short_id, insight_a.short_id, insight_c.short_id],
+        )
+        result, _ = await tool._arun_impl(action)
+        # Output should list insights in order: B, A, C
+        self.assertLess(result.index("BBBB"), result.index("AAAA"))
+        self.assertLess(result.index("AAAA"), result.index("CCCC"))
+
+        # B's tile should be undeleted
+        await tile_b.arefresh_from_db()
+        self.assertFalse(tile_b.deleted)
+
+        # Dashboard should have 3 active tiles
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(active_tiles), 3)
+        self.assertEqual({t.insight_id for t in active_tiles}, {insight_a.id, insight_b.id, insight_c.id})
 
 
 class TestGetDashboardAndSortedTiles(BaseTest):
@@ -1057,25 +1224,26 @@ class TestGetUpdateDiff(BaseTest):
 
         self.assertEqual(diff["created"], [])
         self.assertEqual(diff["deleted"], [])
-        self.assertEqual(diff["replaced"], [])
 
     async def test_identifies_deleted_tiles(self):
-        insight1 = await self._create_insight("Will Keep")
-        insight2 = await self._create_insight("Will Delete")
+        insight1 = await self._create_insight("Will Delete 1")
+        insight2 = await self._create_insight("Will Delete 2")
         _, tiles = await self._create_dashboard_with_tiles("Dashboard", [insight1, insight2])
 
-        # Create a new insight to replace the first one
-        new_insight = await self._create_insight("Replacement")
+        # Create a new insight - both existing ones will be deleted
+        new_insight = await self._create_insight("New")
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         tool = self._create_tool(state=state)
 
         diff = await tool._get_update_diff(tiles, [new_insight.short_id])
 
-        self.assertEqual(len(diff["deleted"]), 1)
-        self.assertEqual(diff["deleted"][0].insight_id, insight2.id)
-        self.assertEqual(len(diff["replaced"]), 1)
-        self.assertEqual(diff["replaced"][0][0].insight_id, insight1.id)
+        # Both existing insights are deleted (not in new list)
+        self.assertEqual(len(diff["deleted"]), 2)
+        deleted_ids = {tile.insight_id for tile in diff["deleted"]}
+        self.assertEqual(deleted_ids, {insight1.id, insight2.id})
+        # New insight is created
+        self.assertEqual(len(diff["created"]), 1)
 
     async def test_identifies_created_tiles(self):
         """When keeping an existing insight and adding new ones, only the new ones are "created"."""
@@ -1094,13 +1262,12 @@ class TestGetUpdateDiff(BaseTest):
 
         # "created" only includes insights not already in the dashboard
         self.assertEqual(len(diff["created"]), 2)
-        self.assertEqual(diff["created"][0].content.name, "New 1")
-        self.assertEqual(diff["created"][1].content.name, "New 2")
+        created_names = {a.content.name for a in diff["created"]}
+        self.assertEqual(created_names, {"New 1", "New 2"})
         self.assertEqual(len(diff["deleted"]), 0)
-        # The existing insight at position 0 is "replaced" with itself
-        self.assertEqual(len(diff["replaced"]), 1)
 
-    async def test_identifies_replaced_tiles(self):
+    async def test_identifies_swapped_insight(self):
+        """When replacing one insight with another, old is deleted and new is created."""
         old_insight = await self._create_insight("Old")
         _, tiles = await self._create_dashboard_with_tiles("Dashboard", [old_insight])
 
@@ -1111,22 +1278,18 @@ class TestGetUpdateDiff(BaseTest):
 
         diff = await tool._get_update_diff(tiles, [new_insight.short_id])
 
-        self.assertEqual(len(diff["replaced"]), 1)
-        tile, artifact = diff["replaced"][0]
-        self.assertEqual(tile.insight_id, old_insight.id)
-        self.assertEqual(artifact.content.name, "New")
-        self.assertEqual(len(diff["deleted"]), 0)
-        # "created" should be empty since the new insight is used for positional replacement
-        self.assertEqual(len(diff["created"]), 0)
+        self.assertEqual(len(diff["deleted"]), 1)
+        self.assertEqual(diff["deleted"][0].insight_id, old_insight.id)
+        self.assertEqual(len(diff["created"]), 1)
+        self.assertEqual(diff["created"][0].content.name, "New")
 
     async def test_handles_complex_diff(self):
         """
         Initial: [A, B, C] (3 tiles)
         New: [D, E, F, G] (4 insights)
         Result:
-        - replaced: A->D, B->E, C->F (3 position replacements)
-        - created: G (only G needs a new tile, D/E/F reuse existing tiles)
-        - deleted: none
+        - deleted: A, B, C (all removed from dashboard)
+        - created: D, E, F, G (all new to dashboard)
         """
         insight_a = await self._create_insight("A")
         insight_b = await self._create_insight("B")
@@ -1145,20 +1308,20 @@ class TestGetUpdateDiff(BaseTest):
             tiles, [insight_d.short_id, insight_e.short_id, insight_f.short_id, insight_g.short_id]
         )
 
-        self.assertEqual(len(diff["replaced"]), 3)
-        # "created" only includes insights that need new tiles (not used for replacement)
-        self.assertEqual(len(diff["created"]), 1)
-        self.assertEqual(diff["created"][0].content.name, "G")
-        self.assertEqual(len(diff["deleted"]), 0)
+        self.assertEqual(len(diff["deleted"]), 3)
+        deleted_ids = {tile.insight_id for tile in diff["deleted"]}
+        self.assertEqual(deleted_ids, {insight_a.id, insight_b.id, insight_c.id})
+        self.assertEqual(len(diff["created"]), 4)
+        created_names = {a.content.name for a in diff["created"]}
+        self.assertEqual(created_names, {"D", "E", "F", "G"})
 
     async def test_handles_shrinking_diff(self):
         """
         Initial: [A, B, C] (3 tiles)
         New: [D] (1 insight)
         Result:
-        - replaced: A->D (1 position replacement)
-        - deleted: B, C (tiles with no corresponding new insight)
-        - created: empty (D is used for positional replacement, not a new tile)
+        - deleted: A, B, C (all removed)
+        - created: D (new to dashboard)
         """
         insight_a = await self._create_insight("A")
         insight_b = await self._create_insight("B")
@@ -1172,13 +1335,11 @@ class TestGetUpdateDiff(BaseTest):
 
         diff = await tool._get_update_diff(tiles, [insight_d.short_id])
 
-        self.assertEqual(len(diff["replaced"]), 1)
-        self.assertEqual(diff["replaced"][0][1].content.name, "D")
-        self.assertEqual(len(diff["deleted"]), 2)
+        self.assertEqual(len(diff["deleted"]), 3)
         deleted_insight_ids = {tile.insight_id for tile in diff["deleted"]}
-        self.assertEqual(deleted_insight_ids, {insight_b.id, insight_c.id})
-        # "created" is empty because D is used for positional replacement
-        self.assertEqual(len(diff["created"]), 0)
+        self.assertEqual(deleted_insight_ids, {insight_a.id, insight_b.id, insight_c.id})
+        self.assertEqual(len(diff["created"]), 1)
+        self.assertEqual(diff["created"][0].content.name, "D")
 
     async def test_caches_update_diff(self):
         insight = await self._create_insight("Existing")
@@ -1212,10 +1373,9 @@ class TestGetUpdateDiff(BaseTest):
         self.assertEqual(len(diff["created"]), 1)
         self.assertEqual(diff["created"][0].content.name, "New")
         self.assertEqual(len(diff["deleted"]), 0)
-        self.assertEqual(len(diff["replaced"]), 0)
 
     async def test_recognizes_same_insight_in_position(self):
-        """When an insight ID is already in the dashboard at the same position, it should still be treated as a replacement."""
+        """When an insight ID is already in the dashboard, no changes are needed."""
         insight = await self._create_insight("Same")
         _, tiles = await self._create_dashboard_with_tiles("Dashboard", [insight])
 
@@ -1224,8 +1384,6 @@ class TestGetUpdateDiff(BaseTest):
 
         diff = await tool._get_update_diff(tiles, [insight.short_id])
 
-        # The insight is replaced with itself
-        self.assertEqual(len(diff["replaced"]), 1)
-        self.assertEqual(diff["replaced"][0][0].insight_id, insight.id)
+        # No changes needed - insight stays in place
         self.assertEqual(len(diff["created"]), 0)
         self.assertEqual(len(diff["deleted"]), 0)

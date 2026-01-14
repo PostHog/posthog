@@ -88,10 +88,6 @@ This action will add the following insights:
 This action will remove the following insights:
 {{{deleted_insights}}}
 {{/deleted_insights}}
-{{#updated_insights}}
-This action will replace the following insights:
-{{{updated_insights}}}
-{{/updated_insights}}
 """.strip()
 
 MISSING_INSIGHT_IDS_PROMPT = """

@@ -301,11 +301,12 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
                 raise MaxToolAccessDeniedError(resource, required_level, action="use")
 
     async def _check_dangerous_operation(self, **kwargs) -> tuple[str, Any] | None:
-        is_dangerous = await self.is_dangerous_operation(**kwargs)
+        if not await self.is_dangerous_operation(**kwargs):
+            return None
 
         # Handle dangerous operation approval flow
         # Pre-compute preview before calling _handle_dangerous_operation
-        preview = await self.format_dangerous_operation_preview(**kwargs) if is_dangerous else None
+        preview = await self.format_dangerous_operation_preview(**kwargs)
         dangerous_result = self._handle_dangerous_operation(preview=preview, **kwargs)
         if dangerous_result is not None:
             return dangerous_result
