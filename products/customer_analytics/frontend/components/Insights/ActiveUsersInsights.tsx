@@ -53,7 +53,7 @@ export function ActiveUsersInsights(): JSX.Element {
 
 function PowerUsersTable(): JSX.Element {
     const { businessType, customerLabel, dauSeries, selectedGroupType, tabId } = useValues(customerAnalyticsSceneLogic)
-    const { isRevenueAnalyticsEnabled } = useValues(revenueAnalyticsLogic)
+    const { isRevenueAnalyticsEnabled, baseCurrency } = useValues(revenueAnalyticsLogic)
     const uniqueKey = `power-users-${tabId}`
     const insightProps: InsightLogicProps<InsightVizNode> = {
         dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
@@ -116,6 +116,7 @@ function PowerUsersTable(): JSX.Element {
                         group: { title: customerLabel.singular },
                     },
                     insightProps,
+                    baseCurrency,
                 }}
             />
         </>
