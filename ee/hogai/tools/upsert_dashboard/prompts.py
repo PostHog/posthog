@@ -1,13 +1,13 @@
 UPSERT_DASHBOARD_TOOL_PROMPT = """
 Use this tool to create or update a dashboard with provided insights.
 
-# When to use this tool
-- The user asks to create or update a dashboard.
-- The user asks for multiple metrics or dimensions, so it might be better to visualize them in a dashboard.
-- The user wants to add an insight to an existing dashboard.
-
-# When NOT to use this tool
-- The user wants to save a single insight.
+# How to use this tool
+- Proactively use search and read_data tools to check if the dashboard already exists. The user might provide you the dashboard.
+- If the request is ambiguous whether you need to create a new dashboard or update an existing one, ask for clarification.
+- If the dashboard exists, understand its structure by using the read_data tool.
+- Proactively use search and read_data tools to find existing insights. If there are matching insights, read their insight schemas to understand whether they match the user's intent and have data.
+- Create new insights with the create_insight tool.
+- Call this tool when you have enough information to create or update the dashboard.
 
 # Understanding insight update modes
 
@@ -32,6 +32,30 @@ Use this only when you want to completely replace all dashboard contents.
 
 Example: Dashboard has [A, B, C]. Use `insight_ids=[D, E]` with `replace_insights=True`.
 Result: Dashboard now has [D, E]. A, B, C are removed.
+
+# When to use this tool
+- The user asks to create or update a dashboard.
+- The user asks for multiple metrics or dimensions, so it might be better to visualize them in a dashboard.
+- The user wants to add an insight to an existing dashboard.
+
+<example>
+User: create a dashboard for file activity metrics
+Assistant: I'll create a new dashboard for file activity metrics.
+<reasoning>The user clearly wants to create a new dashboard.</reasoning>
+<example>
+
+<example>
+User: I want a dashboard of how my business is doing
+Assistant: I'll search for existing dashboards. I found a relevant dashboard. Do you want me to summarize it or update it?
+User: User: I want you to add MRR to that dashboard.
+<reasoning>The user's request was ambiguous. The assistant needed to ask for more details. The user wanted to modify it with specific insights.</reasoning>
+
+# When NOT to use this tool
+- The user wants to save a single insight.
+
+# Guidelines
+- Use a minimal set of insights to reflect the changes the user requested.
+- When updating dashboard or insight names or descriptions, use the original insight names or descriptions as a reference.
 """.strip()
 
 

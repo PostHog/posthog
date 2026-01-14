@@ -16,7 +16,7 @@ from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool
 from ee.hogai.tools.upsert_dashboard.prompts import (
     CREATE_NO_INSIGHTS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
@@ -183,13 +183,13 @@ class UpsertDashboardTool(MaxTool):
 
         return "\n".join(lines)
 
-    async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, ToolMessagesArtifact | None]:
+    async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, dict | None]:
         if isinstance(action, CreateDashboardToolArgs):
             return await self._handle_create(action)
         else:
             return await self._handle_update(action)
 
-    async def _handle_create(self, action: CreateDashboardToolArgs) -> tuple[str, ToolMessagesArtifact | None]:
+    async def _handle_create(self, action: CreateDashboardToolArgs) -> tuple[str, dict | None]:
         """Handle CREATE action: create a new dashboard with insights."""
         insights, missing_ids = await self._resolve_insights(action.insight_ids)
 
@@ -199,9 +199,9 @@ class UpsertDashboardTool(MaxTool):
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
         output = await self._format_dashboard_output(dashboard, insights, missing_ids)
 
-        return output, None
+        return output, {"dashboard_id": dashboard.id}
 
-    async def _handle_update(self, action: UpdateDashboardToolArgs) -> tuple[str, ToolMessagesArtifact | None]:
+    async def _handle_update(self, action: UpdateDashboardToolArgs) -> tuple[str, dict | None]:
         """Handle UPDATE action: update an existing dashboard."""
         try:
             dashboard = await Dashboard.objects.aget(id=action.dashboard_id, team=self._team, deleted=False)
@@ -250,13 +250,16 @@ class UpsertDashboardTool(MaxTool):
         all_insights = [
             i
             async for i in Insight.objects.filter(
-                team=self._team, dashboard_tiles__dashboard=dashboard, dashboard_tiles__deleted=False, deleted=False
+                team=self._team,
+                dashboard_tiles__dashboard=dashboard,
+                dashboard_tiles__deleted=False,
+                deleted=False,
             )
         ]
 
         output = await self._format_dashboard_output(dashboard, all_insights, missing_ids)
 
-        return output, None
+        return output, {"dashboard_id": dashboard.id}
 
     async def _resolve_insights(self, insight_ids: list[str]) -> tuple[list[Insight], list[str]]:
         """
@@ -417,7 +420,10 @@ class UpsertDashboardTool(MaxTool):
         return dashboard
 
     async def _format_dashboard_output(
-        self, dashboard: Dashboard, insights: list[Insight], missing_ids: list[str] | None = None
+        self,
+        dashboard: Dashboard,
+        insights: list[Insight],
+        missing_ids: list[str] | None = None,
     ) -> str:
         """Format dashboard output using DashboardContext for consistency."""
         insights_data: list[DashboardInsightContext] = []
