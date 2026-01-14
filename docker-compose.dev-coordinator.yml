@@ -182,17 +182,6 @@ services:
             - redis
             - db
 
-    livestream:
-        extends:
-            file: docker-compose.base.yml
-            service: livestream
-        environment:
-            - JWT.TOKEN=${SECRET_KEY}
-        ports:
-            - '8666:8080'
-        volumes:
-            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
-
     # Temporal containers
     elasticsearch:
         extends:

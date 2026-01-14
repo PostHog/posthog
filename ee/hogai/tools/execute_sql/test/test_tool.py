@@ -46,9 +46,9 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await self._create_tool()
 
         result_text, artifact_messages = await tool._arun_impl(
-            query="SELECT event, count() as count FROM events GROUP BY event ORDER BY count DESC",
-            name="Event counts",
-            description="Count events by type",
+            "SELECT event, count() as count FROM events GROUP BY event ORDER BY count DESC",
+            "Event counts",
+            "Count events by type",
         )
 
         self.assertEqual(result_text, "")
@@ -65,9 +65,9 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await self._create_tool()
 
         result_text, artifact_messages = await tool._arun_impl(
-            query="SELECT event, count() as count FROM events GROUP BY event",
-            name="Test query",
-            description="Test description",
+            "SELECT event, count() as count FROM events GROUP BY event",
+            "Test query",
+            "Test description",
         )
 
         self.assertEqual(result_text, "")

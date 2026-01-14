@@ -8,6 +8,7 @@ from posthog.schema import (
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     InCohortVia,
     MultipleBreakdownType,
@@ -40,7 +41,7 @@ def hogql_to_string(expr: ast.Expr) -> ast.Call:
 class Breakdown:
     query: TrendsQuery
     team: Team
-    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]
     query_date_range: QueryDateRange
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -50,7 +51,7 @@ class Breakdown:
         self,
         team: Team,
         query: TrendsQuery,
-        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode],
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
@@ -411,7 +412,7 @@ class Breakdown:
         return "breakdown_value"
 
     @cached_property
-    def multiple_breakdowns_aliases(self):
+    def multiple_breakdowns_aliases(self) -> list[str]:
         breakdown_filter = self._breakdown_filter
         assert breakdown_filter.breakdowns is not None  # type checking
         return [self._get_multiple_breakdown_alias_name(idx + 1) for idx in range(len(breakdown_filter.breakdowns))]

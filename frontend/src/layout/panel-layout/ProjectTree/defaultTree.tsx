@@ -5,6 +5,7 @@ import {
     IconApps,
     IconBook,
     IconBug,
+    IconChat,
     IconCircleDashed,
     IconCode2,
     IconCursor,
@@ -25,7 +26,6 @@ import {
     IconLlmAnalytics,
     IconMegaphone,
     IconMessage,
-    IconNewspaper,
     IconNotebook,
     IconNotification,
     IconPeople,
@@ -247,9 +247,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconNotification />,
         iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
-    feed: {
-        icon: <IconNewspaper />,
-    },
     apps: {
         icon: <IconApps />,
     },
@@ -267,6 +264,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     folder_open: {
         icon: <IconFolderOpen />,
+    },
+    conversations: {
+        icon: <IconChat />,
     },
 }
 

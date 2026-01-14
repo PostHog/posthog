@@ -28,7 +28,7 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlus, IconX } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -53,7 +53,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         attributes,
         updateAttributes,
         Settings = null,
-        settingsIcon,
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
@@ -68,7 +67,14 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { resizeable, expanded, actions, nodeId, sourceComment } = useValues(nodeLogic)
+    const {
+        resizeable,
+        expanded,
+        actions,
+        nodeId,
+        settingsPlacement: resolvedSettingsPlacement,
+        sourceComment,
+    } = useValues(nodeLogic)
     const {
         setRef,
         setExpanded,
@@ -209,6 +215,15 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
                                                 )}
 
+                                                {isEditable && Settings ? (
+                                                    <LemonButton
+                                                        onClick={() => toggleEditing()}
+                                                        size="small"
+                                                        icon={<IconPencil />}
+                                                        active={editingNodeId === nodeId}
+                                                    />
+                                                ) : null}
+
                                                 {expandable && (
                                                     <LemonButton
                                                         onClick={() => setExpanded(!expanded)}
@@ -216,29 +231,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         icon={expanded ? <IconCollapse /> : <IconExpand />}
                                                     />
                                                 )}
-
-                                                {isEditable ? (
-                                                    <>
-                                                        {Settings ? (
-                                                            <LemonButton
-                                                                onClick={() => toggleEditing()}
-                                                                size="small"
-                                                                icon={
-                                                                    typeof settingsIcon === 'string' ? (
-                                                                        settingsIcon === 'gear' ? (
-                                                                            <IconGear />
-                                                                        ) : (
-                                                                            <IconFilter />
-                                                                        )
-                                                                    ) : (
-                                                                        (settingsIcon ?? <IconFilter />)
-                                                                    )
-                                                                }
-                                                                active={editingNodeId === nodeId}
-                                                            />
-                                                        ) : null}
-                                                    </>
-                                                ) : null}
 
                                                 {hasMenu ? (
                                                     <LemonMenu items={menuItems} placement="bottom-end">
@@ -248,7 +240,9 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             </div>
                                         </div>
 
-                                        {Settings && editingNodeId === nodeId && containerSize === 'small' ? (
+                                        {Settings &&
+                                        editingNodeId === nodeId &&
+                                        (containerSize === 'small' || resolvedSettingsPlacement === 'inline') ? (
                                             <div className="NotebookNode__settings">
                                                 <ErrorBoundary>
                                                     <Settings
