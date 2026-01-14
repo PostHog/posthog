@@ -11,7 +11,11 @@ from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.rate_limiting.redis_limiter import RateLimiter
 
 
-def create_test_app(mock_db_pool: MagicMock) -> FastAPI:
+def create_test_app(
+    mock_db_pool: MagicMock,
+    burst_limit: int = 1000,
+    sustained_limit: int = 10000,
+) -> FastAPI:
     from llm_gateway.api.health import health_router
     from llm_gateway.api.routes import router
 
@@ -21,9 +25,9 @@ def create_test_app(mock_db_pool: MagicMock) -> FastAPI:
         app.state.redis = None
         app.state.rate_limiter = RateLimiter(
             redis=None,
-            burst_limit=1000,
+            burst_limit=burst_limit,
             burst_window=60,
-            sustained_limit=10000,
+            sustained_limit=sustained_limit,
             sustained_window=3600,
         )
         yield
@@ -91,3 +95,32 @@ def authenticated_client(mock_db_pool: MagicMock) -> Generator[TestClient, None,
 
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(
+    params=[
+        pytest.param((1, 1000, "60"), id="burst"),
+        pytest.param((1000, 1, "3600"), id="sustained"),
+    ]
+)
+def rate_limited_client(request: pytest.FixtureRequest) -> Generator[tuple[TestClient, str], None, None]:
+    """Authenticated client that triggers rate limiting. Yields (client, expected_retry_after)."""
+    burst_limit, sustained_limit, expected_retry_after = request.param
+
+    mock_db_pool = MagicMock()
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(
+        return_value={
+            "id": "key_id",
+            "user_id": 1,
+            "scopes": ["llm_gateway:read"],
+            "current_team_id": 1,
+        }
+    )
+    mock_db_pool.acquire = AsyncMock(return_value=conn)
+    mock_db_pool.release = AsyncMock()
+
+    app = create_test_app(mock_db_pool, burst_limit=burst_limit, sustained_limit=sustained_limit)
+
+    with TestClient(app) as c:
+        yield c, expected_retry_after

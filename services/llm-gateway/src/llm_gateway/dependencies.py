@@ -36,8 +36,14 @@ async def enforce_rate_limit(
     user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
 ) -> AuthenticatedUser:
-    if not await check_rate_limit(user, limiter):
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded")
+    allowed, scope = await check_rate_limit(user, limiter)
+    if not allowed:
+        retry_after = limiter.burst_window if scope == "burst" else limiter.sustained_window
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"error": {"message": "Rate limit exceeded", "type": "rate_limit_error"}},
+            headers={"Retry-After": str(retry_after)},
+        )
     return user
 
 

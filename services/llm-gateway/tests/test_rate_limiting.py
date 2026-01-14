@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fakeredis import aioredis as fakeredis
+from fastapi.testclient import TestClient
 
 from llm_gateway.rate_limiting.redis_limiter import RateLimiter
 from llm_gateway.rate_limiting.token_bucket import TokenBucketLimiter
@@ -205,3 +206,24 @@ class TestRateLimiter:
 
         assert allowed is False
         assert scope == "sustained"
+
+
+class TestRateLimitResponseHeaders:
+    def test_429_includes_retry_after_header(self, rate_limited_client: tuple[TestClient, str]) -> None:
+        client, expected_retry_after = rate_limited_client
+        body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}]}
+        headers = {"Authorization": "Bearer phx_test_key"}
+
+        client.post("/v1/chat/completions", json=body, headers=headers)
+        response = client.post("/v1/chat/completions", json=body, headers=headers)
+
+        assert response.status_code == 429
+        assert response.headers["retry-after"] == expected_retry_after
+        assert response.json() == {
+            "detail": {
+                "error": {
+                    "message": "Rate limit exceeded",
+                    "type": "rate_limit_error",
+                }
+            }
+        }
