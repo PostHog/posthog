@@ -415,7 +415,6 @@ def _stream_clickhouse_query(
 ) -> Generator[dict[str, Any], None, None]:
     """
     Stream query results from ClickHouse using HTTP interface with JSONEachRow format.
-    Yields one dict per row, keeping memory usage bounded.
     """
     if query_params:
         prepared_sql = substitute_params(clickhouse_sql, query_params)
@@ -440,7 +439,6 @@ def _stream_clickhouse_query(
 def _stream_hogql_query_rows(exported_asset: ExportedAsset, limit: int) -> Generator[dict[str, Any], None, None]:
     """
     Stream rows from a HogQL query using ClickHouse HTTP interface.
-    Yields one dict per row, keeping memory bounded.
     """
     from posthog.hogql.modifiers import create_default_modifiers_for_team
 
