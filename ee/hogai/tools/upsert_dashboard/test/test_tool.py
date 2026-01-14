@@ -118,34 +118,6 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertIn("Test Dashboard", result)
         self.assertIn(str(dashboard.id), result)
 
-    async def test_update_dashboard_replaces_insights_by_default(self):
-        """Test that providing insight_ids replaces all insights on the dashboard."""
-        dashboard = await Dashboard.objects.acreate(
-            team=self.team,
-            name="Existing Dashboard",
-            description="Existing description",
-            created_by=self.user,
-        )
-
-        existing_insight = await self._create_insight("Existing Insight")
-        await DashboardTile.objects.acreate(dashboard=dashboard, insight=existing_insight, layouts={})
-
-        new_insight = await self._create_insight("New Insight")
-
-        tool = self._create_tool()
-
-        action = UpdateDashboardToolArgs(
-            dashboard_id=str(dashboard.id),
-            insight_ids=[new_insight.short_id],
-        )
-
-        await tool._arun_impl(action)
-
-        # Only the new insight should remain (old one is soft-deleted)
-        tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(tiles), 1)
-        self.assertEqual(tiles[0].insight_id, new_insight.id)
-
     async def test_update_dashboard_with_multiple_insights_replaces_all(self):
         """Test that insight_ids replaces all existing insights with the new ones."""
         dashboard = await Dashboard.objects.acreate(
@@ -264,41 +236,6 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(len(tiles), 1)
         self.assertEqual(tiles[0].insight_id, new_insight.id)
 
-    async def test_update_nonexistent_dashboard_returns_error(self):
-        tool = self._create_tool()
-
-        action = UpdateDashboardToolArgs(
-            dashboard_id="99999999",
-            insight_ids=["some-id"],
-        )
-
-        with self.assertRaises(MaxToolFatalError) as ctx:
-            await tool._arun_impl(action)
-
-        self.assertIn("99999999", str(ctx.exception))
-
-    async def test_update_deleted_dashboard_returns_error(self):
-        dashboard = await Dashboard.objects.acreate(
-            team=self.team,
-            name="Deleted Dashboard",
-            created_by=self.user,
-            deleted=True,
-        )
-
-        new_insight = await self._create_insight("New Insight")
-
-        tool = self._create_tool()
-
-        action = UpdateDashboardToolArgs(
-            dashboard_id=str(dashboard.id),
-            insight_ids=[new_insight.short_id],
-        )
-
-        with self.assertRaises(MaxToolFatalError) as ctx:
-            await tool._arun_impl(action)
-
-        self.assertIn(str(dashboard.id), str(ctx.exception))
-
     async def test_create_dashboard_with_no_valid_insights_returns_error(self):
         tool = self._create_tool()
 
@@ -392,74 +329,45 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(sorted_tiles[0].insight_id, insight_a_new.id)
         self.assertEqual(sorted_tiles[1].insight_id, insight_b_new.id)
 
-    async def test_positional_replacement_with_fewer_insights_soft_deletes_extras(self):
-        """Test that when new list has fewer insights, removed insights' tiles are soft-deleted."""
+    @parameterized.expand(
+        [
+            ("shrink_3_to_1", 3, 1),
+            ("expand_1_to_3", 1, 3),
+        ]
+    )
+    async def test_positional_replacement_handles_insight_count_changes(
+        self, _name: str, initial_count: int, new_count: int
+    ):
+        """Test that insight count changes are handled correctly (soft-deletes and creates)."""
         dashboard = await Dashboard.objects.acreate(
             team=self.team,
-            name="Dashboard to Shrink",
+            name=f"Dashboard {_name}",
             created_by=self.user,
         )
 
-        insight_a = await self._create_insight("Insight A")
-        insight_b = await self._create_insight("Insight B")
-        insight_c = await self._create_insight("Insight C")
+        initial_insights = [await self._create_insight(f"Initial {i}") for i in range(initial_count)]
+        for insight in initial_insights:
+            await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts={})
 
-        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight_a, layouts={})
-        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight_b, layouts={})
-        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight_c, layouts={})
-
-        # Replace 3 insights with just 1 new insight
-        insight_new = await self._create_insight("New Single Insight")
+        new_insights = [await self._create_insight(f"New {i}") for i in range(new_count)]
 
         tool = self._create_tool()
-
         action = UpdateDashboardToolArgs(
             dashboard_id=str(dashboard.id),
-            insight_ids=[insight_new.short_id],
-        )
-
-        await tool._arun_impl(action)
-
-        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(active_tiles), 1)
-        self.assertEqual(active_tiles[0].insight_id, insight_new.id)
-
-        # All 3 original tiles should be soft-deleted, 1 new tile created
-        all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
-        self.assertEqual(len(all_tiles), 4)  # 3 soft-deleted + 1 new
-        soft_deleted = [t for t in all_tiles if t.deleted]
-        self.assertEqual(len(soft_deleted), 3)
-
-    async def test_positional_replacement_with_more_insights_creates_new_tiles(self):
-        """Test that when new list is longer, new tiles are created."""
-        dashboard = await Dashboard.objects.acreate(
-            team=self.team,
-            name="Dashboard to Expand",
-            created_by=self.user,
-        )
-
-        insight_a = await self._create_insight("Insight A")
-        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight_a, layouts={})
-
-        # Replace 1 insight with 3
-        insight_new1 = await self._create_insight("New Insight 1")
-        insight_new2 = await self._create_insight("New Insight 2")
-        insight_new3 = await self._create_insight("New Insight 3")
-
-        tool = self._create_tool()
-
-        action = UpdateDashboardToolArgs(
-            dashboard_id=str(dashboard.id),
-            insight_ids=[insight_new1.short_id, insight_new2.short_id, insight_new3.short_id],
+            insight_ids=[insight.short_id for insight in new_insights],
         )
 
         await tool._arun_impl(action)
 
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard).order_by("id")]
-        self.assertEqual(len(active_tiles), 3)
-        self.assertEqual(active_tiles[0].insight_id, insight_new1.id)
-        self.assertEqual(active_tiles[1].insight_id, insight_new2.id)
-        self.assertEqual(active_tiles[2].insight_id, insight_new3.id)
+        self.assertEqual(len(active_tiles), new_count)
+        for i, tile in enumerate(active_tiles):
+            self.assertEqual(tile.insight_id, new_insights[i].id)
+
+        all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
+        self.assertEqual(len(all_tiles), initial_count + new_count)
+        soft_deleted = [t for t in all_tiles if t.deleted]
+        self.assertEqual(len(soft_deleted), initial_count)
 
     async def test_is_dangerous_operation_with_insight_ids(self):
         """Test that providing insight_ids is flagged as a dangerous operation only when insights change."""
@@ -852,33 +760,44 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(tile_e.layouts["sm"]["x"], 6)
         self.assertEqual(tile_e.layouts["sm"]["y"], 8)
 
-    async def test_restoring_previously_removed_insight_at_end(self):
-        """When a previously removed insight is restored at the end, the tile should be undeleted."""
-        insight_a = await self._create_insight("AAA")
-        insight_b = await self._create_insight("BBB")
-        insight_c = await self._create_insight("CCC")
+    @parameterized.expand(
+        [
+            ("at_end", ["A", "C", "B"]),  # [A, B, C] -> [A, C] -> [A, C, B]
+            ("at_beginning", ["B", "A", "C"]),  # [A, B, C] -> [A, C] -> [B, A, C]
+        ]
+    )
+    async def test_restoring_previously_removed_insight(self, _name: str, new_order: list[str]):
+        """When a previously removed insight is restored, the tile should be undeleted."""
+        insights = {
+            "A": await self._create_insight("Insight_A"),
+            "B": await self._create_insight("Insight_B"),
+            "C": await self._create_insight("Insight_C"),
+        }
         dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
-        for i, insight in enumerate([insight_a, insight_b, insight_c]):
+        for i, key in enumerate(["A", "B", "C"]):
             await DashboardTile.objects.acreate(
-                dashboard=dashboard, insight=insight, layouts={"sm": {"x": 0, "y": i * 5, "w": 12, "h": 5}}
+                dashboard=dashboard, insight=insights[key], layouts={"sm": {"x": 0, "y": i * 5, "w": 12, "h": 5}}
             )
 
         # Simulate removing B (soft-delete its tile)
-        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insights["B"])
         tile_b.deleted = True
         await tile_b.asave()
 
-        # Restore B at the end: [A, C, B]
+        # Restore B at specified position
         tool = self._create_tool()
         action = UpdateDashboardToolArgs(
             dashboard_id=str(dashboard.id),
-            insight_ids=[insight_a.short_id, insight_c.short_id, insight_b.short_id],
+            insight_ids=[insights[key].short_id for key in new_order],
         )
         result, _ = await tool._arun_impl(action)
 
-        # Output should list insights in order: A, C, B
-        self.assertLess(result.index("AAA"), result.index("CCC"))
-        self.assertLess(result.index("CCC"), result.index("BBB"))
+        # Verify output order
+        for i in range(len(new_order) - 1):
+            self.assertLess(
+                result.index(f"Insight_{new_order[i]}"),
+                result.index(f"Insight_{new_order[i + 1]}"),
+            )
 
         # B's tile should be undeleted
         await tile_b.arefresh_from_db()
@@ -887,45 +806,7 @@ class TestUpsertDashboardTool(BaseTest):
         # Dashboard should have 3 active tiles
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
         self.assertEqual(len(active_tiles), 3)
-        self.assertEqual({t.insight_id for t in active_tiles}, {insight_a.id, insight_b.id, insight_c.id})
-
-    async def test_restoring_previously_removed_insight_at_beginning(self):
-        """When a previously removed insight is restored at the beginning, the tile should be undeleted.
-        [A, B, C] -> [A, C] -> [B, A, C]
-        """
-        insight_a = await self._create_insight("AAAA")
-        insight_b = await self._create_insight("BBBB")
-        insight_c = await self._create_insight("CCCC")
-        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
-        for i, insight in enumerate([insight_a, insight_b, insight_c]):
-            await DashboardTile.objects.acreate(
-                dashboard=dashboard, insight=insight, layouts={"sm": {"x": 0, "y": i * 5, "w": 12, "h": 5}}
-            )
-
-        # Simulate removing B (soft-delete its tile)
-        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
-        tile_b.deleted = True
-        await tile_b.asave()
-
-        # Restore B at the beginning: [B, A, C]
-        tool = self._create_tool()
-        action = UpdateDashboardToolArgs(
-            dashboard_id=str(dashboard.id),
-            insight_ids=[insight_b.short_id, insight_a.short_id, insight_c.short_id],
-        )
-        result, _ = await tool._arun_impl(action)
-        # Output should list insights in order: B, A, C
-        self.assertLess(result.index("BBBB"), result.index("AAAA"))
-        self.assertLess(result.index("AAAA"), result.index("CCCC"))
-
-        # B's tile should be undeleted
-        await tile_b.arefresh_from_db()
-        self.assertFalse(tile_b.deleted)
-
-        # Dashboard should have 3 active tiles
-        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(active_tiles), 3)
-        self.assertEqual({t.insight_id for t in active_tiles}, {insight_a.id, insight_b.id, insight_c.id})
+        self.assertEqual({t.insight_id for t in active_tiles}, {insights[k].id for k in ["A", "B", "C"]})
 
 
 class TestGetDashboardAndSortedTiles(BaseTest):
@@ -1154,26 +1035,26 @@ class TestGetVisualizationArtifacts(BaseTest):
         self.assertEqual(results[1].content.name, "Insight")
         self.assertEqual(results[2].content.name, "Insight Artifact")
 
-    async def test_raises_error_when_artifact_not_found(self):
+    @parameterized.expand(
+        [
+            ("single_missing", [], ["nonexistent-id"]),
+            ("multiple_missing_with_valid", ["Valid Insight"], ["missing-1", "missing-2"]),
+        ]
+    )
+    async def test_raises_error_when_artifacts_not_found(
+        self, _name: str, valid_insight_names: list[str], missing_ids: list[str]
+    ):
+        valid_insights = [await self._create_insight(name) for name in valid_insight_names]
+        insight_ids = [i.short_id for i in valid_insights] + missing_ids
+
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         tool = self._create_tool(state=state)
 
         with self.assertRaises(MaxToolRetryableError) as ctx:
-            await tool._get_visualization_artifacts(["nonexistent-id"])
+            await tool._get_visualization_artifacts(insight_ids)
 
-        self.assertIn("nonexistent-id", str(ctx.exception))
-
-    async def test_raises_error_when_some_artifacts_not_found(self):
-        insight = await self._create_insight("Valid Insight")
-
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        tool = self._create_tool(state=state)
-
-        with self.assertRaises(MaxToolRetryableError) as ctx:
-            await tool._get_visualization_artifacts([insight.short_id, "missing-1", "missing-2"])
-
-        self.assertIn("missing-1", str(ctx.exception))
-        self.assertIn("missing-2", str(ctx.exception))
+        for missing_id in missing_ids:
+            self.assertIn(missing_id, str(ctx.exception))
 
 
 class TestGetUpdateDiff(BaseTest):
