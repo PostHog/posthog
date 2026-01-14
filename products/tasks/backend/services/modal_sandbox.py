@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 WORKING_DIR = "/tmp/workspace"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
+NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
@@ -90,7 +91,6 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
 
     if template == SandboxTemplate.NOTEBOOK_BASE:
         if settings.DEBUG:
-            modal.enable_output()
             dockerfile_path = os.path.join(
                 settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
             )
@@ -120,16 +120,22 @@ class ModalSandbox:
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
-        self._app = ModalSandbox._get_default_app()
+        self._app = ModalSandbox._get_app_for_template(config.template)
 
     @staticmethod
     def _get_default_app() -> modal.App:
         return modal.App.lookup(DEFAULT_MODAL_APP_NAME, create_if_missing=True)
 
     @staticmethod
+    def _get_app_for_template(template: SandboxTemplate) -> modal.App:
+        if template == SandboxTemplate.NOTEBOOK_BASE:
+            return modal.App.lookup(NOTEBOOK_MODAL_APP_NAME, create_if_missing=True)
+        return ModalSandbox._get_default_app()
+
+    @staticmethod
     def create(config: SandboxConfig) -> "ModalSandbox":
         try:
-            app = ModalSandbox._get_default_app()
+            app = ModalSandbox._get_app_for_template(config.template)
             image = _get_template_image(config.template)
 
             if config.snapshot_id:
