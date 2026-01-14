@@ -396,6 +396,7 @@ export interface NotificationSettings {
     all_weekly_digest_disabled: boolean
     error_tracking_issue_assigned: boolean
     discussions_mentioned: boolean
+    project_api_key_exposed?: boolean
 }
 
 export interface PluginAccess {

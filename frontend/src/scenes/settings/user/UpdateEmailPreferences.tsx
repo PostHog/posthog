@@ -16,6 +16,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     error_tracking_issue_assigned: true,
     discussions_mentioned: true,
     all_weekly_digest_disabled: false,
+    project_api_key_exposed: true,
 }
 
 export function UpdateEmailPreferences(): JSX.Element {
@@ -139,6 +140,15 @@ export function UpdateEmailPreferences(): JSX.Element {
                             label="Comment mentions"
                             description="Get notified when someone mentions you in a discussion on any project"
                             dataAttr="discussions_mentioned_enabled"
+                        />
+                    </div>
+
+                    <div className="border rounded p-4">
+                        <SimpleSwitch
+                            setting="project_api_key_exposed"
+                            label="Project API key exposure"
+                            description="Get notified when project API keys are publicly exposed"
+                            dataAttr="project_api_key_exposure_enabled"
                         />
                     </div>
                 </div>
