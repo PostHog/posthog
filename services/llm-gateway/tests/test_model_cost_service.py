@@ -3,21 +3,32 @@ from unittest.mock import patch
 
 import litellm
 import pytest
-from litellm import model_cost_map_url
-from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
 from llm_gateway.rate_limiting.model_cost_service import (
     CACHE_TTL_SECONDS,
     DEFAULT_LIMITS,
+    TARGET_LIMIT_COST_PER_HOUR,
     ModelCostService,
     get_model_costs,
     get_model_limits,
 )
 
-
-@pytest.fixture(scope="module")
-def litellm_costs() -> dict[str, Any]:
-    return get_model_cost_map(url=model_cost_map_url)
+MOCK_MODEL_COSTS: dict[str, Any] = {
+    "claude-3-5-haiku-20241022": {
+        "input_cost_per_token": 0.0000008,
+        "output_cost_per_token": 0.000004,
+        "max_input_tokens": 200000,
+        "max_output_tokens": 8192,
+        "litellm_provider": "anthropic",
+    },
+    "gpt-4o-mini": {
+        "input_cost_per_token": 0.00000015,
+        "output_cost_per_token": 0.0000006,
+        "max_input_tokens": 128000,
+        "max_output_tokens": 16384,
+        "litellm_provider": "openai",
+    },
+}
 
 
 @pytest.fixture(autouse=True)
@@ -28,18 +39,33 @@ def reset_model_cost_service():
 
 
 class TestModelCostService:
-    def test_returns_defaults_for_unknown_model(self, litellm_costs: dict[str, Any]) -> None:
+    def test_calculates_limits_from_cost(self) -> None:
+        model = "claude-3-5-haiku-20241022"
+        cost = MOCK_MODEL_COSTS[model]
+
         with patch(
             "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=litellm_costs,
+            return_value=MOCK_MODEL_COSTS,
+        ):
+            limits = get_model_limits(model)
+
+        expected_input = int(TARGET_LIMIT_COST_PER_HOUR / cost["input_cost_per_token"])
+        expected_output = int(TARGET_LIMIT_COST_PER_HOUR / cost["output_cost_per_token"])
+        assert limits["input_tph"] == expected_input
+        assert limits["output_tph"] == expected_output
+
+    def test_returns_defaults_for_unknown_model(self) -> None:
+        with patch(
+            "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
+            return_value=MOCK_MODEL_COSTS,
         ):
             limits = get_model_limits("unknown-model-xyz")
         assert limits == DEFAULT_LIMITS
 
-    def test_caches_limits(self, litellm_costs: dict[str, Any]) -> None:
+    def test_caches_limits(self) -> None:
         with patch(
             "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=litellm_costs,
+            return_value=MOCK_MODEL_COSTS,
         ):
             service = ModelCostService.get_instance()
             service._refresh_cache()
@@ -53,18 +79,29 @@ class TestModelCostService:
         instance2 = ModelCostService.get_instance()
         assert instance1 is instance2
 
-    def test_get_model_costs_returns_none_for_unknown(self, litellm_costs: dict[str, Any]) -> None:
+    def test_get_model_costs_returns_cost_data(self) -> None:
+        model = "claude-3-5-haiku-20241022"
         with patch(
             "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=litellm_costs,
+            return_value=MOCK_MODEL_COSTS,
+        ):
+            costs = get_model_costs(model)
+        assert costs is not None
+        assert costs["input_cost_per_token"] == MOCK_MODEL_COSTS[model]["input_cost_per_token"]
+        assert costs["output_cost_per_token"] == MOCK_MODEL_COSTS[model]["output_cost_per_token"]
+
+    def test_get_model_costs_returns_none_for_unknown(self) -> None:
+        with patch(
+            "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
+            return_value=MOCK_MODEL_COSTS,
         ):
             costs = get_model_costs("unknown-model-xyz")
         assert costs is None
 
-    def test_refreshes_cache_after_ttl_expires(self, litellm_costs: dict[str, Any]) -> None:
+    def test_refreshes_cache_after_ttl_expires(self) -> None:
         with patch(
             "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=litellm_costs,
+            return_value=MOCK_MODEL_COSTS,
         ):
             service = ModelCostService.get_instance()
             service._refresh_cache()
@@ -75,10 +112,10 @@ class TestModelCostService:
                 get_model_limits("claude-3-5-haiku-20241022")
                 assert service._last_refresh != initial_refresh
 
-    def test_keeps_existing_cache_on_refresh_error(self, litellm_costs: dict[str, Any]) -> None:
+    def test_keeps_existing_cache_on_refresh_error(self) -> None:
         with patch(
             "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=litellm_costs,
+            return_value=MOCK_MODEL_COSTS,
         ):
             service = ModelCostService.get_instance()
             service._refresh_cache()
@@ -92,11 +129,11 @@ class TestModelCostService:
 
         assert service._limits == cached_limits
 
-    def test_updates_litellm_model_cost_on_refresh(self, litellm_costs: dict[str, Any]) -> None:
+    def test_updates_litellm_model_cost_on_refresh(self) -> None:
         original_cost = litellm.model_cost.copy()
         with patch(
             "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=litellm_costs,
+            return_value=MOCK_MODEL_COSTS,
         ):
             service = ModelCostService.get_instance()
             service._refresh_cache()
