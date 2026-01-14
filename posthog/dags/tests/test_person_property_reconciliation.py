@@ -1914,6 +1914,7 @@ class TestParseFormatChTimestamp:
         """Test parsing ClickHouse timestamp string to datetime."""
         result = parse_ch_timestamp("2024-01-15 12:30:45")
         assert result == datetime(2024, 1, 15, 12, 30, 45, tzinfo=UTC)
+        assert result.tzinfo == UTC
 
     def test_format_ch_timestamp(self):
         """Test formatting datetime to ClickHouse timestamp string."""
@@ -1927,6 +1928,15 @@ class TestParseFormatChTimestamp:
         parsed = parse_ch_timestamp(original)
         formatted = format_ch_timestamp(parsed)
         assert formatted == original
+
+    def test_format_ch_timestamp_converts_to_utc(self):
+        """Test that non-UTC datetime is converted to UTC before formatting."""
+        from datetime import timedelta, timezone
+
+        est = timezone(timedelta(hours=-5))
+        dt_est = datetime(2024, 1, 15, 12, 30, 45, tzinfo=est)  # 12:30 EST = 17:30 UTC
+        result = format_ch_timestamp(dt_est)
+        assert result == "2024-01-15 17:30:45"
 
 
 class TestPropertyValueDataclass:

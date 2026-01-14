@@ -667,8 +667,13 @@ def parse_ch_timestamp(ts: str) -> datetime:
 
 
 def format_ch_timestamp(dt: datetime) -> str:
-    """Format a datetime to ClickHouse timestamp string."""
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
+    """Format a datetime to ClickHouse timestamp string (UTC)."""
+    if dt.tzinfo is None:
+        # Assume naive datetimes are already UTC
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    # Convert to UTC before formatting
+    utc_dt = dt.astimezone(UTC)
+    return utc_dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_person_property_updates_windowed(
