@@ -9,14 +9,11 @@ import threading
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
-from queue import Empty
 from typing import Any
 
 from django.utils import timezone
 
 import structlog
-from jupyter_client import KernelManager
-from jupyter_client.blocking import BlockingKernelClient
 
 from posthog.models import User
 
@@ -67,9 +64,7 @@ class _KernelHandle:
     started_at: datetime
     last_activity_at: datetime
     execution_count: int = 0
-    backend: str = KernelRuntime.Backend.LOCAL
-    manager: KernelManager | None = None
-    client: BlockingKernelClient | None = None
+    backend: str = KernelRuntime.Backend.DOCKER
     sandbox_id: str | None = None
 
 
@@ -141,7 +136,7 @@ class KernelRuntimeService:
     def shutdown_kernel(self, notebook: Notebook, user: User | None) -> bool:
         with self._service_lock:
             handle = None
-            for backend in (KernelRuntime.Backend.LOCAL, KernelRuntime.Backend.MODAL):
+            for backend in (KernelRuntime.Backend.DOCKER, KernelRuntime.Backend.MODAL):
                 key = self._get_kernel_key(notebook, user, backend)
                 handle = self._kernels.pop(key, None)
                 if handle:
@@ -183,7 +178,7 @@ class KernelRuntimeService:
             if not self._is_handle_alive(handle):
                 handle = self._reset_handle(notebook, user, handle)
 
-            if handle.backend == KernelRuntime.Backend.MODAL:
+            if handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
                 return self._execute_in_sandbox(
                     handle,
                     code,
@@ -192,95 +187,7 @@ class KernelRuntimeService:
                     timeout=timeout,
                 )
 
-            if not handle.manager or not handle.client:
-                raise RuntimeError("Kernel manager is not available.")
-
-            timeout_seconds = timeout or self._execution_timeout
-            started_at = timezone.now()
-            stdout: list[str] = []
-            stderr: list[str] = []
-            traceback: list[str] = []
-            result: dict[str, Any] | None = None
-            status = "ok"
-            execution_count: int | None = None
-            error_name: str | None = None
-            variables: dict[str, Any] | None = None
-
-            msg_id = handle.client.execute(
-                code,
-                stop_on_error=False,
-                user_expressions=user_expressions,
-            )
-
-            try:
-                while True:
-                    message = handle.client.get_iopub_msg(timeout=timeout_seconds)
-
-                    if message.get("parent_header", {}).get("msg_id") != msg_id:
-                        continue
-
-                    msg_type = message["header"].get("msg_type")
-                    content = message.get("content", {})
-
-                    if msg_type == "status" and content.get("execution_state") == "idle":
-                        break
-
-                    if msg_type == "stream":
-                        destination = stdout if content.get("name") == "stdout" else stderr
-                        destination.append(content.get("text", ""))
-                        continue
-
-                    if msg_type in ("execute_result", "display_data"):
-                        result = content.get("data") or result
-                        execution_count = content.get("execution_count", execution_count)
-                        continue
-
-                    if msg_type == "error":
-                        status = "error"
-                        error_name = content.get("ename")
-                        traceback = content.get("traceback", [])
-
-            except Empty:
-                status = "timeout"
-
-            reply = None
-            try:
-                while True:
-                    candidate = handle.client.get_shell_msg(timeout=timeout_seconds)
-                    if candidate.get("parent_header", {}).get("msg_id") == msg_id:
-                        reply = candidate
-                        break
-            except Empty:
-                reply = None
-
-            if reply:
-                reply_content = reply.get("content", {})
-                execution_count = reply_content.get("execution_count", execution_count)
-                status = reply_content.get("status", status)
-
-                if status == "error" and not error_name:
-                    error_name = reply_content.get("ename")
-                    traceback = reply_content.get("traceback", traceback)
-                if user_expressions:
-                    variables = self._parse_user_expressions(reply_content.get("user_expressions", {}))
-
-            handle.execution_count = execution_count or handle.execution_count
-            handle.last_activity_at = timezone.now()
-            self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
-
-            return KernelExecutionResult(
-                status=status,
-                stdout="".join(stdout),
-                stderr="".join(stderr),
-                result=result,
-                execution_count=execution_count,
-                error_name=error_name,
-                traceback=traceback,
-                variables=variables,
-                started_at=started_at,
-                completed_at=timezone.now(),
-                kernel_runtime=handle.runtime,
-            )
+            raise RuntimeError("Unsupported notebook kernel backend.")
 
     def shutdown_all(self) -> None:
         with self._service_lock:
@@ -295,20 +202,22 @@ class KernelRuntimeService:
         user_key = user.id if isinstance(user, User) else "anonymous"
         return f"{backend}:{notebook.team_id}:{notebook.short_id}:{user_key}"
 
-    def _ensure_local_allowed(self) -> None:
-        if not self._should_use_local_kernel():
-            raise RuntimeError("Local notebook kernels require DEBUG=1 or TEST=1 and no Modal credentials present.")
-
     def _ensure_modal_credentials(self) -> None:
         if not self._has_modal_credentials():
             raise RuntimeError("Modal credentials are required to start notebook kernels in production.")
 
-    def _should_use_local_kernel(self) -> bool:
-        debug_flag = os.getenv("DEBUG") == "1" or os.getenv("TEST") == "1"
-        return debug_flag and not self._has_modal_credentials()
-
     def _has_modal_credentials(self) -> bool:
         return all(os.getenv(name) for name in self._MODAL_REQUIRED_ENV_VARS)
+
+    def _get_sandbox_class(self, backend: str) -> type:
+        if backend == KernelRuntime.Backend.MODAL:
+            from products.tasks.backend.services.modal_sandbox import ModalSandbox
+
+            return ModalSandbox
+
+        from products.tasks.backend.services.docker_sandbox import DockerSandbox
+
+        return DockerSandbox
 
     def _parse_user_expressions(self, user_expressions: Any) -> dict[str, Any] | None:
         if not isinstance(user_expressions, dict):
@@ -404,12 +313,11 @@ class KernelRuntimeService:
                 self._kernels[key] = handle
                 return handle
 
-            if backend == KernelRuntime.Backend.LOCAL:
-                self._ensure_local_allowed()
-                handle = self._create_local_kernel_handle(notebook, user)
-            else:
+            if backend == KernelRuntime.Backend.MODAL:
                 self._ensure_modal_credentials()
                 handle = self._create_modal_kernel_handle(notebook, user)
+            else:
+                handle = self._create_docker_kernel_handle(notebook, user)
 
             self._kernels[key] = handle
 
@@ -422,28 +330,15 @@ class KernelRuntimeService:
         return self._ensure_handle(notebook, user)
 
     def _shutdown_handle(self, handle: _KernelHandle, *, status: str) -> None:
-        if handle.backend == KernelRuntime.Backend.MODAL:
+        if handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
             if handle.sandbox_id:
-                from products.tasks.backend.services.modal_sandbox import ModalSandbox
-
                 try:
-                    ModalSandbox.get_by_id(handle.sandbox_id).destroy()
+                    sandbox_class = self._get_sandbox_class(handle.backend)
+                    sandbox_class.get_by_id(handle.sandbox_id).destroy()
                 except Exception:
                     logger.warning("notebook_kernel_sandbox_destroy_failed", kernel_runtime_id=str(handle.runtime.id))
             self._touch_runtime(handle, status_override=status)
             return
-
-        try:
-            if handle.client:
-                handle.client.stop_channels()
-        except Exception:
-            logger.warning("notebook_kernel_stop_channels_failed", kernel_runtime_id=str(handle.runtime.id))
-
-        try:
-            if handle.manager:
-                handle.manager.shutdown_kernel(now=True)
-        except Exception:
-            logger.warning("notebook_kernel_shutdown_failed", kernel_runtime_id=str(handle.runtime.id))
 
         self._touch_runtime(handle, status_override=status)
 
@@ -455,88 +350,27 @@ class KernelRuntimeService:
         runtime.save(update_fields=["last_used_at", "status"])
 
     def _is_handle_alive(self, handle: _KernelHandle) -> bool:
-        if handle.backend == KernelRuntime.Backend.MODAL:
+        if handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
             if not handle.sandbox_id:
                 return False
-            from products.tasks.backend.services.modal_sandbox import ModalSandbox
             from products.tasks.backend.services.sandbox import SandboxStatus
 
             try:
-                sandbox = ModalSandbox.get_by_id(handle.sandbox_id)
+                sandbox_class = self._get_sandbox_class(handle.backend)
+                sandbox = sandbox_class.get_by_id(handle.sandbox_id)
             except Exception:
                 return False
             return sandbox.get_status() == SandboxStatus.RUNNING
 
-        if self._is_process_running(handle.runtime.kernel_pid):
-            return True
-        return bool(handle.manager and handle.manager.is_alive())
-
-    def _is_process_running(self, pid: int | None) -> bool:
-        if not pid:
-            return False
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
+        return False
 
     def _reuse_kernel_handle(self, notebook: Notebook, user: User | None, backend: str) -> _KernelHandle | None:
         if backend == KernelRuntime.Backend.MODAL:
             return self._reuse_modal_kernel_handle(notebook, user)
+        if backend == KernelRuntime.Backend.DOCKER:
+            return self._reuse_docker_kernel_handle(notebook, user)
 
-        runtime = (
-            KernelRuntime.objects.filter(
-                team_id=notebook.team_id,
-                notebook_short_id=notebook.short_id,
-                user=user if isinstance(user, User) else None,
-                status=KernelRuntime.Status.RUNNING,
-                backend=backend,
-            )
-            .exclude(connection_file__isnull=True)
-            .exclude(connection_file="")
-            .order_by("-last_used_at")
-            .first()
-        )
-
-        if not runtime:
-            return None
-
-        if runtime.kernel_pid and not self._is_process_running(runtime.kernel_pid):
-            self._mark_runtime_error(runtime, "Kernel process is not running")
-            return None
-
-        manager = KernelManager(connection_file=runtime.connection_file)
-        client = manager.blocking_client()
-        try:
-            manager.load_connection_file()
-            client.load_connection_file(runtime.connection_file)
-            client.start_channels()
-            client.wait_for_ready(timeout=self._startup_timeout)
-        except Exception:
-            logger.exception(
-                "notebook_kernel_reconnect_failed",
-                notebook_short_id=notebook.short_id,
-                kernel_runtime_id=str(runtime.id),
-            )
-            with suppress(Exception):
-                client.stop_channels()
-            self._mark_runtime_error(runtime, "Failed to reconnect to kernel")
-            return None
-
-        handle = _KernelHandle(
-            runtime=runtime,
-            lock=threading.RLock(),
-            started_at=timezone.now(),
-            last_activity_at=timezone.now(),
-            execution_count=0,
-            backend=backend,
-            manager=manager,
-            client=client,
-        )
-        self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
-        return handle
+        return None
 
     def _mark_runtime_error(self, runtime: KernelRuntime, message: str) -> None:
         runtime.status = KernelRuntime.Status.ERROR
@@ -566,50 +400,15 @@ class KernelRuntimeService:
         ).update(status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now())
 
     def _get_backend(self) -> str:
-        return KernelRuntime.Backend.LOCAL if self._should_use_local_kernel() else KernelRuntime.Backend.MODAL
-
-    def _create_local_kernel_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle:
-        runtime = self._create_runtime(notebook, user, KernelRuntime.Backend.LOCAL)
-        manager = KernelManager(kernel_name="python3")
-
-        try:
-            manager.start_kernel()
-            client = manager.blocking_client()
-            client.start_channels()
-            client.wait_for_ready(timeout=self._startup_timeout)
-        except Exception as err:
-            logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
-            with suppress(Exception):
-                manager.shutdown_kernel(now=True)
-            self._mark_runtime_error(runtime, "Failed to start kernel")
-            raise RuntimeError("Failed to start kernel") from err
-
-        runtime.kernel_id = manager.kernel_id
-        kernel_process = getattr(manager, "kernel", None)
-        runtime.kernel_pid = kernel_process.pid if kernel_process else None
-        runtime.connection_file = manager.connection_file
-        runtime.status = KernelRuntime.Status.RUNNING
-        runtime.last_used_at = timezone.now()
-        runtime.save(update_fields=["kernel_id", "kernel_pid", "connection_file", "status", "last_used_at"])
-
-        return _KernelHandle(
-            runtime=runtime,
-            manager=manager,
-            client=client,
-            lock=threading.RLock(),
-            started_at=timezone.now(),
-            last_activity_at=timezone.now(),
-            backend=KernelRuntime.Backend.LOCAL,
-        )
+        return KernelRuntime.Backend.MODAL if self._has_modal_credentials() else KernelRuntime.Backend.DOCKER
 
     def _create_modal_kernel_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle:
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
-
         runtime = self._create_runtime(notebook, user, KernelRuntime.Backend.MODAL)
         connection_file = f"/tmp/jupyter/kernel-{runtime.id}.json"
         kernel_id = f"kernel-{runtime.id}"
         sandbox_config = build_notebook_sandbox_config(notebook)
-        sandbox = ModalSandbox.create(sandbox_config)
+        sandbox_class = self._get_sandbox_class(KernelRuntime.Backend.MODAL)
+        sandbox = sandbox_class.create(sandbox_config)
 
         try:
             start_command = (
@@ -623,7 +422,7 @@ class KernelRuntimeService:
             if not kernel_pid:
                 raise RuntimeError(f"Failed to start kernel process: {start_result.stdout} {start_result.stderr}")
 
-            self._wait_for_modal_kernel_ready(sandbox, connection_file)
+            self._wait_for_kernel_ready(sandbox, connection_file)
         except Exception as err:
             self._mark_runtime_error(runtime, "Failed to start kernel in sandbox")
             with suppress(Exception):
@@ -656,12 +455,65 @@ class KernelRuntimeService:
             sandbox_id=sandbox.id,
         )
 
-    def _wait_for_modal_kernel_ready(self, sandbox: Any, connection_file: str) -> None:
+    def _create_docker_kernel_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle:
+        runtime = self._create_runtime(notebook, user, KernelRuntime.Backend.DOCKER)
+        connection_file = f"/tmp/jupyter/kernel-{runtime.id}.json"
+        kernel_id = f"kernel-{runtime.id}"
+        sandbox_config = build_notebook_sandbox_config(notebook)
+        sandbox_class = self._get_sandbox_class(KernelRuntime.Backend.DOCKER)
+        sandbox = sandbox_class.create(sandbox_config)
+
+        try:
+            start_command = (
+                "mkdir -p /tmp/jupyter && "
+                f"nohup python3 -m ipykernel_launcher -f {connection_file} "
+                "> /tmp/jupyter/kernel.log 2>&1 & echo $!"
+            )
+            start_result = sandbox.execute(start_command, timeout_seconds=int(self._startup_timeout))
+            pid_line = start_result.stdout.strip().splitlines()[-1] if start_result.stdout else ""
+            kernel_pid = int(pid_line) if pid_line.isdigit() else None
+            if not kernel_pid:
+                raise RuntimeError(f"Failed to start kernel process: {start_result.stdout} {start_result.stderr}")
+
+            self._wait_for_kernel_ready(sandbox, connection_file)
+        except Exception as err:
+            self._mark_runtime_error(runtime, "Failed to start kernel in sandbox")
+            with suppress(Exception):
+                sandbox.destroy()
+            raise RuntimeError("Failed to start kernel in sandbox") from err
+
+        runtime.kernel_id = kernel_id
+        runtime.kernel_pid = kernel_pid
+        runtime.connection_file = connection_file
+        runtime.status = KernelRuntime.Status.RUNNING
+        runtime.last_used_at = timezone.now()
+        runtime.sandbox_id = sandbox.id
+        runtime.save(
+            update_fields=[
+                "kernel_id",
+                "kernel_pid",
+                "connection_file",
+                "status",
+                "last_used_at",
+                "sandbox_id",
+            ]
+        )
+
+        return _KernelHandle(
+            runtime=runtime,
+            lock=threading.RLock(),
+            started_at=timezone.now(),
+            last_activity_at=timezone.now(),
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id=sandbox.id,
+        )
+
+    def _wait_for_kernel_ready(self, sandbox: Any, connection_file: str) -> None:
         payload = {
             "connection_file": connection_file,
             "timeout": self._startup_timeout,
         }
-        command = self._build_modal_kernel_command(payload, action="ready")
+        command = self._build_kernel_command(payload, action="ready")
         result = sandbox.execute(command, timeout_seconds=int(self._startup_timeout))
         if result.exit_code != 0:
             raise RuntimeError(f"Kernel did not become ready: {result.stdout} {result.stderr}")
@@ -685,11 +537,11 @@ class KernelRuntimeService:
         if not runtime or not runtime.sandbox_id:
             return None
 
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
         from products.tasks.backend.services.sandbox import SandboxStatus
 
         try:
-            sandbox = ModalSandbox.get_by_id(runtime.sandbox_id)
+            sandbox_class = self._get_sandbox_class(KernelRuntime.Backend.MODAL)
+            sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
         except Exception:
             self._mark_runtime_error(runtime, "Sandbox not found")
             return None
@@ -699,7 +551,7 @@ class KernelRuntimeService:
             return None
 
         try:
-            self._wait_for_modal_kernel_ready(sandbox, runtime.connection_file or "")
+            self._wait_for_kernel_ready(sandbox, runtime.connection_file or "")
         except Exception:
             self._mark_runtime_error(runtime, "Kernel not ready in sandbox")
             return None
@@ -716,7 +568,57 @@ class KernelRuntimeService:
         self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
         return handle
 
-    def _build_modal_kernel_command(self, payload: dict[str, Any], action: str) -> str:
+    def _reuse_docker_kernel_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle | None:
+        runtime = (
+            KernelRuntime.objects.filter(
+                team_id=notebook.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+                status=KernelRuntime.Status.RUNNING,
+                backend=KernelRuntime.Backend.DOCKER,
+            )
+            .exclude(connection_file__isnull=True)
+            .exclude(connection_file="")
+            .exclude(sandbox_id__isnull=True)
+            .order_by("-last_used_at")
+            .first()
+        )
+
+        if not runtime or not runtime.sandbox_id:
+            return None
+
+        from products.tasks.backend.services.sandbox import SandboxStatus
+
+        try:
+            sandbox_class = self._get_sandbox_class(KernelRuntime.Backend.DOCKER)
+            sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
+        except Exception:
+            self._mark_runtime_error(runtime, "Sandbox not found")
+            return None
+
+        if sandbox.get_status() != SandboxStatus.RUNNING:
+            self._mark_runtime_error(runtime, "Sandbox is not running")
+            return None
+
+        try:
+            self._wait_for_kernel_ready(sandbox, runtime.connection_file or "")
+        except Exception:
+            self._mark_runtime_error(runtime, "Kernel not ready in sandbox")
+            return None
+
+        handle = _KernelHandle(
+            runtime=runtime,
+            lock=threading.RLock(),
+            started_at=timezone.now(),
+            last_activity_at=timezone.now(),
+            execution_count=0,
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id=runtime.sandbox_id,
+        )
+        self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
+        return handle
+
+    def _build_kernel_command(self, payload: dict[str, Any], action: str) -> str:
         payload["action"] = action
         encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
         return (
@@ -829,8 +731,6 @@ class KernelRuntimeService:
         if not handle.sandbox_id:
             raise RuntimeError("Sandbox not available for kernel execution.")
 
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
-
         timeout_seconds = int(timeout or self._execution_timeout)
         user_expressions: dict[str, str] | None = None
         if capture_variables and variable_names:
@@ -845,8 +745,9 @@ class KernelRuntimeService:
             "code": code,
             "user_expressions": user_expressions,
         }
-        command = self._build_modal_kernel_command(payload, action="execute")
-        sandbox = ModalSandbox.get_by_id(handle.sandbox_id)
+        command = self._build_kernel_command(payload, action="execute")
+        sandbox_class = self._get_sandbox_class(handle.backend)
+        sandbox = sandbox_class.get_by_id(handle.sandbox_id)
         started_at = timezone.now()
         result = sandbox.execute(command, timeout_seconds=timeout_seconds)
         if result.exit_code != 0:

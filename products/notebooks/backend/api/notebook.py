@@ -1,4 +1,3 @@
-import os
 import math
 import hashlib
 from typing import Any, Optional
@@ -464,15 +463,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             .first()
         )
         service = get_kernel_runtime(notebook, user).service
-        backend = (
-            runtime.backend
-            if runtime
-            else KernelRuntime.Backend.LOCAL
-            if service._should_use_local_kernel()
-            else KernelRuntime.Backend.MODAL
-        )
+        backend = runtime.backend if runtime else service._get_backend()
         sandbox_config = build_notebook_sandbox_config(notebook)
-        cpu_cores = sandbox_config.cpu_cores if backend == KernelRuntime.Backend.MODAL else (os.cpu_count() or 1)
+        cpu_cores = sandbox_config.cpu_cores
 
         return Response(
             {
@@ -485,9 +478,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "kernel_pid": runtime.kernel_pid if runtime else None,
                 "sandbox_id": runtime.sandbox_id if runtime else None,
                 "cpu_cores": cpu_cores,
-                "memory_gb": sandbox_config.memory_gb if backend == KernelRuntime.Backend.MODAL else None,
-                "disk_size_gb": sandbox_config.disk_size_gb if backend == KernelRuntime.Backend.MODAL else None,
-                "idle_timeout_seconds": sandbox_config.ttl_seconds if backend == KernelRuntime.Backend.MODAL else None,
+                "memory_gb": sandbox_config.memory_gb,
+                "disk_size_gb": sandbox_config.disk_size_gb,
+                "idle_timeout_seconds": sandbox_config.ttl_seconds,
             }
         )
 

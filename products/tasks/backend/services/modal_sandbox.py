@@ -130,7 +130,7 @@ class ModalSandbox:
     def create(config: SandboxConfig) -> "ModalSandbox":
         try:
             app = ModalSandbox._get_default_app()
-
+            modal.enable_output()
             image = _get_template_image(config.template)
 
             if config.snapshot_id:

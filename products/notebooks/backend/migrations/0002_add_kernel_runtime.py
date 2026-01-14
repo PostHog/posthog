@@ -73,7 +73,7 @@ class Migration(migrations.Migration):
             model_name="kernelruntime",
             name="backend",
             field=models.CharField(
-                choices=[("local", "local"), ("modal", "modal")],
+                choices=[("modal", "modal"), ("docker", "docker")],
                 default="local",
                 max_length=20,
             ),
