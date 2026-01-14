@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -162,7 +162,9 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
     selectors({
         isRunning: [
             (s) => [s.kernelInfo],
-            (kernelInfo) => kernelInfo?.status === 'running' || kernelInfo?.status === 'starting',
+            (kernelInfo) =>
+                kernelInfo?.status === 'running' ||
+                (kernelInfo?.status === 'starting' && kernelInfo?.last_error == null),
         ],
         statusInfo: [
             (s) => [s.kernelInfo, s.actionInFlight],
@@ -179,6 +181,9 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                 if (actionInFlight.start && kernelInfo.status !== 'starting') {
                     return { label: 'Starting', tone: 'warning' as const }
                 }
+                if (kernelInfo.last_error) {
+                    return { label: 'Error', tone: 'danger' as const }
+                }
                 const statusTone: Record<
                     string,
                     { label: string; tone: 'success' | 'warning' | 'danger' | 'default' }
@@ -194,7 +199,8 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         ],
         isStarting: [
             (s) => [s.kernelInfo, s.actionInFlight],
-            (kernelInfo, actionInFlight) => kernelInfo?.status === 'starting' || actionInFlight.start,
+            (kernelInfo, actionInFlight) =>
+                (kernelInfo?.status === 'starting' && kernelInfo?.last_error == null) || actionInFlight.start,
         ],
         isBusyStatus: [
             (s) => [s.isStarting, s.actionInFlight],
@@ -245,16 +251,25 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
     }),
     listeners(({ actions, props, values }) => ({
         startKernel: async () => {
-            await api.notebooks.kernelStart(props.shortId)
-            actions.loadKernelInfo()
+            try {
+                await api.notebooks.kernelStart(props.shortId)
+            } finally {
+                actions.loadKernelInfo()
+            }
         },
         stopKernel: async () => {
-            await api.notebooks.kernelStop(props.shortId)
-            actions.loadKernelInfo()
+            try {
+                await api.notebooks.kernelStop(props.shortId)
+            } finally {
+                actions.loadKernelInfo()
+            }
         },
         restartKernel: async () => {
-            await api.notebooks.kernelRestart(props.shortId)
-            actions.loadKernelInfo()
+            try {
+                await api.notebooks.kernelRestart(props.shortId)
+            } finally {
+                actions.loadKernelInfo()
+            }
         },
         saveKernelConfig: async ({ config }) => {
             try {
@@ -295,7 +310,22 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             actions.executeKernelSuccess(null)
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache, values }) => {
+        const scheduleRefresh = (): void => {
+            const delayMs = values.isStarting ? 2000 : 10000
+            cache.kernelInfoRefresh = window.setTimeout(() => {
+                if (!values.actionInFlight.refresh) {
+                    actions.loadKernelInfo()
+                }
+                scheduleRefresh()
+            }, delayMs)
+        }
         actions.loadKernelInfo()
+        scheduleRefresh()
+    }),
+    beforeUnmount(({ cache }) => {
+        if (cache.kernelInfoRefresh) {
+            clearTimeout(cache.kernelInfoRefresh)
+        }
     }),
 ])

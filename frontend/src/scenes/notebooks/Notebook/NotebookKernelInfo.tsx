@@ -63,6 +63,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
         setIdleTimeoutSeconds,
         resetConfigToKernel,
     } = useActions(logic)
+    const showLoadingState = kernelInfoLoading && !kernelInfo
 
     return (
         <LemonWidget
@@ -80,7 +81,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                 </LemonButton>
             }
         >
-            {kernelInfoLoading ? (
+            {showLoadingState ? (
                 <div className="flex items-center gap-2 text-muted text-sm p-3">
                     <Spinner textColored />
                     Loading kernel status
@@ -90,6 +91,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                     <div className="flex flex-wrap items-center gap-2">
                         {statusInfo ? <LemonTag type={statusInfo.tone}>{statusInfo.label}</LemonTag> : null}
                         {isBusyStatus ? <Spinner size="small" textColored /> : null}
+                        {actionInFlight.refresh ? <Spinner size="small" textColored /> : null}
                         <LemonTag type="default">{kernelInfo.backend === 'modal' ? 'Modal' : 'Local'}</LemonTag>
                         {kernelInfo.cpu_cores ? (
                             <LemonTag type="default">{formatCores(kernelInfo.cpu_cores)}</LemonTag>
@@ -239,7 +241,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                             </LemonButton>
                         </div>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-3 border-t border-border pt-3">
                         <div className="text-xs font-semibold text-muted uppercase tracking-wide">Execute code</div>
                         <LemonTextArea
                             value={code}
