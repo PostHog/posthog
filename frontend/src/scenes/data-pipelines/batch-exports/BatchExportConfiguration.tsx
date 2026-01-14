@@ -29,8 +29,7 @@ import {
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
-import { batchExportSceneLogic } from './BatchExportScene'
-import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { BatchExportConfigurationForm } from './types'
 import {
     dayAndHourToIntervalOffset,
@@ -42,8 +41,6 @@ import {
 } from './utils'
 
 export function BatchExportConfiguration(): JSX.Element {
-    const { logicProps } = useValues(batchExportSceneLogic)
-    const logic = batchExportConfigurationLogic(logicProps as BatchExportConfigurationLogicProps)
     const {
         isNew,
         batchExportConfigTest,
@@ -54,8 +51,9 @@ export function BatchExportConfiguration(): JSX.Element {
         batchExportConfig,
         selectedModel,
         runningStep,
-    } = useValues(logic)
-    const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } = useActions(logic)
+    } = useValues(batchExportConfigurationLogic)
+    const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
+        useActions(batchExportConfigurationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { timezone: teamTimezone, weekStartDay } = useValues(teamLogic)
@@ -73,12 +71,7 @@ export function BatchExportConfiguration(): JSX.Element {
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
 
     return (
-        <Form
-            logic={batchExportConfigurationLogic}
-            props={logicProps}
-            formKey="configuration"
-            className="flex flex-col gap-3"
-        >
+        <Form logic={batchExportConfigurationLogic} formKey="configuration" className="flex flex-col gap-3">
             <div className="flex flex-wrap gap-4 items-start">
                 <div className="flex flex-col flex-1 max-w-200 min-w-100 gap-y-3">
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
