@@ -206,10 +206,10 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         payment_event: {},
     } as CustomerAnalyticsConfig,
     base_currency: CurrencyCode.USD,
-    default_evaluation_environments_enabled: false,
+    default_evaluation_contexts_enabled: false,
     managed_viewsets: { revenue_analytics: true },
     receive_org_level_activity_logs: false,
-    require_evaluation_environment_tags: false,
+    require_evaluation_contexts: false,
     logs_settings: {
         capture_console_logs: false,
     },

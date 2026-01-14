@@ -116,6 +116,7 @@ export const NEW_FLAG: FeatureFlagType = {
     can_edit: true,
     user_access_level: AccessControlLevel.Editor,
     tags: [],
+    evaluation_tags: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
     status: 'ACTIVE',
@@ -123,7 +124,6 @@ export const NEW_FLAG: FeatureFlagType = {
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     bucketing_identifier: null,
-    evaluation_tags: [],
     _should_create_usage_dashboard: true,
 }
 const NEW_VARIANT = {
