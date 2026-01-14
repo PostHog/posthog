@@ -506,6 +506,9 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                 "suppressionRules": [],
             },
             "heatmaps": False,
+            "logs": {
+                "captureConsoleLogs": False,
+            },
             "conversations": False,
             "surveys": False,
             "productTours": False,
