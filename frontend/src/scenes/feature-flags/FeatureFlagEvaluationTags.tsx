@@ -106,8 +106,8 @@ export function FeatureFlagEvaluationTags({
                 {localTags.length > 0 && (
                     <div className="bg-border-light rounded p-2">
                         <div className="text-xs text-muted mb-2">
-                            Select which tags should act as evaluation contexts. Flags with evaluation contexts will
-                            only evaluate when the SDK is initialized with matching environment tags, providing
+                            Select which tags should act as evaluation contexts. Flags tagged with evaluation contexts
+                            will only evaluate when the SDK is initialized with matching environment tags, providing
                             fine-grained runtime control over flag evaluation.
                         </div>
                         <div className="flex flex-col gap-1">

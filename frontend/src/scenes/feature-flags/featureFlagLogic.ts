@@ -794,7 +794,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw e
                     }
                 }
-                // For new flags, load default evaluation environments and set default tags
+                // For new flags, load default evaluation contexts and set default tags
                 if (props.id === 'new') {
                     // Only load and apply default evaluation contexts if BOTH conditions are met:
                     // 1. The feature flag is enabled globally
@@ -1644,7 +1644,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
         } else if (props.id === 'new') {
-            // Load default evaluation environments for new flags
+            // Load default evaluation contexts for new flags
             actions.loadFeatureFlag()
         }
     }),

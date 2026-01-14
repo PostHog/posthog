@@ -296,7 +296,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                                     return self.conditions
                             else:
                                 cohort = Cohort.objects.db_manager(using_database).get(
-                                    pk=cohort_id, team__project_id=self.team.project_id, deleted=False
+                                    pk=cohort_id,
+                                    team__project_id=self.team.project_id,
+                                    deleted=False,
                                 )
                                 seen_cohorts_cache[cohort_id] = cohort
                         except Cohort.DoesNotExist:
@@ -400,7 +402,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                                 continue
                         else:
                             cohort = Cohort.objects.db_manager(using_database).get(
-                                pk=cohort_id, team__project_id=self.team.project_id, deleted=False
+                                pk=cohort_id,
+                                team__project_id=self.team.project_id,
+                                deleted=False,
                             )
                             seen_cohorts_cache[cohort_id] = cohort
 
@@ -424,7 +428,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         return list(cohort_ids)
 
     def scheduled_changes_dispatcher(
-        self, payload, user: Optional[AbstractBaseUser] = None, scheduled_change_id: Optional[int] = None
+        self,
+        payload,
+        user: Optional[AbstractBaseUser] = None,
+        scheduled_change_id: Optional[int] = None,
     ):
         from posthog.api.feature_flag import FeatureFlagSerializer
 
@@ -453,7 +460,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             current_groups = current_filters.get("groups", [])
             new_groups = payload["value"].get("groups", [])
 
-            serializer_data["filters"] = {**current_filters, "groups": current_groups + new_groups}
+            serializer_data["filters"] = {
+                **current_filters,
+                "groups": current_groups + new_groups,
+            }
         elif payload["operation"] == "update_status":
             serializer_data["active"] = payload["value"]
         elif payload["operation"] == "update_variants":
@@ -725,7 +735,7 @@ class FeatureFlagEvaluationTag(models.Model):
 class TeamDefaultEvaluationTag(UUIDModel):
     """
     Defines default evaluation contexts that will be automatically applied to new feature flags in a team.
-    These contexts serve as default evaluation environments that can be configured at the team/organization level.
+    These contexts serve as default evaluation contexts that can be configured at the team/organization level.
     When a new feature flag is created and the team has default_evaluation_contexts_enabled=True,
     these contexts will be automatically added as evaluation contexts for the new flag.
     """
