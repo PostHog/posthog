@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from django.utils import timezone
 
 import posthoganalytics
+from dateutil import parser
 from simple_salesforce.format import format_soql
 
 from posthog.exceptions_capture import capture_exception
@@ -175,6 +176,15 @@ def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | No
     return transformed_data
 
 
+def _extract_first_tag(tag_list: list, type_filter: str | None = None) -> str | None:
+    """Extract first tag with non-empty displayValue, optionally filtered by type."""
+    for tag in tag_list:
+        if isinstance(tag, dict) and (not type_filter or tag.get("type") == type_filter):
+            if value := tag.get("displayValue"):
+                return value
+    return None
+
+
 def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any]) -> dict[str, Any] | None:
     """Convert enriched data to Salesforce field mappings for bulk update.
 
@@ -192,6 +202,7 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
     company_info = harmonic_data.get("company_info", {})
     metrics = harmonic_data.get("metrics", {})
     tags = harmonic_data.get("tags", [])
+    tags_v2 = harmonic_data.get("tagsV2", [])
 
     current_metrics = {metric_name: metric_data.get("current_value") for metric_name, metric_data in metrics.items()}
 
@@ -201,16 +212,7 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
         period_data = historical.get(period, {})
         return period_data.get("value")
 
-    def _extract_first_tag(tag_list: list, type_filter: str | None = None) -> str | None:
-        """Extract first tag with non-empty displayValue, optionally filtered by type."""
-        for tag in tag_list:
-            if isinstance(tag, dict) and (not type_filter or tag.get("type") == type_filter):
-                if value := tag.get("displayValue"):
-                    return value
-        return None
-
     # Extract primary tag from tags array (prefer isPrimaryTag=true, fallback to first tag, then tagsV2)
-    tags_v2 = harmonic_data.get("tagsV2", [])
     primary_tag = None
 
     if tags:
@@ -521,27 +523,14 @@ def _fetch_updated_account_fields(
 
 
 def _normalize_datetime_string(value: str) -> datetime | None:
-    """Try to parse a datetime string into a datetime object for comparison.
-
-    Handles formats like:
-    - "2025-07-23T00:00:00Z" (ISO format with Z)
-    - "2025-07-23T00:00:00.000+0000" (Salesforce format)
-    """
-    formats = [
-        "%Y-%m-%dT%H:%M:%SZ",
-        "%Y-%m-%dT%H:%M:%S.%f%z",
-        "%Y-%m-%dT%H:%M:%S%z",
-    ]
-    for fmt in formats:
-        try:
-            parsed = datetime.strptime(value, fmt)
-            # Normalize to UTC
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=UTC)
-            return parsed.astimezone(UTC)
-        except ValueError:
-            continue
-    return None
+    """Parse a datetime string into a UTC datetime object for comparison."""
+    try:
+        parsed = parser.parse(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+    except (ValueError, parser.ParserError):
+        return None
 
 
 def _values_match(sent_value: Any, fetched_value: Any) -> bool:
