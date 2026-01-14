@@ -76,6 +76,7 @@
     'posthog.tasks.tasks.check_flags_to_rollback',
     'posthog.tasks.tasks.clean_stale_partials',
     'posthog.tasks.tasks.clear_clickhouse_deleted_person',
+    'posthog.tasks.tasks.clear_expired_sessions',
     'posthog.tasks.tasks.clickhouse_clear_removed_data',
     'posthog.tasks.tasks.clickhouse_errors_count',
     'posthog.tasks.tasks.clickhouse_materialize_columns',

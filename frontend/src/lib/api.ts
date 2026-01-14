@@ -5176,6 +5176,22 @@ const api = {
                         onError(new RateLimitError(parseInt(retryAfter, 10)))
                         abortController.abort()
                     }
+                } else if (!response.ok) {
+                    let errorData: any = {}
+                    try {
+                        errorData = await response.json()
+                    } catch {
+                        // If JSON parsing fails, leave errorData empty
+                    }
+                    onError(
+                        new ApiError(
+                            errorData.error || `Request failed with status ${response.status}`,
+                            response.status,
+                            response.headers,
+                            errorData
+                        )
+                    )
+                    abortController.abort()
                 }
             },
             onmessage: onMessage,
