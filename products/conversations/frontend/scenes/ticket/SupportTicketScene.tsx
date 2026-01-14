@@ -16,16 +16,16 @@ import { UserBasicType } from '~/types'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
-import { conversationsTicketSceneLogic } from './conversationsTicketSceneLogic'
+import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 
 export const scene: SceneExport<{ ticketId: string }> = {
-    component: ConversationsTicketScene,
-    logic: conversationsTicketSceneLogic,
+    component: SupportTicketScene,
+    logic: supportTicketSceneLogic,
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
 }
 
-export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
-    const logic = conversationsTicketSceneLogic({ id: ticketId || 'new' })
+export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
+    const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
         ticketLoading,
@@ -59,7 +59,7 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
                 <div className="flex items-center justify-center h-96">
                     <div className="text-center">
                         <h2 className="text-xl font-semibold mb-2">Ticket not found</h2>
-                        <LemonButton type="primary" to={urls.conversationsTickets()}>
+                        <LemonButton type="primary" to={urls.supportTickets()}>
                             Back to tickets
                         </LemonButton>
                     </div>
@@ -76,8 +76,8 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
                     name: 'Ticket list',
-                    path: urls.conversationsTickets(),
-                    key: 'conversationsTickets',
+                    path: urls.supportTickets(),
+                    key: 'supportTickets',
                 }}
             />
 

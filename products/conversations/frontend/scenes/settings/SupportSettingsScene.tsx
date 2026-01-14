@@ -11,17 +11,17 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { conversationsSettingsLogic } from './conversationsSettingsLogic'
+import { supportSettingsLogic } from './supportSettingsLogic'
 
 export const scene: SceneExport = {
-    component: ConversationsSettingsScene,
+    component: SupportSettingsScene,
 }
 
-function ConversationsAuthorizedDomains(): JSX.Element {
+function AuthorizedDomains(): JSX.Element {
     const { conversationsDomains, isAddingDomain, editingDomainIndex, domainInputValue } =
-        useValues(conversationsSettingsLogic)
+        useValues(supportSettingsLogic)
     const { setDomainInputValue, saveDomain, removeDomain, startEditDomain, cancelDomainEdit } =
-        useActions(conversationsSettingsLogic)
+        useActions(supportSettingsLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -109,18 +109,18 @@ function ConversationsAuthorizedDomains(): JSX.Element {
     )
 }
 
-export function ConversationsSettingsScene(): JSX.Element {
+export function SupportSettingsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { generateNewToken, setIsAddingDomain, setConversationsEnabledLoading, setWidgetEnabledLoading } =
-        useActions(conversationsSettingsLogic)
+        useActions(supportSettingsLogic)
     const { isAddingDomain, editingDomainIndex, conversationsEnabledLoading, widgetEnabledLoading } =
-        useValues(conversationsSettingsLogic)
+        useValues(supportSettingsLogic)
 
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Conversations"
+                name="Support"
                 description=""
                 resourceType={{
                     type: 'conversation',
@@ -128,9 +128,9 @@ export function ConversationsSettingsScene(): JSX.Element {
             />
             <ScenesTabs />
             <div>
-                <h2 className="flex gap-2 items-center">Conversations</h2>
+                <h2 className="flex gap-2 items-center">Conversations API</h2>
                 <div className="flex flex-col gap-2">
-                    <p>Turn on conversations to enable API access for tickets and messages.</p>
+                    <p>Turn on conversations API to enable access for tickets and messages.</p>
                     <LemonSwitch
                         checked={!!currentTeam?.conversations_enabled}
                         onChange={(checked) => {
@@ -155,8 +155,8 @@ export function ConversationsSettingsScene(): JSX.Element {
                 {currentTeam?.conversations_enabled && (
                     <>
                         <div>
-                            <h3>Enable widget</h3>
-                            <p>Turn on the conversations widget to start receiving messages from your users</p>
+                            <h3>In-app widget</h3>
+                            <p>Turn on the in-app support widget to start receiving messages from your users</p>
                             <LemonSwitch
                                 checked={!!currentTeam?.conversations_settings?.widget_enabled}
                                 onChange={(checked) => {
@@ -245,7 +245,7 @@ export function ConversationsSettingsScene(): JSX.Element {
                                         Specify which domains can show the conversations widget. Leave empty to show on
                                         all domains. Wildcards supported (e.g. https://*.example.com).
                                     </p>
-                                    <ConversationsAuthorizedDomains />
+                                    <AuthorizedDomains />
                                 </div>
 
                                 <div className="pt-8">

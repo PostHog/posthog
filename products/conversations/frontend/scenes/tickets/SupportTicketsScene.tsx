@@ -19,15 +19,15 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { type Ticket, type TicketPriority, type TicketStatus, priorityOptions, statusOptions } from '../../types'
-import { conversationsTicketsSceneLogic } from './conversationsTicketsSceneLogic'
+import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
-    component: ConversationsTicketsScene,
-    logic: conversationsTicketsSceneLogic,
+    component: SupportTicketsScene,
+    logic: supportTicketsSceneLogic,
 }
 
-export function ConversationsTicketsScene(): JSX.Element {
-    const logic = conversationsTicketsSceneLogic()
+export function SupportTicketsScene(): JSX.Element {
+    const logic = supportTicketsSceneLogic()
     const { filteredTickets, statusFilter, priorityFilter, assigneeFilter, dateFrom, dateTo, ticketsLoading } =
         useValues(logic)
     const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, loadTickets } = useActions(logic)
@@ -36,7 +36,7 @@ export function ConversationsTicketsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Conversations"
+                name="Support"
                 description=""
                 resourceType={{
                     type: 'conversation',
@@ -92,7 +92,7 @@ export function ConversationsTicketsScene(): JSX.Element {
                 rowKey="id"
                 loading={ticketsLoading}
                 onRow={(ticket) => ({
-                    onClick: () => push(urls.conversationsTicketDetail(ticket.id)),
+                    onClick: () => push(urls.supportTicketDetail(ticket.id)),
                 })}
                 rowClassName={(ticket) =>
                     clsx({

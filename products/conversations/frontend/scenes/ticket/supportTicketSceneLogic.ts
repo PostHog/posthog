@@ -6,12 +6,12 @@ import api from '~/lib/api'
 import type { CommentType } from '~/types'
 
 import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
-import type { conversationsTicketSceneLogicType } from './conversationsTicketSceneLogicType'
+import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 
-export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicType>([
-    path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'conversationsTicketSceneLogic']),
+export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
+    path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'supportTicketSceneLogic']),
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     actions({
