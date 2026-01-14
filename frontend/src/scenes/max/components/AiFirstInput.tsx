@@ -255,7 +255,7 @@ export function AiFirstInput(): JSX.Element {
                         side="top"
                         align="start"
                     >
-                        <Autocomplete.Popup className="flex flex-col AiFirstInput__popup rounded-lg border border-primary bg-surface-primary shadow-lg overflow-hidden max-h-96 w-[var(--anchor-width)] data-[ending-style]:scale-90 data-[ending-style]:opacity-0 data-[starting-style]:scale-90 data-[starting-style]:opacity-0 show-scrollbar-on-hover">
+                        <Autocomplete.Popup className="flex flex-col AiFirstInput__popup rounded-lg border border-primary bg-surface-primary shadow-lg overflow-hidden w-[var(--anchor-width)] data-[ending-style]:scale-90 data-[ending-style]:opacity-0 data-[starting-style]:scale-90 data-[starting-style]:opacity-0 show-scrollbar-on-hover max-h-[calc(var(--available-height)-var(--scene-layout-header-height)-(var(--spacing)*4)))]">
                             <Autocomplete.Empty>
                                 <div className="px-4 py-3 text-secondary text-sm">No suggestions found.</div>
                             </Autocomplete.Empty>
