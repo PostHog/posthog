@@ -153,7 +153,8 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 </div>
                             </div>
                             <div className="text-xs text-muted mt-1">
-                                The smallest change you want to detect. Lower values require more data.
+                                The smallest delta to be seen as significant. Lower values require more data and longer
+                                run times.
                             </div>
                         </div>
 
@@ -260,8 +261,8 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 </div>
                             </div>
                             <div className="text-xs text-muted mt-1">
-                                The smallest change you want to detect. Lower values require more data and longer run
-                                times.
+                                The smallest delta to be seen as significant. Lower values require more data and longer
+                                run times.
                             </div>
                         </div>
                     </>
