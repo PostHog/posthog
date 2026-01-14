@@ -294,26 +294,17 @@ class VercelIntegration:
                 name=config.account.name or f"Vercel Installation {installation_id}"
             )
 
-            # Check if user already exists - if so, check if they're a trusted Vercel user
             existing_user = User.objects.filter(email=config.account.contact.email, is_active=True).first()
 
-            # Track separately: user_created (for cleanup/reporting) vs should_create_mapping (for linking)
-            # These differ for trusted Vercel users who exist but should still get mapped
             if existing_user:
                 user = existing_user
-                user_created = False  # User was NOT created - don't delete on failure
-                # Check if this user has any existing Vercel mappings (meaning they were created by or
-                # previously linked to a Vercel installation). If so, we can trust them and auto-link.
-                # If not, they're an external user who must prove ownership via login first.
-                user_has_vercel_mapping = VercelIntegration._user_has_any_vercel_mapping(existing_user)
-                if user_has_vercel_mapping:
-                    # Trusted Vercel user - create membership for the new org
+                user_created = False
+                if VercelIntegration._user_has_any_vercel_mapping(existing_user):
                     VercelIntegration._ensure_user_membership(
                         existing_user, organization, OrganizationMembership.Level.OWNER
                     )
                     should_create_mapping = True
                 else:
-                    # External user - they'll need to login first before connecting via SSO
                     should_create_mapping = False
             else:
                 user, user_created = VercelIntegration._find_or_create_user_by_email(
@@ -335,8 +326,6 @@ class VercelIntegration:
                     },
                 )
 
-                # Create user mapping for new users and trusted Vercel users (who have existing mappings)
-                # External existing users will get their mapping created during SSO after login verification
                 if should_create_mapping:
                     VercelIntegration._set_user_mapping(org_integration, vercel_user_id, user.pk)
 
@@ -1012,20 +1001,16 @@ class VercelIntegration:
 
     @staticmethod
     def _user_has_any_vercel_mapping(user: User) -> bool:
-        """Check if a user has any Vercel user mappings across all installations."""
-        # Use values_list + iterator for performance - avoids loading full model instances
-        # and streams results instead of loading all into memory
+        """Check if user has any Vercel mappings (i.e., they've used Vercel before)."""
         configs = (
             OrganizationIntegration.objects.filter(kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL)
             .values_list("config", flat=True)
             .iterator()
         )
-
         for config in configs:
             if not config:
                 continue
             user_mappings = config.get("user_mappings", {})
-            # Cast to int for comparison - JSON may deserialize user.pk as string
             if user.pk in (int(v) for v in user_mappings.values()):
                 return True
         return False
