@@ -710,7 +710,7 @@ class FeatureFlagEvaluationTag(models.Model):
     "marketing-site", "app", etc.
     """
 
-    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE, related_name="evaluation_contexts")
+    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE, related_name="evaluation_tags")
     tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="evaluation_flags")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -740,7 +740,7 @@ class TeamDefaultEvaluationTag(UUIDModel):
     these contexts will be automatically added as evaluation contexts for the new flag.
     """
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_contexts")
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_tags")
     tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="team_defaults")
     created_at = models.DateTimeField(auto_now_add=True)
 

@@ -9,14 +9,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="team",
-            name="default_evaluation_environments_enabled",
-        ),
-        migrations.RemoveField(
-            model_name="team",
-            name="require_evaluation_environment_tags",
-        ),
         migrations.AddField(
             model_name="team",
             name="default_evaluation_contexts_enabled",
