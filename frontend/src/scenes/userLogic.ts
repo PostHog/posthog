@@ -125,10 +125,12 @@ export const userLogic = kea<userLogicType>([
                 upgradeImpersonation: async ({ reason }) => {
                     try {
                         await api.create('admin/impersonation/upgrade/', { reason })
-                        lemonToast.success('Upgraded to read-write impersonation')
-                        // Reload user to get updated impersonation state
                         actions.loadUser()
-                        return values.user
+                        lemonToast.success('Upgraded to read-write impersonation')
+
+                        // optimistically update user to read-write rather than
+                        // waiting for `loadUser` to complete
+                        return { ...values.user, is_impersonated_read_only: false }
                     } catch (error: any) {
                         console.error(error)
                         lemonToast.error('Failed to upgrade impersonation')
@@ -152,6 +154,14 @@ export const userLogic = kea<userLogicType>([
                     last_name: user?.last_name || '',
                     email: user?.email || '',
                 }),
+            },
+        ],
+        isImpersonationUpgradeInProgress: [
+            false,
+            {
+                upgradeImpersonation: () => true,
+                upgradeImpersonationSuccess: () => false,
+                upgradeImpersonationFailure: () => false,
             },
         ],
     }),

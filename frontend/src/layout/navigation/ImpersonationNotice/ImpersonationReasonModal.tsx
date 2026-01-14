@@ -5,10 +5,11 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 export interface ImpersonationReasonModalProps {
     isOpen: boolean
     onClose: () => void
-    onConfirm: (reason: string) => void
+    onConfirm: (reason: string) => void | Promise<void>
     title: string
     description?: string
     confirmText?: string
+    loading?: boolean
     children?: ReactNode
 }
 
@@ -19,6 +20,7 @@ export function ImpersonationReasonModal({
     title,
     description,
     confirmText = 'Confirm',
+    loading = false,
     children,
 }: ImpersonationReasonModalProps): JSX.Element {
     const [reason, setReason] = useState('')
@@ -26,7 +28,6 @@ export function ImpersonationReasonModal({
     const handleConfirm = (): void => {
         onConfirm(reason)
         setReason('')
-        onClose()
     }
 
     const handleClose = (): void => {
@@ -47,6 +48,7 @@ export function ImpersonationReasonModal({
                     <LemonButton
                         type="primary"
                         onClick={handleConfirm}
+                        loading={loading}
                         disabledReason={!reason.trim() ? 'Please provide a reason' : undefined}
                     >
                         {confirmText}

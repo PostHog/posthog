@@ -48,11 +48,18 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
 }
 
 export function ImpersonationNotice(): JSX.Element | null {
-    const { user, userLoading } = useValues(userLogic)
+    const { user, userLoading, isImpersonationUpgradeInProgress } = useValues(userLogic)
     const { logout, loadUser, upgradeImpersonation } = useActions(userLogic)
     const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false)
 
     const [isDragging, setIsDragging] = useState(false)
+
+    // Close modal when upgrade completes successfully
+    useEffect(() => {
+        if (isUpgradeModalOpen && !isImpersonationUpgradeInProgress && user?.is_impersonated_read_only === false) {
+            setIsUpgradeModalOpen(false)
+        }
+    }, [isUpgradeModalOpen, isImpersonationUpgradeInProgress, user?.is_impersonated_read_only])
 
     if (!user?.is_impersonated) {
         return null
@@ -140,6 +147,7 @@ export function ImpersonationNotice(): JSX.Element | null {
                 title="Upgrade to read-write impersonation"
                 description="Read-write mode allows you to make changes on behalf of the user. Please provide a reason for this upgrade."
                 confirmText="Upgrade"
+                loading={isImpersonationUpgradeInProgress}
             />
         </>
     )
