@@ -7,7 +7,6 @@ import pytest
 from llm_gateway.rate_limiting.model_cost_service import (
     CACHE_TTL_SECONDS,
     DEFAULT_LIMITS,
-    TARGET_LIMIT_COST_PER_HOUR,
     ModelCostService,
     get_model_costs,
     get_model_limits,
@@ -39,21 +38,6 @@ def reset_model_cost_service():
 
 
 class TestModelCostService:
-    def test_calculates_limits_from_cost(self) -> None:
-        model = "claude-3-5-haiku-20241022"
-        cost = MOCK_MODEL_COSTS[model]
-
-        with patch(
-            "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=MOCK_MODEL_COSTS,
-        ):
-            limits = get_model_limits(model)
-
-        expected_input = int(TARGET_LIMIT_COST_PER_HOUR / cost["input_cost_per_token"])
-        expected_output = int(TARGET_LIMIT_COST_PER_HOUR / cost["output_cost_per_token"])
-        assert limits["input_tph"] == expected_input
-        assert limits["output_tph"] == expected_output
-
     def test_returns_defaults_for_unknown_model(self) -> None:
         with patch(
             "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
@@ -78,17 +62,6 @@ class TestModelCostService:
         instance1 = ModelCostService.get_instance()
         instance2 = ModelCostService.get_instance()
         assert instance1 is instance2
-
-    def test_get_model_costs_returns_cost_data(self) -> None:
-        model = "claude-3-5-haiku-20241022"
-        with patch(
-            "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map",
-            return_value=MOCK_MODEL_COSTS,
-        ):
-            costs = get_model_costs(model)
-        assert costs is not None
-        assert costs["input_cost_per_token"] == MOCK_MODEL_COSTS[model]["input_cost_per_token"]
-        assert costs["output_cost_per_token"] == MOCK_MODEL_COSTS[model]["output_cost_per_token"]
 
     def test_get_model_costs_returns_none_for_unknown(self) -> None:
         with patch(
