@@ -7,7 +7,7 @@ import { PythonKernelExecuteResponse } from '../Nodes/pythonExecution'
 import type { notebookKernelInfoLogicType } from './notebookKernelInfoLogicType'
 
 export type NotebookKernelInfo = {
-    backend: 'local' | 'modal'
+    backend: 'docker' | 'modal'
     status: string
     last_used_at?: string | null
     last_error?: string | null
@@ -36,7 +36,7 @@ export const idleTimeoutOptions = [
     { label: '12 hours', value: 43200 },
 ]
 
-type KernelActionInFlight = {
+export type KernelActionInFlight = {
     start: boolean
     stop: boolean
     restart: boolean
