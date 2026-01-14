@@ -335,6 +335,8 @@ class KernelRuntimeService:
 
     def _ensure_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle:
         backend = self._get_backend()
+        if backend is None:
+            raise RuntimeError("Notebook sandbox provider is not configured.")
         key = self._get_kernel_key(notebook, user, backend)
 
         with self._service_lock:
@@ -435,15 +437,13 @@ class KernelRuntimeService:
             backend=backend,
         ).update(status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now())
 
-    def _get_backend(self) -> str:
+    def _get_backend(self) -> str | None:
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
-        if provider in (KernelRuntime.Backend.DOCKER, KernelRuntime.Backend.MODAL):
+        if provider is not None:
             return provider
-        if self._has_modal_credentials():
-            return KernelRuntime.Backend.MODAL
         if settings.DEBUG or settings.TEST:
             return KernelRuntime.Backend.DOCKER
-        return KernelRuntime.Backend.MODAL
+        return None
 
     def _create_kernel_handle(self, notebook: Notebook, user: User | None, backend: str) -> _KernelHandle:
         runtime = self._create_runtime(notebook, user, backend)
