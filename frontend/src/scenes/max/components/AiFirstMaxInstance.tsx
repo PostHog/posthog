@@ -9,8 +9,8 @@ import { Intro } from '../Intro'
 import { Thread } from '../Thread'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
+import { AiFirstInput } from './AiFirstInput'
 import { ChatHistoryPanel } from './ChatHistoryPanel'
-import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 
 interface AiFirstMaxInstanceProps {
     tabId: string
@@ -109,6 +109,15 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
                 <Intro />
             </div>
 
+            {/* Suggestion boxes - shown when no messages, hidden when thread visible */}
+            {/* <div
+                className={`w-full px-4 transition-all duration-200 ease-out ${
+                    hasMessages ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100 pb-4'
+                }`}
+            >
+                <SuggestionBoxes showGettingStarted={true} dataProcessingAccepted={dataProcessingAccepted} />
+            </div> */}
+
             {/* Thread content - appears when messages exist */}
             {hasMessages && (
                 <>
@@ -134,9 +143,7 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
                     hasMessages ? 'sticky bottom-0 bg-primary py-2 max-w-none' : 'pb-4'
                 }`}
             >
-                {!conversation?.has_unsupported_content && (
-                    <SidebarQuestionInputWithSuggestions hideSuggestions={hasMessages} />
-                )}
+                {!conversation?.has_unsupported_content && <AiFirstInput />}
             </div>
 
             {/* Bottom spacer - fills space below content, shrinks when messages appear */}
