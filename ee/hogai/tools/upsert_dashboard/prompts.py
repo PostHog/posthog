@@ -93,3 +93,7 @@ This action will replace the following insights:
 {{{updated_insights}}}
 {{/updated_insights}}
 """.strip()
+
+MISSING_INSIGHT_IDS_PROMPT = """
+Some insights were not found in the conversation artifacts: {{{missing_ids}}}. You should check if the provided insight_ids are correct.
+""".strip()

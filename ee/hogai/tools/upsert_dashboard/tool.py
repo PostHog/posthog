@@ -11,7 +11,6 @@ from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
@@ -20,7 +19,7 @@ from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.upsert_dashboard.prompts import (
     CREATE_NO_INSIGHTS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
-    MISSING_INSIGHTS_NOTE_PROMPT,
+    MISSING_INSIGHT_IDS_PROMPT,
     NO_PERMISSION_PROMPT,
     PERMISSION_REQUEST_PROMPT,
     UPDATE_NO_CHANGES_PROMPT,
@@ -93,7 +92,8 @@ class UpsertDashboardTool(MaxTool):
     async def is_dangerous_operation(self, *, action: UpsertDashboardAction, **kwargs) -> bool:
         """Update operations that replace existing insights are dangerous."""
         if isinstance(action, UpdateDashboardToolArgs) and action.insight_ids:
-            _, sorted_tiles = await self._get_dashboard_and_sorted_tiles(action.dashboard_id)
+            dashboard = await self._get_dashboard(action.dashboard_id)
+            sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
             diff = await self._get_update_diff(sorted_tiles, action.insight_ids)
             return len(diff["deleted"]) > 0 or len(diff["replaced"]) > 0
         return False
@@ -105,7 +105,8 @@ class UpsertDashboardTool(MaxTool):
         if isinstance(action, CreateDashboardToolArgs):
             raise MaxToolFatalError("Create dashboard operation is not dangerous.")
 
-        dashboard, sorted_tiles = await self._get_dashboard_and_sorted_tiles(action.dashboard_id)
+        dashboard = await self._get_dashboard(action.dashboard_id)
+        sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
         diff = await self._get_update_diff(sorted_tiles, action.insight_ids or [])
 
         def get_insight_name(insight: Insight) -> str:
@@ -147,71 +148,56 @@ class UpsertDashboardTool(MaxTool):
 
     async def _handle_create(self, action: CreateDashboardToolArgs) -> tuple[str, dict | None]:
         """Handle CREATE action: create a new dashboard with insights."""
-        insights, missing_ids = await self._resolve_insights(action.insight_ids)
+        artifacts = await self._context_manager.artifacts.aget_visualizations(self._state.messages, action.insight_ids)
+
+        missing_ids = [insight_id for insight_id, artifact in zip(action.insight_ids, artifacts) if artifact is None]
+        if missing_ids:
+            raise MaxToolRetryableError(format_prompt_string(MISSING_INSIGHT_IDS_PROMPT, missing_ids=missing_ids))
+
+        insights = self._resolve_insights(cast(list[VisualizationWithSourceResult], artifacts))
 
         if not insights:
             return CREATE_NO_INSIGHTS_PROMPT, None
 
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
-        output = await self._format_dashboard_output(dashboard, insights, missing_ids)
+        output = await self._format_dashboard_output(dashboard, insights)
 
         return output, {"dashboard_id": dashboard.id}
 
     async def _handle_update(self, action: UpdateDashboardToolArgs) -> tuple[str, dict | None]:
         """Handle UPDATE action: update an existing dashboard."""
-        try:
-            dashboard = await Dashboard.objects.aget(id=action.dashboard_id, team=self._team, deleted=False)
-        except Dashboard.DoesNotExist:
-            return DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=action.dashboard_id), None
-
-        permission_result = await self._check_user_permissions(dashboard)
-        if not permission_result:
-            return NO_PERMISSION_PROMPT, None
-
-        insights, missing_ids = await self._resolve_insights(action.insight_ids or [])
-
-        has_changes = insights or action.name is not None or action.description is not None
+        dashboard = await self._get_dashboard(action.dashboard_id)
+        sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
+        has_changes = action.insight_ids or action.name is not None or action.description is not None
         if not has_changes:
             return UPDATE_NO_CHANGES_PROMPT, None
 
+        diff = await self._get_update_diff(sorted_tiles, action.insight_ids or [])
         dashboard = await self._update_dashboard_with_tiles(
             dashboard,
-            insights,
             action.name,
             action.description,
+            diff,
         )
 
-        all_insights = [
-            i
-            async for i in Insight.objects.filter(
-                team=self._team,
-                dashboard_tiles__dashboard=dashboard,
-                dashboard_tiles__deleted=False,
-                deleted=False,
-            )
-        ]
-
-        output = await self._format_dashboard_output(dashboard, all_insights, missing_ids)
+        # Re-fetch sorted tiles to get the latest state
+        sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
+        insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
+        output = await self._format_dashboard_output(dashboard, insights)
 
         return output, {"dashboard_id": dashboard.id}
 
-    async def _resolve_insights(self, insight_ids: list[str]) -> tuple[list[Insight], list[str]]:
+    def _resolve_insights(self, artifacts: list[VisualizationWithSourceResult]) -> list[Insight]:
         """
         Resolve insight_ids using VisualizationHandler.
         Returns (resolved_insights, missing_ids) in same order as input.
 
         For State/Artifact sources, creates and saves new Insights before adding to dashboard.
         """
-        artifact_manager = ArtifactManager(self._team, self._user, self._config)
-        results = await artifact_manager.aget_visualizations(self._state.messages, insight_ids)
-
         resolved: list[Insight] = []
-        missing: list[str] = []
 
-        for insight_id, result in zip(insight_ids, results):
-            if result is None:
-                missing.append(insight_id)
-            elif isinstance(result, ModelArtifactResult):
+        for result in artifacts:
+            if isinstance(result, ModelArtifactResult):
                 resolved.append(result.model)
             else:
                 # State or Artifact source - need to create and save insight from artifact content
@@ -233,9 +219,12 @@ class UpsertDashboardTool(MaxTool):
                 )
                 resolved.append(insight)
 
-        return resolved, missing
+        return resolved
 
     def _create_resolved_insights(self, results: list[Insight]) -> list[Insight]:
+        """
+        Create insights that are not yet saved.
+        """
         for insight in results:
             if getattr(insight, "pk", None):
                 continue
@@ -270,9 +259,9 @@ class UpsertDashboardTool(MaxTool):
     def _update_dashboard_with_tiles(
         self,
         dashboard: Dashboard,
-        insights: list[Insight],
         name: str | None,
         description: str | None,
+        diff: UpdateDiff,
     ) -> Dashboard:
         """Update an existing dashboard with new tiles using positional layout preservation.
 
@@ -289,43 +278,82 @@ class UpsertDashboardTool(MaxTool):
         if name is not None or description is not None:
             dashboard.save(update_fields=["name", "description"])
 
-        if not insights:
+        has_changes = diff["created"] or diff["deleted"] or diff["replaced"]
+        if not has_changes:
             return dashboard
 
-        # Create new insights if they don't exist
-        insights = self._create_resolved_insights(insights)
+        if diff["deleted"]:
+            # Delete deleted tiles
+            DashboardTile.objects.filter(id__in=[t.id for t in diff["deleted"]]).update(deleted=True)
 
-        # Get existing tiles sorted by layout position
-        # DashboardTile.objects already excludes deleted=True via DashboardTileManager
-        existing_tiles = list(DashboardTile.objects.filter(dashboard=dashboard).select_related("insight"))
-        sorted_tiles = DashboardTile.sort_tiles_by_layout(existing_tiles)
-
-        # Positional replacement: sorted_tiles[i] → insights[i]
-        # Update tiles in-place to preserve layout/color
-        new_insights_to_create: list[Insight] = []
-
-        for i, new_insight in enumerate(insights):
-            if i < len(sorted_tiles):
-                # Update existing tile in-place using queryset update to preserve layout, color, tile ID
-                tile = sorted_tiles[i]
-                DashboardTile.objects_including_soft_deleted.filter(id=tile.id).update(insight=new_insight)
-            else:
-                # Need to create a new tile for this insight
-                new_insights_to_create.append(new_insight)
-
-        # Soft-delete extra tiles (when new list is shorter than old)
-        if len(sorted_tiles) > len(insights):
-            tiles_to_delete = sorted_tiles[len(insights) :]
-            DashboardTile.objects.filter(id__in=[t.id for t in tiles_to_delete]).update(deleted=True)
-
-        # Create tiles for extra insights (when new list is longer than old)
-        if new_insights_to_create:
-            DashboardTile.objects.bulk_create(
-                [
-                    DashboardTile(dashboard=dashboard, insight=insight, deleted=False, layouts={})
-                    for insight in new_insights_to_create
-                ]
+        # Replace tiles with new insights using layout swapping
+        # For existing insights: keep them on their current tiles, just update layouts
+        # For new insights: assign them to tiles whose insights are being removed
+        if diff["replaced"]:
+            replaced_resolved_insights = self._create_resolved_insights(
+                self._resolve_insights([artifact for _, artifact in diff["replaced"]])
             )
+
+            # Map: insight_id -> current tile (before any changes)
+            current_insight_to_tile = {tile.insight_id: tile for tile, _ in diff["replaced"] if tile.insight_id}
+
+            # Identify which insights are new vs existing
+            current_insight_ids = set(current_insight_to_tile.keys())
+            new_insight_ids = {insight.id for insight in replaced_resolved_insights}
+            insights_being_removed = current_insight_ids - new_insight_ids
+            insights_being_added = new_insight_ids - current_insight_ids
+
+            # Get tiles that will be freed (their insights are being removed)
+            # Preserve original position order by iterating through diff["replaced"] in order
+            freed_tiles = [tile for tile, _ in diff["replaced"] if tile.insight_id in insights_being_removed]
+            freed_tiles_iter = iter(freed_tiles)
+
+            # Ensure all position tiles have valid layouts for proper ordering
+            # If layouts are empty, generate sequential positions matching standard format
+            for i, (position_tile, _) in enumerate(diff["replaced"]):
+                if not position_tile.layouts or not position_tile.layouts.get("sm"):
+                    # Generate default layout: full-width tiles stacked vertically
+                    position_tile.layouts = {
+                        "sm": {"h": 5, "w": 6, "x": 0, "y": i * 5, "minH": 1, "minW": 1},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": i * 5, "minH": 1, "minW": 1},
+                    }
+
+            # Process each position
+            for (position_tile, _), new_insight in zip(diff["replaced"], replaced_resolved_insights):
+                if new_insight.id in insights_being_added:
+                    # New insight - assign it to a freed tile
+                    tile_to_use = next(freed_tiles_iter)
+                    tile_to_use.insight = new_insight
+                    tile_to_use.layouts = position_tile.layouts
+                    tile_to_use.color = position_tile.color
+                    tile_to_use.save()
+                else:
+                    # Existing insight - update its tile's layout to new position
+                    existing_tile = current_insight_to_tile[new_insight.id]
+                    existing_tile.layouts = position_tile.layouts
+                    existing_tile.color = position_tile.color
+                    existing_tile.save(update_fields=["layouts", "color"])
+
+        # Create completely new tiles
+        if diff["created"]:
+            created_resolved_insights = self._create_resolved_insights(self._resolve_insights(diff["created"]))
+            # Calculate starting position based on number of replaced tiles
+            num_existing_positions = len(diff["replaced"])
+            tiles_to_create = []
+            for i, insight in enumerate(created_resolved_insights):
+                # Generate layout for proper ordering: tiles flow vertically
+                y_position = (num_existing_positions + i) * 5
+                tiles_to_create.append(
+                    DashboardTile(
+                        dashboard=dashboard,
+                        insight=insight,
+                        layouts={
+                            "sm": {"h": 5, "w": 6, "x": 0, "y": y_position, "minH": 1, "minW": 1},
+                            "xs": {"h": 5, "w": 1, "x": 0, "y": y_position, "minH": 1, "minW": 1},
+                        },
+                    )
+                )
+            DashboardTile.objects.bulk_create(tiles_to_create)
 
         return dashboard
 
@@ -333,7 +361,6 @@ class UpsertDashboardTool(MaxTool):
         self,
         dashboard: Dashboard,
         insights: list[Insight],
-        missing_ids: list[str] | None = None,
     ) -> str:
         """Format dashboard output using DashboardContext for consistency."""
         insights_data: list[DashboardInsightContext] = []
@@ -359,37 +386,29 @@ class UpsertDashboardTool(MaxTool):
             dashboard_id=str(dashboard.id),
         )
 
-        result = await context.format_schema()
+        return await context.format_schema()
 
-        if missing_ids:
-            result += "\n\n" + MISSING_INSIGHTS_NOTE_PROMPT.format(missing_ids=", ".join(missing_ids))
-
-        return result
-
-    async def _get_dashboard_and_sorted_tiles(self, dashboard_id: Any) -> tuple[Dashboard, list[DashboardTile]]:
+    async def _get_dashboard(self, dashboard_id: Any) -> Dashboard:
         """Get the dashboard and sorted tiles for the given dashboard ID."""
         try:
             dashboard = await Dashboard.objects.aget(id=dashboard_id, team=self._team, deleted=False)
         except Dashboard.DoesNotExist:
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
+        permission_result = await self._check_user_permissions(dashboard)
+        if not permission_result:
+            raise MaxToolFatalError(NO_PERMISSION_PROMPT)
+
+        return dashboard
+
+    async def _get_dashboard_sorted_tiles(self, dashboard: Dashboard) -> list[DashboardTile]:
+        """
+        Get the sorted tiles for the given dashboard.
+        """
         sorted_tiles = DashboardTile.sort_tiles_by_layout(
             [tile async for tile in DashboardTile.objects.filter(dashboard=dashboard).select_related("insight")]
         )
-
-        return dashboard, sorted_tiles
-
-    async def _get_visualization_artifacts(self, insight_ids: list[str]) -> list[VisualizationWithSourceResult]:
-        """
-        Fetch and validate visualization artifacts for the given insight IDs.
-        """
-        artifacts = await self._context_manager.artifacts.aget_visualizations(self._state.messages, insight_ids)
-        not_found = [insight_id for insight_id, artifact in zip(insight_ids, artifacts) if artifact is None]
-        if not_found:
-            raise MaxToolRetryableError(
-                f"Some insights were not found in the conversation artifacts: {not_found}. You should check if the provided insight_ids are correct."
-            )
-        return cast(list[VisualizationWithSourceResult], artifacts)
+        return sorted_tiles
 
     async def _get_update_diff(self, dashboard_tiles: list[DashboardTile], insight_ids: list[str]) -> UpdateDiff:
         """
@@ -425,8 +444,15 @@ class UpsertDashboardTool(MaxTool):
             if value is not None and key in dashboard_insights
         ]
 
-        # Find new insights.
-        created_insights = [insight_id for insight_id in insight_ids if insight_id not in dashboard_insights]
+        # Get insight IDs used in replacements (these reuse existing tiles)
+        replaced_insight_ids = {artifact_id for _, artifact_id in replaced_insights}
+
+        # Find new insights that need new tiles (exclude insights used in positional replacements)
+        created_insights = [
+            insight_id
+            for insight_id in insight_ids
+            if insight_id not in dashboard_insights and insight_id not in replaced_insight_ids
+        ]
 
         if not created_insights and not replaced_insights:
             return UpdateDiff(
@@ -444,3 +470,13 @@ class UpsertDashboardTool(MaxTool):
             replaced=[(tile, artifact_mapping[artifact_id]) for tile, artifact_id in replaced_insights],
         )
         return self._cached_update_diff
+
+    async def _get_visualization_artifacts(self, insight_ids: list[str]) -> list[VisualizationWithSourceResult]:
+        """
+        Fetch and validate visualization artifacts for the given insight IDs.
+        """
+        artifacts = await self._context_manager.artifacts.aget_visualizations(self._state.messages, insight_ids)
+        not_found = [insight_id for insight_id, artifact in zip(insight_ids, artifacts) if artifact is None]
+        if not_found:
+            raise MaxToolRetryableError(format_prompt_string(MISSING_INSIGHT_IDS_PROMPT, missing_ids=not_found))
+        return cast(list[VisualizationWithSourceResult], artifacts)
