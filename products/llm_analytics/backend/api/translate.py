@@ -20,7 +20,7 @@ from posthog.rate_limit import (
     LLMAnalyticsTranslationSustainedThrottle,
 )
 
-from products.llm_analytics.backend.api.metrics import track_latency
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.translation.constants import DEFAULT_TARGET_LANGUAGE
 from products.llm_analytics.backend.translation.llm import translate_text
 
@@ -67,8 +67,8 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 "AI data processing must be approved by your organization before using translation"
             )
 
-    @track_latency("llm_analytics_translate")
-    @monitor(feature=None, endpoint="llm_analytics_translate", method="POST")
+    @llma_track_latency("llma_translate")
+    @monitor(feature=None, endpoint="llma_translate", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Translate text to target language."""
         self._validate_feature_access(request)

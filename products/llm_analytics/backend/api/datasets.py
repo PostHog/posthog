@@ -199,23 +199,23 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
                 self.team,
             )
 
-    @monitor(feature=None, endpoint="llm_analytics_datasets_list", method="GET")
+    @monitor(feature=None, endpoint="llma_datasets_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
-    @monitor(feature=None, endpoint="llm_analytics_datasets_retrieve", method="GET")
+    @monitor(feature=None, endpoint="llma_datasets_retrieve", method="GET")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
-    @monitor(feature=None, endpoint="llm_analytics_datasets_create", method="POST")
+    @monitor(feature=None, endpoint="llma_datasets_create", method="POST")
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
-    @monitor(feature=None, endpoint="llm_analytics_datasets_update", method="PUT")
+    @monitor(feature=None, endpoint="llma_datasets_update", method="PUT")
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
-    @monitor(feature=None, endpoint="llm_analytics_datasets_partial_update", method="PATCH")
+    @monitor(feature=None, endpoint="llma_datasets_partial_update", method="PATCH")
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
@@ -333,19 +333,19 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                 self.team,
             )
 
-    @monitor(feature=None, endpoint="llm_analytics_dataset_items_retrieve", method="GET")
+    @monitor(feature=None, endpoint="llma_dataset_items_retrieve", method="GET")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
-    @monitor(feature=None, endpoint="llm_analytics_dataset_items_create", method="POST")
+    @monitor(feature=None, endpoint="llma_dataset_items_create", method="POST")
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
-    @monitor(feature=None, endpoint="llm_analytics_dataset_items_update", method="PUT")
+    @monitor(feature=None, endpoint="llma_dataset_items_update", method="PUT")
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
-    @monitor(feature=None, endpoint="llm_analytics_dataset_items_partial_update", method="PATCH")
+    @monitor(feature=None, endpoint="llma_dataset_items_partial_update", method="PATCH")
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
@@ -364,6 +364,6 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
             ),
         ]
     )
-    @monitor(feature=None, endpoint="llm_analytics_dataset_items_list", method="GET")
+    @monitor(feature=None, endpoint="llma_dataset_items_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)

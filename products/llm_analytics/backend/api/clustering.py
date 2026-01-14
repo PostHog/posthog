@@ -31,7 +31,7 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringWorkflowInputs
 
-from products.llm_analytics.backend.api.metrics import track_latency
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
 
@@ -150,8 +150,8 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
     scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated]
 
-    @track_latency("llm_analytics_clustering_create")
-    @monitor(feature=None, endpoint="llm_analytics_clustering_create", method="POST")
+    @llma_track_latency("llma_clustering_create")
+    @monitor(feature=None, endpoint="llma_clustering_create", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
         """
         Trigger a new clustering workflow run.

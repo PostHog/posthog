@@ -19,7 +19,7 @@ from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.run_evaluation import RunEvaluationInputs
 
-from products.llm_analytics.backend.api.metrics import track_latency
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 
 from ..models.evaluations import Evaluation
 
@@ -38,8 +38,8 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated]
 
-    @track_latency("llm_analytics_evaluation_runs_create")
-    @monitor(feature=None, endpoint="llm_analytics_evaluation_runs_create", method="POST")
+    @llma_track_latency("llma_evaluation_runs_create")
+    @monitor(feature=None, endpoint="llma_evaluation_runs_create", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
         """
         Create a new evaluation run.
