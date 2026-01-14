@@ -215,20 +215,24 @@ class OrganizationFeatureFlagView(
             try:
                 feature_flag_serializer.is_valid(raise_exception=True)
                 saved_flag = feature_flag_serializer.save(team_id=target_project_id)
-                
+
                 # Copy schedules if requested
                 if copy_schedule:
                     try:
-                        self._copy_feature_flag_schedules(flag_to_copy, saved_flag, request.user, name_to_dest_cohort_id)
-                    except Exception as e:
+                        self._copy_feature_flag_schedules(
+                            flag_to_copy, saved_flag, request.user, name_to_dest_cohort_id
+                        )
+                    except Exception:
                         # Log the error but don't fail the entire operation
                         import structlog
+
                         logger = structlog.get_logger(__name__)
-                        logger.error("Failed to copy feature flag schedules", 
-                                   source_flag_id=source_flag.id, 
-                                   target_flag_id=saved_flag.id, 
-                                   error=str(e))
-                
+                        logger.exception(
+                            "Failed to copy feature flag schedules",
+                            source_flag_id=flag_to_copy.id,
+                            target_flag_id=saved_flag.id,
+                        )
+
                 successful_projects.append(feature_flag_serializer.data)
             except Exception as e:
                 failed_projects.append(
@@ -246,39 +250,39 @@ class OrganizationFeatureFlagView(
     def _copy_feature_flag_schedules(self, source_flag, target_flag, user, cohort_mapping):
         """
         Copy all scheduled changes from source flag to target flag.
-        
+
         Args:
             source_flag: The original FeatureFlag instance
-            target_flag: The newly created/updated FeatureFlag instance  
+            target_flag: The newly created/updated FeatureFlag instance
             user: The user performing the copy operation
             cohort_mapping: Dict mapping source cohort names to target cohort IDs
         """
         from posthog.models.scheduled_change import ScheduledChange
         from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
-        
+
         # Validate user has permission to create schedules in target project
         user_access_control = UserAccessControl(user, target_flag.team)
         user_access_level = user_access_control.get_user_access_level(target_flag)
-        
+
         if not user_access_level or not access_level_satisfied_for_resource(
             "feature_flag", user_access_level, "editor"
         ):
             # Skip copying schedules if user lacks permissions, don't fail the entire operation
             return
-        
+
         # Get all pending scheduled changes for the source flag
         source_schedules = ScheduledChange.objects.filter(
             record_id=str(source_flag.id),
             model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
             executed_at__isnull=True,  # Only copy pending schedules
-            team=source_flag.team
+            team=source_flag.team,
         )
-        
+
         # Copy each schedule to the target flag
         for schedule in source_schedules:
             # Remap cohort IDs in schedule payload
             updated_payload = self._remap_cohort_ids_in_payload(schedule.payload, cohort_mapping)
-            
+
             ScheduledChange.objects.create(
                 record_id=str(target_flag.id),
                 model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
@@ -294,8 +298,9 @@ class OrganizationFeatureFlagView(
     def _remap_cohort_ids_in_payload(self, payload, cohort_mapping):
         """Remap cohort IDs in schedule payload to target project cohorts."""
         import copy
+
         updated_payload = copy.deepcopy(payload)
-        
+
         # Handle filters in payload (for AddReleaseCondition operations)
         if "filters" in updated_payload and "groups" in updated_payload["filters"]:
             for group in updated_payload["filters"]["groups"]:
@@ -305,10 +310,11 @@ class OrganizationFeatureFlagView(
                             original_cohort_id = int(prop["value"])
                             # Find cohort name from source and map to target ID
                             from posthog.models.cohort import Cohort
+
                             source_cohort = Cohort.objects.filter(id=original_cohort_id).first()
                             if source_cohort and source_cohort.name in cohort_mapping:
                                 prop["value"] = cohort_mapping[source_cohort.name]
                         except (ValueError, TypeError):
                             continue
-        
+
         return updated_payload
