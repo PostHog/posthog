@@ -4,20 +4,27 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { CyclotronInputType } from '~/schema/cyclotron'
 import { Hub } from '~/types'
 
+import { logger } from '../../utils/logger'
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
+import { PushSubscriptionsManagerService } from './managers/push-subscriptions-manager.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
-export type HogInputsServiceHub = Pick<Hub, 'integrationManager' | 'ENCRYPTION_SALT_KEYS' | 'SITE_URL'>
+export type HogInputsServiceHub = Pick<
+    Hub,
+    'integrationManager' | 'ENCRYPTION_SALT_KEYS' | 'SITE_URL' | 'postgres' | 'encryptedFields'
+>
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 export class HogInputsService {
     private recipientTokensService: RecipientTokensService
+    private pushSubscriptionsManager: PushSubscriptionsManagerService
 
     constructor(private hub: HogInputsServiceHub) {
         this.recipientTokensService = new RecipientTokensService(hub)
+        this.pushSubscriptionsManager = new PushSubscriptionsManagerService(hub.postgres, hub.encryptedFields)
     }
 
     public async buildInputs(
@@ -70,6 +77,34 @@ export class HogInputsService {
                     identifier: emailValue.to.email,
                 })
             }
+        }
+
+        // Load push subscriptions for the event's distinct_id
+        if (globals.event?.distinct_id) {
+            try {
+                const pushSubscriptions = await this.pushSubscriptionsManager.get({
+                    teamId: hogFunction.team_id,
+                    distinctId: globals.event.distinct_id,
+                })
+                newGlobals.push_subscriptions = pushSubscriptions.map((sub) => ({
+                    id: sub.id,
+                    token: sub.token,
+                    platform: sub.platform,
+                    is_active: sub.is_active,
+                    last_used_at: sub.last_used_at,
+                }))
+            } catch (error) {
+                // Log error but don't fail the function execution
+                // Push subscriptions are optional - if lookup fails, template can fall back to manual input
+                logger.warn('[HogInputsService]', 'Failed to load push subscriptions', {
+                    error,
+                    teamId: hogFunction.team_id,
+                    distinctId: globals.event.distinct_id,
+                })
+                newGlobals.push_subscriptions = []
+            }
+        } else {
+            newGlobals.push_subscriptions = []
         }
 
         const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {

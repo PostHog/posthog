@@ -1329,6 +1329,15 @@ export class ApiRequest {
         return this.subscriptions(teamId).addPathComponent(id)
     }
 
+    // # Push Subscriptions
+    public pushSubscriptions(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('push_subscriptions')
+    }
+
+    public pushSubscriptionsListSafe(teamId?: TeamType['id']): ApiRequest {
+        return this.pushSubscriptions(teamId).addPathComponent('list_safe')
+    }
+
     // # Integrations
     public integrations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('integrations')

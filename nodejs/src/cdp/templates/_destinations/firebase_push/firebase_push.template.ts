@@ -11,14 +11,24 @@ export const template: HogFunctionTemplate = {
     category: ['Communication'],
     code_language: 'hog',
     code: `
-let fcmToken := inputs.fcm_token
+let fcmToken := null
+
+if (not globals.push_subscriptions) {
+    throw Error('Push subscriptions not found in globals. Ensure push subscriptions are loaded for this event.')
+}
+
+let androidSubscriptions := arrayFilter((sub) -> sub.platform = 'android', globals.push_subscriptions)
+if (length(androidSubscriptions) > 0) {
+    fcmToken := androidSubscriptions[1].token
+}
+
+if (not fcmToken) {
+    throw Error('FCM token not found. Ensure the user has registered a push subscription token for Android/FCM.')
+}
+
 let title := inputs.title
 let body := inputs.body
 let projectId := inputs.firebase_account.project_id
-
-if (not fcmToken) {
-    throw Error('FCM token is required')
-}
 
 if (not title) {
     throw Error('Notification title is required')
@@ -73,17 +83,6 @@ if (inputs.debug) {
             secret: false,
             hidden: false,
             required: true,
-        },
-        {
-            key: 'fcm_token',
-            type: 'string',
-            label: 'FCM device token',
-            secret: true,
-            required: true,
-            description:
-                'The Firebase Cloud Messaging token for the target device. In a future version, this will be automatically looked up from registered devices.',
-            default: '',
-            templating: 'liquid',
         },
         {
             key: 'title',
