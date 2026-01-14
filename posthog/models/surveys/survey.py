@@ -250,6 +250,12 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # Format: { [questionId]: { summary: string, responseCount: number, generatedAt: string } }
     question_summaries = models.JSONField(blank=True, null=True)
 
+    # Translations for multi-language support
+    # Format: { [languageCode]: { name: string, description: string, questions: [...] } }
+    # Language codes: ISO 639-1 ("es", "fr") or BCP 47 ("es-MX", "en-US")
+    # Questions array matches main questions order with translatable text fields (question, description, buttonText, choices, lowerBoundLabel, upperBoundLabel, link)
+    translations = models.JSONField(blank=True, null=True)
+
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(
         models.BooleanField(
