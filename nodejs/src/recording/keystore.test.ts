@@ -469,7 +469,7 @@ describe('getKeyStore', () => {
         ;(redisUtils.createRedisPoolFromConfig as jest.Mock).mockReturnValue(mockRedisPool)
 
         mockConfig = {
-            redisUrl: 'redis://localhost:6379',
+            redisUrl: 'rediss://localhost:6379',
             redisPoolMinSize: 1,
             redisPoolMaxSize: 10,
         }
