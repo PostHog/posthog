@@ -119,7 +119,7 @@ function ChatView(): JSX.Element {
                 isCustomerView
             />
             <div className="border-t pt-3">
-                <MessageInput onSendMessage={sendMessage} messageSending={messageSending} multiline={true} />
+                <MessageInput onSendMessage={sendMessage} messageSending={messageSending} />
             </div>
         </div>
     )

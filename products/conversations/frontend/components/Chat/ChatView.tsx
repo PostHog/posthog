@@ -16,7 +16,6 @@ export interface ChatViewProps {
     header?: React.ReactNode
     minHeight?: string
     maxHeight?: string
-    compact?: boolean
 }
 
 export function ChatView({
@@ -30,10 +29,9 @@ export function ChatView({
     header,
     minHeight,
     maxHeight,
-    compact = false,
 }: ChatViewProps): JSX.Element {
-    const listMinHeight = minHeight ?? (compact ? '300px' : '400px')
-    const listMaxHeight = maxHeight ?? (compact ? '400px' : '600px')
+    const listMinHeight = minHeight ?? '400px'
+    const listMaxHeight = maxHeight ?? '600px'
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col overflow-hidden p-3">
@@ -49,7 +47,7 @@ export function ChatView({
                 maxHeight={listMaxHeight}
             />
             <div className="border-t pt-3">
-                <MessageInput onSendMessage={onSendMessage} messageSending={messageSending} multiline={true} />
+                <MessageInput onSendMessage={onSendMessage} messageSending={messageSending} />
             </div>
         </LemonCard>
     )

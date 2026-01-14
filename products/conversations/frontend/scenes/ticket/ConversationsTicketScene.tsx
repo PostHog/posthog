@@ -143,7 +143,7 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
                         <div className="flex justify-between items-center">
                             <span className="text-muted-alt">Status</span>
                             <LemonSelect
-                                size="small"
+                                size="xsmall"
                                 value={status}
                                 options={statusOptionsWithoutAll}
                                 onChange={(value: TicketStatus | null) => value && setStatus(value)}
@@ -153,7 +153,7 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
                         <div className="flex justify-between items-center">
                             <span className="text-muted-alt">Priority</span>
                             <LemonSelect
-                                size="small"
+                                size="xsmall"
                                 value={priority}
                                 options={priorityOptions}
                                 onChange={(value: TicketPriority | null) => value && setPriority(value)}
