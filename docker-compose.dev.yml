@@ -183,6 +183,11 @@ services:
             - '19000:19000'
             - '19001:19001'
 
+    objectstorage-azure:
+        extends:
+            file: docker-compose.base.yml
+            service: objectstorage-azure
+
     maildev:
         extends:
             file: docker-compose.base.yml
