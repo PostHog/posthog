@@ -116,9 +116,10 @@ function ChatView(): JSX.Element {
                 minHeight="300px"
                 maxHeight="400px"
                 className="mb-3"
+                isCustomerView
             />
             <div className="border-t pt-3">
-                <MessageInput onSendMessage={sendMessage} messageSending={messageSending} />
+                <MessageInput onSendMessage={sendMessage} messageSending={messageSending} multiline={true} />
             </div>
         </div>
     )

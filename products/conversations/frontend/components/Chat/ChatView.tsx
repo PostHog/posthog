@@ -45,12 +45,11 @@ export function ChatView({
                 olderMessagesLoading={olderMessagesLoading}
                 onLoadOlderMessages={onLoadOlderMessages}
                 emptyMessage="No messages yet. Start the conversation!"
-                className="p-4"
                 minHeight={listMinHeight}
                 maxHeight={listMaxHeight}
             />
             <div className="border-t pt-3">
-                <MessageInput onSendMessage={onSendMessage} messageSending={messageSending} />
+                <MessageInput onSendMessage={onSendMessage} messageSending={messageSending} multiline={true} />
             </div>
         </LemonCard>
     )

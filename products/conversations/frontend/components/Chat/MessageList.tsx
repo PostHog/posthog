@@ -15,6 +15,8 @@ export interface MessageListProps {
     className?: string
     minHeight?: string
     maxHeight?: string
+    /** When true, flips alignment so customer messages appear on the right (for customer-facing views) */
+    isCustomerView?: boolean
 }
 
 export function MessageList({
@@ -27,6 +29,7 @@ export function MessageList({
     className = '',
     minHeight = '300px',
     maxHeight = '400px',
+    isCustomerView = false,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -77,9 +80,16 @@ export function MessageList({
                 <div className="flex items-center justify-center h-full text-muted-alt text-sm">{emptyMessage}</div>
             ) : (
                 <>
-                    {messages.map((message) => (
-                        <Message key={message.id} message={message} isCustomer={message.authorType === 'customer'} />
-                    ))}
+                    {messages.map((message) => {
+                        const isCustomer = message.authorType === 'customer'
+                        return (
+                            <Message
+                                key={message.id}
+                                message={message}
+                                isCustomer={isCustomerView ? !isCustomer : isCustomer}
+                            />
+                        )
+                    })}
                     <div ref={messagesEndRef} />
                 </>
             )}

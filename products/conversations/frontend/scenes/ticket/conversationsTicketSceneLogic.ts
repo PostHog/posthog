@@ -29,7 +29,7 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
         setOlderMessagesLoading: (loading: boolean) => ({ loading }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
 
-        sendMessage: (content: string) => ({ content }),
+        sendMessage: (content: string, onSuccess?: () => void) => ({ content, onSuccess }),
         setMessageSending: (sending: boolean) => ({ sending }),
 
         setStatus: (status: TicketStatus) => ({ status }),
@@ -235,7 +235,7 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content }) => {
+        sendMessage: async ({ content, onSuccess }) => {
             if (props.id === 'new') {
                 actions.setMessageSending(false)
                 return
@@ -255,6 +255,7 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                 )
                 lemonToast.success('Message sent')
                 actions.setMessageSending(false)
+                onSuccess?.()
                 setTimeout(() => {
                     actions.loadMessages()
                 }, 300)

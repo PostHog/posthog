@@ -17,7 +17,7 @@ export function MessageInput({
     placeholder = 'Type your message...',
     buttonText = 'Send',
     multiline = false,
-    minRows = 4,
+    minRows = 3,
 }: MessageInputProps): JSX.Element {
     const [messageContent, setMessageContent] = useState('')
     const clearInputRef = useRef<(() => void) | null>(null)
@@ -38,7 +38,7 @@ export function MessageInput({
 
     if (multiline) {
         return (
-            <div className="flex flex-col gap-2">
+            <div>
                 <LemonTextArea
                     placeholder={placeholder}
                     value={messageContent}
@@ -46,16 +46,17 @@ export function MessageInput({
                     minRows={minRows}
                     disabled={messageSending}
                 />
-                <LemonButton
-                    type="primary"
-                    fullWidth
-                    center
-                    onClick={handleSubmit}
-                    loading={messageSending}
-                    disabled={!messageContent.trim()}
-                >
-                    {buttonText}
-                </LemonButton>
+                <div className="flex justify-end">
+                    <LemonButton
+                        type="primary"
+                        onClick={handleSubmit}
+                        loading={messageSending}
+                        disabled={!messageContent.trim()}
+                        className="mt-2"
+                    >
+                        {buttonText}
+                    </LemonButton>
+                </div>
             </div>
         )
     }
