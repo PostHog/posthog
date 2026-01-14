@@ -154,15 +154,6 @@ function FeatureFlagCopySection(): JSX.Element {
                     associated persons might not exist in the target project.
                 </LemonBanner>
             )}
-            {scheduledChanges.length > 0 && (
-                <div className="mt-4">
-                    <LemonCheckbox
-                        checked={copySchedule}
-                        onChange={setCopySchedule}
-                        label={`Copy scheduled changes (${scheduledChanges.length} pending)`}
-                    />
-                </div>
-            )}
             <div className="inline-flex gap-4 my-6">
                 <div>
                     <div className="font-semibold leading-6 h-6">Key</div>
@@ -190,6 +181,16 @@ function FeatureFlagCopySection(): JSX.Element {
                     />
                 </div>
                 <div>
+                    <div className="font-semibold leading-6 h-6">Copy schedules</div>
+                    <LemonCheckbox
+                        checked={copySchedule}
+                        onChange={setCopySchedule}
+                        disabled={scheduledChanges.length === 0}
+                        label={scheduledChanges.length > 0 ? `${scheduledChanges.length} pending` : 'None available'}
+                        className="h-10 flex items-center"
+                    />
+                </div>
+                <div>
                     <div className="h-6" />
                     <LemonButton
                         disabledReason={!copyDestinationProject && 'Select destination project'}
@@ -213,12 +214,15 @@ function FeatureFlagCopySection(): JSX.Element {
 
 export default function FeatureFlagProjects(): JSX.Element {
     const { projectsWithCurrentFlag } = useValues(featureFlagLogic)
-    const { loadProjectsWithCurrentFlag } = useActions(featureFlagLogic)
+    const { loadProjectsWithCurrentFlag, loadScheduledChanges } = useActions(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
-    useOnMountEffect(loadProjectsWithCurrentFlag)
+    useOnMountEffect(() => {
+        loadProjectsWithCurrentFlag()
+        loadScheduledChanges()
+    })
 
     return (
         <div>
