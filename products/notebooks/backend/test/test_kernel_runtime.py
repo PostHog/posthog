@@ -181,7 +181,7 @@ class TestKernelRuntimeService(BaseTest):
                 variable_names=["valid", "not valid", "123", "_also_valid"],
             )
 
-        assert result == "ok"
+        assert result == "ok"  # type: ignore
         assert mocked_execute.call_args.kwargs["variable_names"] == ["valid", "_also_valid"]
 
     def test_execute_in_sandbox_parses_output(self) -> None:
