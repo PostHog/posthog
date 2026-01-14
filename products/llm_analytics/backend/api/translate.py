@@ -5,6 +5,8 @@ Endpoint:
 - POST /api/environments/:id/llm_analytics/translate/ - Translate text
 """
 
+from typing import cast
+
 from django.conf import settings
 
 import structlog
@@ -12,7 +14,10 @@ from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.rate_limit import (
     LLMAnalyticsTranslationBurstThrottle,
     LLMAnalyticsTranslationDailyThrottle,
@@ -65,6 +70,7 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 "AI data processing must be approved by your organization before using translation"
             )
 
+    @monitor(feature=None, endpoint="llm_analytics_translate", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Translate text to target language."""
         self._validate_feature_access(request)
@@ -93,6 +99,18 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 target_language=target_language,
                 translation_length=len(translation),
             )
+
+            report_user_action(
+                cast(User, request.user),
+                "llma translation completed",
+                {
+                    "target_language": target_language,
+                    "text_length": len(text),
+                    "translation_length": len(translation),
+                },
+                self.team,
+            )
+
             return Response(
                 {
                     "translation": translation,
