@@ -67,7 +67,7 @@ class AlterPosthogIntegrationKindField(Operation):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0970_add_session_recording_encryption"),
+        ("posthog", "0972_team_logs_settings"),
     ]
 
     operations = [
