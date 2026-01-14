@@ -1191,7 +1191,7 @@ jobs:
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
             - name: Capture running time to PostHog
-              uses: PostHog/posthog-github-action@feat/capture-workflow-duration
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
