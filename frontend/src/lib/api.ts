@@ -4745,7 +4745,7 @@ const api = {
         ): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
         },
-        async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<PaginatedResponse<HogFlowBatchJob[]>> {
+        async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
         },
     },
