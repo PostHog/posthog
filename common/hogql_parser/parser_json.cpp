@@ -1,4 +1,4 @@
-// parser_core.cpp - Pure C++ HogQL Parser Core
+// parser_json.cpp - Pure C++ HogQL Parser Core
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
@@ -112,14 +112,14 @@ bool containsMatchingProperty(const Json& json, const string& prop_name, const s
 
 // PARSING AND AST CONVERSION
 
-class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
+class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
  private:
   bool is_internal;
 
   const vector<string> RESERVED_KEYWORDS = {"true", "false", "null", "team_id"};
 
  public:
-  HogQLParseTreeConverter(bool is_internal) : is_internal(is_internal) {}
+  HogQLParseTreeJSONConverter(bool is_internal) : is_internal(is_internal) {}
 
   any visit(antlr4::tree::ParseTree* tree) override {
     // Find the start and stop indices of the parse tree node

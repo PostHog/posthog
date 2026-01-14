@@ -43,6 +43,8 @@ BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 
 type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
 
+type HogQLParserBackend = Literal["python", "cpp", "cpp-json"]
+
 
 class LimitContext(StrEnum):
     QUERY = "query"
