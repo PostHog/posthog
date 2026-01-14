@@ -388,6 +388,8 @@ class CohortSerializer(serializers.ModelSerializer):
             "deleted",
             "filters",
             "query",
+            "version",
+            "pending_version",
             "is_calculating",
             "created_by",
             "created_at",
@@ -403,6 +405,8 @@ class CohortSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "version",
+            "pending_version",
             "is_calculating",
             "created_by",
             "created_at",
