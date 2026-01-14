@@ -340,6 +340,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
+        setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
@@ -599,6 +600,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as number | null,
             {
                 setCopyDestinationProject: (_, { id }) => id,
+            },
+        ],
+        copySchedule: [
+            false as boolean,
+            {
+                setCopySchedule: (_, { copySchedule }) => copySchedule,
             },
         ],
         scheduleDateMarker: [
@@ -1028,13 +1035,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             copyFlag: async () => {
                 const orgId = values.currentOrganization?.id
                 const featureFlagKey = values.featureFlag.key
-                const { copyDestinationProject, currentProjectId } = values
+                const { copyDestinationProject, currentProjectId, copySchedule } = values
 
                 if (currentProjectId && copyDestinationProject) {
                     return await api.organizationFeatureFlags.copy(orgId, {
                         feature_flag_key: featureFlagKey,
                         from_project: currentProjectId,
                         target_project_ids: [copyDestinationProject],
+                        copy_schedule: copySchedule,
                     })
                 }
             },
@@ -1250,6 +1258,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             actions.loadProjectsWithCurrentFlag()
             actions.setCopyDestinationProject(null)
+            actions.setCopySchedule(false)
         },
         createStaticCohortSuccess: ({ newCohort }) => {
             if (newCohort) {

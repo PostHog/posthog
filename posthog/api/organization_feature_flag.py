@@ -56,6 +56,7 @@ class OrganizationFeatureFlagView(
         feature_flag_key = body.get("feature_flag_key")
         from_project = body.get("from_project")
         target_project_ids = body.get("target_project_ids")
+        copy_schedule = body.get("copy_schedule", False)  # Optional parameter to copy schedules
 
         if not feature_flag_key or not from_project or not target_project_ids:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
@@ -213,7 +214,12 @@ class OrganizationFeatureFlagView(
 
             try:
                 feature_flag_serializer.is_valid(raise_exception=True)
-                feature_flag_serializer.save(team_id=target_project_id)
+                saved_flag = feature_flag_serializer.save(team_id=target_project_id)
+                
+                # Copy schedules if requested
+                if copy_schedule:
+                    self._copy_feature_flag_schedules(flag_to_copy, saved_flag, request.user)
+                
                 successful_projects.append(feature_flag_serializer.data)
             except Exception as e:
                 failed_projects.append(
@@ -227,3 +233,36 @@ class OrganizationFeatureFlagView(
             {"success": successful_projects, "failed": failed_projects},
             status=status.HTTP_200_OK,
         )
+
+    def _copy_feature_flag_schedules(self, source_flag, target_flag, user):
+        """
+        Copy all scheduled changes from source flag to target flag.
+        
+        Args:
+            source_flag: The original FeatureFlag instance
+            target_flag: The newly created/updated FeatureFlag instance  
+            user: The user performing the copy operation
+        """
+        from posthog.models.scheduled_change import ScheduledChange
+        
+        # Get all pending scheduled changes for the source flag
+        source_schedules = ScheduledChange.objects.filter(
+            record_id=str(source_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            executed_at__isnull=True,  # Only copy pending schedules
+            team=source_flag.team
+        )
+        
+        # Copy each schedule to the target flag
+        for schedule in source_schedules:
+            ScheduledChange.objects.create(
+                record_id=str(target_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                payload=schedule.payload,
+                scheduled_at=schedule.scheduled_at,
+                is_recurring=schedule.is_recurring,
+                recurrence_interval=schedule.recurrence_interval,
+                end_date=schedule.end_date,
+                team=target_flag.team,
+                created_by=user,
+            )

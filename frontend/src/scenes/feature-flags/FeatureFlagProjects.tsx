@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -133,9 +133,9 @@ function InfoBanner(): JSX.Element {
 }
 
 function FeatureFlagCopySection(): JSX.Element {
-    const { featureFlag, copyDestinationProject, projectsWithCurrentFlag, featureFlagCopyLoading } =
+    const { featureFlag, copyDestinationProject, projectsWithCurrentFlag, featureFlagCopyLoading, copySchedule, scheduledChanges } =
         useValues(featureFlagLogic)
-    const { setCopyDestinationProject, copyFlag } = useActions(featureFlagLogic)
+    const { setCopyDestinationProject, copyFlag, setCopySchedule } = useActions(featureFlagLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
@@ -153,6 +153,15 @@ function FeatureFlagCopySection(): JSX.Element {
                     not exist in the target project, it will be copied as an empty cohort. This is because the
                     associated persons might not exist in the target project.
                 </LemonBanner>
+            )}
+            {scheduledChanges.length > 0 && (
+                <div className="mt-4">
+                    <LemonCheckbox
+                        checked={copySchedule}
+                        onChange={setCopySchedule}
+                        label={`Copy scheduled changes (${scheduledChanges.length} pending)`}
+                    />
+                </div>
             )}
             <div className="inline-flex gap-4 my-6">
                 <div>
