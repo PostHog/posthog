@@ -78,7 +78,7 @@ if (inputs.debug) {
             key: 'fcm_token',
             type: 'string',
             label: 'FCM device token',
-            secret: false,
+            secret: true,
             required: true,
             description:
                 'The Firebase Cloud Messaging token for the target device. In a future version, this will be automatically looked up from registered devices.',
