@@ -81,6 +81,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         usesNewQueryRunner,
         isExperimentDraft,
         isSingleVariantShipped,
+        shippedVariantKey,
         featureFlags,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
@@ -129,7 +130,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                 <StatusTag status={status} />
                                 {isSingleVariantShipped && (
                                     <Tooltip
-                                        title={`Variant "${experiment.feature_flag?.filters.multivariate?.variants?.find((v) => v.rollout_percentage === 100)?.key}" has been rolled out to 100% of users`}
+                                        title={`Variant "${shippedVariantKey}" has been rolled out to 100% of users`}
                                     >
                                         <LemonTag type="completion" className="cursor-default">
                                             <b className="uppercase">100% rollout</b>
