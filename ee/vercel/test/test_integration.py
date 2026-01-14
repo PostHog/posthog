@@ -346,6 +346,36 @@ class TestVercelIntegration(TestCase):
         except RequiresExistingUserLogin:
             self.fail("SSO should NOT require login for trusted Vercel user")
 
+    @patch("ee.vercel.integration.report_user_signed_up")
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_billing_failure_does_not_delete_trusted_vercel_user(self, mock_license, mock_billing, mock_report):
+        """Billing failure during second installation should NOT delete the trusted user."""
+        # First installation - creates user with mapping
+        first_installation_id = self.NEW_INSTALLATION_ID
+        first_user_claims = self._create_user_claims("vercel_user_billing")
+        first_user_claims.installation_id = first_installation_id
+
+        VercelIntegration.upsert_installation(first_installation_id, self.payload, first_user_claims)
+        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
+        user_pk = user.pk
+
+        # Second installation - billing will fail
+        second_installation_id = "icfg_billing_fail_123456789"
+        second_payload = {**self.payload, "account": {**self.payload["account"], "name": "Second Org"}}
+        second_user_claims = self._create_user_claims("vercel_user_billing_2")
+        second_user_claims.installation_id = second_installation_id
+
+        # Make billing fail
+        mock_license.return_value = Mock()
+        mock_billing.return_value.authorize.side_effect = Exception("Billing failed")
+
+        with self.assertRaises(Exception):
+            VercelIntegration.upsert_installation(second_installation_id, second_payload, second_user_claims)
+
+        # User should NOT be deleted - they existed before this installation
+        assert User.objects.filter(pk=user_pk).exists(), "Trusted Vercel user should NOT be deleted on billing failure"
+
     @patch("ee.vercel.integration.capture_exception")
     def test_upsert_installation_integrity_error(self, mock_capture):
         error_user_claims = self._create_user_claims("error_user_999")
