@@ -51,7 +51,9 @@ def _create_agent_node(
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
     context_manager = AssistantContextManager(team=team, user=user, config=config or RunnableConfig(configurable={}))
-    mode_manager = ChatAgentModeManager(team=team, user=user, node_path=node_path, context_manager=context_manager)
+    mode_manager = ChatAgentModeManager(
+        team=team, user=user, node_path=node_path, context_manager=context_manager, state=AssistantState(messages=[])
+    )
 
     # Use the mode manager's node property which calls configure()
     return mode_manager.node
@@ -68,7 +70,13 @@ def _create_agent_tools_node(
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
     context_manager = AssistantContextManager(team=team, user=user, config=config or RunnableConfig(configurable={}))
-    mode_manager = ChatAgentModeManager(team=team, user=user, node_path=node_path, context_manager=context_manager)
+    mode_manager = ChatAgentModeManager(
+        team=team,
+        user=user,
+        node_path=node_path,
+        context_manager=context_manager,
+        state=AssistantState(messages=[HumanMessage(content="Test")]),
+    )
 
     # Use the mode manager's tools_node property which calls configure()
     return mode_manager.tools_node
@@ -644,7 +652,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         for i, send in enumerate(result):
             self.assertIsInstance(send, Send)
             self.assertEqual(send.node, AssistantNodeName.ROOT_TOOLS)
-            self.assertEqual(send.arg.root_tool_call_id, f"tool-{i+1}")
+            self.assertEqual(send.arg.root_tool_call_id, f"tool-{i + 1}")
 
     def test_get_updated_agent_mode(self):
         node = _create_agent_node(self.team, self.user)
