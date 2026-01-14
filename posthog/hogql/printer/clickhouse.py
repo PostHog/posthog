@@ -460,6 +460,66 @@ class ClickHousePrinter(HogQLPrinter):
             else:  # NotLike
                 return f"notLike({materialized_column_sql}, {pattern_sql})"
 
+    def _get_optimized_materialized_column_in_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns an optimized printed expression for IN comparisons involving materialized columns.
+
+        For non-nullable columns with values that could match sentinel values ('', 'null'),
+        we bail out and let the normal code path handle it with proper nullif wrapping.
+
+        For values that cannot match sentinels, we use the raw materialized column directly,
+        enabling skip index optimization (bloom filter).
+        """
+        if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            return None
+
+        left_type = resolve_field_type(node.left)
+        if not isinstance(left_type, ast.PropertyType):
+            return None
+
+        if len(left_type.chain) != 1:
+            return None
+
+        property_source = self._get_materialized_property_source_for_property_type(left_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
+            return None
+
+        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            return None
+
+        if isinstance(node.right, ast.Constant):
+            if not isinstance(node.right.value, str):
+                return None
+            if node.right.value == "" or node.right.value == "null":
+                return None
+            values = [node.right]
+        elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
+            values = list(node.right.exprs)
+            for v in values:
+                if not isinstance(v, ast.Constant) or not isinstance(v.value, str):
+                    return None
+                if v.value == "" or v.value == "null":
+                    return None
+        else:
+            return None
+
+        if len(values) == 0:
+            return "0" if node.op == ast.CompareOperationOp.In else "1"
+
+        materialized_column_sql = str(property_source)
+        values_sql = ", ".join(self.visit(v) for v in values)
+
+        if property_source.is_nullable:
+            if node.op == ast.CompareOperationOp.In:
+                return f"and(in({materialized_column_sql}, tuple({values_sql})), {materialized_column_sql} IS NOT NULL)"
+            else:
+                return f"ifNull(notIn({materialized_column_sql}, tuple({values_sql})), 1)"
+        else:
+            if node.op == ast.CompareOperationOp.In:
+                return f"in({materialized_column_sql}, tuple({values_sql}))"
+            else:
+                return f"notIn({materialized_column_sql}, tuple({values_sql}))"
+
     def _optimize_in_with_string_values(
         self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
     ) -> str | None:
@@ -620,6 +680,8 @@ class ClickHousePrinter(HogQLPrinter):
             return optimized_materialized_ilike
         if optimized_materialized_like := self._get_optimized_materialized_column_like_operation(node):
             return optimized_materialized_like
+        if optimized_materialized_in := self._get_optimized_materialized_column_in_operation(node):
+            return optimized_materialized_in
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
