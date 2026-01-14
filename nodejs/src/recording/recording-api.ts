@@ -1,6 +1,7 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import express from 'ultimate-express'
 
+import { TeamService } from '../session-recording/teams/team-service'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { BaseKeyStore, getKeyStore } from './keystore'
@@ -36,8 +37,19 @@ export class RecordingApi {
             forcePathStyle: this.hub.SESSION_RECORDING_V2_S3_ENDPOINT ? true : undefined,
         })
 
-        this.keyStore = await getKeyStore(this.hub, region)
-        this.decryptor = await getBlockDecryptor(this.keyStore)
+        const teamService = new TeamService(this.hub.postgres)
+        this.keyStore = getKeyStore(
+            {
+                redisUrl: this.hub.REDIS_URL,
+                redisPoolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
+                redisPoolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+            },
+            teamService,
+            region
+        )
+        await this.keyStore.start()
+        this.decryptor = getBlockDecryptor(this.keyStore)
+        await this.decryptor.start()
     }
 
     async stop(): Promise<void> {
