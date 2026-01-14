@@ -896,9 +896,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         assert not result.is_valid, "Validation should fail with missing required fields"
         assert len(result.errors) >= 3, "Should have at least 3 validation errors"
-        assert all(
-            "Missing required field" in error for error in result.errors
-        ), "All errors should be about missing fields"
+        assert all("Missing required field" in error for error in result.errors), (
+            "All errors should be about missing fields"
+        )
 
     def test_adapter_validation_success(self):
         """Test that adapter validation succeeds with all required fields."""
@@ -1165,6 +1165,10 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         """Test Meta Ads adapter query generation with JOIN."""
         campaign_table = self._create_mock_table("meta_campaigns", "MetaAds")
         stats_table = self._create_mock_table("meta_campaign_stats", "MetaAds")
+
+        # Enable conversion field logic by adding columns attribute
+        # This allows the snapshot to capture the full conversion SQL with deduplication
+        stats_table.columns = {"actions": True, "action_values": True}
 
         config = MetaAdsConfig(
             campaign_table=campaign_table,
@@ -1761,9 +1765,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         # Verify the match_key uses the id field, not the name field
         # The id field in Meta Ads is referenced as "metaads_campaigns.id"
-        assert (
-            "metaads_campaigns.id" in hogql_query
-        ), f"match_key should use campaign id field (metaads_campaigns.id), but got: {hogql_query}"
+        assert "metaads_campaigns.id" in hogql_query, (
+            f"match_key should use campaign id field (metaads_campaigns.id), but got: {hogql_query}"
+        )
         # Verify it's in the match_key alias context (not just anywhere in the query)
         # The pattern should be: toString(metaads_campaigns.id) AS match_key
         assert "AS match_key" in hogql_query, "match_key alias should exist"
@@ -1798,9 +1802,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         # Verify the match_key uses the name field, not the id field
         # The name field in Meta Ads is referenced as "metaads_campaigns.name"
-        assert (
-            "metaads_campaigns.name" in hogql_query
-        ), f"match_key should use campaign name field by default (metaads_campaigns.name), but got: {hogql_query}"
+        assert "metaads_campaigns.name" in hogql_query, (
+            f"match_key should use campaign name field by default (metaads_campaigns.name), but got: {hogql_query}"
+        )
 
         # Snapshot the query to confirm name is used
         assert self._execute_and_snapshot(query) == self.snapshot
@@ -1848,6 +1852,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert "metaads_campaigns.id" in meta_hogql, f"MetaAds match_key should use id field, but got: {meta_hogql}"
 
         # Google should use name field (default)
-        assert (
-            "google_ads_campaign.campaign_name" in google_hogql
-        ), f"GoogleAds match_key should use campaign_name field by default, but got: {google_hogql}"
+        assert "google_ads_campaign.campaign_name" in google_hogql, (
+            f"GoogleAds match_key should use campaign_name field by default, but got: {google_hogql}"
+        )
