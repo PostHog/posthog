@@ -5843,6 +5843,7 @@ export type CyclotronJobInputSchemaType = {
         | 'integration_field'
         | 'email'
         | 'native_email'
+        | 'push_subscription'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -5856,6 +5857,7 @@ export type CyclotronJobInputSchemaType = {
     integration_key?: string
     integration_field?: string
     requires_field?: string
+    platform?: 'android' | 'ios' | 'web'
     requiredScopes?: string
 }
 
