@@ -318,14 +318,10 @@ export const FEATURE_FLAGS = {
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_RICH_TEXT: 'product-tours-rich-text', // owner: @adboio #team-surveys
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
-    POSTHOG_AI_BILLING_USAGE_COMMAND: 'posthog-ai-billing-usage-command', // owner: #team-posthog-ai
-    POSTHOG_AI_BILLING_USAGE_REPORT: 'posthog-ai-billing-usage-report', // owner: #team-posthog-ai
     POSTHOG_AI_CHANGELOG: 'posthog-ai-changelog', // owner: #team-posthog-ai
     POSTHOG_AI_ALERTS: 'posthog-ai-alerts', // owner: #team-posthog-ai
     POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG: 'posthog-ai-conversation-feedback-config', // owner: #team-posthog-ai
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
-    POSTHOG_AI_FEEDBACK_COMMAND: 'posthog-ai-feedback-command', // owner: #team-posthog-ai
-    POSTHOG_AI_TICKET_COMMAND: 'posthog-ai-ticket-command', // owner: #team-posthog-ai
     POSTHOG_AI_UPSERT_DASHBOARD: 'phai-upsert-dashboards', // owner: #team-posthog-ai
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
@@ -368,7 +364,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_OPEN_AS_INSIGHT: 'web-analytics-open-as-insight', // owner: @lricoy #team-web-analytics
-    WEB_ANALYTICS_POSTHOG_AI: 'web-analytics-posthog-ai', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_FILTERS_V2: 'web-analytics-filters-v2', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_SESSION_PROPERTY_CHARTS: 'web-analytics-session-property-charts', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
