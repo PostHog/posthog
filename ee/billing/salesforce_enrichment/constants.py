@@ -76,6 +76,17 @@ mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
                     }
                 }
             }
+            tags {
+                type
+                displayValue
+                dateAdded
+                isPrimaryTag
+            }
+            tagsV2 {
+                type
+                displayValue
+                dateAdded
+            }
         }
     }
 }

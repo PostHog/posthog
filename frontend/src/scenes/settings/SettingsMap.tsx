@@ -55,6 +55,7 @@ import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { GithubIntegration } from './environment/Integrations'
 import { LinearIntegration } from './environment/Integrations'
+import { LogsCaptureSettings } from './environment/LogsCaptureSettings'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -520,6 +521,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-releases',
                 title: 'Releases',
                 component: <Releases />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-logs',
+        title: 'Logs',
+        flag: 'LOGS_SETTINGS',
+        settings: [
+            {
+                id: 'logs',
+                title: 'Logs',
+                component: <LogsCaptureSettings />,
+                flag: 'LOGS_SETTINGS',
             },
         ],
     },

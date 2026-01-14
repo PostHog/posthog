@@ -547,7 +547,6 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
             ),
             name="trial_start",
         ),
-        "trial_settings": StringJSONDatabaseField(name="trial_settings"),
     },
     "stripe_balancetransaction": {
         "id": StringDatabaseField(name="id"),

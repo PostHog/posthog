@@ -16,12 +16,12 @@ export const SCENE_TABS: SceneTabConfig[] = [
     {
         key: 'tickets',
         label: 'Tickets',
-        href: urls.conversationsTickets(),
+        href: urls.supportTickets(),
     },
     {
         key: 'settings',
         label: 'Settings',
-        href: urls.conversationsSettings(),
+        href: urls.supportSettings(),
     },
 ]
 
@@ -52,9 +52,9 @@ export const scenesTabsLogic = kea<scenesTabsLogicType>([
     }),
     urlToAction(({ actions }) => {
         return {
-            '/conversations/tickets': () => actions.setActiveTab('tickets'),
-            '/conversations/tickets/:ticketId': () => actions.setActiveTab('tickets'),
-            '/conversations/settings': () => actions.setActiveTab('settings'),
+            '/support/tickets': () => actions.setActiveTab('tickets'),
+            '/support/tickets/:ticketId': () => actions.setActiveTab('tickets'),
+            '/support/settings': () => actions.setActiveTab('settings'),
         }
     }),
 ])

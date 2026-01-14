@@ -46,13 +46,24 @@ from posthog.batch_exports.service import (
 )
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
+from posthog.models.integration import (
+    AzureBlobIntegration,
+    AzureBlobIntegrationError,
+    DatabricksIntegration,
+    DatabricksIntegrationError,
+    Integration,
+)
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
+from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+    SUPPORTED_COMPRESSIONS as AZURE_BLOB_SUPPORTED_COMPRESSIONS,
+)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+    SUPPORTED_COMPRESSIONS as S3_SUPPORTED_COMPRESSIONS,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -417,6 +428,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
             existing_config = {}
         merged_config = recursive_dict_merge(existing_config, config)
 
+        # SSRF protection for HTTP batch exports
+        if destination_type == BatchExportDestination.Destination.HTTP:
+            url = merged_config.get("url")
+            if url and url not in ("https://us.i.posthog.com/batch/", "https://eu.i.posthog.com/batch/"):
+                raise serializers.ValidationError(f"Invalid destination URL: {url}")
+
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
             if config.get("authentication_type") == "password" and merged_config.get("password") is None:
                 raise serializers.ValidationError("Password is required if authentication type is password")
@@ -443,15 +460,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = merged_config.get("file_format", "JSONLines")
-            supported_file_formats = SUPPORTED_COMPRESSIONS.keys()
+            supported_file_formats = S3_SUPPORTED_COMPRESSIONS.keys()
             if file_format not in supported_file_formats:
                 raise serializers.ValidationError(
                     f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
                 )
             compression = merged_config.get("compression", None)
-            if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+            if compression and compression not in S3_SUPPORTED_COMPRESSIONS[file_format]:
                 raise serializers.ValidationError(
-                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
+                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {S3_SUPPORTED_COMPRESSIONS[file_format]}"
                 )
 
             # if someone is trying to reset the endpoint url, then we need to convert empty string to None
@@ -489,6 +506,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 DatabricksIntegration(integration)
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
+
         if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
             team_id = self.context["team_id"]
             team = Team.objects.get(id=team_id)
@@ -506,6 +524,33 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 send_feature_flag_events=False,
             ):
                 raise PermissionDenied("Azure Blob Storage batch exports are not enabled for this team.")
+
+            # validate the Integration is valid (this is mandatory for Azure Blob batch exports)
+            integration = destination_attrs.get("integration")
+            if integration is None:
+                raise serializers.ValidationError("Integration is required for Azure Blob batch exports")
+            if integration.team_id != team_id:
+                raise serializers.ValidationError("Integration does not belong to this team.")
+            if integration.kind != Integration.IntegrationKind.AZURE_BLOB:
+                raise serializers.ValidationError("Integration is not an Azure Blob integration.")
+            # try instantiate the integration to check if it's valid
+            try:
+                AzureBlobIntegration(integration)
+            except AzureBlobIntegrationError as e:
+                raise serializers.ValidationError(str(e))
+
+            file_format = merged_config.get("file_format", "JSONLines")
+            supported_file_formats = AZURE_BLOB_SUPPORTED_COMPRESSIONS.keys()
+            if file_format not in supported_file_formats:
+                raise serializers.ValidationError(
+                    f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
+                )
+            compression = merged_config.get("compression", None)
+            if compression and compression not in AZURE_BLOB_SUPPORTED_COMPRESSIONS[file_format]:
+                raise serializers.ValidationError(
+                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {AZURE_BLOB_SUPPORTED_COMPRESSIONS[file_format]}"
+                )
+
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
             mode = merged_config.get("mode")
 

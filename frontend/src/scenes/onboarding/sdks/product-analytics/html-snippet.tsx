@@ -1,14 +1,12 @@
-import { LemonDivider } from '@posthog/lemon-ui'
+import { JSEventCapture } from '@posthog/shared-onboarding/product-analytics/_snippets/js-event-capture'
+import { HTMLSnippetInstallation } from '@posthog/shared-onboarding/product-analytics/html-snippet'
 
-import { SDKHtmlSnippetInstructions } from '../sdk-install-instructions/html-snippet'
-import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export function HTMLSnippetInstructions(): JSX.Element {
     return (
-        <>
-            <SDKHtmlSnippetInstructions />
-            <LemonDivider thick dashed className="my-4" />
-            <ProductAnalyticsAllJSFinalSteps />
-        </>
+        <OnboardingDocsContentWrapper snippets={{ JSEventCapture }}>
+            <HTMLSnippetInstallation />
+        </OnboardingDocsContentWrapper>
     )
 }
