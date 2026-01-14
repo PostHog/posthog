@@ -8,7 +8,7 @@ import signal
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -20,8 +20,9 @@ from posthog.redis import get_client
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.tasks.backend.services.sandbox import (
-    ExecutionResult,
+    SandboxClass,
     SandboxConfig,
+    SandboxProtocol,
     SandboxStatus,
     SandboxTemplate,
     get_sandbox_class_for_backend,
@@ -95,24 +96,6 @@ class _RedisLock:
             return
         with suppress(Exception):
             self._lock.release()
-
-
-class SandboxProtocol(Protocol):
-    id: str
-
-    def execute(self, command: str, timeout_seconds: int) -> ExecutionResult: ...
-
-    def destroy(self) -> None: ...
-
-    def get_status(self) -> SandboxStatus: ...
-
-
-class SandboxClass(Protocol):
-    @classmethod
-    def create(cls, config: SandboxConfig) -> SandboxProtocol: ...
-
-    @classmethod
-    def get_by_id(cls, sandbox_id: str) -> SandboxProtocol: ...
 
 
 @dataclass
@@ -277,7 +260,7 @@ class KernelRuntimeService:
     def _has_modal_credentials(self) -> bool:
         return all(os.environ.get(name, None) for name in self._MODAL_REQUIRED_ENV_VARS)
 
-    def _get_sandbox_class(self, backend: str) -> type[SandboxClass]:
+    def _get_sandbox_class(self, backend: str) -> SandboxClass:
         return get_sandbox_class_for_backend(backend)
 
     def _parse_user_expressions(self, user_expressions: Any) -> dict[str, Any] | None:
@@ -560,8 +543,6 @@ class KernelRuntimeService:
 
         if not runtime or not runtime.sandbox_id:
             return None
-
-        from products.tasks.backend.services.sandbox import SandboxStatus
 
         try:
             sandbox_class = self._get_sandbox_class(backend)

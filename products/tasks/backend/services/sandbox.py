@@ -10,6 +10,7 @@ This module exports:
 """
 
 from enum import Enum
+from types import TracebackType
 from typing import Protocol
 
 from django.conf import settings
@@ -60,11 +61,32 @@ class SandboxProtocol(Protocol):
     @staticmethod
     def delete_snapshot(external_id: str) -> None: ...
 
+    def get_status(self) -> SandboxStatus: ...
+
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
+
+    def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult: ...
+
+    def setup_repository(self, repository: str) -> ExecutionResult: ...
+
+    def is_git_clean(self, repository: str) -> tuple[bool, str]: ...
+
+    def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult: ...
+
+    def create_snapshot(self) -> str: ...
 
     def destroy(self) -> None: ...
 
     def is_running(self) -> bool: ...
+
+    def __enter__(self) -> "SandboxProtocol": ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None: ...
 
 
 SandboxClass = type[SandboxProtocol]
