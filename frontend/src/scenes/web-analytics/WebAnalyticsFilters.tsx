@@ -133,11 +133,6 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
     } = useValues(webAnalyticsLogic)
     const { setDates, setWebAnalyticsFilters, setIsPathCleaningEnabled, setCompareFilter } =
         useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_POSTHOG_AI]) {
-        return children
-    }
 
     return (
         <MaxTool
