@@ -128,12 +128,17 @@ export const workflowLogic = kea<workflowLogicType>([
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+        triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string | null) => ({
             variables,
             scheduledAt,
         }),
-        triggerBatchWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+        triggerBatchWorkflow: (
+            variables: Record<string, any>,
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
+            scheduledAt?: string | null
+        ) => ({
             variables,
+            filters,
             scheduledAt,
         }),
         discardChanges: true,
@@ -549,7 +554,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
         },
-        triggerBatchWorkflow: async ({ variables }) => {
+        triggerBatchWorkflow: async ({ variables, filters, scheduledAt }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
@@ -561,9 +566,15 @@ export const workflowLogic = kea<workflowLogicType>([
             try {
                 await api.hogFlows.createHogFlowBatchJob(values.workflow.id, {
                     variables,
+                    filters,
+                    scheduled_at: scheduledAt,
                 })
-                lemonToast.success('Batch workflow job created')
-                router.actions.push(urls.workflow(values.workflow.id!, 'logs'))
+                lemonToast.success(`Batch workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
+                    button: {
+                        label: 'View logs',
+                        action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                    },
+                })
             } catch (e) {
                 lemonToast.error('Error creating batch workflow job: ' + (e as Error).message)
                 return
