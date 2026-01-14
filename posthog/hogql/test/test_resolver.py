@@ -347,31 +347,90 @@ class TestResolver(BaseTest):
             self._print_hogql("WITH x AS (SELECT 1) SELECT x FROM events")
         self.assertIn("Cannot use table CTE", str(e.exception))
 
-    def test_ctes_hoisting_from_subquery(self):
-        # Test that CTEs defined in a subquery are hoisted to the top level
-        self.assertEqual(
-            self._print_hogql(
-                "SELECT * FROM (WITH cte1 AS (SELECT 1 AS x) SELECT x FROM cte1) AS source"
-            ),
-            "WITH cte1 AS (SELECT 1 AS x) SELECT x FROM (SELECT x FROM cte1) AS source LIMIT 50000",
+    def test_ctes_in_subquery_for_clickhouse(self):
+        # Test that CTEs defined in a subquery remain with that subquery for ClickHouse
+        # This is necessary because CTEs get resolved with context-specific JOINs
+        # (e.g., person_id triggers events__override LEFT JOIN)
+
+        # Parse and prepare for ClickHouse dialect
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        query_str = "SELECT * FROM (WITH cte1 AS (SELECT 1 AS x) SELECT x FROM cte1) AS source"
+        query = self._select(query_str)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        # Prepare and print in one go
+        sql, prepared = prepare_and_print_ast(query, context, "clickhouse")
+
+        # Verify the subquery still has its CTE
+        assert isinstance(prepared, ast.SelectQuery)
+        assert prepared.select_from is not None
+        assert isinstance(prepared.select_from, ast.JoinExpr)
+        assert isinstance(prepared.select_from.table, ast.SelectQuery)
+        subquery = prepared.select_from.table
+        assert subquery.ctes is not None
+        assert "cte1" in subquery.ctes
+
+        # The CTE should appear inside the subquery parentheses in the SQL
+        assert "WITH cte1 AS" in sql
+        assert "FROM (WITH cte1 AS" in sql  # CTE is inside the subquery parentheses
+        assert ") AS source" in sql  # Subquery is aliased as source
+
+    def test_ctes_in_subquery_prevent_name_conflicts(self):
+        # Test that CTEs in nested scopes can have the same name without conflict
+        # since they're not hoisted
+        query_str = (
+            "WITH cte1 AS (SELECT 1 AS a) "
+            "SELECT source.b, cte1.a FROM (WITH cte1 AS (SELECT 2 AS b) SELECT b FROM cte1) AS source, cte1"
         )
 
-        # Test with multiple nested CTEs
-        self.assertEqual(
-            self._print_hogql(
-                "SELECT * FROM (WITH cte1 AS (SELECT event FROM events) SELECT event FROM cte1) AS source"
-            ),
-            "WITH cte1 AS (SELECT event FROM events) SELECT event FROM (SELECT event FROM cte1) AS source LIMIT 50000",
-        )
+        # This should not raise an error since CTEs are in different scopes
+        result = self._print_hogql(query_str)
+        # Both CTEs should be present in the output
+        assert "cte1" in result
+        # The outer CTE and inner CTE should both exist
+        assert "WITH cte1 AS (SELECT 1 AS a)" in result
+        assert "(WITH cte1 AS (SELECT 2 AS b)" in result
 
-    def test_ctes_hoisting_name_conflict(self):
-        # Test that CTE name conflicts are detected when hoisting
-        with self.assertRaises(QueryError) as e:
-            self._print_hogql(
-                "WITH cte1 AS (SELECT 1 AS a) "
-                "SELECT * FROM (WITH cte1 AS (SELECT 2 AS b) SELECT b FROM cte1) AS source"
-            )
-        self.assertIn("already defined", str(e.exception))
+    def test_ctes_with_person_id_in_subquery(self):
+        # Test that mimics the experiment query structure where a CTE references person_id
+        # and the query gets wrapped as a subquery. This tests that events__override JOIN
+        # is added correctly within the CTE's scope.
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        # Build a query with a CTE that references person_id, then wrap it
+        query_str = """
+            SELECT * FROM (
+                WITH exposures AS (
+                    SELECT person_id AS entity_id, event
+                    FROM events
+                    WHERE team_id = 1
+                )
+                SELECT entity_id FROM exposures
+            ) AS source
+        """
+        query = self._select(query_str)
+
+        # Prepare and print in one go
+        sql, prepared = prepare_and_print_ast(query, self.context, "clickhouse")
+
+        # Check that the subquery has the CTE
+        assert isinstance(prepared, ast.SelectQuery)
+        assert prepared.select_from is not None
+        assert isinstance(prepared.select_from, ast.JoinExpr)
+        assert isinstance(prepared.select_from.table, ast.SelectQuery)
+        subquery = prepared.select_from.table
+        assert subquery.ctes is not None
+        assert "exposures" in subquery.ctes
+
+        # The CTE should be in the subquery
+        assert "FROM (WITH exposures AS" in sql or "FROM (\n    WITH exposures AS" in sql.replace("  ", " ")
+
+        # The CTE should have the events__override LEFT JOIN
+        # (The resolver automatically adds this when it sees person_id references)
+        assert "events__override" in sql
+        assert "LEFT" in sql.upper()
 
     def test_join_using(self):
         node = self._select(
