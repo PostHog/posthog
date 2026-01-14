@@ -57,7 +57,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
                 </>
             )}
             {/* Spacer used in the card view because the first step has no conversion percentage. */}
-            {isFirstStep && inCardView && <span className="inline-block w-[55px]"></span>}
+            {isFirstStep && inCardView && <span className="inline-block w-[55px]" />}
         </>
     )
     const droppedOffCountPresentationWithPercentage = (

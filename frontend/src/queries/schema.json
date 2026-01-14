@@ -18329,7 +18329,8 @@
                 "databricks",
                 "tiktok-ads",
                 "bing-ads",
-                "vercel"
+                "vercel",
+                "azure-blob"
             ],
             "type": "string"
         },
@@ -22507,7 +22508,16 @@
                 "in",
                 "not_in",
                 "is_cleaned_path_exact",
-                "flag_evaluates_to"
+                "flag_evaluates_to",
+                "semver_eq",
+                "semver_neq",
+                "semver_gt",
+                "semver_gte",
+                "semver_lt",
+                "semver_lte",
+                "semver_tilde",
+                "semver_caret",
+                "semver_wildcard"
             ],
             "type": "string"
         },
