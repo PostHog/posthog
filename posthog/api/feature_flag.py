@@ -1106,9 +1106,11 @@ class FeatureFlagSerializer(
                 "properties": [
                     {
                         **prop,
-                        "key": f"$feature_enrollment/{validated_key}"
-                        if prop.get("key", "").startswith("$feature_enrollment/")
-                        else prop["key"],
+                        "key": (
+                            f"$feature_enrollment/{validated_key}"
+                            if prop.get("key", "").startswith("$feature_enrollment/")
+                            else prop["key"]
+                        ),
                     }
                     for prop in group.get("properties", [])
                 ],
@@ -1729,40 +1731,21 @@ class FeatureFlagViewSet(
 
         return Response({"success": True}, status=200)
 
-    @action(methods=["POST"], detail=True)
-    def has_active_dependents(self, request: request.Request, **kwargs):
-        """Check if this flag has other active flags that depend on it."""
+    @action(methods=["GET"], detail=True)
+    def dependent_flags(self, request: request.Request, **kwargs):
+        """Get other active flags that depend on this flag."""
         feature_flag: FeatureFlag = self.get_object()
-
-        # Use the serializer class method to find dependent flags
         serializer = self.serializer_class()
         dependent_flags = serializer._find_dependent_flags(feature_flag)
-
-        has_dependents = len(dependent_flags) > 0
-
-        if not has_dependents:
-            return Response({"has_active_dependents": False, "dependent_flags": []}, status=200)
-
-        dependent_flag_data = [
-            {
-                "id": flag.id,
-                "key": flag.key,
-                "name": flag.name or flag.key,
-            }
-            for flag in dependent_flags
-        ]
-
         return Response(
-            {
-                "has_active_dependents": True,
-                "dependent_flags": dependent_flag_data,
-                "warning": (
-                    f"This feature flag is used by {len(dependent_flags)} other active "
-                    f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
-                    f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
-                    f"to evaluate this condition as false."
-                ),
-            },
+            [
+                {
+                    "id": flag.id,
+                    "key": flag.key,
+                    "name": flag.name or flag.key,
+                }
+                for flag in dependent_flags
+            ],
             status=200,
         )
 

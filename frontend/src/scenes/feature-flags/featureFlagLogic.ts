@@ -1164,11 +1164,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadDependentFlags: async () => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        const response = await api.create(
-                            `api/projects/${currentProjectId}/feature_flags/${props.id}/has_active_dependents/`,
-                            {}
+                        return await api.get(
+                            `api/projects/${currentProjectId}/feature_flags/${props.id}/dependent_flags/`
                         )
-                        return response.dependent_flags || []
                     }
                     return []
                 },
