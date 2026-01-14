@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
             field=models.BooleanField(
                 blank=True,
                 default=False,
-                help_text="Whether to require at least one evaluation context when creating new feature flags",
+                help_text="Whether to require at least one evaluation context tag when creating new feature flags",
                 null=True,
             ),
         ),

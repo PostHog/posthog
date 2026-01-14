@@ -105,7 +105,12 @@ class TeamManager(models.Manager):
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     return [
-                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                        {
+                            "key": "email",
+                            "operator": "not_icontains",
+                            "value": example_email.group(),
+                            "type": "person",
+                        },
                         *filters,
                     ]
         return filters
@@ -129,7 +134,8 @@ class TeamManager(models.Manager):
         # Self-hosted deployments get 5-year session recording retention by default
         if not is_cloud():
             team.session_recording_retention_period = kwargs.get(
-                "session_recording_retention_period", SessionRecordingRetentionPeriod.FIVE_YEARS
+                "session_recording_retention_period",
+                SessionRecordingRetentionPeriod.FIVE_YEARS,
             )
 
         if team.extra_settings is None:
@@ -297,7 +303,10 @@ class Team(UUIDTClassicModel):
     )
     # NOTE: To be removed in favour of parent_team
     project = models.ForeignKey(
-        "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
+        "posthog.Project",
+        on_delete=models.CASCADE,
+        related_name="teams",
+        related_query_name="team",
     )
     api_token = models.CharField(
         max_length=200,
@@ -380,7 +389,9 @@ class Team(UUIDTClassicModel):
         "editor",
     )
     session_recording_trigger_match_type_config = field_access_control(
-        models.CharField(null=True, blank=True, max_length=24), "session_recording", "editor"
+        models.CharField(null=True, blank=True, max_length=24),
+        "session_recording",
+        "editor",
     )
     session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
     session_recording_retention_period = models.CharField(
@@ -444,7 +455,7 @@ class Team(UUIDTClassicModel):
         null=True,
         blank=True,
         default=False,
-        help_text="Whether to require at least one evaluation context when creating new feature flags",
+        help_text="Whether to require at least one evaluation context tag when creating new feature flags",
     )
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
@@ -470,7 +481,9 @@ class Team(UUIDTClassicModel):
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
     human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
     cookieless_server_hash_mode = models.SmallIntegerField(
-        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
+        default=CookielessServerHashMode.DISABLED,
+        choices=CookielessServerHashMode.choices,
+        null=True,
     )
 
     primary_dashboard = models.ForeignKey(
@@ -634,7 +647,13 @@ class Team(UUIDTClassicModel):
                 "persons-on-events-person-id-no-override-properties-on-events",
                 str(self.uuid),
                 groups={"project": str(self.id)},
-                group_properties={"project": {"id": str(self.id), "created_at": self.created_at, "uuid": self.uuid}},
+                group_properties={
+                    "project": {
+                        "id": str(self.id),
+                        "created_at": self.created_at,
+                        "uuid": self.uuid,
+                    }
+                },
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
@@ -908,7 +927,8 @@ class Team(UUIDTClassicModel):
 
             # Get all organization admins and owners
             admin_user_ids = OrganizationMembership.objects.filter(
-                organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
+                organization_id=self.organization_id,
+                level__gte=OrganizationMembership.Level.ADMIN,
             ).values_list("user_id", flat=True)
 
             # Get users with specific access control entries for this team
