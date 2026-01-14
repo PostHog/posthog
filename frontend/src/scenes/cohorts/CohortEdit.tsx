@@ -1,6 +1,7 @@
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
 
 import {
     IconClock,
@@ -116,6 +117,12 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         enabled: Boolean(cohortId && !cohortLoading && !cohortMissing && !cohort.deleted),
         deps: [cohortId, cohortLoading, cohortMissing, cohort.deleted],
     })
+
+    const isPendingCalculation = useMemo(
+        () => cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version),
+        [cohort.pending_version, cohort.version]
+    )
+    const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
 
     const createStaticCohortContext: QueryContext = {
         columns: {
@@ -340,11 +347,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     {!isNewCohort &&
                                         !cohort?.is_static &&
                                         (() => {
-                                            const isPendingCalculation =
-                                                cohort.pending_version != null &&
-                                                (cohort.version == null || cohort.pending_version !== cohort.version)
-                                            const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
-
                                             return (
                                                 <div className="flex flex-col gap-y-2">
                                                     <div className="flex items-center gap-x-2 my-0">
@@ -548,11 +550,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                         {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
                         {typeof cohort.id === 'number' &&
                             (() => {
-                                const isPendingCalculation =
-                                    cohort.pending_version != null &&
-                                    (cohort.version == null || cohort.pending_version !== cohort.version)
-                                const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
-
                                 return (
                                     <>
                                         <SceneDivider />
