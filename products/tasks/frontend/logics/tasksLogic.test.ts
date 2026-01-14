@@ -16,10 +16,6 @@ const createMockTask = (id: string): Task => ({
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
     created_by: null,
-    distinct_user_count: 0,
-    occurrence_count: 0,
-    last_occurrence_at: null,
-    reference_count: 0,
 })
 
 describe('tasksLogic', () => {
