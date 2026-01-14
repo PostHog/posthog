@@ -985,7 +985,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
         with (
             patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model") as root_mock,
-            patch("ee.hogai.chat_agent.loop_graph.nodes.AgentLoopGraphToolsNode.arun") as root_tool_mock,
+            patch("ee.hogai.core.agent_modes.executables.AgentToolsExecutable.arun") as root_tool_mock,
         ):
 
             def assert_lock_status(_):

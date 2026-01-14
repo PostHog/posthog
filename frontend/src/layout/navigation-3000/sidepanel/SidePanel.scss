@@ -4,7 +4,7 @@
     box-sizing: content-box;
     display: flex;
     flex-shrink: 0;
-    width: 3rem;
+    width: 45px;
     background: var(--color-bg-surface-secondary);
 
     &--open {
@@ -12,8 +12,7 @@
 
         // NOTE: This is only a default, as the resizer will override this
         width: min(30%, 40rem);
-        min-width: 28rem;
-        max-width: 60%;
+        min-width: var(--side-panel-min-width);
 
         @media (max-width: 1200px) {
             position: fixed;
@@ -42,7 +41,7 @@
     height: 100vh;
     overflow: hidden;
     user-select: none;
-    border-left-width: 1px;
+    background: var(--color-bg-surface-tertiary);
 
     .LemonButton__icon {
         transform: rotate(-90deg);
