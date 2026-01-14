@@ -186,7 +186,7 @@ export const getAPISteps = (
                                     }
                                     payload = {
                                         "api_key": "<ph_project_api_key>",
-                                        "event": "feature_flag_called",
+                                        "event": "$feature_flag_called",
                                         "distinct_id": "distinct_id_of_your_user",
                                         "properties": {
                                             "$feature_flag": "feature-flag-key",
