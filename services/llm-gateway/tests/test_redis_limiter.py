@@ -2,25 +2,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from llm_gateway.rate_limiting.redis_limiter import IN_MEMORY_LIMIT_DIVIDER, TokenRateLimiter
+from llm_gateway.rate_limiting.redis_limiter import TokenRateLimiter
 
 
 class TestTokenRateLimiter:
     @pytest.mark.parametrize(
         "tokens,limit,expected",
         [
-            (100, 1000, True),  # Under limit
-            (1000, 1000, True),  # At limit
-            (1001, 1000, False),  # Over limit
+            (50, 1000, True),  # Under fallback limit (100)
+            (100, 1000, True),  # At fallback limit (100)
+            (101, 1000, False),  # Over fallback limit (100)
         ],
     )
     async def test_consume_without_redis(self, tokens: int, limit: int, expected: bool) -> None:
         limiter = TokenRateLimiter(redis=None, limit=limit, window_seconds=60)
-        fallback_limit = limit / IN_MEMORY_LIMIT_DIVIDER
-
-        # If tokens > fallback_limit, should be denied
         result = await limiter.consume("test_key", tokens)
-        assert result == (tokens <= fallback_limit)
+        assert result == expected
 
     async def test_fallback_uses_reduced_limits(self) -> None:
         limiter = TokenRateLimiter(redis=None, limit=1000, window_seconds=60)
