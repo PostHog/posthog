@@ -6,6 +6,8 @@ from typing import Optional
 import structlog
 from temporalio import activity
 
+from posthog import settings
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import get_cluster
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -138,13 +140,15 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> None:
     try:
         cluster = get_cluster()
 
-        # Execute on any node - the distributed table will route to correct shards
         def run_insert(client):
             client.execute(query, params)
 
-        # Use a single node since writable_event_properties is a distributed table
-        # that will route inserts to the correct shards
-        cluster.any_host(run_insert).result()
+        # writable_event_properties exists only on INGESTION_SMALL nodes in cloud.
+        # In non-cloud environments, all tables exist on all nodes (see migration_tools.py)
+        if settings.CLOUD_DEPLOYMENT:
+            cluster.any_host_by_role(run_insert, NodeRole.INGESTION_SMALL).result()
+        else:
+            cluster.any_host(run_insert).result()
 
         logger.info(
             "EAV backfill completed",
