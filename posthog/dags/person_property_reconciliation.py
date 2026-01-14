@@ -576,6 +576,14 @@ def compare_raw_updates_with_person_state(
     - $set_once: only include if key does NOT exist in person
     - $unset: only include if key EXISTS in person
 
+    Note on comparison semantics:
+        This function uses Python object comparison, so semantically equal values
+        like 123 (int) and 123.0 (float) are considered equal. This differs from
+        the non-windowed SQL path (get_person_property_updates_from_clickhouse)
+        which compares raw JSON string representations. The Python approach is
+        preferable for reconciliation as it avoids unnecessary updates when
+        values are semantically equivalent.
+
     Args:
         team_id: Team ID
         raw_updates: Merged raw updates from all time windows

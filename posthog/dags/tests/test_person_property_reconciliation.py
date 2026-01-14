@@ -17,6 +17,7 @@ from posthog.dags.person_property_reconciliation import (
     PropertyValue,
     RawPersonPropertyUpdates,
     SkipReason,
+    compare_raw_updates_with_person_state,
     fetch_person_properties_from_clickhouse,
     filter_event_person_properties,
     format_ch_timestamp,
@@ -1785,6 +1786,254 @@ class TestMergeRawPersonPropertyUpdates:
         assert len(result) == 1
         assert "email" not in result[0].set_updates
         assert "email" in result[0].unset_updates
+
+
+class TestCompareRawUpdatesWithPersonState:
+    """Test the compare_raw_updates_with_person_state function for windowed query flow.
+
+    This function compares merged raw event updates against current person state in ClickHouse.
+    It filters to only return actual differences that need to be applied.
+    """
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_empty_raw_updates_returns_empty(self, mock_sync_execute):
+        """Test that empty raw_updates returns empty result without querying CH."""
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=[])
+
+        assert result == []
+        mock_sync_execute.assert_not_called()
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_person_not_found_excluded_from_results(self, mock_sync_execute):
+        """Test that persons not found in CH are excluded from results."""
+        mock_sync_execute.return_value = []  # No person found
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        assert result == []
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_set_key_exists_value_differs_included(self, mock_sync_execute):
+        """Test that $set is included when key exists in person AND value differs."""
+        mock_sync_execute.return_value = [("person-1", '{"email": "old@example.com"}', 5)]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "new@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        assert len(result) == 1
+        assert "email" in result[0].set_updates
+        assert result[0].set_updates["email"].value == "new@example.com"
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_set_key_exists_value_same_excluded(self, mock_sync_execute):
+        """Test that $set is excluded when key exists but value is the same."""
+        mock_sync_execute.return_value = [("person-1", '{"email": "same@example.com"}', 5)]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "same@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        assert result == []
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_set_key_not_exists_excluded(self, mock_sync_execute):
+        """Test that $set is excluded when key does NOT exist in person properties."""
+        mock_sync_execute.return_value = [("person-1", '{"other_key": "value"}', 5)]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        assert result == []
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_set_once_key_not_exists_included(self, mock_sync_execute):
+        """Test that $set_once is included when key does NOT exist in person."""
+        mock_sync_execute.return_value = [("person-1", '{"other_key": "value"}', 5)]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={},
+                set_once_updates={"referrer": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "google.com")},
+                unset_updates={},
+            )
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        assert len(result) == 1
+        assert "referrer" in result[0].set_once_updates
+        assert result[0].set_once_updates["referrer"].value == "google.com"
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_set_once_key_exists_excluded(self, mock_sync_execute):
+        """Test that $set_once is excluded when key already exists in person."""
+        mock_sync_execute.return_value = [("person-1", '{"referrer": "existing.com"}', 5)]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={},
+                set_once_updates={"referrer": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "new.com")},
+                unset_updates={},
+            )
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        assert result == []
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_unset_key_exists_included(self, mock_sync_execute):
+        """Test that $unset is included when key exists in person."""
+        mock_sync_execute.return_value = [("person-1", '{"email": "test@example.com"}', 5)]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={},
+                set_once_updates={},
+                unset_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), None)},
+            )
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        assert len(result) == 1
+        assert "email" in result[0].unset_updates
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_unset_key_not_exists_excluded(self, mock_sync_execute):
+        """Test that $unset is excluded when key does NOT exist in person."""
+        mock_sync_execute.return_value = [("person-1", '{"other_key": "value"}', 5)]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={},
+                set_once_updates={},
+                unset_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), None)},
+            )
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        assert result == []
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_multiple_persons_processed_independently(self, mock_sync_execute):
+        """Test that multiple persons are processed independently."""
+        mock_sync_execute.return_value = [
+            ("person-1", '{"email": "old1@example.com"}', 5),
+            ("person-2", "{}", 3),  # Empty properties
+        ]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "new1@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            ),
+            RawPersonPropertyUpdates(
+                person_id="person-2",
+                set_updates={},
+                set_once_updates={"source": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "organic")},
+                unset_updates={},
+            ),
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        assert len(result) == 2
+        # Person 1: $set included (key exists, value differs)
+        p1 = next(r for r in result if r.person_id == "person-1")
+        assert "email" in p1.set_updates
+        # Person 2: $set_once included (key doesn't exist)
+        p2 = next(r for r in result if r.person_id == "person-2")
+        assert "source" in p2.set_once_updates
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_person_version_propagated_correctly(self, mock_sync_execute):
+        """Test that person_version from CH is propagated to PersonPropertyDiffs."""
+        mock_sync_execute.return_value = [
+            ("person-1", '{"email": "old@example.com"}', 42)  # version=42
+        ]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "new@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        assert len(result) == 1
+        assert result[0].person_version == 42
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_type_coercion_equality(self, mock_sync_execute):
+        """Test that Python type coercion treats 123 and 123.0 as equal.
+
+        This documents the semantic comparison behavior: the windowed path uses
+        Python object comparison, so numerically equivalent values like 123 (int)
+        and 123.0 (float) are considered equal. This differs from the non-windowed
+        SQL path which compares raw JSON strings.
+
+        The Python approach is preferable for reconciliation as it avoids
+        unnecessary updates when values are semantically equivalent.
+        """
+        # Person has integer 123, event sets float 123.0
+        mock_sync_execute.return_value = [("person-1", '{"count": 123}', 5)]
+
+        raw_updates = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"count": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), 123.0)},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+
+        result = compare_raw_updates_with_person_state(team_id=1, raw_updates=raw_updates)
+
+        # 123 == 123.0 in Python, so no diff is generated
+        assert result == []
 
 
 class TestGetPersonPropertyUpdatesWindowed:
