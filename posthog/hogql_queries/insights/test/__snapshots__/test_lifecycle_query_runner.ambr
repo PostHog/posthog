@@ -30,7 +30,8 @@
            FROM
              (SELECT 1) ARRAY
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
-        ORDER BY sec.status ASC, start_of_period ASC
+        ORDER BY sec.status ASC,
+                 start_of_period ASC
         UNION ALL SELECT start_of_period AS start_of_period,
                          count(DISTINCT actor_id) AS counts,
                          status AS status
@@ -203,7 +204,8 @@
            FROM
              (SELECT 1) ARRAY
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
-        ORDER BY sec.status ASC, start_of_period ASC
+        ORDER BY sec.status ASC,
+                 start_of_period ASC
         UNION ALL SELECT start_of_period AS start_of_period,
                          count(DISTINCT actor_id) AS counts,
                          status AS status
@@ -282,7 +284,8 @@
            FROM
              (SELECT 1) ARRAY
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
-        ORDER BY sec.status ASC, start_of_period ASC
+        ORDER BY sec.status ASC,
+                 start_of_period ASC
         UNION ALL SELECT start_of_period AS start_of_period,
                          count(DISTINCT actor_id) AS counts,
                          status AS status
@@ -361,7 +364,8 @@
            FROM
              (SELECT 1) ARRAY
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
-        ORDER BY sec.status ASC, start_of_period ASC
+        ORDER BY sec.status ASC,
+                 start_of_period ASC
         UNION ALL SELECT start_of_period AS start_of_period,
                          count(DISTINCT actor_id) AS counts,
                          status AS status

@@ -346,7 +346,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -489,7 +490,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -533,7 +535,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -577,7 +580,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -621,7 +625,8 @@
                     breakdown_value_1)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -665,7 +670,8 @@
                     breakdown_value_1)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -730,7 +736,8 @@
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
@@ -794,7 +801,8 @@
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
@@ -883,7 +891,8 @@
            WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), 0)))
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -1024,7 +1033,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -1092,7 +1102,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -1143,7 +1154,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -1194,7 +1206,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -1245,7 +1258,8 @@
                     breakdown_value_1)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -1296,7 +1310,8 @@
                     breakdown_value_1)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -1850,7 +1865,8 @@
            WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0)))
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -1928,7 +1944,8 @@
            WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0)))
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -1995,7 +2012,8 @@
            WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0)))
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -2062,7 +2080,8 @@
            WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0)))
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -2156,7 +2175,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -2283,7 +2303,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -3006,7 +3027,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -3204,7 +3226,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -3402,7 +3425,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -3846,7 +3870,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -3909,7 +3934,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -4047,7 +4073,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -4108,7 +4135,8 @@
                     breakdown_value_1)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -4238,7 +4266,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -4332,7 +4361,7 @@
        (SELECT day_start AS day_start,
                sum(count) OVER (PARTITION BY breakdown_value
                                 ORDER BY day_start ASC) AS count,
-                               breakdown_value AS breakdown_value
+               breakdown_value AS breakdown_value
         FROM
           (SELECT sum(total) AS count,
                   day_start AS day_start,
@@ -4354,7 +4383,8 @@
                        breakdown_value)
            GROUP BY day_start,
                     breakdown_value
-           ORDER BY day_start ASC, breakdown_value ASC)
+           ORDER BY day_start ASC,
+                    breakdown_value ASC)
         ORDER BY day_start ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
@@ -4389,7 +4419,7 @@
        (SELECT day_start AS day_start,
                sum(count) OVER (PARTITION BY breakdown_value
                                 ORDER BY day_start ASC) AS count,
-                               breakdown_value AS breakdown_value
+               breakdown_value AS breakdown_value
         FROM
           (SELECT sum(total) AS count,
                   day_start AS day_start,
@@ -4411,7 +4441,8 @@
                        breakdown_value)
            GROUP BY day_start,
                     breakdown_value
-           ORDER BY day_start ASC, breakdown_value ASC)
+           ORDER BY day_start ASC,
+                    breakdown_value ASC)
         ORDER BY day_start ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
@@ -4446,7 +4477,7 @@
        (SELECT day_start AS day_start,
                sum(count) OVER (PARTITION BY breakdown_value
                                 ORDER BY day_start ASC) AS count,
-                               breakdown_value AS breakdown_value
+               breakdown_value AS breakdown_value
         FROM
           (SELECT sum(total) AS count,
                   day_start AS day_start,
@@ -4470,7 +4501,8 @@
                        breakdown_value)
            GROUP BY day_start,
                     breakdown_value
-           ORDER BY day_start ASC, breakdown_value ASC)
+           ORDER BY day_start ASC,
+                    breakdown_value ASC)
         ORDER BY day_start ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
@@ -4522,7 +4554,8 @@
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
@@ -4572,7 +4605,8 @@
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
@@ -4622,7 +4656,8 @@
            GROUP BY breakdown_value_1)
         GROUP BY breakdown_value_1
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
@@ -4672,7 +4707,8 @@
            GROUP BY breakdown_value_1)
         GROUP BY breakdown_value_1
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
@@ -4875,7 +4911,8 @@
               GROUP BY breakdown_value))
         GROUP BY breakdown_value
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
@@ -5174,7 +5211,8 @@
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
@@ -5241,7 +5279,8 @@
            GROUP BY breakdown_value_1)
         GROUP BY breakdown_value_1
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
@@ -5473,7 +5512,8 @@
                     day_start)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -5532,7 +5572,8 @@
                     day_start)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -5591,7 +5632,8 @@
                     day_start)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -5650,7 +5692,8 @@
                     day_start)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)

@@ -1256,7 +1256,8 @@
               GROUP BY source_label,
                        customer_id,
                        subscription_id
-              ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+              ORDER BY customer_id ASC,
+                       subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
@@ -1488,7 +1489,8 @@
               GROUP BY source_label,
                        customer_id,
                        subscription_id
-              ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+              ORDER BY customer_id ASC,
+                       subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,

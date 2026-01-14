@@ -187,7 +187,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
@@ -391,7 +392,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
@@ -604,7 +606,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons__revenue_analytics.revenue ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -816,7 +819,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons__revenue_analytics.revenue ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -1030,7 +1034,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -1243,7 +1248,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -1456,7 +1462,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -1669,7 +1676,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -1882,7 +1890,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -2096,7 +2105,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -2315,7 +2325,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.person_id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -2534,7 +2545,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.person_id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -2741,7 +2753,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.mrr DESC,
            persons_revenue_analytics.revenue DESC
@@ -2949,7 +2962,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.mrr DESC,
            persons_revenue_analytics.revenue DESC
@@ -3195,14 +3209,16 @@
                     GROUP BY source_label,
                              customer_id,
                              subscription_id
-                    ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                    ORDER BY customer_id ASC,
+                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -3407,14 +3423,16 @@
                     GROUP BY source_label,
                              customer_id,
                              subscription_id
-                    ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                    ORDER BY customer_id ASC,
+                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -3647,14 +3665,16 @@
                     GROUP BY source_label,
                              customer_id,
                              subscription_id
-                    ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                    ORDER BY customer_id ASC,
+                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -3900,14 +3920,16 @@
                     GROUP BY source_label,
                              customer_id,
                              subscription_id
-                    ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                    ORDER BY customer_id ASC,
+                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
                  breakdown_value_1
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
@@ -4176,14 +4198,16 @@
                                    GROUP BY source_label,
                                             customer_id,
                                             subscription_id
-                                   ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                   ORDER BY customer_id ASC,
+                                            subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                 GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
                        GROUP BY day_start,
                                 breakdown_value_1
-                       ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                       ORDER BY day_start ASC,
+                                breakdown_value ASC)) AS breakdown_series
                  JOIN
                    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
                            totals_per_breakdown.ordering AS ordering,
@@ -4397,14 +4421,16 @@
                                          GROUP BY source_label,
                                                   customer_id,
                                                   subscription_id
-                                         ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                         ORDER BY customer_id ASC,
+                                                  subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                       GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
                              GROUP BY day_start,
                                       breakdown_value_1
-                             ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                             ORDER BY day_start ASC,
+                                      breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
            UNION ALL SELECT other_breakdown_values.day_start AS day_start,
@@ -4623,14 +4649,16 @@
                                    GROUP BY source_label,
                                             customer_id,
                                             subscription_id
-                                   ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                   ORDER BY customer_id ASC,
+                                            subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                 GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
                        GROUP BY day_start,
                                 breakdown_value_1
-                       ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                       ORDER BY day_start ASC,
+                                breakdown_value ASC)) AS breakdown_series
                  JOIN
                    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
                            totals_per_breakdown.ordering AS ordering,
@@ -4844,18 +4872,21 @@
                                          GROUP BY source_label,
                                                   customer_id,
                                                   subscription_id
-                                         ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                         ORDER BY customer_id ASC,
+                                                  subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                       GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
                              GROUP BY day_start,
                                       breakdown_value_1
-                             ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                             ORDER BY day_start ASC,
+                                      breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
               GROUP BY ranked_breakdown_values.day_start) AS other_breakdown_values)
-        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+        ORDER BY day_start ASC,
+                 value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -5078,14 +5109,16 @@
                                    GROUP BY source_label,
                                             customer_id,
                                             subscription_id
-                                   ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                   ORDER BY customer_id ASC,
+                                            subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                 GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
                        GROUP BY day_start,
                                 breakdown_value_1
-                       ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                       ORDER BY day_start ASC,
+                                breakdown_value ASC)) AS breakdown_series
                  JOIN
                    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
                            totals_per_breakdown.ordering AS ordering,
@@ -5256,14 +5289,16 @@
                                          GROUP BY source_label,
                                                   customer_id,
                                                   subscription_id
-                                         ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                         ORDER BY customer_id ASC,
+                                                  subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                       GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
                              GROUP BY day_start,
                                       breakdown_value_1
-                             ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                             ORDER BY day_start ASC,
+                                      breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
            UNION ALL SELECT other_breakdown_values.day_start AS day_start,
@@ -5439,14 +5474,16 @@
                                    GROUP BY source_label,
                                             customer_id,
                                             subscription_id
-                                   ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                   ORDER BY customer_id ASC,
+                                            subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                 GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
                        GROUP BY day_start,
                                 breakdown_value_1
-                       ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                       ORDER BY day_start ASC,
+                                breakdown_value ASC)) AS breakdown_series
                  JOIN
                    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
                            totals_per_breakdown.ordering AS ordering,
@@ -5617,18 +5654,21 @@
                                          GROUP BY source_label,
                                                   customer_id,
                                                   subscription_id
-                                         ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                         ORDER BY customer_id ASC,
+                                                  subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                       GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
                              GROUP BY day_start,
                                       breakdown_value_1
-                             ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                             ORDER BY day_start ASC,
+                                      breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
               GROUP BY ranked_breakdown_values.day_start) AS other_breakdown_values)
-        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+        ORDER BY day_start ASC,
+                 value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -5879,14 +5919,16 @@
                                    GROUP BY source_label,
                                             customer_id,
                                             subscription_id
-                                   ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                   ORDER BY customer_id ASC,
+                                            subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                 GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
                        GROUP BY day_start,
                                 breakdown_value_1
-                       ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                       ORDER BY day_start ASC,
+                                breakdown_value ASC)) AS breakdown_series
                  JOIN
                    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
                            totals_per_breakdown.ordering AS ordering,
@@ -6085,14 +6127,16 @@
                                          GROUP BY source_label,
                                                   customer_id,
                                                   subscription_id
-                                         ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                         ORDER BY customer_id ASC,
+                                                  subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                       GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
                              GROUP BY day_start,
                                       breakdown_value_1
-                             ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                             ORDER BY day_start ASC,
+                                      breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
            UNION ALL SELECT other_breakdown_values.day_start AS day_start,
@@ -6296,14 +6340,16 @@
                                    GROUP BY source_label,
                                             customer_id,
                                             subscription_id
-                                   ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                   ORDER BY customer_id ASC,
+                                            subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                 GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
                        GROUP BY day_start,
                                 breakdown_value_1
-                       ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                       ORDER BY day_start ASC,
+                                breakdown_value ASC)) AS breakdown_series
                  JOIN
                    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
                            totals_per_breakdown.ordering AS ordering,
@@ -6502,18 +6548,21 @@
                                          GROUP BY source_label,
                                                   customer_id,
                                                   subscription_id
-                                         ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                         ORDER BY customer_id ASC,
+                                                  subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                       GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
                              GROUP BY day_start,
                                       breakdown_value_1
-                             ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                             ORDER BY day_start ASC,
+                                      breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
               GROUP BY ranked_breakdown_values.day_start) AS other_breakdown_values)
-        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+        ORDER BY day_start ASC,
+                 value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
@@ -6777,14 +6826,16 @@
                                    GROUP BY source_label,
                                             customer_id,
                                             subscription_id
-                                   ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                   ORDER BY customer_id ASC,
+                                            subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                 GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
                        GROUP BY day_start,
                                 breakdown_value_1
-                       ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                       ORDER BY day_start ASC,
+                                breakdown_value ASC)) AS breakdown_series
                  JOIN
                    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
                            totals_per_breakdown.ordering AS ordering,
@@ -6996,14 +7047,16 @@
                                          GROUP BY source_label,
                                                   customer_id,
                                                   subscription_id
-                                         ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                         ORDER BY customer_id ASC,
+                                                  subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                       GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
                              GROUP BY day_start,
                                       breakdown_value_1
-                             ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                             ORDER BY day_start ASC,
+                                      breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
            UNION ALL SELECT other_breakdown_values.day_start AS day_start,
@@ -7220,14 +7273,16 @@
                                    GROUP BY source_label,
                                             customer_id,
                                             subscription_id
-                                   ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                   ORDER BY customer_id ASC,
+                                            subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                 GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
                        GROUP BY day_start,
                                 breakdown_value_1
-                       ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                       ORDER BY day_start ASC,
+                                breakdown_value ASC)) AS breakdown_series
                  JOIN
                    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
                            totals_per_breakdown.ordering AS ordering,
@@ -7439,18 +7494,21 @@
                                          GROUP BY source_label,
                                                   customer_id,
                                                   subscription_id
-                                         ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                                         ORDER BY customer_id ASC,
+                                                  subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
                                       GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
                              GROUP BY day_start,
                                       breakdown_value_1
-                             ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
+                             ORDER BY day_start ASC,
+                                      breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
               GROUP BY ranked_breakdown_values.day_start) AS other_breakdown_values)
-        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+        ORDER BY day_start ASC,
+                 value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
