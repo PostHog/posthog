@@ -244,6 +244,17 @@ class OrganizationFeatureFlagView(
             user: The user performing the copy operation
         """
         from posthog.models.scheduled_change import ScheduledChange
+        from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+        
+        # Validate user has permission to create schedules in target project
+        user_access_control = UserAccessControl(user, target_flag.team)
+        user_access_level = user_access_control.get_user_access_level(target_flag)
+        
+        if not user_access_level or not access_level_satisfied_for_resource(
+            "feature_flag", user_access_level, "editor"
+        ):
+            # Skip copying schedules if user lacks permissions, don't fail the entire operation
+            return
         
         # Get all pending scheduled changes for the source flag
         source_schedules = ScheduledChange.objects.filter(
