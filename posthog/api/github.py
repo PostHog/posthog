@@ -183,6 +183,7 @@ class SecretAlert(APIView):
                 "token_suffix": token[-4:],
             }
 
+            # GitHub sends "posthog_feature_flags_secure_api_key" for personal API keys
             if item["type"] == GITHUB_TYPE_FOR_PERSONAL_API_KEY:
                 key_lookup = find_personal_api_key(token)
                 posthoganalytics.capture(
