@@ -1178,7 +1178,8 @@ class ExperimentQueryBuilder:
                 aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
                     inner_value_expr = parse_expr(f"toFloat({column_ref})")
-                    return build_aggregation_call(aggregation_function, inner_value_expr, params=params)
+                    agg_call = build_aggregation_call(aggregation_function, inner_value_expr, params=params)
+                    return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
             # Fallback to SUM
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
         else:
