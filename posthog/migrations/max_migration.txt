@@ -1,1 +1,1 @@
-0972_team_logs_settings
+0973_alter_integration_kind

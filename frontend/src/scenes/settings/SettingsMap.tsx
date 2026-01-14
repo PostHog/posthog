@@ -452,7 +452,14 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'replay-integrations',
-                title: 'Integrations',
+                title: (
+                    <>
+                        Integrations
+                        <LemonTag type="success" className="ml-1 uppercase">
+                            New
+                        </LemonTag>
+                    </>
+                ),
                 component: <ReplayIntegrations />,
                 flag: 'REPLAY_LINEAR_INTEGRATION',
             },
