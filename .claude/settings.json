@@ -2,5 +2,21 @@
     "enabledPlugins": {
         "pyright-lsp@claude-plugins-official": true,
         "typescript-lsp@claude-plugins-official": true
+    },
+    "permissions": {
+        "allow": ["Bash(flox activate:*)"]
+    },
+    "hooks": {
+        "PostToolUse": [
+            {
+                "matcher": "(Edit|Write)",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "if [[ \"$CLAUDE_FILE_PATHS\" == *.py ]]; then flox activate -- bash -c \"ruff check $CLAUDE_FILE_PATHS --fix && ruff format $CLAUDE_FILE_PATHS\"; fi"
+                    }
+                ]
+            }
+        ]
     }
 }
