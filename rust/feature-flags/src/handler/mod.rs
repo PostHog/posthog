@@ -208,7 +208,8 @@ async fn process_request_inner(
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {
-                billing::record_usage(&context, &filtered_flags, team.id).await;
+                billing::record_usage(&context, &filtered_flags, team.id, metrics_data.library)
+                    .await;
             }
 
             response

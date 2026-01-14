@@ -1,8 +1,8 @@
 use crate::{
     api::{auth, errors::FlagError},
-    metrics::consts::DB_TEAM_READS_COUNTER,
     flags::{flag_analytics::increment_request_count, flag_request::FlagRequestType},
     handler::types::Library,
+    metrics::consts::DB_TEAM_READS_COUNTER,
     router::State as AppState,
     team::team_models::Team,
 };
@@ -79,7 +79,7 @@ pub async fn flags_definitions(
     // Record usage for billing with library tracking
     let library = Library::from_headers(&headers);
     if let Err(e) = increment_request_count(
-        state.redis_writer.clone(),
+        state.redis_client.clone(),
         team.id,
         1,
         FlagRequestType::FlagDefinitions,

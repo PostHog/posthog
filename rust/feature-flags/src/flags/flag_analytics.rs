@@ -93,6 +93,24 @@ mod tests {
             get_team_request_library_key(789, FlagRequestType::Decide, Library::PosthogAndroid),
             "posthog:decide_requests:sdk:789:posthog-android"
         );
+        // Test new SDK variants
+        assert_eq!(
+            get_team_request_library_key(100, FlagRequestType::Decide, Library::PosthogDotnet),
+            "posthog:decide_requests:sdk:100:posthog-dotnet"
+        );
+        assert_eq!(
+            get_team_request_library_key(
+                101,
+                FlagRequestType::FlagDefinitions,
+                Library::PosthogElixir
+            ),
+            "posthog:local_evaluation_requests:sdk:101:posthog-elixir"
+        );
+        // Test Other variant
+        assert_eq!(
+            get_team_request_library_key(102, FlagRequestType::Decide, Library::Other),
+            "posthog:decide_requests:sdk:102:other"
+        );
     }
 
     #[tokio::test]
@@ -221,8 +239,12 @@ mod tests {
         let count = 7;
 
         let decide_key = get_team_request_key(team_id, FlagRequestType::Decide);
+        // Use a sample library key to verify it doesn't get created
+        let library_key =
+            get_team_request_library_key(team_id, FlagRequestType::Decide, Library::PosthogNode);
 
         redis_client.del(decide_key.clone()).await.unwrap();
+        redis_client.del(library_key.clone()).await.unwrap();
 
         increment_request_count(
             redis_client.clone(),
@@ -248,6 +270,17 @@ mod tests {
             .unwrap();
 
         assert_eq!(decide_count, count);
+
+        // Verify no library key was created when None was passed
+        // hget returns empty string for non-existent keys in this implementation
+        let library_value: String = redis_client
+            .hget(library_key.clone(), time_bucket.to_string())
+            .await
+            .unwrap_or_default();
+        assert!(
+            library_value.is_empty(),
+            "Library key should not exist when None is passed"
+        );
 
         redis_client.del(decide_key).await.unwrap();
     }

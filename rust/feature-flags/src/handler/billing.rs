@@ -40,16 +40,18 @@ pub async fn check_limits(
 ///
 /// Only increments billing counters if there are billable flags present.
 /// Survey and product tour targeting flags are not billable.
+///
+/// The `library` parameter is passed in to avoid duplicate detection - it should
+/// be detected once at the start of request processing and reused.
 pub async fn record_usage(
     context: &RequestContext,
     filtered_flags: &FeatureFlagList,
     team_id: i32,
+    library: Library,
 ) {
     let has_billable_flags = contains_billable_flags(filtered_flags);
 
     if has_billable_flags {
-        let library = Library::from_headers(&context.headers);
-
         if let Err(e) = increment_request_count(
             context.state.redis_client.clone(),
             team_id,
