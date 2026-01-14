@@ -27,6 +27,7 @@ describe('Experiments', { concurrent: false }, () => {
         insights: [],
         dashboards: [],
         surveys: [],
+        annotations: [],
     }
     const createdExperiments: number[] = []
 

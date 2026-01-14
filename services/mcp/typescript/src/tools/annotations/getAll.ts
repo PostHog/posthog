@@ -17,7 +17,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
 
     return annotationsResult.data.map((annotation) => ({
         ...annotation,
-        url: `${context.api.getProjectBaseUrl(projectId)}/annotations`,
+        url: `${context.api.getProjectBaseUrl(projectId)}/data-management/annotations/${annotation.id}`,
     }))
 }
 

@@ -30,6 +30,7 @@ describe('Dashboards', { concurrent: false }, () => {
         insights: [],
         dashboards: [],
         surveys: [],
+        annotations: [],
     }
 
     beforeAll(async () => {

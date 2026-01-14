@@ -15,6 +15,7 @@ export interface CreatedResources {
     insights: number[]
     dashboards: number[]
     surveys: string[]
+    annotations: number[]
 }
 
 export function validateEnvironmentVariables(): void {

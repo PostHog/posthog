@@ -1570,15 +1570,12 @@ export class ApiClient {
                             success: true,
                             data: {
                                 success: true,
-                                message: `Annotation ${annotationId} deleted successfully`,
+                                message: 'Annotation deleted successfully',
                             },
                         }
                     }
 
-                    return {
-                        success: false,
-                        error: new Error(`Failed to delete annotation: ${response.statusText}`),
-                    }
+                    throw new Error(`Failed to delete annotation: ${response.statusText}`)
                 } catch (error) {
                     return {
                         success: false,

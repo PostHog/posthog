@@ -17,7 +17,7 @@ export const createHandler: ToolBase<typeof schema>['handler'] = async (context:
 
     return {
         ...annotationResult.data,
-        url: `${context.api.getProjectBaseUrl(projectId)}/annotations`,
+        url: `${context.api.getProjectBaseUrl(projectId)}/data-management/annotations/${annotationResult.data.id}`,
     }
 }
 
