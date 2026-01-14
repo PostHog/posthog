@@ -18,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
 
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
@@ -212,6 +213,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def get_event_ids_for_session(self) -> SessionRecordingQueryResult:
         query = self.get_query_for_event_id_matching()
 
+        tag_queries(product=Product.REPLAY, team_id=self._team.id)
         hogql_query_response = execute_hogql_query(
             query=query,
             team=self._team,

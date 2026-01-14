@@ -21,9 +21,9 @@ import { urls } from 'scenes/urls'
 import { IntegrationKind, IntegrationType, SessionRecordingExternalReference } from '~/types'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { createGitHubIssueForm, createLinearIssueForm } from './issueFormHelpers'
+import { createGitHubIssueForm, createGitLabIssueForm, createLinearIssueForm } from './issueFormHelpers'
 
-const SESSION_REPLAY_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
+const SESSION_REPLAY_INTEGRATIONS: IntegrationKind[] = ['linear', 'github', 'gitlab']
 
 type IssueConfig = Record<string, string>
 
@@ -68,11 +68,14 @@ export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
             createLinearIssueForm(sessionRecordingId, integration, submitHandler)
         } else if (integration.kind === 'github') {
             createGitHubIssueForm(sessionRecordingId, integration, submitHandler)
+        } else if (integration.kind === 'gitlab') {
+            createGitLabIssueForm(sessionRecordingId, integration, submitHandler)
         }
     }
 
     const linearReferences = externalReferences.filter((ref) => ref.integration.kind === 'linear')
     const githubReferences = externalReferences.filter((ref) => ref.integration.kind === 'github')
+    const gitlabReferences = externalReferences.filter((ref) => ref.integration.kind === 'gitlab')
 
     const renderIssueLink = (reference: SessionRecordingExternalReference): JSX.Element => (
         <Link
@@ -114,6 +117,12 @@ export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {
                         <div className="space-y-2">
                             <h4 className="text-sm font-medium text-muted">GitHub</h4>
                             {githubReferences.map(renderIssueLink)}
+                        </div>
+                    )}
+                    {gitlabReferences.length > 0 && (
+                        <div className="space-y-2">
+                            <h4 className="text-sm font-medium text-muted">GitLab</h4>
+                            {gitlabReferences.map(renderIssueLink)}
                         </div>
                     )}
                 </>
