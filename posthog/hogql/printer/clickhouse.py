@@ -372,7 +372,7 @@ class ClickHousePrinter(HogQLPrinter):
             if node.op == ast.CompareOperationOp.ILike:
                 if property_source.has_ngram_lower_index:
                     # Use the ngram_lower index if it exists, must use like instead of ilike.
-                    # ilike(haystack, needle) is equivalent to like(lower(haystack), lower(needle)), though less CPU
+                    # ilike(haystack, needle) is equivalent to like(lower(haystack), lower(needle)), though the latter is less CPU
                     # efficient so ONLY do this if the skip index is present.
                     # We use coalesce to match the index expression (ngram indexes don't support nullable columns).
                     return f"and(like(lower(coalesce({materialized_column_sql}, '')), lower({pattern_sql})), {materialized_column_sql} IS NOT NULL)"
