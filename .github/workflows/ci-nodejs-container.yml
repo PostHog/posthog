@@ -114,6 +114,7 @@ jobs:
               id: build
               uses: depot/build-push-action@9785b135c3c76c33db102e45be96a25ab55cd507 # v1.16.2
               with:
+                  context: .
                   buildx-fallback: false
                   project: '00mrvlsdvh'
                   push: true
