@@ -62,6 +62,8 @@ interface RawDateFilterProps extends DateFilterProps {
      * For example, set to 'day' to never show the time picker.
      */
     forceGranularity?: LemonCalendarSelectProps['granularity']
+    /** Use 24-hour format instead of 12-hour with AM/PM */
+    use24HourFormat?: boolean
     explicitDate?: boolean
     showExplicitDateToggle?: boolean
 }
@@ -88,6 +90,7 @@ export function DateFilter({
     placeholder,
     fullWidth = false,
     forceGranularity,
+    use24HourFormat = false,
     explicitDate,
     showExplicitDateToggle = false,
     resolvedDateRange,
@@ -157,6 +160,7 @@ export function DateFilter({
                 rangeDateTo={rangeDateTo}
                 setDate={setDate}
                 onClose={open}
+                use24HourFormat={use24HourFormat}
             />
         ) : view === DateFilterView.DateToNow ? (
             <LemonCalendarSelect
@@ -173,6 +177,7 @@ export function DateFilter({
                 onToggleTime={
                     forceGranularity ? undefined : () => setGranularity(granularity === 'minute' ? 'day' : 'minute')
                 }
+                use24HourFormat={use24HourFormat}
             />
         ) : view === DateFilterView.FixedDate ? (
             <PropertyFilterDatePicker

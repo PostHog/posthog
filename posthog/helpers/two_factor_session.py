@@ -1,5 +1,7 @@
 import time
 import datetime
+from dataclasses import dataclass
+from typing import Optional
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
@@ -9,13 +11,15 @@ from django.utils.crypto import constant_time_compare
 from django.utils.http import base36_to_int
 
 import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
 from posthog.cloud_utils import is_dev_mode
-from posthog.email import is_email_available
+from posthog.email import is_email_available, is_http_email_service_available
+from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
 from posthog.models.user import User
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
@@ -263,33 +267,92 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
 email_mfa_token_generator = EmailMFATokenGenerator()
 
 
+@dataclass
+class EmailMFACheckResult:
+    should_send: bool
+    suppression_bypassed: bool = False
+    suppression_reason: Optional[str] = None
+    suppression_cached: bool = False
+
+
 class EmailMFAVerifier:
-    def should_send_email_mfa_verification(self, user: User) -> bool:
+    def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(user.distinct_id),
+                event="email_mfa_bypassed_due_to_suppression",
+                properties={
+                    "reason": reason,
+                    "cached": cached,
+                },
+            )
+        except Exception as e:
+            mfa_logger.warning(
+                "Failed to capture email MFA suppression bypass event",
+                user_id=user.pk,
+                error=str(e),
+            )
+
+    def should_send_email_mfa_verification(self, user: User) -> EmailMFACheckResult:
         if is_dev_mode() and not settings.TEST:
-            return False
+            return EmailMFACheckResult(should_send=False)
 
         if not is_email_available(with_absolute_urls=True):
-            return False
+            return EmailMFACheckResult(should_send=False)
+
+        if not is_http_email_service_available():
+            mfa_logger.info(
+                "Email MFA bypassed - HTTP email service not configured",
+                user_id=user.pk,
+            )
+            self._capture_suppression_bypass_event(user, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE, False)
+            return EmailMFACheckResult(
+                should_send=False,
+                suppression_bypassed=True,
+                suppression_reason=ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE,
+                suppression_cached=False,
+            )
 
         try:
-            import posthoganalytics
-
             organization = user.organization
             if not organization:
-                return False
+                return EmailMFACheckResult(should_send=False)
 
-            return posthoganalytics.feature_enabled(
+            feature_enabled = posthoganalytics.feature_enabled(
                 "email-mfa",
                 str(user.distinct_id),
                 groups={"organization": str(organization.id)},
             )
+            if not feature_enabled:
+                return EmailMFACheckResult(should_send=False)
+
         except Exception:
-            return False
+            return EmailMFACheckResult(should_send=False)
+
+        suppression_result = check_esp_suppression(user.email)
+        if suppression_result.is_suppressed:
+            reason = suppression_result.reason or ""
+            from_cache = suppression_result.from_cache
+            mfa_logger.info(
+                "Email MFA bypassed due to ESP suppression",
+                user_id=user.pk,
+                reason=reason,
+                cached=from_cache,
+            )
+            self._capture_suppression_bypass_event(user, reason, from_cache)
+            return EmailMFACheckResult(
+                should_send=False,
+                suppression_bypassed=True,
+                suppression_reason=reason,
+                suppression_cached=from_cache,
+            )
+
+        return EmailMFACheckResult(should_send=True)
 
     def create_token_and_send_email_mfa_verification(self, request: HttpRequest, user: User) -> bool:
         from posthog.tasks import email
 
-        if not self.should_send_email_mfa_verification(user):
+        if not self.should_send_email_mfa_verification(user).should_send:
             return False
 
         try:

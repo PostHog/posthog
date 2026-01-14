@@ -36,6 +36,7 @@ export const endpointLogic = kea<endpointLogicType>([
         setSelectedCodeExampleVersion: (version: number | null) => ({ version }),
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
+        setDuplicateEndpoint: (endpoint: EndpointType | null) => ({ endpoint }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
         createEndpointFailure: () => ({}),
@@ -72,6 +73,12 @@ export const endpointLogic = kea<endpointLogicType>([
             null as string | null,
             {
                 setSelectedEndpointName: (_, { selectedEndpointName }) => selectedEndpointName,
+            },
+        ],
+        duplicateEndpoint: [
+            null as EndpointType | null,
+            {
+                setDuplicateEndpoint: (_, { endpoint }) => endpoint,
             },
         ],
     }),
@@ -145,6 +152,7 @@ export const endpointLogic = kea<endpointLogicType>([
             createEndpointSuccess: ({ response }) => {
                 actions.setEndpointName('')
                 actions.setEndpointDescription('')
+                actions.loadEndpoints()
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',

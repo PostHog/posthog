@@ -19,8 +19,8 @@ func TestLoadConfig(t *testing.T) {
 			name: "load all config values",
 			setup: func() {
 				// Values already set in setupTestConfig
-				os.Setenv("LIVESTREAM_JWT_SECRET", "token")
-				os.Setenv("LIVESTREAM_POSTGRES_URL", "pg url")
+				_ = os.Setenv("LIVESTREAM_JWT_SECRET", "token")
+				_ = os.Setenv("LIVESTREAM_POSTGRES_URL", "pg url")
 			},
 			want: &Config{
 				Debug:            true,

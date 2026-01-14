@@ -62,6 +62,12 @@ procs:
             bin/check_postgres_up posthog && \
             bin/start-rust-service feature-flags
 
+    livestream:
+        shell: |-
+            bin/check_postgres_up posthog && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-go-service livestream
+
     property-defs-rs:
         shell: |-
             bin/check_postgres_up && \

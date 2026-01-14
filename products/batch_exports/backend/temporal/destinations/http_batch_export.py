@@ -32,7 +32,7 @@ from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, json_dumps_bytes
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
-NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError",)
+NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError", "InvalidDestinationURLError")
 LOGGER = get_logger(__name__)
 
 
@@ -50,9 +50,22 @@ class NonRetryableResponseError(Exception):
         super().__init__(f"NonRetryableResponseError (status: {status}): {content}")
 
 
+class InvalidDestinationURLError(Exception):
+    """Error for invalid destination URL."""
+
+    def __init__(self, url):
+        super().__init__(f"Invalid destination URL: {url}")
+
+
 async def raise_for_status(response: aiohttp.ClientResponse):
     """Like aiohttp raise_for_status, but it distinguishes between retryable and non-retryable
     errors."""
+    # Redirect responses (3xx) indicate endpoint misconfiguration when redirects are disabled
+    if 300 <= response.status < 400:
+        raise NonRetryableResponseError(
+            response.status, f"Unexpected redirect to: {response.headers.get('Location', 'unknown')}"
+        )
+
     if not response.ok:
         if response.status >= 500 or response.status == 429 or response.status == 408:
             raise RetryableResponseError(response.status)
@@ -142,7 +155,13 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
     # See: https://github.com/aio-libs/aiohttp/issues/1907
     data_reader.close = lambda: None  # type: ignore
 
-    async with session.post(url, data=data_reader, headers=headers) as response:
+    # be strict about which URLs we allow
+    # (we do have this validation now at the API level, but we'll be extra careful here)
+    if url not in ("https://us.i.posthog.com/batch/", "https://eu.i.posthog.com/batch/"):
+        raise InvalidDestinationURLError(url)
+
+    # Disable redirects to prevent SSRF via redirect bypass
+    async with session.post(url, data=data_reader, headers=headers, allow_redirects=False) as response:
         await raise_for_status(response)
 
     data_reader.detach()

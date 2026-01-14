@@ -1165,9 +1165,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         current_tables = ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys()
         for table_name in current_tables:
-            assert (
-                table_name in existing_posthog_table_names
-            ), f"Table {table_name} should not be added to ROOT_TABLES__DO_NOT_ADD_ANY_MORE. Add the table to the `posthog` TableNode"
+            assert table_name in existing_posthog_table_names, (
+                f"Table {table_name} should not be added to ROOT_TABLES__DO_NOT_ADD_ANY_MORE. Add the table to the `posthog` TableNode"
+            )
 
     def test_database_serialization_handles_invalid_sources_gracefully(self):
         """Test that serialization continues even with sources that have invalid prefixes."""
