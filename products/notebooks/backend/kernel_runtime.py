@@ -19,7 +19,13 @@ from posthog.models import User
 from posthog.redis import get_client
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
-from products.tasks.backend.services.sandbox import ExecutionResult, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.services.sandbox import (
+    ExecutionResult,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+    get_sandbox_class_for_backend,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -78,9 +84,10 @@ class _RedisLock:
 
     def __enter__(self) -> _RedisLock:
         client = get_client()
-        self._lock = client.lock(self.name, timeout=self.timeout, blocking_timeout=self.blocking_timeout)
-        if not self._lock.acquire():
+        lock = client.lock(self.name, timeout=self.timeout, blocking_timeout=self.blocking_timeout)
+        if not lock.acquire():
             raise RuntimeError(f"Failed to acquire Redis lock: {self.name}")
+        self._lock = lock
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, exc_tb: Any) -> None:
@@ -271,14 +278,7 @@ class KernelRuntimeService:
         return all(os.environ.get(name, None) for name in self._MODAL_REQUIRED_ENV_VARS)
 
     def _get_sandbox_class(self, backend: str) -> type[SandboxClass]:
-        if backend == KernelRuntime.Backend.MODAL:
-            from products.tasks.backend.services.modal_sandbox import ModalSandbox
-
-            return ModalSandbox
-
-        from products.tasks.backend.services.docker_sandbox import DockerSandbox
-
-        return DockerSandbox
+        return get_sandbox_class_for_backend(backend)
 
     def _parse_user_expressions(self, user_expressions: Any) -> dict[str, Any] | None:
         if not isinstance(user_expressions, dict):

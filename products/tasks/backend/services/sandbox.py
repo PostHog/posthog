@@ -46,24 +46,38 @@ class SandboxConfig(BaseModel):
     disk_size_gb: float = 64
 
 
-def get_sandbox_class():
+def _get_docker_sandbox_class() -> type:
+    if not settings.DEBUG:
+        raise RuntimeError(
+            "DockerSandbox cannot be used in production. "
+            "Set DEBUG=True for local development or remove SANDBOX_PROVIDER=docker."
+        )
+    from .docker_sandbox import DockerSandbox
+
+    return DockerSandbox
+
+
+def get_sandbox_class() -> type:
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
 
     # Docker is opt-in only, requires DEBUG mode
     if provider == "docker":
-        if not settings.DEBUG:
-            raise RuntimeError(
-                "DockerSandbox cannot be used in production. "
-                "Set DEBUG=True for local development or remove SANDBOX_PROVIDER=docker."
-            )
-        from .docker_sandbox import DockerSandbox
-
-        return DockerSandbox
+        return _get_docker_sandbox_class()
 
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
 
     return ModalSandbox
+
+
+def get_sandbox_class_for_backend(backend: str) -> type:
+    if backend == "modal":
+        from .modal_sandbox import ModalSandbox
+
+        return ModalSandbox
+    if backend == "docker":
+        return _get_docker_sandbox_class()
+    raise RuntimeError(f"Unsupported sandbox backend: {backend}")
 
 
 Sandbox = get_sandbox_class()
@@ -75,4 +89,5 @@ __all__ = [
     "SandboxTemplate",
     "ExecutionResult",
     "get_sandbox_class",
+    "get_sandbox_class_for_backend",
 ]
