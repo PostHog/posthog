@@ -1,4 +1,4 @@
-import { events, kea, path, props, selectors } from 'kea'
+import { kea, path, props, selectors } from 'kea'
 
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { Scene } from 'scenes/sceneTypes'
@@ -27,9 +27,5 @@ export const liveEventsTableSceneLogic = kea<liveEventsTableSceneLogicType>([
                 },
             ],
         ],
-    })),
-    events(({}) => ({
-        afterMount: () => {},
-        beforeUnmount: () => {},
     })),
 ])
