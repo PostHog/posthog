@@ -1635,6 +1635,9 @@ importers:
       kea-router:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
+      posthog-js:
+        specifier: 1.319.0
+        version: 1.319.0
       react:
         specifier: '*'
         version: 18.2.0

@@ -32,7 +32,7 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
         status,
         priority,
         assignedTo,
-        messages,
+        chatMessages,
         messagesLoading,
         messageSending,
         hasMoreMessages,
@@ -84,12 +84,11 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
             <div className="grid gap-4 lg:grid-cols-[1fr_380px] items-start">
                 {/* Main conversation area */}
                 <ChatView
-                    messages={messages}
+                    messages={chatMessages}
                     messagesLoading={messagesLoading}
                     messageSending={messageSending}
                     hasMoreMessages={hasMoreMessages}
                     olderMessagesLoading={olderMessagesLoading}
-                    ticket={ticket ?? undefined}
                     onSendMessage={sendMessage}
                     onLoadOlderMessages={loadOlderMessages}
                 />
@@ -144,7 +143,7 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
                         <div className="flex justify-between items-center">
                             <span className="text-muted-alt">Status</span>
                             <LemonSelect
-                                size="small"
+                                size="xsmall"
                                 value={status}
                                 options={statusOptionsWithoutAll}
                                 onChange={(value: TicketStatus | null) => value && setStatus(value)}
@@ -154,7 +153,7 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
                         <div className="flex justify-between items-center">
                             <span className="text-muted-alt">Priority</span>
                             <LemonSelect
-                                size="small"
+                                size="xsmall"
                                 value={priority}
                                 options={priorityOptions}
                                 onChange={(value: TicketPriority | null) => value && setPriority(value)}
