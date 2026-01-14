@@ -265,9 +265,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 team=self.team,
             )
 
-            # Auto-enable materialization if endpoint can be materialized
             can_materialize, _ = endpoint.can_materialize()
-            if can_materialize:
+            if can_materialize and endpoint.query.get("kind") == "HogQLQuery":
                 try:
                     sync_frequency = data.sync_frequency or DataWarehouseSyncInterval.FIELD_24HOUR
                     self._enable_materialization(endpoint, sync_frequency, request)
