@@ -1260,7 +1260,7 @@ jobs:
               env:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-              run: uv run pytest tests/ -v --tb=short
+              run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
