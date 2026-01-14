@@ -9,34 +9,19 @@ Use this tool to create or update a dashboard with provided insights.
 - Create new insights with the create_insight tool.
 - Call this tool when you have enough information to create or update the dashboard.
 
-# Understanding insight update modes
+# Understanding dashboard update with insight_ids
 
-## update_insight_ids (PREFERRED for editing existing insights)
-Use this when the user wants to edit/modify an existing insight on the dashboard.
-Maps existing insight IDs to new insight IDs. Other insights remain unchanged.
+When `insight_ids` is provided, it replaces all dashboard insights with the provided insights.
+Layouts are preserved positionally: the first insight takes the first tile's position, etc.
+You can use insight_ids to add, replace, or remove insights.
 
-Example: Dashboard has insights [A, B, C]. User wants to edit insight B.
-1. Create a new version of B (let's call it B')
-2. Use `update_insight_ids={"B": "B'"}`
-Result: Dashboard now has [A, B', C] - only B was replaced, A and C are untouched.
-
-## insight_ids with replace_insights=False (default)
-Appends provided insights to existing ones.
-
-Example: Dashboard has [A, B]. Use `insight_ids=[C]` with `replace_insights=False`.
-Result: Dashboard now has [A, B, C].
-
-## insight_ids with replace_insights=True
-Dashboard will contain exactly the insights you specify. All others are removed.
-Use this only when you want to completely replace all dashboard contents.
-
-Example: Dashboard has [A, B, C]. Use `insight_ids=[D, E]` with `replace_insights=True`.
-Result: Dashboard now has [D, E]. A, B, C are removed.
+Example: Dashboard has [A, B, C] (in layout order). Use `insight_ids=[A', C']`.
+Result: A' takes A's layout, C' takes B's layout, B is removed.
 
 # When to use this tool
 - The user asks to create or update a dashboard.
 - The user asks for multiple metrics or dimensions, so it might be better to visualize them in a dashboard.
-- The user wants to add an insight to an existing dashboard.
+- The user wants to modify insights on an existing dashboard (add, remove, or replace).
 
 <example>
 User: create a dashboard for file activity metrics
@@ -47,8 +32,8 @@ Assistant: I'll create a new dashboard for file activity metrics.
 <example>
 User: I want a dashboard of how my business is doing
 Assistant: I'll search for existing dashboards. I found a relevant dashboard. Do you want me to summarize it or update it?
-User: User: I want you to add MRR to that dashboard.
-<reasoning>The user's request was ambiguous. The assistant needed to ask for more details. The user wanted to modify it with specific insights.</reasoning>
+User: I want you to add MRR to that dashboard.
+<reasoning>The user's request was ambiguous. The assistant needed to ask for more details. The user wanted to modify it with specific insights. To add MRR, include all existing insights plus the new MRR insight in insight_ids.</reasoning>
 
 # When NOT to use this tool
 - The user wants to save a single insight.

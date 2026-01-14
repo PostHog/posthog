@@ -123,6 +123,19 @@ class DashboardTile(models.Model):
         )
 
     @staticmethod
+    def sort_tiles_by_layout(
+        tiles: list["DashboardTile"] | QuerySet["DashboardTile"], layout_size: str = "sm"
+    ) -> list["DashboardTile"]:
+        """Sort tiles by their layout position (y, then x)."""
+        return sorted(
+            tiles,
+            key=lambda tile: (
+                tile.layouts.get(layout_size, {}).get("y", 100),
+                tile.layouts.get(layout_size, {}).get("x", 100),
+            ),
+        )
+
+    @staticmethod
     def dashboard_queryset(queryset: QuerySet) -> QuerySet:
         return (
             queryset.select_related(

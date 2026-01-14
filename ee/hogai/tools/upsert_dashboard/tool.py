@@ -30,6 +30,14 @@ from ee.hogai.tools.upsert_dashboard.prompts import (
 logger = structlog.get_logger(__name__)
 
 
+def _track_replacements(original_ids: list[str], new_ids: list[str]) -> dict[str, str | None]:
+    """Map original insight IDs to new insight IDs based on position."""
+    result: dict[str, str | None] = {}
+    for i, orig_id in enumerate(original_ids):
+        result[orig_id] = new_ids[i] if i < len(new_ids) else None
+    return result
+
+
 class CreateDashboardToolArgs(BaseModel):
     """Schema to create a new dashboard with provided insights."""
 
@@ -49,15 +57,7 @@ class UpdateDashboardToolArgs(BaseModel):
     action: Literal["update"] = "update"
     dashboard_id: str = Field(description="Provide the ID of the dashboard to be update it.")
     insight_ids: list[str] | None = Field(
-        description="The IDs of the insights to be included in the dashboard. It might be a mix of existing and new insights.",
-        default=None,
-    )
-    replace_insights: bool | None = Field(
-        description="When False (default), appends provided insights to existing ones. When True, the dashboard will contain exactly the insights in insight_ids (others are removed).",
-        default=False,
-    )
-    update_insight_ids: dict[str, str] | None = Field(
-        description="Map of existing insight IDs to new insight IDs. Replaces specific insights while keeping all others unchanged. Use this when editing an existing insight on the dashboard.",
+        description="The IDs of the insights for the dashboard. Replaces all existing insights. Order determines positional mapping for layout preservation.",
         default=None,
     )
     name: str | None = Field(
@@ -90,20 +90,16 @@ class UpsertDashboardTool(MaxTool):
     def get_required_resource_access(self):
         return [("dashboard", "editor")]
 
-    def is_dangerous_operation(self, action: UpsertDashboardAction) -> bool:  # type: ignore[override]
-        """Update operations that replace or modify existing insights are dangerous."""
+    async def is_dangerous_operation(self, *, action: UpsertDashboardAction, **kwargs) -> bool:
+        """Update operations that replace existing insights are dangerous."""
         if isinstance(action, UpdateDashboardToolArgs):
-            return action.replace_insights is True or bool(action.update_insight_ids)
+            return bool(action.insight_ids)
         return False
 
-    async def format_dangerous_operation_preview(self, **kwargs) -> str:
+    async def format_dangerous_operation_preview(self, *, action: UpsertDashboardAction, **kwargs) -> str:
         """
         Build a rich preview showing dashboard details and what will be modified.
         """
-        action: UpsertDashboardAction | None = kwargs.get("action")
-        if not isinstance(action, UpdateDashboardToolArgs):
-            return f"Execute {self.name} operation"
-
         # Fetch dashboard details for richer preview
         dashboard_name = f"Dashboard #{action.dashboard_id}"
         existing_insight_count = 0
@@ -214,37 +210,15 @@ class UpsertDashboardTool(MaxTool):
 
         insights, missing_ids = await self._resolve_insights(action.insight_ids or [])
 
-        # Resolve update_insight_ids: map old short_ids to new Insight objects
-        update_mapping: dict[str, Insight] = {}
-        if action.update_insight_ids:
-            new_insight_ids = list(action.update_insight_ids.values())
-            new_insights, update_missing = await self._resolve_insights(new_insight_ids)
-            missing_ids.extend(update_missing)
-
-            # Build mapping from old short_id to new Insight object.
-            # _resolve_insights returns insights in order, but skips missing ones.
-            # Build a dict from successfully resolved IDs to their Insight objects.
-            resolved_by_id: dict[str, Insight] = {}
-            resolved_iter = iter(new_insights)
-            for nid in new_insight_ids:
-                if nid not in update_missing:
-                    resolved_by_id[nid] = next(resolved_iter)
-
-            for old_id, new_id in action.update_insight_ids.items():
-                if new_id in resolved_by_id:
-                    update_mapping[old_id] = resolved_by_id[new_id]
-
-        has_changes = insights or update_mapping or action.name is not None or action.description is not None
+        has_changes = insights or action.name is not None or action.description is not None
         if not has_changes:
             return UPDATE_NO_CHANGES_PROMPT, None
 
         dashboard = await self._update_dashboard_with_tiles(
             dashboard,
             insights,
-            action.replace_insights or False,
             action.name,
             action.description,
-            update_mapping,
         )
 
         all_insights = [
@@ -337,21 +311,16 @@ class UpsertDashboardTool(MaxTool):
         self,
         dashboard: Dashboard,
         insights: list[Insight],
-        replace: bool,
         name: str | None,
         description: str | None,
-        update_mapping: dict[str, Insight] | None = None,
     ) -> Dashboard:
-        """Update an existing dashboard with new tiles.
+        """Update an existing dashboard with new tiles using positional layout preservation.
 
         Args:
             dashboard: The dashboard to update
-            insights: List of insights to add (or replace all with if replace=True)
-            replace: If True, removes all existing insights not in the insights list
+            insights: List of insights to replace the dashboard with (order matters for layout preservation)
             name: New dashboard name (if provided)
             description: New dashboard description (if provided)
-            update_mapping: Dict mapping existing insight short_ids to new Insight objects.
-                           Used for surgical replacement of specific insights.
         """
         if name is not None:
             dashboard.name = name
@@ -360,60 +329,41 @@ class UpsertDashboardTool(MaxTool):
         if name is not None or description is not None:
             dashboard.save(update_fields=["name", "description"])
 
+        if not insights:
+            return dashboard
+
         # Create new insights if they don't exist
         insights = self._create_resolved_insights(insights)
 
-        # Update the existing tile's insight reference in place. This preserves insight ID and layout (so layout order of dashboard is not affected)
-        if update_mapping:
-            # Save any unsaved insights in the mapping
-            update_insights = list(update_mapping.values())
-            self._create_resolved_insights(update_insights)
+        # Get existing tiles sorted by layout position
+        # DashboardTile.objects already excludes deleted=True via DashboardTileManager
+        existing_tiles = list(DashboardTile.objects.filter(dashboard=dashboard).select_related("insight"))
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(existing_tiles)
 
-            # Build a lookup from short_id to existing tiles
-            existing_tiles_by_short_id: dict[str, DashboardTile] = {}
-            for tile in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard).select_related(
-                "insight"
-            ):
-                if tile.insight and tile.insight.short_id:
-                    existing_tiles_by_short_id[tile.insight.short_id] = tile
+        # Positional replacement: sorted_tiles[i] → insights[i]
+        # Update tiles in-place to preserve layout/color
+        new_insights_to_create: list[Insight] = []
 
-            for old_short_id, new_insight in update_mapping.items():
-                if old_short_id in existing_tiles_by_short_id:
-                    old_tile = existing_tiles_by_short_id[old_short_id]
-                    if not old_tile.deleted:
-                        old_tile.insight = new_insight
-                        old_tile.save(update_fields=["insight"])
+        for i, new_insight in enumerate(insights):
+            if i < len(sorted_tiles):
+                # Update existing tile in-place using queryset update to preserve layout, color, tile ID
+                tile = sorted_tiles[i]
+                DashboardTile.objects_including_soft_deleted.filter(id=tile.id).update(insight=new_insight)
+            else:
+                # Need to create a new tile for this insight
+                new_insights_to_create.append(new_insight)
 
-        insight_ids = {i.id for i in insights}
-        # Fetch all existing tiles (including soft-deleted) in one query
-        existing_tiles = {
-            tile.insight_id: tile for tile in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)
-        }
+        # Soft-delete extra tiles (when new list is shorter than old)
+        if len(sorted_tiles) > len(insights):
+            tiles_to_delete = sorted_tiles[len(insights) :]
+            DashboardTile.objects.filter(id__in=[t.id for t in tiles_to_delete]).update(deleted=True)
 
-        if replace:
-            # Soft-delete tiles for insights not in the new set
-            tiles_to_soft_delete = [t for iid, t in existing_tiles.items() if iid not in insight_ids and not t.deleted]
-            if tiles_to_soft_delete:
-                DashboardTile.objects_including_soft_deleted.filter(id__in=[t.id for t in tiles_to_soft_delete]).update(
-                    deleted=True
-                )
-
-        # Un-delete existing soft-deleted tiles
-        tiles_to_undelete = [
-            existing_tiles[i.id] for i in insights if i.id in existing_tiles and existing_tiles[i.id].deleted
-        ]
-        if tiles_to_undelete:
-            DashboardTile.objects_including_soft_deleted.filter(id__in=[t.id for t in tiles_to_undelete]).update(
-                deleted=False
-            )
-
-        # Bulk create new tiles
-        new_insights = [i for i in insights if i.id not in existing_tiles]
-        if new_insights:
+        # Create tiles for extra insights (when new list is longer than old)
+        if new_insights_to_create:
             DashboardTile.objects.bulk_create(
                 [
                     DashboardTile(dashboard=dashboard, insight=insight, deleted=False, layouts={})
-                    for insight in new_insights
+                    for insight in new_insights_to_create
                 ]
             )
 
