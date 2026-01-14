@@ -66,7 +66,7 @@
         "@posthog/docs-onboarding": "workspace:*",
         "@posthog/esbuilder": "workspace:*",
         "@posthog/hogvm": "workspace:*",
-        "@posthog/icons": "*",
+        "@posthog/icons": "^0.36.4",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@posthog/products-actions": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
