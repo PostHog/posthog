@@ -5,10 +5,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 
 import type { Ticket, TicketChannel, TicketPriority, TicketSlaState, TicketStatus } from '../../types'
-import type { conversationsTicketsSceneLogicType } from './conversationsTicketsSceneLogicType'
+import type { supportTicketsSceneLogicType } from './supportTicketsSceneLogicType'
 
-export const conversationsTicketsSceneLogic = kea<conversationsTicketsSceneLogicType>([
-    path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'conversationsTicketsSceneLogic']),
+export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
+    path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'supportTicketsSceneLogic']),
     actions({
         setStatusFilter: (status: TicketStatus | 'all') => ({ status }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
