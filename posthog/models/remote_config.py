@@ -178,8 +178,9 @@ class RemoteConfig(UUIDTModel):
         }
 
         # MARK: Logs
+        logs_settings = team.logs_settings or {}
         config["logs"] = {
-            "captureConsoleLogs": bool(team.logs_capture_console_log_opt_in),
+            "captureConsoleLogs": logs_settings.get("capture_console_logs", False),
         }
 
         # MARK: Session recording

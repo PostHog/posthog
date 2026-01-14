@@ -405,7 +405,9 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     },
 
     // Logs
-    logs_capture_console_log_opt_in: createBooleanToggleHandler('console log capture in logs product'),
+    logs_settings: () => {
+        return { description: [<>updated logs settings</>] }
+    },
 
     // Feature flag confirmation config
     feature_flag_confirmation_enabled: createBooleanToggleHandler('feature flag confirmation'),

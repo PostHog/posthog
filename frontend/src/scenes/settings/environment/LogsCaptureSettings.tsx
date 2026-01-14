@@ -29,11 +29,13 @@ export function LogsCaptureSettings(): JSX.Element {
                 <LemonSwitch
                     data-attr="opt-in-logs-capture-console-log-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({ logs_capture_console_log_opt_in: checked })
+                        updateCurrentTeam({
+                            logs_settings: { ...currentTeam?.logs_settings, capture_console_logs: checked },
+                        })
                     }}
                     label="Capture console logs to Logs product"
                     bordered
-                    checked={!!currentTeam?.logs_capture_console_log_opt_in}
+                    checked={!!currentTeam?.logs_settings?.capture_console_logs}
                     loading={currentTeamLoading}
                 />
             </AccessControlAction>

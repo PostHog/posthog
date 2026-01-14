@@ -1,1 +1,1 @@
-0972_team_logs_capture_console_log_opt_in
+0972_team_logs_settings

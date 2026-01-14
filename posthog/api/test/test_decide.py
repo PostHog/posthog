@@ -277,14 +277,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["logs"], {"captureConsoleLogs": False})
 
         # Test when logs console capture is enabled
-        self._update_team({"logs_capture_console_log_opt_in": True})
+        self._update_team({"logs_settings": {"capture_console_logs": True}})
         cache.delete(f"team_token:{self.team.api_token}")
 
         response = self._post_decide().json()
         self.assertEqual(response["logs"], {"captureConsoleLogs": True})
 
         # Test when logs console capture is disabled
-        self._update_team({"logs_capture_console_log_opt_in": False})
+        self._update_team({"logs_settings": {"capture_console_logs": False}})
         cache.delete(f"team_token:{self.team.api_token}")
 
         response = self._post_decide().json()

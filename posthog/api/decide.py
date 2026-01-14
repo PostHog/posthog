@@ -228,9 +228,9 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         "suppressionRules": suppression_rules,
     }
 
-    response["logs"] = {
-        "captureConsoleLogs": True if team.logs_capture_console_log_opt_in else False,
-    }
+    logs_settings = team.logs_settings or {}
+    response["logs"] = {}
+    response["logs"]["captureConsoleLogs"] = logs_settings.get("capture_console_logs", False)
 
     site_apps = []
     # errors mean the database is unavailable, bail in this case

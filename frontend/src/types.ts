@@ -600,6 +600,10 @@ export interface ConversationsSettings {
     widget_domains?: string[] | null
 }
 
+export interface LogsSettings {
+    capture_console_logs?: boolean
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -611,7 +615,6 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     // These fields in the database accept null values and were previously set to NULL by default
     capture_console_log_opt_in: boolean | null
-    logs_capture_console_log_opt_in: boolean | null
     capture_performance_opt_in: boolean | null
     capture_dead_clicks: boolean | null
     // a string representation of the decimal value between 0 and 1
@@ -626,6 +629,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
+    logs_settings?: LogsSettings | null
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]

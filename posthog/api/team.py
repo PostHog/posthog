@@ -129,7 +129,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "flags_persistence_default",
             "conversations_enabled",
             "conversations_settings",
-            "logs_capture_console_log_opt_in",
+            "logs_settings",
         ]
         read_only_fields = fields
 
@@ -153,7 +153,7 @@ TEAM_CONFIG_FIELDS = (
     "autocapture_web_vitals_allowed_metrics",
     "autocapture_exceptions_errors_to_ignore",
     "capture_console_log_opt_in",
-    "logs_capture_console_log_opt_in",
+    "logs_settings",
     "capture_performance_opt_in",
     "session_recording_opt_in",
     "session_recording_sample_rate",

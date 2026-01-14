@@ -265,14 +265,19 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
     response.config.is_authenticated = Some(false);
     response.config.capture_dead_clicks = team.capture_dead_clicks;
 
-    response.config.logs = if team.logs_capture_console_log_opt_in.unwrap_or(false) {
-        Some(LogsConfig {
-            capture_console_logs: Some(true),
-        })
-    } else {
-        None
+    let logs_settings = team
+        .logs_settings
+        .as_ref()
+        .map(|s| s.0.clone())
+        .unwrap_or_default();
+
     response.config.logs = Some(LogsConfig {
-        capture_console_logs: Some(team.logs_capture_console_log_opt_in.unwrap_or(false)),
+        capture_console_logs: Some(
+            logs_settings
+                .get("capture_console_logs")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        ),
     });
 }
 
@@ -302,7 +307,7 @@ mod tests {
             autocapture_web_vitals_opt_in: None,
             capture_performance_opt_in: None,
             capture_console_log_opt_in: None,
-            logs_capture_console_log_opt_in: None,
+            logs_settings: None,
             session_recording_opt_in: false,
             inject_web_apps: None,
             surveys_opt_in: None,
@@ -854,7 +859,7 @@ mod tests {
         let config = Config::default_test_config();
         let mut team = create_base_team();
 
-        team.logs_capture_console_log_opt_in = Some(true);
+        team.logs_settings = Some(Json(json!({"capture_console_logs": true})));
 
         apply_core_config_fields(&mut response, &config, &team);
 
@@ -872,7 +877,7 @@ mod tests {
         let config = Config::default_test_config();
         let mut team = create_base_team();
 
-        team.logs_capture_console_log_opt_in = Some(false);
+        team.logs_settings = Some(Json(json!({"capture_console_logs": false})));
 
         apply_core_config_fields(&mut response, &config, &team);
 
@@ -883,7 +888,7 @@ mod tests {
     fn test_logs_config_none() {
         let mut response = create_base_response();
         let config = Config::default_test_config();
-        let team = create_base_team(); // logs_capture_console_log_opt_in defaults to None
+        let team = create_base_team();
 
         apply_core_config_fields(&mut response, &config, &team);
 
