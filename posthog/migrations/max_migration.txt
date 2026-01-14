@@ -1,1 +1,1 @@
-0970_add_session_recording_encryption
+0972_team_logs_settings
