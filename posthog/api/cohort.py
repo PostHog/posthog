@@ -694,8 +694,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
                 id_col, id_type, actual_column_name = result
                 ids = self._extract_ids_multi_column(reader, id_col, cohort.pk)
-
-            self._validate_and_process_ids(ids, id_type, cohort, actual_column_name if id_type == "email" else None)
+                self._validate_and_process_ids(ids, id_type, cohort, actual_column_name if id_type == "email" else None)
 
         except Exception as e:
             self._handle_csv_errors(e, cohort)
