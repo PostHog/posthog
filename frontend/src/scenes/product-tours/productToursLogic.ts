@@ -6,14 +6,51 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { uuid } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { Breadcrumb, ProductTour, ProgressStatus } from '~/types'
+import { Breadcrumb, ProductTour, ProductTourContent, ProgressStatus, SurveyPosition } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
+
+function createDefaultAnnouncementContent(): ProductTourContent {
+    return {
+        type: 'announcement',
+        steps: [
+            {
+                id: uuid(),
+                type: 'modal',
+                content: {
+                    type: 'doc',
+                    content: [
+                        {
+                            type: 'heading',
+                            attrs: { level: 2 },
+                            content: [{ type: 'text', text: 'Your announcement title' }],
+                        },
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'Add your message here. You can use rich text formatting, images, and more.',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                modalPosition: SurveyPosition.MiddleCenter,
+            },
+        ],
+        appearance: {
+            showOverlay: false,
+            dismissOnClickOutside: false,
+        },
+    }
+}
 
 export enum ProductToursTabs {
     Active = 'active',
@@ -33,6 +70,10 @@ export function isProductTourRunning(tour: Pick<ProductTour, 'start_date' | 'end
     return getProductTourStatus(tour) === ProgressStatus.Running
 }
 
+export function isAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
+    return tour.content?.type === 'announcement'
+}
+
 export interface ProductToursFilters {
     archived: boolean
 }
@@ -44,6 +85,7 @@ export const productToursLogic = kea<productToursLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setFilters: (filters: Partial<ProductToursFilters>) => ({ filters }),
         setTab: (tab: ProductToursTabs) => ({ tab }),
+        createAnnouncement: (name: string) => ({ name }),
     }),
     loaders(({ values }) => ({
         productTours: {
@@ -88,6 +130,21 @@ export const productToursLogic = kea<productToursLogicType>([
     listeners(({ actions }) => ({
         setTab: ({ tab }) => {
             actions.setFilters({ archived: tab === ProductToursTabs.Archived })
+        },
+        deleteProductTourSuccess: () => {
+            router.actions.push(urls.productTours())
+        },
+        createAnnouncement: async ({ name }) => {
+            try {
+                const announcement = await api.productTours.create({
+                    name,
+                    content: createDefaultAnnouncementContent(),
+                })
+                actions.loadProductTours()
+                router.actions.push(urls.productTour(announcement.id))
+            } catch {
+                lemonToast.error('Failed to create announcement')
+            }
         },
     })),
     selectors({

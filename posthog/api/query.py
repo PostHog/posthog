@@ -6,7 +6,7 @@ from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotAuthenticated, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -35,7 +35,7 @@ from posthog.clickhouse.client.execute_async import cancel_query, get_query_stat
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -170,6 +170,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
+        except InternalCHQueryError as e:
+            self.handle_column_ch_error(e)
+            capture_exception(e)
+            raise APIException("ClickHouse error while executing query.")
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except ResolutionError as e:
@@ -177,7 +181,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except ConcurrencyLimitExceeded as c:
             raise Throttled(detail=str(c))
         except Exception as e:
-            self.handle_column_ch_error(e)
             capture_exception(e)
             raise
 

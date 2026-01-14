@@ -1,0 +1,144 @@
+.ProductTourStepsEditor {
+    display: flex;
+    min-height: 500px;
+    overflow: hidden;
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+
+    &--empty {
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+
+    &__empty-state {
+        max-width: 400px;
+        padding: 3rem;
+        text-align: center;
+
+        h3 {
+            margin: 0 0 0.5rem;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        p {
+            margin: 0;
+        }
+    }
+
+    &__sidebar {
+        display: flex;
+        flex-direction: column;
+        width: 240px;
+        min-width: 240px;
+        background: var(--bg-fill-primary);
+        border-right: 1px solid var(--border);
+    }
+
+    &__sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    &__sidebar-list {
+        flex: 1;
+        padding: 0.5rem;
+        overflow-y: auto;
+    }
+
+    &__sidebar-item {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        width: 100%;
+        padding: 0.625rem 0.75rem;
+        text-align: left;
+        cursor: pointer;
+        background: transparent;
+        border: none;
+        border-radius: 6px;
+        transition: background 0.15s ease;
+
+        &:hover {
+            background: var(--border);
+        }
+
+        &.active {
+            background: var(--primary-3000-frame);
+        }
+    }
+
+    &__sidebar-item-icon {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        color: var(--muted);
+
+        .active & {
+            color: var(--primary-3000);
+        }
+    }
+
+    &__sidebar-item-title {
+        flex: 1;
+        overflow: hidden;
+        font-size: 0.875rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__main {
+        flex: 1;
+        padding: 1.5rem;
+        overflow-y: auto;
+    }
+
+    &__step-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+    }
+
+    &__survey-notice {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem;
+        text-align: center;
+        background: var(--bg-fill-primary);
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+    }
+
+    &__step-settings {
+        padding: 1rem;
+        background: var(--bg-fill-primary);
+        border-radius: 8px;
+    }
+
+    &__survey-layout {
+        display: flex;
+        gap: 2rem;
+        align-items: flex-start;
+    }
+
+    &__survey-editor {
+        flex: 0 0 320px;
+        max-width: 320px;
+    }
+
+    &__survey-preview {
+        flex: 1;
+        min-width: 0;
+    }
+}

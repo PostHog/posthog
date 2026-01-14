@@ -12,12 +12,15 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { navigation3000Logic } from './navigation-3000/navigationLogic'
+
 export function GlobalShortcuts(): null {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { activeTabId } = useValues(sceneLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
+    const { toggleZenMode } = useActions(navigation3000Logic)
 
     const showDebugQueries =
         user?.is_staff || user?.is_impersonated || preflight?.is_debug || preflight?.instance_preferences?.debug_queries
@@ -55,6 +58,26 @@ export function GlobalShortcuts(): null {
         interaction: 'function',
         callback: openCHQueriesDebugModal,
         disabled: !showDebugQueries,
+    })
+
+    useAppShortcut({
+        name: 'ZenMode',
+        keybind: [keyBinds.zenMode],
+        intent: 'Toggle zen mode',
+        interaction: 'function',
+        callback: toggleZenMode,
+    })
+
+    useAppShortcut({
+        name: 'SQLEditor',
+        keybind: [keyBinds.sqlEditor],
+        intent: 'Open SQL editor',
+        interaction: 'function',
+        callback: () => {
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.sqlEditor()) {
+                router.actions.push(urls.sqlEditor())
+            }
+        },
     })
 
     return null

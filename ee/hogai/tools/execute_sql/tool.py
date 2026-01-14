@@ -33,10 +33,12 @@ from .prompts import (
 
 class ExecuteSQLToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
-    name: str = Field(
-        description="Short, concise name of the query (2-5 words) that will be displayed as a header in the query tile."
+    viz_title: str = Field(
+        description="Short, concise name of the SQL query (2-5 words) that will be displayed as a header in the visualization."
     )
-    description: str = Field(description="Short, concise description of the query (1 sentence)")
+    viz_description: str = Field(
+        description="Short, concise summary of the SQL query (1 sentence) that will be displayed as a description in the visualization."
+    )
 
 
 class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
@@ -63,8 +65,10 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         )
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
-    async def _arun_impl(self, query: str, name: str, description: str) -> tuple[str, ToolMessagesArtifact | None]:
-        parsed_query = self._parse_output({"query": query, "name": name, "description": description})
+    async def _arun_impl(
+        self, query: str, viz_title: str, viz_description: str
+    ) -> tuple[str, ToolMessagesArtifact | None]:
+        parsed_query = self._parse_output({"query": query})
         try:
             await self._quality_check_output(
                 output=parsed_query,
@@ -73,10 +77,8 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
         # Display an ephemeral visualization message to the user.
-        artifact = await self._context_manager.artifacts.create(
-            VisualizationArtifactContent(
-                query=parsed_query.query, name=parsed_query.name, description=parsed_query.description
-            ),
+        artifact = await self._context_manager.artifacts.acreate(
+            VisualizationArtifactContent(query=parsed_query.query, name=viz_title, description=viz_description),
             "SQL Query",
         )
         artifact_message = self._context_manager.artifacts.create_message(
@@ -88,8 +90,8 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         insight_context = InsightContext(
             team=self._team,
             query=parsed_query.query,
-            name=parsed_query.name,
-            description=parsed_query.description,
+            name=viz_title,
+            description=viz_description,
             insight_id=artifact_message.artifact_id,
         )
 

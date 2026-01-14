@@ -227,11 +227,68 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                 raise GraphRecursionError()
 
         with patch("langgraph.pregel.Pregel.astream", side_effect=FakeStream):
-            output, _ = await self._run_assistant_graph(conversation=self.conversation)
+            output, assistant = await self._run_assistant_graph(conversation=self.conversation)
             self.assertEqual(output[0][0], "message")
-            self.assertEqual(cast(AssistantMessage, output[0][1]).content, "Hello")
+            self.assertEqual(cast(HumanMessage, output[0][1]).content, "Hello")
             self.assertEqual(output[1][0], "message")
-            self.assertIsInstance(output[1][1], FailureMessage)
+            self.assertIsInstance(output[1][1], AssistantMessage)
+            self.assertEqual(
+                cast(AssistantMessage, output[1][1]).content,
+                "I've reached the maximum number of steps. Would you like me to continue?",
+            )
+
+            # Verify state is marked as interrupted
+            config = assistant._get_config()
+            snapshot = await assistant._graph.aget_state(config)
+            self.assertTrue(snapshot.next)  # Should have next nodes to execute
+
+    async def test_recursion_error_can_resume_after_user_response(self):
+        """Test that after hitting recursion limit, the assistant can resume when user responds."""
+        call_count = [0]
+
+        class TestNode(AssistantNode):
+            async def arun(self, state, config):
+                call_count[0] += 1
+                # Always return completion message
+                return PartialAssistantState(
+                    messages=[AssistantMessage(content="Completed successfully!", id=str(uuid4()))]
+                )
+
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_node(AssistantNodeName.ROOT, TestNode(self.team, self.user))
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+
+        # First run - hit recursion limit
+        class FakeStream:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise GraphRecursionError()
+
+        with patch("langgraph.pregel.Pregel.astream", side_effect=FakeStream):
+            output, _ = await self._run_assistant_graph(graph, conversation=self.conversation, message="Start task")
+
+            # Should get the recursion limit message
+            self.assertEqual(len(output), 2)
+            self.assertIsInstance(output[1][1], AssistantMessage)
+            self.assertIn("maximum number of steps", cast(AssistantMessage, output[1][1]).content)
+
+        # Second run - user says "continue"
+        output, _ = await self._run_assistant_graph(graph, conversation=self.conversation, message="yes, continue")
+
+        # Should resume and complete
+        self.assertGreater(len(output), 0)
+        # Find the completion message
+        assistant_messages = [msg for _, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertTrue(any("Completed successfully!" in msg.content for msg in assistant_messages))
 
     async def test_new_conversation_handles_serialized_conversation(self):
         class TestNode(AssistantNode):
@@ -334,7 +391,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                     {
                         "id": "xyz",
                         "name": "create_insight",
-                        "args": {"insight_type": "trends", "title": "Test Insight", "query_description": "Foobar"},
+                        "args": {
+                            "insight_type": "trends",
+                            "viz_title": "Test Insight",
+                            "viz_description": "Test Description",
+                            "query_description": "Foobar",
+                        },
                     }
                 ],
             )
@@ -345,9 +407,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         root_mock.side_effect = cycle([res1, res2])
 
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(
-            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -411,7 +471,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                     {
                         "id": "xyz",
                         "name": "create_insight",
-                        "args": {"insight_type": "funnel", "title": "Test Insight", "query_description": "Foobar"},
+                        "args": {
+                            "insight_type": "funnel",
+                            "viz_title": "Test Insight",
+                            "viz_description": "Test Description",
+                            "query_description": "Foobar",
+                        },
                     }
                 ],
             )
@@ -427,9 +492,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                 AssistantFunnelsEventsNode(event="$pageleave"),
             ]
         )
-        generator_mock.return_value = RunnableLambda(
-            lambda _: FunnelsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: FunnelsSchemaGeneratorOutput(query=query))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -495,7 +558,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                     {
                         "id": "xyz",
                         "name": "create_insight",
-                        "args": {"insight_type": "retention", "title": "Test Insight", "query_description": "Foobar"},
+                        "args": {
+                            "insight_type": "retention",
+                            "viz_title": "Test Insight",
+                            "viz_description": "Test Description",
+                            "query_description": "Foobar",
+                        },
                     }
                 ],
             )
@@ -511,9 +579,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                 returningEntity=AssistantRetentionActionsNode(name=action.name, id=action.id),
             )
         )
-        generator_mock.return_value = RunnableLambda(
-            lambda _: RetentionSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: RetentionSchemaGeneratorOutput(query=query))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -578,8 +644,8 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                         "name": "execute_sql",
                         "args": {
                             "query": "SELECT 1",
-                            "name": "Test Insight",
-                            "description": "Test Description",
+                            "viz_title": "Test Insight",
+                            "viz_description": "Test Description",
                         },
                     }
                 ],
@@ -871,9 +937,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             )
         )
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(
-            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
         # Create a graph that only uses the root node
         graph = AssistantGraph(self.team, self.user).compile_full_graph()
@@ -921,7 +985,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
         with (
             patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model") as root_mock,
-            patch("ee.hogai.chat_agent.loop_graph.nodes.AgentLoopGraphToolsNode.arun") as root_tool_mock,
+            patch("ee.hogai.core.agent_modes.executables.AgentToolsExecutable.arun") as root_tool_mock,
         ):
 
             def assert_lock_status(_):
@@ -933,7 +997,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                         {
                             "id": "1",
                             "name": "create_insight",
-                            "args": {"title": "Foobar", "query_description": "Foobar", "insight_type": "trends"},
+                            "args": {
+                                "viz_title": "Foobar",
+                                "viz_description": "Test Description",
+                                "query_description": "Foobar",
+                                "insight_type": "trends",
+                            },
                         }
                     ],
                 )
@@ -1175,7 +1244,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                     {
                         "id": "xyz",
                         "name": "create_insight",
-                        "args": {"title": "Foobar", "query_description": "Foobar", "insight_type": "trends"},
+                        "args": {
+                            "viz_title": "Foobar",
+                            "viz_description": "Test Description",
+                            "query_description": "Foobar",
+                            "insight_type": "trends",
+                        },
                     }
                 ],
             )
@@ -1183,9 +1257,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(root_side_effect)
 
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(
-            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
         query_executor_mock.return_value = PartialAssistantState(
             messages=[
@@ -1280,7 +1352,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                             AssistantToolCall(
                                 id="tool-1",
                                 name="create_insight",
-                                args={"title": "Foobar", "query_description": "Foobar", "insight_type": "trends"},
+                                args={
+                                    "viz_title": "Foobar",
+                                    "viz_description": "Test Description",
+                                    "query_description": "Foobar",
+                                    "insight_type": "trends",
+                                },
                             )
                         ],
                     ),

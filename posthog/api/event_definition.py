@@ -4,6 +4,7 @@ from django.core.cache import cache
 from django.db.models import Manager
 
 import orjson
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
@@ -181,6 +182,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         return hasattr(obj, "action_id") and obj.action_id is not None
 
 
+@extend_schema(tags=["core"])
 class EventDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -231,7 +233,8 @@ class EventDefinitionViewSet(
 
         if excluded_properties:
             excluded_list = list(set(orjson.loads(excluded_properties)))
-            search_query = search_query + f" AND NOT name = ANY(ARRAY{excluded_list})"
+            search_query = search_query + " AND NOT name = ANY(%(excluded_list)s)"
+            params["excluded_list"] = excluded_list
 
         sql = create_event_definitions_sql(
             event_type,
