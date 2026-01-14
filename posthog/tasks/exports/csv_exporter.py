@@ -22,7 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content, save_content_from_file
-from posthog.temporal.common.clickhouse import ClickHouseError
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.utils import absolute_uri
 
 from ...clickhouse.client.escape import substitute_params
@@ -421,29 +421,16 @@ def _stream_clickhouse_query(
     else:
         prepared_sql = clickhouse_sql
 
-    params = {
-        "database": settings.CLICKHOUSE_DATABASE,
-    }
-
-    headers = {
-        "X-ClickHouse-User": settings.CLICKHOUSE_USER,
-        "X-ClickHouse-Key": settings.CLICKHOUSE_PASSWORD,
-    }
-
     sql_with_format = f"{prepared_sql.rstrip(';')} FORMAT JSONEachRow"
 
-    with requests.post(
+    client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
-        params=params,
-        headers=headers,
-        data=sql_with_format.encode("utf-8"),
-        stream=True,
-        timeout=600,
-    ) as response:
-        if response.status_code != 200:
-            error_message = response.text
-            raise ClickHouseError(f"ClickHouse query failed: {error_message}", query=sql_with_format)
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 
+    with client.post_query(sql_with_format, query_parameters=None, query_id=None) as response:
         for line in response.iter_lines():
             if line:
                 yield json.loads(line)
