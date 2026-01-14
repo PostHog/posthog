@@ -220,7 +220,7 @@ class OrganizationFeatureFlagView(
                 if copy_schedule:
                     try:
                         self._copy_feature_flag_schedules(
-                            flag_to_copy, saved_flag, request.user, name_to_dest_cohort_id
+                            flag_to_copy, saved_flag, request.user, name_to_dest_cohort_id, seen_cohorts_cache
                         )
                     except Exception:
                         # Log the error but don't fail the entire operation
@@ -247,7 +247,7 @@ class OrganizationFeatureFlagView(
             status=status.HTTP_200_OK,
         )
 
-    def _copy_feature_flag_schedules(self, source_flag, target_flag, user, cohort_mapping):
+    def _copy_feature_flag_schedules(self, source_flag, target_flag, user, cohort_mapping, cohort_cache):
         """
         Copy all scheduled changes from source flag to target flag.
 
@@ -256,6 +256,7 @@ class OrganizationFeatureFlagView(
             target_flag: The newly created/updated FeatureFlag instance
             user: The user performing the copy operation
             cohort_mapping: Dict mapping source cohort names to target cohort IDs
+            cohort_cache: Dict of cohort_id -> Cohort objects to avoid N+1 queries
         """
         from posthog.models.scheduled_change import ScheduledChange
         from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
@@ -281,7 +282,7 @@ class OrganizationFeatureFlagView(
         # Copy each schedule to the target flag
         for schedule in source_schedules:
             # Remap cohort IDs in schedule payload
-            updated_payload = self._remap_cohort_ids_in_payload(schedule.payload, cohort_mapping)
+            updated_payload = self._remap_cohort_ids_in_payload(schedule.payload, cohort_mapping, cohort_cache)
 
             ScheduledChange.objects.create(
                 record_id=str(target_flag.id),
@@ -295,7 +296,7 @@ class OrganizationFeatureFlagView(
                 created_by=user,
             )
 
-    def _remap_cohort_ids_in_payload(self, payload, cohort_mapping):
+    def _remap_cohort_ids_in_payload(self, payload, cohort_mapping, cohort_cache):
         """Remap cohort IDs in schedule payload to target project cohorts."""
         import copy
 
@@ -308,10 +309,8 @@ class OrganizationFeatureFlagView(
                     if isinstance(prop, dict) and prop.get("type") == "cohort":
                         try:
                             original_cohort_id = int(prop["value"])
-                            # Find cohort name from source and map to target ID
-                            from posthog.models.cohort import Cohort
-
-                              source_cohort = Cohort.objects.filter(id=original_cohort_id, team=source_flag.team, deleted=False).first()
+                            # Use cached cohort instead of querying database
+                            source_cohort = cohort_cache.get(original_cohort_id)
                             if source_cohort and source_cohort.name in cohort_mapping:
                                 prop["value"] = cohort_mapping[source_cohort.name]
                         except (ValueError, TypeError):
