@@ -11,7 +11,7 @@ export interface ChatViewProps {
     hasMoreMessages?: boolean
     olderMessagesLoading?: boolean
     ticket?: Ticket
-    onSendMessage: (content: string) => void
+    onSendMessage: (content: string, onSuccess: () => void) => void
     onLoadOlderMessages?: () => void
     header?: React.ReactNode
     minHeight?: string
