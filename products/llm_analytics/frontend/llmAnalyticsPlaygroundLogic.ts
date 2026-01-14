@@ -363,10 +363,12 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 // Start timer for latency? Might be inaccurate due to network etc.
                 startTime = performance.now()
 
+                const selectedModel = values.modelOptions.find((m) => m.id === requestModel)
                 const requestData: any = {
                     system: requestSystemPrompt,
                     messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
                     model: requestModel,
+                    provider: selectedModel?.provider?.toLowerCase(),
                     thinking: values.thinking,
                 }
 
