@@ -224,8 +224,10 @@ export function ActionFilterRow({
     const isTrendsContext = trendsDisplayCategory != null
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
+    // dashboardItemId should be the insight's id, but the typeKey might contain a /on-dashboard- suffix
+    const dashboardItemId = typeKey.split('/')[0]
     const { insightProps: funnelInsightProps } = useValues(
-        insightLogic({ dashboardItemId: isFunnelContext ? (typeKey as any) : 'new' })
+        insightLogic({ dashboardItemId: isFunnelContext ? dashboardItemId : 'new' })
     )
     const { isStepOptional: funnelIsStepOptional } = useValues(funnelDataLogic(funnelInsightProps))
 
