@@ -119,11 +119,13 @@ core:
             - setup:python
             - check:postgres
             - check:clickhouse
-            - migrations:run
+            - hogli: db:restore-schema
+              prompt: 'Restore pre-migrated schema from CI? (faster than migrations)'
+              else: migrations:run
             - dev:demo-data
             - dev:sync-flags
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
-        destructive: true
+        prompt: true
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
@@ -235,7 +237,7 @@ deploy:
         bin_script: upgrade-hobby
         description: Upgrade existing hobby deployment with data loss warnings and volume
             checks
-        destructive: true
+        prompt: true
     deploy:migrate-recordings:
         bin_script: migrate-session-recordings-hobby
         description: Migrate session recordings from MinIO to SeaweedFS for hobby deployments
@@ -247,7 +249,7 @@ deploy:
             \  --mode sync     Bidirectional sync\n\nExamples:\n  hogli deploy:migrate-storage\
             \ --service query-cache --mode sync --dry-run\n  hogli deploy:migrate-storage\
             \ --service media-uploads --mode migrate"
-        destructive: true
+        prompt: true
     deploy:migrate-storage-hobby:
         bin_script: migrate-storage-hobby
         description: "Hobby: Migrate or sync ALL services between MinIO and SeaweedFS\
@@ -255,7 +257,7 @@ deploy:
             \           # Sync all services\n  hogli deploy:migrate-storage-hobby --mode\
             \ migrate # One-way migrate all (MinIO \u2192 SeaweedFS)\n  hogli deploy:migrate-storage-hobby\
             \ exports -n     # Dry run exports only"
-        destructive: true
+        prompt: true
 build:
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
@@ -328,7 +330,7 @@ docker:
             wipe)
         services:
             - docker
-        destructive: true
+        prompt: true
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
@@ -455,7 +457,7 @@ db:
                   echo "✅ Schema restored"
             - db:migrate
         description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
-        destructive: true
+        prompt: true
         services:
             - postgresql
             - docker
@@ -611,7 +613,7 @@ utilities:
               cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
-        destructive: true
+        prompt: true
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
