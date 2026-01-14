@@ -149,7 +149,7 @@ The Azurite emulator provides Azure Storage API compatibility locally. To run th
 1. Ensure the development Docker stack is running (includes Azurite):
 
    ```bash
-   docker compose -f docker-compose.dev.yml -f products/batch_exports/backend/tests/docker-compose.yml up -d
+   docker compose -f docker-compose.dev.yml --profile batch-exports up -d
    ```
 
 2. Run the tests from the root of the `posthog` repo:

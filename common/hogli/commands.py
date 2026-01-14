@@ -39,8 +39,10 @@ from __future__ import annotations
 # def example_hello(name: str, greeting: str) -> None:
 #     """Say hello to someone."""
 #     click.echo(f"{greeting}, {name}!")
-# Import commands from other modules to register them
+# Side-effect imports: these modules use @cli.command() decorators that register
+# commands with the CLI group when imported. The imports appear unused but are required.
 from hogli import (
     doctor,  # noqa: F401
+    migrations,  # noqa: F401
     product,  # noqa: F401
 )

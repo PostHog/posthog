@@ -901,10 +901,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "used_for_debug": True,
         },
-        "$cymbal_errors": {
-            "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions.",
+        "$has_recording": {
+            "label": "Has recording",
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
             "system": True,
+            "used_for_debug": True,
         },
         "$geoip_city_name": {
             "label": "City name",

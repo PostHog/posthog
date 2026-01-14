@@ -5,7 +5,7 @@ from django.db.models import Q
 import structlog
 import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework import serializers, viewsets
+from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
@@ -17,36 +17,17 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.permissions import get_organization_from_view
 
 logger = structlog.get_logger(__name__)
 
 
+# NOTE: We allow unauthenticated access to global hog flow templates, never put anything secret in them
 class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
     message = "You don't have edit permissions for global workflow templates."
-
-    def _has_feature_flag(self, request: Request, view) -> bool:
-        """Check if user has the workflows-template-creation feature flag"""
-        try:
-            organization = get_organization_from_view(view)
-            user = cast(User, request.user)
-            return user.distinct_id is not None and posthoganalytics.feature_enabled(
-                "workflows-template-creation",
-                user.distinct_id,
-                groups={"organization": str(organization.id)},
-                group_properties={"organization": {"id": str(organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except (ValueError, AttributeError):
-            return False
 
     def has_permission(self, request: Request, view) -> bool:
         if request.method in SAFE_METHODS:
             return True
-
-        if not self._has_feature_flag(request, view):
-            return False
 
         if request.method == "POST":
             scope = request.data.get("scope")
@@ -308,3 +289,17 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         )
 
         super().perform_destroy(instance)
+
+
+class PublicHogFlowTemplateViewSet(
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """
+    Public endpoint for global hogflow templates that doesn't require authentication.
+    Only exposes templates with scope=GLOBAL.
+    """
+
+    permission_classes = [permissions.AllowAny]
+    serializer_class = HogFlowTemplateSerializer
+    queryset = HogFlowTemplate.objects.filter(scope=HogFlowTemplate.Scope.GLOBAL).order_by("-updated_at")

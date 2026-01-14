@@ -242,10 +242,6 @@ export const workflowLogic = kea<workflowLogicType>([
     })),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
-        isTemplateEditMode: [
-            () => [(_, props: WorkflowLogicProps) => props],
-            (props: WorkflowLogicProps): boolean => !!props.editTemplateId,
-        ],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
         edgesByActionId: [
             (s) => [s.workflow],
