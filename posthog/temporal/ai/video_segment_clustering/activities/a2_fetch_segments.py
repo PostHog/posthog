@@ -14,10 +14,10 @@ from posthog.temporal.ai.video_segment_clustering.models import FetchSegmentsAct
 
 @activity.defn
 async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchSegmentsResult:
-    """Fetch unprocessed video segments from ClickHouse.
+    """Fetch video segments from ClickHouse.
 
     Queries document_embeddings for video segments that haven't been processed yet,
-    based on the clustering state watermark.
+    based on the clustering state watermark (since_timestamp).
     """
     team = await Team.objects.aget(id=inputs.team_id)
 

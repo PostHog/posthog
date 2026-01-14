@@ -101,14 +101,12 @@ def perform_hdbscan_clustering(
     # Reduce dimensions for clustering efficiency
     reduced_embeddings = reduce_dimensions(embeddings)
 
-    # Perform HDBSCAN clustering with relaxed parameters
+    # Perform HDBSCAN clustering with relaxed parameters (note: fast_hdbscan is Euclidean-only, no cosine due to perf)
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
-        metric="euclidean",  # Use euclidean on PCA-reduced space
         cluster_selection_method=cluster_selection_method,
         cluster_selection_epsilon=cluster_selection_epsilon,
-        prediction_data=True,
     )
 
     labels = clusterer.fit_predict(reduced_embeddings)

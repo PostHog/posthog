@@ -16,7 +16,7 @@ from dateutil import parser as dateutil_parser
 from redis import Redis
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -648,7 +648,13 @@ async def execute_summarize_session(
         video_validation_enabled=video_validation_enabled,
     )
     # Wait for the workflow to complete
-    await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
+    try:
+        await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
+    except WorkflowAlreadyStartedError:
+        # Workflow is already running, wait for it to complete
+        client = await async_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        await handle.result()
     # Get the summary from the DB
     summary_row = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=team.id,
