@@ -25,9 +25,9 @@ inputs:
     pytest-targets:
         required: false
         description: Optional pytest targets override
-    primary-clickhouse-image:
+    oldest-supported-clickhouse-image:
         required: false
-        description: Primary ClickHouse image for timing upload comparison
+        description: Oldest supported ClickHouse image for timing upload comparison
     token:
         required: false
         description: GitHub token
@@ -264,7 +264,7 @@ runs:
 
         - name: Upload updated timing data as artifacts
           uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-          if: ${{ inputs.person-on-events != 'true' && inputs.primary-clickhouse-image != '' && inputs.clickhouse-server-image == inputs.primary-clickhouse-image }}
+          if: ${{ inputs.person-on-events != 'true' && inputs.oldest-supported-clickhouse-image != '' && inputs.clickhouse-server-image == inputs.oldest-supported-clickhouse-image }}
           with:
               name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
               path: .test_durations

@@ -492,7 +492,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.12.12']
-                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.primary) }}
+                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.oldest-supported) }}
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
@@ -673,7 +673,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get-clickhouse-versions.outputs.primary-image }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get-clickhouse-versions.outputs.oldest-supported-image }}
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
@@ -925,7 +925,7 @@ jobs:
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only upload timing data on main branch to avoid artifact bloat from PRs
-              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && contains(needs.get-clickhouse-versions.outputs.primary, matrix.clickhouse-server-image) }}
+              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && contains(needs.get-clickhouse-versions.outputs.oldest-supported, matrix.clickhouse-server-image) }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -979,10 +979,10 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         outputs:
-            # Primary version for main Django tests (JSON array for matrix)
-            primary: ${{ steps.read-versions.outputs.primary }}
-            # Primary version as plain string (for comparisons)
-            primary-image: ${{ steps.read-versions.outputs.primary-image }}
+            # Oldest supported version for main Django tests (JSON array for matrix)
+            oldest-supported: ${{ steps.read-versions.outputs.oldest-supported }}
+            # Oldest supported version as plain string (for comparisons)
+            oldest-supported-image: ${{ steps.read-versions.outputs.oldest-supported-image }}
             # All unique versions for compat tests
             all: ${{ steps.read-versions.outputs.all }}
         steps:
@@ -993,15 +993,15 @@ jobs:
             - name: Read ClickHouse versions from JSON
               id: read-versions
               run: |
-                  # Primary version for main Django tests (use production, as JSON array for matrix)
-                  primary=$(jq -r '.production' .github/clickhouse-versions.json)
-                  if [ -z "$primary" ] || [ "$primary" = "null" ]; then
-                    echo "::error::No production version found in .github/clickhouse-versions.json"
+                  # Oldest supported version for main Django tests (for max compatibility, as JSON array for matrix)
+                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
+                  if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
+                    echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1
                   fi
-                  echo "primary=[\"$primary\"]" >> $GITHUB_OUTPUT
-                  echo "primary-image=$primary" >> $GITHUB_OUTPUT
-                  echo "Primary version for Django tests: $primary"
+                  echo "oldest-supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
+                  echo "oldest-supported-image=$oldest_supported" >> $GITHUB_OUTPUT
+                  echo "Oldest supported version for Django tests: $oldest_supported"
 
                   # All unique versions for compat tests
                   all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
@@ -1041,7 +1041,7 @@ jobs:
                   group: 1
                   person-on-events: false
                   pytest-targets: 'posthog/clickhouse ee/clickhouse'
-                  primary-clickhouse-image: ${{ needs.get-clickhouse-versions.outputs.primary-image }}
+                  oldest-supported-clickhouse-image: ${{ needs.get-clickhouse-versions.outputs.oldest-supported-image }}
 
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
@@ -1160,7 +1160,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.primary) }}
+                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.oldest-supported) }}
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         steps:
@@ -1177,7 +1177,7 @@ jobs:
 
             - name: Start stack with Docker Compose
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get-clickhouse-versions.outputs.primary-image }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get-clickhouse-versions.outputs.oldest-supported-image }}
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d &
 

@@ -75,7 +75,7 @@ jobs:
         if: needs.changes.outputs.dagster == 'true'
         runs-on: ubuntu-latest
         outputs:
-            production: ${{ steps.read-versions.outputs.production }}
+            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -84,12 +84,12 @@ jobs:
             - name: Read ClickHouse versions from JSON
               id: read-versions
               run: |
-                  production=$(jq -r '.production' .github/clickhouse-versions.json)
-                  if [ -z "$production" ] || [ "$production" = "null" ]; then
-                    echo "::error::No production version found in .github/clickhouse-versions.json"
+                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
+                  if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
+                    echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1
                   fi
-                  echo "production=[\"$production\"]" >> $GITHUB_OUTPUT
+                  echo "oldest_supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
 
     dagster:
         name: Dagster tests
@@ -97,7 +97,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.production) }}
+                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.oldest_supported) }}
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
         steps:
