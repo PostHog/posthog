@@ -311,7 +311,7 @@ class OrganizationFeatureFlagView(
                             # Find cohort name from source and map to target ID
                             from posthog.models.cohort import Cohort
 
-                            source_cohort = Cohort.objects.filter(id=original_cohort_id).first()
+                              source_cohort = Cohort.objects.filter(id=original_cohort_id, team=source_flag.team, deleted=False).first()
                             if source_cohort and source_cohort.name in cohort_mapping:
                                 prop["value"] = cohort_mapping[source_cohort.name]
                         except (ValueError, TypeError):
