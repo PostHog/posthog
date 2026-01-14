@@ -61,6 +61,13 @@ export function ImpersonationNotice(): JSX.Element | null {
         }
     }, [isUpgradeModalOpen, isImpersonationUpgradeInProgress, user?.is_impersonated_read_only])
 
+    // Close modal when upgrade completes successfully
+    useEffect(() => {
+        if (isUpgradeModalOpen && !isImpersonationUpgradeInProgress && user?.is_impersonated_read_only === false) {
+            setIsUpgradeModalOpen(false)
+        }
+    }, [isUpgradeModalOpen, isImpersonationUpgradeInProgress, user?.is_impersonated_read_only])
+
     if (!user?.is_impersonated) {
         return null
     }
