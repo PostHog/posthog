@@ -208,7 +208,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         <>
             <ListBox
                 ref={listboxRef}
-                className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
+                className="w-full grid grid-rows-[auto_1fr] flex-col"
                 virtualFocus
                 autoSelectFirst
                 onFinishedKeyDown={handleListBoxFinishedKeyDown}
