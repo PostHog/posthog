@@ -25,11 +25,44 @@ export type NotebookKernelInfoLogicProps = {
     shortId: string
 }
 
+export const cpuCoreOptions = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
+export const memoryGbOptions = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
+export const idleTimeoutOptions = [
+    { label: '10 minutes', value: 600 },
+    { label: '30 minutes', value: 1800 },
+    { label: '1 hour', value: 3600 },
+    { label: '3 hours', value: 10800 },
+    { label: '6 hours', value: 21600 },
+    { label: '12 hours', value: 43200 },
+]
+
+const findClosestOptionIndex = (options: number[], value?: number | null): number => {
+    if (value == null || Number.isNaN(value)) {
+        return 0
+    }
+    const matchIndex = options.findIndex((option) => Math.abs(option - value) < 1e-6)
+    if (matchIndex !== -1) {
+        return matchIndex
+    }
+    return options.reduce((closestIndex, option, index) => {
+        const closestValue = options[closestIndex]
+        return Math.abs(option - value) < Math.abs(closestValue - value) ? index : closestIndex
+    }, 0)
+}
+
 export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
     props({} as NotebookKernelInfoLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookKernelInfoLogic', key]),
     actions({
         executeKernel: (code) => ({ code }),
+        setCode: (code: string) => ({ code }),
+        setCpuIndex: (cpuIndex: number) => ({ cpuIndex }),
+        setMemoryIndex: (memoryIndex: number) => ({ memoryIndex }),
+        setIdleTimeoutSeconds: (idleTimeoutSeconds: number) => ({ idleTimeoutSeconds }),
+        resetConfigToKernel: true,
+        setConfigFromKernelInfo: (config: { cpuIndex: number; memoryIndex: number; idleTimeoutSeconds: number }) => ({
+            config,
+        }),
         startKernel: true,
         stopKernel: true,
         restartKernel: true,
@@ -40,6 +73,33 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         clearExecution: true,
     }),
     reducers({
+        code: [
+            'print("Kernel ready")',
+            {
+                setCode: (_, { code }) => code,
+            },
+        ],
+        cpuIndex: [
+            0,
+            {
+                setCpuIndex: (_, { cpuIndex }) => cpuIndex,
+                setConfigFromKernelInfo: (_, { config }) => config.cpuIndex,
+            },
+        ],
+        memoryIndex: [
+            0,
+            {
+                setMemoryIndex: (_, { memoryIndex }) => memoryIndex,
+                setConfigFromKernelInfo: (_, { config }) => config.memoryIndex,
+            },
+        ],
+        idleTimeoutSeconds: [
+            idleTimeoutOptions[1].value,
+            {
+                setIdleTimeoutSeconds: (_, { idleTimeoutSeconds }) => idleTimeoutSeconds,
+                setConfigFromKernelInfo: (_, { config }) => config.idleTimeoutSeconds,
+            },
+        ],
         actionInFlight: [
             {
                 start: false,
@@ -104,8 +164,86 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             (s) => [s.kernelInfo],
             (kernelInfo) => kernelInfo?.status === 'running' || kernelInfo?.status === 'starting',
         ],
+        statusInfo: [
+            (s) => [s.kernelInfo, s.actionInFlight],
+            (kernelInfo, actionInFlight) => {
+                if (!kernelInfo) {
+                    return null
+                }
+                if (actionInFlight.stop) {
+                    return { label: 'Stopping', tone: 'warning' as const }
+                }
+                if (actionInFlight.restart) {
+                    return { label: 'Restarting', tone: 'warning' as const }
+                }
+                if (actionInFlight.start && kernelInfo.status !== 'starting') {
+                    return { label: 'Starting', tone: 'warning' as const }
+                }
+                const statusTone: Record<
+                    string,
+                    { label: string; tone: 'success' | 'warning' | 'danger' | 'default' }
+                > = {
+                    running: { label: 'Running', tone: 'success' },
+                    starting: { label: 'Starting', tone: 'warning' },
+                    stopped: { label: 'Stopped', tone: 'default' },
+                    discarded: { label: 'Discarded', tone: 'default' },
+                    error: { label: 'Error', tone: 'danger' },
+                }
+                return statusTone[kernelInfo.status] ?? { label: kernelInfo.status, tone: 'default' }
+            },
+        ],
+        isStarting: [
+            (s) => [s.kernelInfo, s.actionInFlight],
+            (kernelInfo, actionInFlight) => kernelInfo?.status === 'starting' || actionInFlight.start,
+        ],
+        isBusyStatus: [
+            (s) => [s.isStarting, s.actionInFlight],
+            (isStarting, actionInFlight) => isStarting || actionInFlight.stop || actionInFlight.restart,
+        ],
+        hasActionInFlight: [(s) => [s.actionInFlight], (actionInFlight) => Object.values(actionInFlight).some(Boolean)],
+        isModalKernel: [(s) => [s.kernelInfo], (kernelInfo) => kernelInfo?.backend === 'modal'],
+        selectedCpu: [(s) => [s.cpuIndex], (cpuIndex) => cpuCoreOptions[cpuIndex]],
+        selectedMemory: [(s) => [s.memoryIndex], (memoryIndex) => memoryGbOptions[memoryIndex]],
+        currentCpu: [
+            (s) => [s.kernelInfo, s.selectedCpu],
+            (kernelInfo, selectedCpu) => kernelInfo?.cpu_cores ?? selectedCpu,
+        ],
+        currentMemory: [
+            (s) => [s.kernelInfo, s.selectedMemory],
+            (kernelInfo, selectedMemory) => kernelInfo?.memory_gb ?? selectedMemory,
+        ],
+        currentIdleTimeout: [
+            (s) => [s.kernelInfo],
+            (kernelInfo) => kernelInfo?.idle_timeout_seconds ?? idleTimeoutOptions[1].value,
+        ],
+        hasConfigChanges: [
+            (s) => [
+                s.kernelInfo,
+                s.selectedCpu,
+                s.selectedMemory,
+                s.idleTimeoutSeconds,
+                s.currentCpu,
+                s.currentMemory,
+                s.currentIdleTimeout,
+            ],
+            (
+                kernelInfo,
+                selectedCpu,
+                selectedMemory,
+                idleTimeoutSeconds,
+                currentCpu,
+                currentMemory,
+                currentIdleTimeout
+            ) =>
+                Boolean(
+                    kernelInfo &&
+                        (Math.abs(selectedCpu - currentCpu) > 1e-6 ||
+                            Math.abs(selectedMemory - currentMemory) > 1e-6 ||
+                            idleTimeoutSeconds !== currentIdleTimeout)
+                ),
+        ],
     }),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         startKernel: async () => {
             await api.notebooks.kernelStart(props.shortId)
             actions.loadKernelInfo()
@@ -126,6 +264,26 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                 return
             }
             actions.restartKernel()
+        },
+        loadKernelInfoSuccess: ({ kernelInfo }) => {
+            if (!kernelInfo) {
+                return
+            }
+            actions.setConfigFromKernelInfo({
+                cpuIndex: findClosestOptionIndex(cpuCoreOptions, kernelInfo.cpu_cores),
+                memoryIndex: findClosestOptionIndex(memoryGbOptions, kernelInfo.memory_gb),
+                idleTimeoutSeconds: kernelInfo.idle_timeout_seconds ?? idleTimeoutOptions[1].value,
+            })
+        },
+        resetConfigToKernel: () => {
+            if (!values.kernelInfo) {
+                return
+            }
+            actions.setConfigFromKernelInfo({
+                cpuIndex: findClosestOptionIndex(cpuCoreOptions, values.kernelInfo.cpu_cores),
+                memoryIndex: findClosestOptionIndex(memoryGbOptions, values.kernelInfo.memory_gb),
+                idleTimeoutSeconds: values.kernelInfo.idle_timeout_seconds ?? idleTimeoutOptions[1].value,
+            })
         },
         executeKernelSuccess: () => {
             actions.loadKernelInfo()

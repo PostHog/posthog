@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
@@ -8,41 +7,8 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
+import { cpuCoreOptions, idleTimeoutOptions, memoryGbOptions, notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import { notebookLogic } from './notebookLogic'
-
-const statusTone: Record<string, { label: string; tone: 'success' | 'warning' | 'danger' | 'default' }> = {
-    running: { label: 'Running', tone: 'success' },
-    starting: { label: 'Starting', tone: 'warning' },
-    stopped: { label: 'Stopped', tone: 'default' },
-    discarded: { label: 'Discarded', tone: 'default' },
-    error: { label: 'Error', tone: 'danger' },
-}
-
-const cpuCoreOptions = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
-const memoryGbOptions = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
-const idleTimeoutOptions = [
-    { label: '10 minutes', value: 600 },
-    { label: '30 minutes', value: 1800 },
-    { label: '1 hour', value: 3600 },
-    { label: '3 hours', value: 10800 },
-    { label: '6 hours', value: 21600 },
-    { label: '12 hours', value: 43200 },
-]
-
-const findClosestOptionIndex = (options: number[], value?: number | null): number => {
-    if (value == null || Number.isNaN(value)) {
-        return 0
-    }
-    const matchIndex = options.findIndex((option) => Math.abs(option - value) < 1e-6)
-    if (matchIndex !== -1) {
-        return matchIndex
-    }
-    return options.reduce((closestIndex, option, index) => {
-        const closestValue = options[closestIndex]
-        return Math.abs(option - value) < Math.abs(closestValue - value) ? index : closestIndex
-    }, 0)
-}
 
 const formatCores = (value: number): string => {
     const formatted = value % 1 === 0 ? value.toString() : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
@@ -59,54 +25,39 @@ const formatMemory = (value: number): string => {
 export const NotebookKernelInfo = (): JSX.Element => {
     const { shortId } = useValues(notebookLogic)
     const logic = notebookKernelInfoLogic({ shortId })
-    const { kernelInfo, kernelInfoLoading, executionResult, actionInFlight, isRunning } = useValues(logic)
-    const { clearExecution, executeKernel, loadKernelInfo, restartKernel, saveKernelConfig, startKernel, stopKernel } =
-        useActions(logic)
-    const [code, setCode] = useState('print("Kernel ready")')
-    const [cpuIndex, setCpuIndex] = useState(0)
-    const [memoryIndex, setMemoryIndex] = useState(0)
-    const [idleTimeoutSeconds, setIdleTimeoutSeconds] = useState(idleTimeoutOptions[1].value)
-
-    const statusInfo = useMemo(() => {
-        if (!kernelInfo) {
-            return null
-        }
-        if (actionInFlight.stop) {
-            return { label: 'Stopping', tone: 'warning' }
-        }
-        if (actionInFlight.restart) {
-            return { label: 'Restarting', tone: 'warning' }
-        }
-        if (actionInFlight.start && kernelInfo.status !== 'starting') {
-            return { label: 'Starting', tone: 'warning' }
-        }
-        return statusTone[kernelInfo.status] ?? { label: kernelInfo.status, tone: 'default' }
-    }, [actionInFlight.restart, actionInFlight.start, actionInFlight.stop, kernelInfo])
-
-    const isStarting = kernelInfo?.status === 'starting' || actionInFlight.start
-    const isBusyStatus = isStarting || actionInFlight.stop || actionInFlight.restart
-    const hasActionInFlight = Object.values(actionInFlight).some(Boolean)
-
-    const isModalKernel = kernelInfo?.backend === 'modal'
-    const selectedCpu = cpuCoreOptions[cpuIndex]
-    const selectedMemory = memoryGbOptions[memoryIndex]
-    const currentCpu = kernelInfo?.cpu_cores ?? selectedCpu
-    const currentMemory = kernelInfo?.memory_gb ?? selectedMemory
-    const currentIdleTimeout = kernelInfo?.idle_timeout_seconds ?? idleTimeoutOptions[1].value
-    const hasConfigChanges =
-        kernelInfo &&
-        (Math.abs(selectedCpu - currentCpu) > 1e-6 ||
-            Math.abs(selectedMemory - currentMemory) > 1e-6 ||
-            idleTimeoutSeconds !== currentIdleTimeout)
-
-    useEffect(() => {
-        if (!kernelInfo) {
-            return
-        }
-        setCpuIndex(findClosestOptionIndex(cpuCoreOptions, kernelInfo.cpu_cores))
-        setMemoryIndex(findClosestOptionIndex(memoryGbOptions, kernelInfo.memory_gb))
-        setIdleTimeoutSeconds(kernelInfo.idle_timeout_seconds ?? idleTimeoutOptions[1].value)
-    }, [kernelInfo?.cpu_cores, kernelInfo?.memory_gb, kernelInfo?.idle_timeout_seconds])
+    const {
+        kernelInfo,
+        kernelInfoLoading,
+        executionResult,
+        actionInFlight,
+        isRunning,
+        statusInfo,
+        isStarting,
+        isBusyStatus,
+        hasActionInFlight,
+        isModalKernel,
+        selectedCpu,
+        selectedMemory,
+        idleTimeoutSeconds,
+        hasConfigChanges,
+        code,
+        cpuIndex,
+        memoryIndex,
+    } = useValues(logic)
+    const {
+        clearExecution,
+        executeKernel,
+        loadKernelInfo,
+        restartKernel,
+        saveKernelConfig,
+        startKernel,
+        stopKernel,
+        setCode,
+        setCpuIndex,
+        setMemoryIndex,
+        setIdleTimeoutSeconds,
+        resetConfigToKernel,
+    } = useActions(logic)
 
     return (
         <LemonWidget
@@ -269,11 +220,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                                 size="small"
                                 type="secondary"
                                 onClick={() => {
-                                    setCpuIndex(findClosestOptionIndex(cpuCoreOptions, kernelInfo.cpu_cores))
-                                    setMemoryIndex(findClosestOptionIndex(memoryGbOptions, kernelInfo.memory_gb))
-                                    setIdleTimeoutSeconds(
-                                        kernelInfo.idle_timeout_seconds ?? idleTimeoutOptions[1].value
-                                    )
+                                    resetConfigToKernel()
                                 }}
                                 disabled={!hasConfigChanges || hasActionInFlight}
                             >
