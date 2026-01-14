@@ -511,8 +511,8 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            quantile(0.95)(accurateCastOrNull(combined_events.numerator_value, 'Float64')) AS numerator_value,
-            uniqExact(accurateCastOrNull(combined_events.denominator_value, 'Float64')) AS denominator_value
+            coalesce(quantile(0.95)(accurateCastOrNull(combined_events.numerator_value, 'Float64')), 0) AS numerator_value,
+            coalesce(uniqExact(accurateCastOrNull(combined_events.denominator_value, 'Float64')), 0) AS denominator_value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
