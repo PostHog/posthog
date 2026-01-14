@@ -94,7 +94,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     ]
 
     return (
-        <SceneContent className="flex flex-col grow">
+        <SceneContent className="h-full flex flex-col grow">
             <WorkflowSceneHeader {...props} />
             {/* Only show Logs and Metrics tabs if the workflow has already been created */}
             {!props.id || props.id === 'new' ? (

@@ -491,7 +491,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.12.12']
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.11.66']
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
@@ -542,121 +542,121 @@ jobs:
                 include:
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 7
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 8
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 9
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 10
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 7
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 8
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 9
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 10
@@ -705,8 +705,8 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
-                          if docker compose -f docker-compose.dev.yml -f products/batch_exports/backend/tests/docker-compose.yml down && \
-                            docker compose -f docker-compose.dev.yml -f products/batch_exports/backend/tests/docker-compose.yml up -d; then
+                          if docker compose -f docker-compose.dev.yml --profile '*' down && \
+                            docker compose -f docker-compose.dev.yml --profile batch-exports up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
@@ -944,7 +944,7 @@ jobs:
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only upload timing data on main branch to avoid artifact bloat from PRs
-              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
+              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.11.66' }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -1104,7 +1104,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.11.66']
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         steps:
@@ -1183,41 +1183,23 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [django, async-migrations]
+        needs: [django_tests, async-migrations]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            needs.changes.outputs.backend == 'true' && (
+            always() && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
-            - name: Calculate running time
-              run: |
-                  gh auth login --with-token < <(echo ${{ secrets.GITHUB_TOKEN }})
-                  run_id=${GITHUB_RUN_ID}
-                  repo=${GITHUB_REPOSITORY}
-                  run_info=$(gh api repos/${repo}/actions/runs/${run_id})
-                  echo run_info: ${run_info}
-                  # name is the name of the workflow file
-                  # run_started_at is the start time of the workflow
-                  # we want to get the number of seconds between the start time and now
-                  name=$(echo ${run_info} | jq -r '.name')
-                  run_url=$(echo ${run_info} | jq -r '.url')
-                  run_started_at=$(echo ${run_info} | jq -r '.run_started_at')
-                  run_attempt=$(echo ${run_info} | jq -r '.run_attempt')
-                  start_seconds=$(date -d "${run_started_at}" +%s)
-                  now_seconds=$(date +%s)
-                  duration=$((now_seconds-start_seconds))
-                  echo running_time_duration_seconds=${duration} >> $GITHUB_ENV
-                  echo running_time_run_url=${run_url} >> $GITHUB_ENV
-                  echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
-                  echo running_time_run_id=${run_id} >> $GITHUB_ENV
-                  echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
             - name: Capture running time to PostHog
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
-                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
-                  properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Django Tests Pass'
+                  runner: 'depot'
 
     llm-gateway:
         name: LLM Gateway Tests

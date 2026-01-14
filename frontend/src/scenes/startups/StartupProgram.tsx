@@ -86,7 +86,7 @@ export function StartupProgram(): JSX.Element {
     // For YC pages, we show the full page with a status box instead
     if (isCurrentlyOnStartupPlan && !isYC) {
         return (
-            <div className="mx-auto max-w-200 mt-6 px-4">
+            <div className="mx-auto w-full max-w-200 mt-6 px-4">
                 <LemonBanner type="info">
                     <h2 className="mb-2">You are already in the {currentProgramName}</h2>
                     <p>It looks like your organization is already part of our {currentProgramName}.</p>
@@ -108,7 +108,7 @@ export function StartupProgram(): JSX.Element {
     // YC customers can re-apply
     if (wasPreviouslyOnStartupPlan && !isYC) {
         return (
-            <div className="mx-auto max-w-200 mt-6 px-4">
+            <div className="mx-auto w-full max-w-200 mt-6 px-4">
                 <LemonBanner type="info">
                     <h2 className="mb-2">You were already in the Startup Program</h2>
                     <p>
@@ -125,7 +125,7 @@ export function StartupProgram(): JSX.Element {
 
     if (isAnnualPlanCustomer) {
         return (
-            <div className="mx-auto max-w-200 mt-6 px-4">
+            <div className="mx-auto w-full max-w-200 mt-6 px-4">
                 <LemonBanner type="info">
                     <h2 className="mb-2">You are already on an annual plan</h2>
                     <p>
@@ -145,7 +145,7 @@ export function StartupProgram(): JSX.Element {
 
     if (!isAdminOrOwner) {
         return (
-            <div className="mx-auto max-w-200 mt-6 px-4">
+            <div className="mx-auto w-full max-w-200 mt-6 px-4">
                 <LemonBanner type="warning">
                     <h2 className="mb-2">Admin or owner permission required</h2>
                     <p>

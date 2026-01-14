@@ -90,7 +90,7 @@ async def handle_llm_request(
             product=product,
         )
 
-    CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).inc()
+    CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
     try:
         return await _handle_non_streaming_request(
             request_data=request_data,
@@ -104,7 +104,7 @@ async def handle_llm_request(
         )
 
     except TimeoutError:
-        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout").inc()
+        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout", product=product).inc()
         logger.error(f"Timeout in {provider_config.endpoint_name} endpoint")
         raise HTTPException(
             status_code=504,
@@ -113,7 +113,7 @@ async def handle_llm_request(
     except HTTPException:
         raise
     except Exception as e:
-        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__).inc()
+        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
         capture_exception(e, {"provider": provider_config.name, "model": model, "user_id": user.user_id})
         logger.exception(f"Error in {provider_config.endpoint_name} endpoint: {e}")
         status_code = getattr(e, "status_code", 500)
@@ -128,7 +128,7 @@ async def handle_llm_request(
             },
         ) from e
     finally:
-        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).dec()
+        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
 
 
 async def _handle_streaming_request(
@@ -142,8 +142,8 @@ async def _handle_streaming_request(
     product: str = "llm_gateway",
 ) -> StreamingResponse:
     async def stream_generator() -> AsyncGenerator[bytes, None]:
-        ACTIVE_STREAMS.labels(provider=provider_config.name, model=model).inc()
-        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).inc()
+        ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).inc()
+        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
         status_code = "200"
         provider_start = time.monotonic()
         first_chunk_received = False
@@ -156,12 +156,16 @@ async def _handle_streaming_request(
                 if not first_chunk_received:
                     first_chunk_received = True
                     time_to_first = time.monotonic() - provider_start
-                    PROVIDER_LATENCY.labels(provider=provider_config.name, model=model).observe(time_to_first)
-                    TIME_TO_FIRST_CHUNK.labels(provider=provider_config.name, model=model).observe(time_to_first)
+                    PROVIDER_LATENCY.labels(provider=provider_config.name, model=model, product=product).observe(
+                        time_to_first
+                    )
+                    TIME_TO_FIRST_CHUNK.labels(provider=provider_config.name, model=model, product=product).observe(
+                        time_to_first
+                    )
                 yield chunk
 
         except asyncio.CancelledError:
-            STREAMING_CLIENT_DISCONNECT.labels(provider=provider_config.name, model=model).inc()
+            STREAMING_CLIENT_DISCONNECT.labels(provider=provider_config.name, model=model, product=product).inc()
             raise
         except TimeoutError:
             status_code = "504"
@@ -175,19 +179,21 @@ async def _handle_streaming_request(
             logger.exception(f"Streaming error in {provider_config.endpoint_name} endpoint: {e}")
             raise
         finally:
-            ACTIVE_STREAMS.labels(provider=provider_config.name, model=model).dec()
-            CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).dec()
+            ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).dec()
+            CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
             REQUEST_COUNT.labels(
                 endpoint=provider_config.endpoint_name,
                 provider=provider_config.name,
                 model=model,
                 status_code=status_code,
                 auth_method=user.auth_method,
+                product=product,
             ).inc()
             REQUEST_LATENCY.labels(
                 endpoint=provider_config.endpoint_name,
                 provider=provider_config.name,
                 streaming="true",
+                product=product,
             ).observe(time.monotonic() - start_time)
 
             try:
@@ -233,7 +239,9 @@ async def _handle_non_streaming_request(
 
     try:
         response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
-        PROVIDER_LATENCY.labels(provider=provider_config.name, model=model).observe(time.monotonic() - provider_start)
+        PROVIDER_LATENCY.labels(provider=provider_config.name, model=model, product=product).observe(
+            time.monotonic() - provider_start
+        )
         response_dict = response.model_dump() if hasattr(response, "model_dump") else response
 
         REQUEST_COUNT.labels(
@@ -242,6 +250,7 @@ async def _handle_non_streaming_request(
             model=model,
             status_code="200",
             auth_method=user.auth_method,
+            product=product,
         ).inc()
 
         if "usage" in response_dict:
@@ -250,14 +259,15 @@ async def _handle_non_streaming_request(
             output_tokens = usage.get(provider_config.output_tokens_field, 0)
 
             if 0 <= input_tokens <= 1_000_000:
-                TOKENS_INPUT.labels(provider=provider_config.name, model=model).inc(input_tokens)
+                TOKENS_INPUT.labels(provider=provider_config.name, model=model, product=product).inc(input_tokens)
             if 0 <= output_tokens <= 1_000_000:
-                TOKENS_OUTPUT.labels(provider=provider_config.name, model=model).inc(output_tokens)
+                TOKENS_OUTPUT.labels(provider=provider_config.name, model=model, product=product).inc(output_tokens)
 
         REQUEST_LATENCY.labels(
             endpoint=provider_config.endpoint_name,
             provider=provider_config.name,
             streaming="false",
+            product=product,
         ).observe(time.monotonic() - start_time)
 
         return response_dict

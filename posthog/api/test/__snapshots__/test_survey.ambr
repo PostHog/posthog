@@ -159,6 +159,7 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",

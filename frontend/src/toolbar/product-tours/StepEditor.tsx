@@ -8,7 +8,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { TOUR_STEP_MAX_WIDTH, TOUR_STEP_MIN_WIDTH } from 'scenes/product-tours/editor/ProductTourStepsEditor'
+import {
+    TOUR_STEP_MAX_WIDTH,
+    TOUR_STEP_MIN_WIDTH,
+    getWidthValue,
+} from 'scenes/product-tours/editor/ProductTourStepsEditor'
 import { StepContentEditor } from 'scenes/product-tours/editor/StepContentEditor'
 import { SurveyStepEditor } from 'scenes/product-tours/editor/SurveyStepEditor'
 import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppearancePositionSelector'
@@ -16,14 +20,7 @@ import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppeara
 import { toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
 import { ElementRect } from '~/toolbar/types'
 import { elementToActionStep } from '~/toolbar/utils'
-import {
-    PRODUCT_TOUR_STEP_WIDTHS,
-    ProductTourProgressionTriggerType,
-    ProductTourStepWidth,
-    ProductTourSurveyQuestion,
-    ScreenPosition,
-    SurveyPosition,
-} from '~/types'
+import { ProductTourProgressionTriggerType, ProductTourSurveyQuestion, ScreenPosition, SurveyPosition } from '~/types'
 
 import { productToursLogic } from './productToursLogic'
 
@@ -131,16 +128,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     // Survey step state - managed by SurveyStepEditor
     const [surveyConfig, setSurveyConfig] = useState<ProductTourSurveyQuestion | undefined>(editingStep?.survey)
 
-    const [editorWidth, setEditorWidth] = useState(() => {
-        const existingWidth = editingStep?.maxWidth
-        if (typeof existingWidth === 'number') {
-            return existingWidth
-        }
-        if (existingWidth && existingWidth in PRODUCT_TOUR_STEP_WIDTHS) {
-            return PRODUCT_TOUR_STEP_WIDTHS[existingWidth as ProductTourStepWidth]
-        }
-        return PRODUCT_TOUR_STEP_WIDTHS.default
-    })
+    const [editorWidth, setEditorWidth] = useState(() => getWidthValue(editingStep?.maxWidth))
     const [isResizing, setIsResizing] = useState(false)
 
     const isElementStep = editingStepType === 'element'
@@ -175,14 +163,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
 
     useEffect(() => {
         if (editingStep) {
-            const existingWidth = editingStep.maxWidth
-            if (typeof existingWidth === 'number') {
-                setEditorWidth(existingWidth)
-            } else if (existingWidth && existingWidth in PRODUCT_TOUR_STEP_WIDTHS) {
-                setEditorWidth(PRODUCT_TOUR_STEP_WIDTHS[existingWidth as ProductTourStepWidth])
-            } else {
-                setEditorWidth(PRODUCT_TOUR_STEP_WIDTHS.default)
-            }
+            setEditorWidth(getWidthValue(editingStep.maxWidth))
         }
     }, [editingStep?.id, editingStep?.maxWidth])
 
