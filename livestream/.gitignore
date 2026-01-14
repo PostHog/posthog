@@ -30,3 +30,6 @@ livestream
 # configs
 configs/configs.yml
 mmdb.db
+
+# air temporary storage
+tmp/
