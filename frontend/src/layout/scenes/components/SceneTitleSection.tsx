@@ -275,10 +275,12 @@ function SceneName({
         'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
 
     useEffect(() => {
-        if (!isLoading) {
+        // Only sync prop to local state when not editing to prevent overwriting user input
+        // during debounced saves (the API response would otherwise reset the input)
+        if (!isLoading && !isEditing) {
             setName(initialName)
         }
-    }, [initialName, isLoading])
+    }, [initialName, isLoading, isEditing])
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -410,10 +412,12 @@ function SceneDescription({
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
 
     useEffect(() => {
-        if (!isLoading) {
+        // Only sync prop to local state when not editing to prevent overwriting user input
+        // during debounced saves (the API response would otherwise reset the input)
+        if (!isLoading && !isEditing) {
             setDescription(initialDescription)
         }
-    }, [initialDescription, isLoading])
+    }, [initialDescription, isLoading, isEditing])
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
