@@ -401,7 +401,14 @@ describe('featureFlagConditionWarningLogic', () => {
             useMocks({
                 get: {
                     '/api/projects/:team/cohorts/': {
-                        results: [{ id: 1, name: 'Test Static Cohort', is_static: true }],
+                        results: [
+                            {
+                                id: 1,
+                                name: 'Test Static Cohort',
+                                is_static: true,
+                                filters: { properties: { type: 'AND', values: [] } },
+                            },
+                        ],
                     },
                 },
             })
@@ -416,7 +423,7 @@ describe('featureFlagConditionWarningLogic', () => {
             ]
 
             cohortsModel.mount()
-            await expectLogic(cohortsModel).toFinishAllListeners()
+            await expectLogic(cohortsModel).toDispatchActions(['loadAllCohortsSuccess'])
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
@@ -454,7 +461,14 @@ describe('featureFlagConditionWarningLogic', () => {
             useMocks({
                 get: {
                     '/api/projects/:team/cohorts/': {
-                        results: [{ id: 1, name: 'Test Dynamic Cohort', is_static: false }],
+                        results: [
+                            {
+                                id: 1,
+                                name: 'Test Dynamic Cohort',
+                                is_static: false,
+                                filters: { properties: { type: 'AND', values: [] } },
+                            },
+                        ],
                     },
                 },
             })
@@ -469,7 +483,7 @@ describe('featureFlagConditionWarningLogic', () => {
             ]
 
             cohortsModel.mount()
-            await expectLogic(cohortsModel).toFinishAllListeners()
+            await expectLogic(cohortsModel).toDispatchActions(['loadAllCohortsSuccess'])
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
