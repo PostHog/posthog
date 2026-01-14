@@ -441,7 +441,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
     def insert_users_by_email(
-        self, items: list[str], *, team_id: Optional[int] = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
+        self,
+        items: list[str],
+        *,
+        team_id: Optional[int] = None,
+        batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        email_property_key: str | None = None,
     ) -> int:
         """
         Insert a list of users identified by their email address into the cohort, for the given team.
@@ -449,6 +454,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             items: List of email addresses of users to be inserted into the cohort.
             team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
             batch_size: Number of records to process in each batch. Defaults to 1000.
+            email_property_key: Exact email property key format from CSV (e.g., 'email', 'Email', 'EMAIL').
+                               If None, defaults to 'email' for backward compatibility.
         """
         if team_id is None:
             team_id = self.team_id
@@ -465,7 +472,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
             batch_emails = items[start_idx:end_idx]
-            uuids = self._get_uuids_for_emails_batch(batch_emails, team_id)
+            uuids = self._get_uuids_for_emails_batch(batch_emails, team_id, email_property_key)
             return uuids
 
         # Use FunctionBatchIterator to process emails in batches
@@ -474,7 +481,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         # Call the batching method with ClickHouse insertion enabled
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
-    def _get_uuids_for_emails_batch(self, emails: list[str], team_id: int) -> list[str]:
+    def _get_uuids_for_emails_batch(
+        self, emails: list[str], team_id: int, email_property_key: str | None = None
+    ) -> list[str]:
         """
         Get UUIDs for a batch of email addresses, excluding those already in this cohort.
 
@@ -488,17 +497,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if not emails:
             return []
 
-        # Try a small set of common JSON property key variants for email.
-        # This is a minimal pragmatic fix for mixed-case keys in existing datasets.
-        q_filters = Q()
-        q_filters |= Q(properties__email__in=emails)
-        q_filters |= Q(properties__Email__in=emails)
-        q_filters |= Q(properties__EMAIL__in=emails)
+        # Use the exact email property key format from the CSV file
+        # This ensures we only match against the same format used in the CSV
+        if email_property_key is None:
+            # Fallback to 'email' for backward compatibility
+            email_property_key = "email"
+
+        filter_kwargs = {f"properties__{email_property_key}__in": emails}
 
         uuids = (
             Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id)
-            .filter(q_filters)
+            .filter(**filter_kwargs)
             .values_list("uuid", flat=True)
             .distinct()
         )

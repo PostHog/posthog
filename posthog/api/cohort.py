@@ -554,8 +554,8 @@ class CohortSerializer(serializers.ModelSerializer):
         email_headers_lower = [h.lower() for h in CSVConfig.EMAIL_HEADERS]
         return header.strip().lower() in email_headers_lower
 
-    def _find_id_column(self, headers: list[str]) -> tuple[int, str] | None:
-        """Find the index and type of the ID column in headers, with preference order: person_id > distinct_id > email"""
+    def _find_id_column(self, headers: list[str]) -> tuple[int, str, str] | None:
+        """Find the index, type, and actual column name of the ID column in headers, with preference order: person_id > distinct_id > email"""
         normalized_headers = [h.strip() for h in headers]
         normalized_lower_headers = [h.lower() for h in normalized_headers]
 
@@ -563,18 +563,18 @@ class CohortSerializer(serializers.ModelSerializer):
         person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
         for i, header in enumerate(normalized_lower_headers):
             if header in person_id_headers_lower:
-                return i, "person_id"
+                return i, "person_id", normalized_headers[i]
 
         # Then, look for distinct_id columns
         for i, header in enumerate(normalized_lower_headers):
             if header in CSVConfig.DISTINCT_ID_HEADERS:
-                return i, "distinct_id"
+                return i, "distinct_id", normalized_headers[i]
 
         # Finally, look for email columns
         email_headers_lower = [h.lower() for h in CSVConfig.EMAIL_HEADERS]
         for i, header in enumerate(normalized_lower_headers):
             if header in email_headers_lower:
-                return i, "email"
+                return i, "email", normalized_headers[i]
 
         return None
 
@@ -616,7 +616,9 @@ class CohortSerializer(serializers.ModelSerializer):
 
         return ids
 
-    def _validate_and_process_ids(self, ids: list[str], id_type: str, cohort: Cohort) -> None:
+    def _validate_and_process_ids(
+        self, ids: list[str], id_type: str, cohort: Cohort, email_column_name: str | None = None
+    ) -> None:
         """Final validation and task scheduling"""
         from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 
@@ -624,7 +626,9 @@ class CohortSerializer(serializers.ModelSerializer):
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
         logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(ids)} {id_type}s")
-        calculate_cohort_from_list.delay(cohort.pk, ids, team_id=self.context["team_id"], id_type=id_type)
+        calculate_cohort_from_list.delay(
+            cohort.pk, ids, team_id=self.context["team_id"], id_type=id_type, email_column_name=email_column_name
+        )
 
     def _handle_csv_errors(self, e: Exception, cohort: Cohort) -> None:
         """Centralized error handling with consistent exception capture"""
@@ -663,10 +667,16 @@ class CohortSerializer(serializers.ModelSerializer):
                 elif first_row and self._is_email_header(first_row[0]):
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=True)
                     id_type = "email"
+                    actual_column_name = first_row[0].strip()  # Capture the actual column name
+                    self._validate_and_process_ids(ids, id_type, cohort, actual_column_name)
+                    return  # Early return for single-column email case
                 else:
                     # Single column format treated as distinct_ids for backwards compatibility
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=False)
                     id_type = "distinct_id"
+
+                # Handle non-email single-column cases
+                self._validate_and_process_ids(ids, id_type, cohort)
             else:
                 result = self._find_id_column(first_row)
 
@@ -682,10 +692,10 @@ class CohortSerializer(serializers.ModelSerializer):
                         }
                     )
 
-                id_col, id_type = result
+                id_col, id_type, actual_column_name = result
                 ids = self._extract_ids_multi_column(reader, id_col, cohort.pk)
 
-            self._validate_and_process_ids(ids, id_type, cohort)
+            self._validate_and_process_ids(ids, id_type, cohort, actual_column_name if id_type == "email" else None)
 
         except Exception as e:
             self._handle_csv_errors(e, cohort)
