@@ -100,7 +100,7 @@ class OrganizationFeatureFlagView(
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
                 seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
             )
-            
+
             # Also include cohorts from scheduled changes if copying schedules
             if copy_schedule:
                 schedule_cohort_ids = self._extract_cohort_ids_from_schedules(flag_to_copy)
@@ -331,7 +331,7 @@ class OrganizationFeatureFlagView(
     def _extract_cohort_ids_from_schedules(self, flag):
         """Extract all cohort IDs referenced in pending scheduled changes."""
         from posthog.models.scheduled_change import ScheduledChange
-        
+
         cohort_ids = set()
         schedules = ScheduledChange.objects.filter(
             record_id=str(flag.id),
@@ -339,7 +339,7 @@ class OrganizationFeatureFlagView(
             executed_at__isnull=True,
             team=flag.team,
         )
-        
+
         for schedule in schedules:
             payload = schedule.payload
             # Check for cohorts in AddReleaseCondition operations
@@ -352,5 +352,5 @@ class OrganizationFeatureFlagView(
                                 cohort_ids.add(cohort_id)
                             except (ValueError, TypeError):
                                 continue
-        
+
         return list(cohort_ids)
