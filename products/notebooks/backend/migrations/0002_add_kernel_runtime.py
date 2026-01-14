@@ -41,10 +41,17 @@ class Migration(migrations.Migration):
                         max_length=20,
                     ),
                 ),
+                (
+                    "backend",
+                    models.CharField(
+                        choices=[("modal", "modal"), ("docker", "docker")], default="docker", max_length=20
+                    ),
+                ),
                 ("kernel_id", models.CharField(blank=True, max_length=64, null=True)),
                 ("kernel_pid", models.IntegerField(blank=True, null=True)),
                 ("connection_file", models.TextField(blank=True, null=True)),
                 ("last_error", models.TextField(blank=True, null=True)),
+                ("sandbox_id", models.CharField(blank=True, max_length=128, null=True)),
                 (
                     "notebook",
                     models.ForeignKey(
@@ -66,22 +73,8 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="kernelruntime",
             index=models.Index(
-                fields=["team", "notebook_short_id", "user", "status"], name="notebooks_k_team_id_d9a4c8_idx"
+                fields=["team", "notebook_short_id", "user", "status"], name="posthog_ker_team_id_934f49_idx"
             ),
-        ),
-        migrations.AddField(
-            model_name="kernelruntime",
-            name="backend",
-            field=models.CharField(
-                choices=[("modal", "modal"), ("docker", "docker")],
-                default="local",
-                max_length=20,
-            ),
-        ),
-        migrations.AddField(
-            model_name="kernelruntime",
-            name="sandbox_id",
-            field=models.CharField(blank=True, max_length=128, null=True),
         ),
         migrations.AddField(
             model_name="notebook",
@@ -97,15 +90,5 @@ class Migration(migrations.Migration):
             model_name="notebook",
             name="kernel_idle_timeout_seconds",
             field=models.IntegerField(blank=True, null=True),
-        ),
-        migrations.RenameIndex(
-            model_name="kernelruntime",
-            new_name="posthog_ker_team_id_934f49_idx",
-            old_name="notebooks_k_team_id_d9a4c8_idx",
-        ),
-        migrations.AlterField(
-            model_name="kernelruntime",
-            name="backend",
-            field=models.CharField(choices=[("modal", "modal"), ("docker", "docker")], default="docker", max_length=20),
         ),
     ]

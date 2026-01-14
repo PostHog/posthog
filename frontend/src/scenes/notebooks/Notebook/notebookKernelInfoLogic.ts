@@ -36,6 +36,15 @@ export const idleTimeoutOptions = [
     { label: '12 hours', value: 43200 },
 ]
 
+type KernelActionInFlight = {
+    start: boolean
+    stop: boolean
+    restart: boolean
+    execute: boolean
+    save: boolean
+    refresh: boolean
+}
+
 const findClosestOptionIndex = (options: number[], value?: number | null): number => {
     if (value == null || Number.isNaN(value)) {
         return 0
@@ -108,7 +117,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                 execute: false,
                 save: false,
                 refresh: false,
-            },
+            } as KernelActionInFlight,
             {
                 startKernel: (state) => ({ ...state, start: true }),
                 stopKernel: (state) => ({ ...state, stop: true }),
@@ -143,14 +152,14 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             null as NotebookKernelInfo | null,
             {
                 loadKernelInfo: async () => {
-                    return await api.notebooks.kernelStatus(props.shortId)
+                    return (await api.notebooks.kernelStatus(props.shortId)) as NotebookKernelInfo
                 },
             },
         ],
         executionResult: [
             null as PythonKernelExecuteResponse | null,
             {
-                executeKernel: async ({ code }) => {
+                executeKernel: async ({ code }): Promise<PythonKernelExecuteResponse | null> => {
                     return (await api.notebooks.kernelExecute(props.shortId, {
                         code,
                         return_variables: false,

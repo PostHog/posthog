@@ -32,9 +32,15 @@ import {
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
 import { VariableUsage } from './notebookNodeContent'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
-import { PythonKernelExecuteResponse, buildPythonExecutionError, buildPythonExecutionResult } from './pythonExecution'
+import {
+    PythonExecutionResult,
+    PythonExecutionVariable,
+    PythonKernelExecuteResponse,
+    buildPythonExecutionError,
+    buildPythonExecutionResult,
+} from './pythonExecution'
 
-type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
+export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
 
 type RunPythonCellParams = {
     notebookId: string
@@ -216,7 +222,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (s) => [s.nodeAttributes],
             (nodeAttributes): { name: string; type: string }[] => nodeAttributes.globalsExportedWithTypes ?? [],
         ],
-        pythonExecution: [(s) => [s.nodeAttributes], (nodeAttributes) => nodeAttributes.pythonExecution ?? null],
+        pythonExecution: [
+            (s) => [s.nodeAttributes],
+            (nodeAttributes): PythonExecutionResult | null => nodeAttributes.pythonExecution ?? null,
+        ],
         displayedGlobals: [
             (s) => [s.exportedGlobals, s.pythonExecution],
             (exportedGlobals, pythonExecution): { name: string; type: string }[] => {
@@ -224,7 +233,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     return exportedGlobals
                 }
 
-                const typeByName = new Map(pythonExecution.variables.map((variable) => [variable.name, variable.type]))
+                const typeByName = new Map<string, string>(
+                    pythonExecution.variables.map((variable: PythonExecutionVariable) => [variable.name, variable.type])
+                )
                 return exportedGlobals.map(({ name, type }) => ({
                     name,
                     type: typeByName.get(name) ?? type,
