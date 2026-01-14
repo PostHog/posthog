@@ -36,7 +36,7 @@ describe('RecordingApi', () => {
         mockHub = {
             SESSION_RECORDING_V2_S3_REGION: 'us-west-2',
             SESSION_RECORDING_V2_S3_ENDPOINT: undefined,
-            REDIS_URL: 'redis://localhost:6379',
+            REDIS_URL: 'rediss://localhost:6379',
             REDIS_POOL_MIN_SIZE: 1,
             REDIS_POOL_MAX_SIZE: 10,
             postgres: {} as any,
@@ -99,7 +99,7 @@ describe('RecordingApi', () => {
             })
             expect(getKeyStore).toHaveBeenCalledWith(
                 {
-                    redisUrl: 'redis://localhost:6379',
+                    redisUrl: 'rediss://localhost:6379',
                     redisPoolMinSize: 1,
                     redisPoolMaxSize: 10,
                 },
