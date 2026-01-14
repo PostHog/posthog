@@ -325,8 +325,18 @@ def execute_command_config(
             prompt = config.get("prompt")
             # Check for prompt guard (True for destructive, string for custom question)
             if prompt:
-                if confirmed or _prompt_user(prompt, name=hogli_cmd):
-                    # User said yes (or --yes flag) - run the hogli command
+                # prompt: true = destructive warning, skippable with confirmed
+                # prompt: "string" = user choice, always ask (it's a decision, not just confirmation)
+                should_run = False
+                if prompt is True:
+                    # Destructive: skip if already confirmed
+                    should_run = confirmed or _prompt_user(prompt, name=hogli_cmd)
+                else:
+                    # String prompt: always ask - this is a user choice, not just confirmation
+                    should_run = _prompt_user(prompt, name=hogli_cmd)
+
+                if should_run:
+                    # Run the hogli command
                     click.echo(f"✨ Executing: {hogli_cmd}")
                     cmd_args = [bin_hogli, hogli_cmd]
                     if confirmed:
