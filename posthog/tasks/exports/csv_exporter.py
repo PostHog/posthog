@@ -21,7 +21,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.exported_asset import ExportedAsset, save_content
+from posthog.models.exported_asset import ExportedAsset, save_content, save_content_from_file
 from posthog.temporal.common.clickhouse import ClickHouseError
 from posthog.utils import absolute_uri
 
@@ -399,7 +399,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
 def _is_streamable_hogql_query(resource: dict) -> bool:
     """Check if this is a raw HogQL query that can be streamed directly from ClickHouse.
 
-    Other query types (Trends, Funnels, etc.) return pre-aggregated API results.
+    Other query types (Trends, Funnels, etc.) return pre-aggregated API results so they can't be streamed.
     """
     source = resource.get("source")
     if not source:
@@ -502,8 +502,7 @@ def _export_to_csv_streaming(exported_asset: ExportedAsset, limit: int) -> None:
                 writer.writeheader()
                 writer.writerow({"error": "No data available or unable to format for export."})
 
-        with open(tmp_path, "rb") as f:
-            save_content(exported_asset, f.read())
+        save_content_from_file(exported_asset, tmp_path)
     finally:
         os.unlink(tmp_path)
 
@@ -524,7 +523,12 @@ def _export_to_excel_streaming(exported_asset: ExportedAsset, limit: int) -> Non
             if not header:
                 header = columns if columns else list(row.keys())
                 worksheet.append(header)
-            row_values = [row.get(col) for col in header]
+            row_values = []
+            for col in header:
+                value = row.get(col)
+                if value is not None and not isinstance(value, str | int | float | bool):
+                    value = str(value)
+                row_values.append(value)
             worksheet.append(row_values)
 
         if not header:
@@ -533,8 +537,7 @@ def _export_to_excel_streaming(exported_asset: ExportedAsset, limit: int) -> Non
 
         workbook.save(tmp_path)
 
-        with open(tmp_path, "rb") as f:
-            save_content(exported_asset, f.read())
+        save_content_from_file(exported_asset, tmp_path)
     finally:
         os.unlink(tmp_path)
 
@@ -593,22 +596,22 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
         limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
     try:
-        if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
-            with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
-                resource = exported_asset.export_context or {}
-                if _is_streamable_hogql_query(resource):
+        resource = exported_asset.export_context or {}
+        is_streamable = _is_streamable_hogql_query(resource)
+
+        with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
+            if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
+                if is_streamable:
                     _export_to_csv_streaming(exported_asset, limit)
                 else:
                     _export_to_csv(exported_asset, limit)
-        elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
-            with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
-                resource = exported_asset.export_context or {}
-                if _is_streamable_hogql_query(resource):
+            elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
+                if is_streamable:
                     _export_to_excel_streaming(exported_asset, limit)
                 else:
                     _export_to_excel(exported_asset, limit)
-        else:
-            raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
+            else:
+                raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
     except Exception as e:
         if exported_asset:
             team_id = str(exported_asset.team.id)
