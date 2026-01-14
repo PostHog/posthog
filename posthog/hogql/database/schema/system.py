@@ -15,7 +15,7 @@ from posthog.hogql.database.postgres_table import PostgresTable
 
 class IngestionWarningsTable(Table):
     fields: dict[str, FieldOrTable] = {
-        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False, hidden=True),
         "source": StringDatabaseField(name="source", nullable=False),
         "type": StringDatabaseField(name="type", nullable=False),
         "details": StringDatabaseField(name="details", nullable=False),
