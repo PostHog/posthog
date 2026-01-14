@@ -596,7 +596,7 @@ class KernelRuntimeService:
         payload["action"] = action
         encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
         return (
-            "python3 - <<'PY'\n"
+            "python3 - <<'EOF_KERNEL_CMD_EXEC'\n"
             "import base64\n"
             "import json\n"
             "import os\n"
@@ -706,7 +706,7 @@ class KernelRuntimeService:
             "finally:\n"
             "    if client:\n"
             "        client.stop_channels()\n"
-            "PY"
+            "EOF_KERNEL_CMD_EXEC"
         )
 
     def _kernel_lock_name(self, notebook: Notebook, user: User | None, backend: str) -> str:
