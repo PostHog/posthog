@@ -38,6 +38,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 
 from products.workflows.backend.providers import SESProvider, TwilioProvider
@@ -1806,24 +1807,42 @@ class GitHubIntegration:
             }
 
 
+class GitLabIntegrationError(Exception):
+    pass
+
+
 class GitLabIntegration:
     integration: Integration
 
     @staticmethod
     def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
+        url = f"{hostname}/api/v4/{endpoint}"
+        allowed, error = is_url_allowed(url)
+        if not allowed:
+            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
         response = requests.get(
-            f"{hostname}/api/v4/{endpoint}",
+            url,
             headers={"PRIVATE-TOKEN": project_access_token},
+            # disallow redirects to prevent SSRF on redirected host
+            allow_redirects=False,
         )
 
         return response.json()
 
     @staticmethod
     def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
+        url = f"{hostname}/api/v4/{endpoint}"
+        allowed, error = is_url_allowed(url)
+        if not allowed:
+            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
         response = requests.post(
-            f"{hostname}/api/v4/{endpoint}",
+            url,
             json=json,
             headers={"PRIVATE-TOKEN": project_access_token},
+            # disallow redirects to prevent SSRF on redirected host
+            allow_redirects=False,
         )
 
         return response.json()
