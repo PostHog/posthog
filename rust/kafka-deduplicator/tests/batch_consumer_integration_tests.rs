@@ -225,7 +225,7 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
         expected_msg_count,
         "Should have received all messages after {} attempts (waited up to {}ms), got: {msgs_recv}",
         max_attempts,
-        max_attempts * wait_duration.as_millis()
+        (max_attempts - 1) * wait_duration.as_millis()
     );
 
     // Wait for graceful shutdown
