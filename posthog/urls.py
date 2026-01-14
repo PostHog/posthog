@@ -205,7 +205,7 @@ urlpatterns = [
     ),
     opt_slash_path(
         "api/public_hog_flow_templates",
-        hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list", "head": "list"}),
+        hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
