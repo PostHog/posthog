@@ -110,6 +110,7 @@ class Integration(models.Model):
         VERCEL = "vercel"
         DATABRICKS = "databricks"
         AZURE_BLOB = "azure-blob"
+        FIREBASE = "firebase"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 

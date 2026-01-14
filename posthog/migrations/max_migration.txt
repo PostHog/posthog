@@ -1,1 +1,1 @@
-0971_exportedasset_failure_type
+0973_alter_integration_kind
