@@ -271,7 +271,9 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
         })
     } else {
         None
-    };
+    response.config.logs = Some(LogsConfig {
+        capture_console_logs: Some(team.logs_capture_console_log_opt_in.unwrap_or(false)),
+    });
 }
 
 #[cfg(test)]
