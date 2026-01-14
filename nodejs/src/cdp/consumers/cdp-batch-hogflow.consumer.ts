@@ -16,7 +16,7 @@ import { CyclotronJobInvocation, HogFunctionFilters } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
-import { counterParseError, counterRateLimited } from './metrics'
+import { counterParseError } from './metrics'
 
 export interface BatchHogFlowRequest {
     teamId: number
@@ -103,7 +103,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         const { batchHogFlowRequest, team, hogFlow } = batchHogFlowRequestMessage
         const { filters } = batchHogFlowRequest
 
-        if (!filters.properties || !filters.properties.length) {
+        if (!filters.properties) {
             logger.error('Batch HogFlow request missing property filters', { batchHogFlowRequest })
             return []
         }
@@ -122,32 +122,6 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             '📝',
             `Found ${matchingPersonsCount} matching persons for batch HogFlow run ${batchHogFlowRequest.batchJobId}`
         )
-
-        const rateLimits = await instrumentFn('cdpProducer.generateBatch.hogRateLimiter.rateLimitMany', async () => {
-            return await this.hogRateLimiter.rateLimitMany([[hogFlow.id, matchingPersonsCount]])
-        })
-
-        const rateLimit = rateLimits[0][1]
-        if (rateLimit.isRateLimited || rateLimit.tokens < matchingPersonsCount) {
-            logger.info('🚨', 'Rate limiting batch HogFlow run due to exceeding rate limits', {
-                rateLimit,
-                matchingPersonsCount,
-                batchJobId: batchHogFlowRequest.batchJobId,
-            })
-            counterRateLimited.labels({ kind: 'hog_flow' }).inc()
-            this.hogFunctionMonitoringService.queueAppMetric(
-                {
-                    team_id: batchHogFlowRequest.teamId,
-                    app_source_id: batchHogFlowRequest.hogFlowId,
-                    instance_id: batchHogFlowRequest.batchJobId,
-                    metric_kind: 'failure',
-                    metric_name: 'rate_limited',
-                    count: matchingPersonsCount,
-                },
-                'hog_flow'
-            )
-            return []
-        }
 
         // Build default variables from hogFlow
         const defaultVariables =
