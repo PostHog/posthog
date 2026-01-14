@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
@@ -17,6 +17,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { Onboarding } from './Onboarding'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
+import { RevenueAnalyticsViewStatusIcon } from './RevenueAnalyticsViewStatusIcon'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, TopCustomersTile } from './tiles'
@@ -32,9 +33,7 @@ export const PRODUCT_THING_NAME = 'revenue source'
 
 export function RevenueAnalyticsScene(): JSX.Element {
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
-    const { revenueEnabledDataWarehouseSources, pausedRevenueViews, resumingSchedules } =
-        useValues(revenueAnalyticsLogic)
-    const { resumeAllPausedSchedules } = useActions(revenueAnalyticsLogic)
+    const { revenueEnabledDataWarehouseSources } = useValues(revenueAnalyticsLogic)
 
     const sourceRunningForTheFirstTime = revenueEnabledDataWarehouseSources?.find(
         (source) => source.status === 'Running' && !source.last_run_at
@@ -54,17 +53,8 @@ export function RevenueAnalyticsScene(): JSX.Element {
                     resourceType={{
                         type: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default',
                     }}
+                    actions={<RevenueAnalyticsViewStatusIcon />}
                 />
-
-                <LemonBanner
-                    type="info"
-                    action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
-                >
-                    Revenue Analytics is in beta &ndash; we'd love your feedback and feature suggestions!
-                    <br />
-                    This product is optimized for small to medium businesses with under 20,000 transactions/month and
-                    subscription-based revenue models.
-                </LemonBanner>
 
                 {sourceRunningForTheFirstTime && (
                     <LemonBanner
@@ -76,33 +66,6 @@ export function RevenueAnalyticsScene(): JSX.Element {
                         This means you might not see all of your revenue data yet. <br />
                         We display partial data - most recent months first - while the initial sync is running. <br />
                         Refresh the page to see the latest data.
-                    </LemonBanner>
-                )}
-
-                {pausedRevenueViews.length > 0 && (
-                    <LemonBanner type="warning">
-                        <div className="flex items-center justify-between gap-2">
-                            <div>
-                                <p className="font-semibold mb-1">
-                                    {pausedRevenueViews.length} materialized view
-                                    {pausedRevenueViews.length > 1 ? 's have' : ' has'} failed and{' '}
-                                    {pausedRevenueViews.length > 1 ? 'their schedules are' : 'its schedule is'} paused
-                                </p>
-                                <p className="text-sm">
-                                    This may affect your revenue analytics data. Resume the schedule
-                                    {pausedRevenueViews.length > 1 ? 's' : ''} to restore automatic updates.
-                                </p>
-                            </div>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={resumeAllPausedSchedules}
-                                loading={resumingSchedules}
-                            >
-                                Resume {pausedRevenueViews.length > 1 ? 'all' : ''} schedule
-                                {pausedRevenueViews.length > 1 ? 's' : ''}
-                            </LemonButton>
-                        </div>
                     </LemonBanner>
                 )}
 
