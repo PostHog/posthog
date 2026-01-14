@@ -1734,6 +1734,58 @@ class TestMergeRawPersonPropertyUpdates:
         assert accumulated["person-1"].set_updates["key1"].value == "value1-updated"
         assert accumulated["person-2"].set_updates["key2"].value == "value2"
 
+    def test_cross_operation_conflict_resolved_by_downstream_filter(self):
+        """Verify set/unset conflicts from different windows are correctly resolved downstream.
+
+        This test documents the intentional design: merge_raw_person_property_updates
+        retains both operations, and filter_event_person_properties resolves conflicts.
+        This matches the non-windowed CH query path behavior.
+        """
+        accumulated: dict[str, RawPersonPropertyUpdates] = {}
+
+        # Simulate window 1: set(email) at t=12:00
+        window1 = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"email": PropertyValue(datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC), "test@example.com")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+        merge_raw_person_property_updates(accumulated, window1)
+
+        # Simulate window 2: unset(email) at t=13:00
+        window2 = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={},
+                set_once_updates={},
+                unset_updates={"email": PropertyValue(datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC), None)},
+            )
+        ]
+        merge_raw_person_property_updates(accumulated, window2)
+
+        # After merge: both operations retained (no cross-map resolution in merge)
+        assert "email" in accumulated["person-1"].set_updates
+        assert "email" in accumulated["person-1"].unset_updates
+
+        # Convert to PersonPropertyDiffs (simulating what compare_raw_updates_with_person_state returns)
+        diffs = [
+            PersonPropertyDiffs(
+                person_id="person-1",
+                person_version=1,
+                set_updates=accumulated["person-1"].set_updates,
+                set_once_updates=accumulated["person-1"].set_once_updates,
+                unset_updates=accumulated["person-1"].unset_updates,
+            )
+        ]
+
+        # After filter_event_person_properties: unset wins (newer timestamp)
+        result = filter_event_person_properties(diffs)
+        assert len(result) == 1
+        assert "email" not in result[0].set_updates
+        assert "email" in result[0].unset_updates
+
 
 class TestGetPersonPropertyUpdatesWindowed:
     """Test the get_person_property_updates_windowed function."""
