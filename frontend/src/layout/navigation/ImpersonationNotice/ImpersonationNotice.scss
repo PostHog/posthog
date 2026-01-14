@@ -1,0 +1,112 @@
+.ImpersonationNotice {
+    position: fixed;
+    z-index: var(--z-modal);
+    display: flex;
+    width: 320px;
+    background-color: var(--color-bg-surface-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-elevation-3000);
+    transition:
+        transform 150ms ease,
+        box-shadow 150ms ease;
+    transform: translate(-50%, -50%);
+
+    &--read-only {
+        .ImpersonationNotice__sidebar {
+            background: var(--warning);
+        }
+
+        .ImpersonationNotice__drag-handle {
+            color: #fff;
+        }
+
+        .ImpersonationNotice__warning-icon {
+            color: var(--warning);
+        }
+    }
+
+    &--read-write {
+        .ImpersonationNotice__sidebar {
+            background: var(--danger);
+        }
+
+        .ImpersonationNotice__drag-handle {
+            color: #fff;
+        }
+
+        .ImpersonationNotice__warning-icon {
+            color: var(--danger);
+        }
+    }
+
+    &--dragging {
+        cursor: grabbing;
+        user-select: none;
+        box-shadow:
+            var(--shadow-elevation-3000),
+            0 8px 24px rgb(0 0 0 / 20%);
+        transform: translate(-50%, -50%) scale(1.02);
+    }
+
+    &__sidebar {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 1.5rem;
+        cursor: grab;
+        user-select: none;
+        border-radius: calc(var(--radius) - 1px) 0 0 calc(var(--radius) - 1px);
+
+        .ImpersonationNotice--dragging & {
+            cursor: grabbing;
+        }
+    }
+
+    &__drag-handle {
+        flex-shrink: 0;
+    }
+
+    &__main {
+        flex: 1;
+        min-width: 0;
+    }
+
+    &__header {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.5rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    &__warning-icon {
+        flex-shrink: 0;
+        font-size: 1.125rem;
+        color: var(--text-secondary);
+    }
+
+    &__title {
+        flex: 1;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
+    }
+
+    &__content {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.5rem;
+    }
+
+    &__message {
+        margin: 0;
+        font-size: 0.8125rem;
+        line-height: 1.5;
+        color: var(--text-primary);
+    }
+}
