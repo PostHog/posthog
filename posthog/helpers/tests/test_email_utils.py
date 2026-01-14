@@ -115,7 +115,10 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = [{"email": "test@example.com", "suppressed": True}]
+        mock_response.json.return_value = {
+            "category": "bounces",
+            "suppressions": [{"email": "test@example.com", "reason": "hard bounce"}],
+        }
         mock_get.return_value = mock_response
 
         result = check_esp_suppression("test@example.com")
@@ -132,7 +135,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
         mock_cache.get.return_value = None
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = []
+        mock_response.json.return_value = {"suppressions": None}
         mock_get.return_value = mock_response
 
         check_esp_suppression("test@example.com")
@@ -145,7 +148,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
             ("timeout", requests.Timeout(), True, ESPSuppressionReason.API_FAILURE_FALLBACK),
             ("network_error", requests.ConnectionError(), True, ESPSuppressionReason.API_FAILURE_FALLBACK),
             ("500_error", None, True, ESPSuppressionReason.API_FAILURE_FALLBACK),
-            ("404_not_found", None, False, None),
+            ("429_rate_limited", None, False, None),
         ]
     )
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
@@ -160,7 +163,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
             mock_get.side_effect = exception
         else:
             mock_response = MagicMock()
-            mock_response.status_code = 500 if expected_suppressed else 404
+            mock_response.status_code = 500 if expected_suppressed else 429
             mock_response.text = "Error"
             mock_get.return_value = mock_response
 
@@ -198,6 +201,21 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
+    @patch("posthog.helpers.email_utils.requests.get")
+    def test_429_rate_limit_caches_with_short_ttl(self, mock_get, mock_cache):
+        mock_cache.get.return_value = None
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_get.return_value = mock_response
+
+        check_esp_suppression("test@example.com")
+
+        # Verify result was cached with short TTL (not the default 1 day)
+        call_args = mock_cache.set.call_args
+        self.assertEqual(call_args[0][2], ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS)
+
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.cache")
     def test_cached_error_returns_fallback_without_api_call(self, mock_cache):
         # Simulate: normal cache miss, but error cache hit
         def cache_get_side_effect(key):
@@ -224,7 +242,7 @@ class TestESPSuppressionAnalytics(SimpleTestCase):
             ("error_cache", None, "api_failure_fallback", "error_cache", False, None, None),
             ("api_200_suppressed", None, "suppressed", None, True, 200, None),
             ("api_200_not_suppressed", None, "not_suppressed", None, True, 200, None),
-            ("api_404", None, "not_suppressed", None, True, 404, None),
+            ("api_429", None, "not_suppressed", None, True, 429, None),
             ("api_500", None, "api_failure_fallback", None, True, 500, "http_error"),
             ("api_timeout", None, "api_failure_fallback", None, True, None, "timeout"),
         ]
@@ -261,7 +279,13 @@ class TestESPSuppressionAnalytics(SimpleTestCase):
                 mock_response.status_code = expected_status_code or 200
                 mock_response.text = "error"
                 if expected_status_code == 200:
-                    mock_response.json.return_value = [{"suppressed": True}] if expected_outcome == "suppressed" else []
+                    if expected_outcome == "suppressed":
+                        mock_response.json.return_value = {
+                            "category": "bounces",
+                            "suppressions": [{"email": "test@example.com", "reason": "hard bounce"}],
+                        }
+                    else:
+                        mock_response.json.return_value = {"suppressions": None}
                 mock_get.return_value = mock_response
 
         check_esp_suppression("test@example.com")
