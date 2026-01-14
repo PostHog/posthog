@@ -10,7 +10,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "for f in $CLAUDE_FILE_PATHS; do [[ \"$f\" == *.py ]] && PY_FILES=\"$PY_FILES $f\"; done; [ -n \"$PY_FILES\" ] && flox activate -- bash -c \"ruff check $PY_FILES --fix && ruff format $PY_FILES\""
+                        "command": "PY_FILES=(); for f in $CLAUDE_FILE_PATHS; do [[ \"$f\" == *.py ]] && PY_FILES+=(\"$f\"); done; [ ${#PY_FILES[@]} -gt 0 ] && flox activate -- bash -c \"ruff check \\\"${PY_FILES[@]}\\\" --fix && ruff format \\\"${PY_FILES[@]}\\\"\""
                     }
                 ]
             }
