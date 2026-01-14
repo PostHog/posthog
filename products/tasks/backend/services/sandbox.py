@@ -10,6 +10,7 @@ This module exports:
 """
 
 from enum import Enum
+from typing import Protocol
 
 from django.conf import settings
 
@@ -46,7 +47,30 @@ class SandboxConfig(BaseModel):
     disk_size_gb: float = 64
 
 
-def _get_docker_sandbox_class() -> type:
+class SandboxProtocol(Protocol):
+    id: str
+    config: SandboxConfig
+
+    @staticmethod
+    def create(config: SandboxConfig) -> "SandboxProtocol": ...
+
+    @staticmethod
+    def get_by_id(sandbox_id: str) -> "SandboxProtocol": ...
+
+    @staticmethod
+    def delete_snapshot(external_id: str) -> None: ...
+
+    def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
+
+    def destroy(self) -> None: ...
+
+    def is_running(self) -> bool: ...
+
+
+SandboxClass = type[SandboxProtocol]
+
+
+def _get_docker_sandbox_class() -> SandboxClass:
     if not settings.DEBUG:
         raise RuntimeError(
             "DockerSandbox cannot be used in production. "
@@ -57,7 +81,7 @@ def _get_docker_sandbox_class() -> type:
     return DockerSandbox
 
 
-def get_sandbox_class() -> type:
+def get_sandbox_class() -> SandboxClass:
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
 
     # Docker is opt-in only, requires DEBUG mode
@@ -70,7 +94,7 @@ def get_sandbox_class() -> type:
     return ModalSandbox
 
 
-def get_sandbox_class_for_backend(backend: str) -> type:
+def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
     if backend == "modal":
         from .modal_sandbox import ModalSandbox
 
@@ -80,7 +104,7 @@ def get_sandbox_class_for_backend(backend: str) -> type:
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
 
 
-Sandbox = get_sandbox_class()
+Sandbox: SandboxClass = get_sandbox_class()
 
 __all__ = [
     "Sandbox",
@@ -88,6 +112,7 @@ __all__ = [
     "SandboxStatus",
     "SandboxTemplate",
     "ExecutionResult",
+    "SandboxProtocol",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
 ]
