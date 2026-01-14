@@ -10,6 +10,7 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.feature_flag import FeatureFlag
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -29,6 +30,8 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
 LOGGER = get_logger(__name__)
 
@@ -158,6 +161,25 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
+def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
+    try:
+        flag = FeatureFlag.objects.filter(
+            team_id=team_id,
+            key=WAREHOUSE_PIPELINES_V3_FLAG,
+            active=True,
+            deleted=False,
+        ).first()
+
+        if flag is not None:
+            logger.debug(f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id}")
+            return True
+
+        return False
+    except Exception as e:
+        logger.warning(f"Error checking feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}': {e}")
+        return False
+
+
 def _run(
     job_inputs: PipelineInputs,
     source: SourceResponse,
@@ -167,9 +189,20 @@ def _run(
     resumable_source_manager: ResumableSourceManager | None,
 ):
     try:
-        pipeline = PipelineNonDLT(
-            source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
-        )
+        use_v3 = _is_pipeline_v3_enabled(job_inputs.team_id, logger)
+
+        if use_v3:
+            from posthog.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
+
+            logger.info("Running V3 pipeline (feature flag enabled)")
+            pipeline = PipelineV3(
+                source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
+            )
+        else:
+            pipeline = PipelineNonDLT(
+                source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
+            )
+
         pipeline.run()
         logger.debug("Finished running pipeline")
         del pipeline

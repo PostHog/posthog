@@ -1,4 +1,3 @@
-import gc
 import sys
 import time
 from typing import Any, Generic, Literal
@@ -10,18 +9,23 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.pipelines.common.load import (
-    get_incremental_field_value,
-    supports_partial_data_loading,
-    update_job_row_count,
+from posthog.temporal.data_imports.pipelines.common.extract import (
+    cleanup_memory,
+    finalize_desc_sort_incremental_value,
+    handle_reset_or_full_refresh,
+    reset_rows_synced_if_needed,
+    setup_row_tracking_with_billing_check,
+    should_check_shutdown,
+    update_incremental_field_values,
+    update_row_tracking_after_batch,
+    validate_incremental_sync,
 )
+from posthog.temporal.data_imports.pipelines.common.load import supports_partial_data_loading
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableData, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    BillingLimitsWillBeReachedException,
-    DuplicatePrimaryKeysException,
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
     _handle_null_columns_with_definitions,
@@ -32,7 +36,6 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
 )
-from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -96,46 +99,24 @@ class PipelineNonDLT(Generic[ResumableData]):
         if should_resume:
             self._logger.info("Resumable source detected - attempting to resume previous import")
 
+        py_table = None
         try:
-            # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
-            if (
-                self._job.rows_synced is not None
-                and self._job.rows_synced != 0
-                and (not self._is_incremental or self._reset_pipeline is True)
-                and not should_resume
-            ):
-                self._job.rows_synced = 0
-                self._job.save()
+            reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
-            # Check for duplicate primary keys
-            if self._is_incremental and self._resource.has_duplicate_primary_keys:
-                raise DuplicatePrimaryKeysException(
-                    f"The primary keys for this table are not unique. We can't sync incrementally until the table has a unique primary key. Primary keys being used are: {self._resource.primary_keys}"
-                )
+            validate_incremental_sync(self._is_incremental, self._resource)
 
-            # Setup row tracking
-            if self._resource.rows_to_sync:
-                increment_rows(self._job.team_id, self._schema.id, self._resource.rows_to_sync)
+            setup_row_tracking_with_billing_check(self._job.team_id, self._schema, self._resource, self._logger)
 
-                # Check billing limits against incoming rows
-                if will_hit_billing_limit(team_id=self._job.team_id, source=self._schema.source, logger=self._logger):
-                    raise BillingLimitsWillBeReachedException(
-                        f"Your account will hit your Data Warehouse billing limits syncing {self._resource.name} with {self._resource.rows_to_sync} rows"
-                    )
-
-            py_table = None
             row_count = 0
             chunk_index = 0
 
-            if self._reset_pipeline and not should_resume:
-                self._logger.debug("Deleting existing table due to reset_pipeline being set")
-                self._delta_table_helper.reset_table()
-                self._schema.update_sync_type_config_for_reset_pipeline()
-            elif self._schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
-                # Avoid schema mismatches from existing data about to be overwritten
-                self._logger.debug("Deleting existing table due to sync being full refresh")
-                self._delta_table_helper.reset_table()
-                self._schema.update_sync_type_config_for_reset_pipeline()
+            handle_reset_or_full_refresh(
+                self._reset_pipeline,
+                should_resume,
+                self._schema,
+                self._delta_table_helper.reset_table,
+                self._logger,
+            )
 
             # If the schema has no DWH table, it's a first ever sync
             is_first_ever_sync: bool = self._schema.table is None
@@ -161,23 +142,10 @@ class PipelineNonDLT(Generic[ResumableData]):
 
                 chunk_index += 1
 
-                # Cleanup
-                if "py_table" in locals() and py_table is not None:
-                    del py_table
-                pa_memory_pool.release_unused()
-                gc.collect()
+                cleanup_memory(pa_memory_pool, py_table)
+                py_table = None
 
-                # Only raise if we're not running in descending order, otherwise we'll often not
-                # complete the job before the incremental value can be updated. Or if the source is
-                # resumable
-                # TODO: raise when we're within `x` time of the worker being forced to shutdown
-                # Raising during a full reset will reset our progress back to 0 rows
-                incremental_sync_raise_during_shutdown = (
-                    self._schema.should_use_incremental_field
-                    and self._resource.sort_mode != "desc"
-                    and not self._reset_pipeline
-                )
-                if incremental_sync_raise_during_shutdown or source_is_resumable:
+                if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
             if self._batcher.should_yield(include_incomplete_chunk=True):
@@ -203,11 +171,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             del self._resource
             del self._delta_table_helper
 
-            if "py_table" in locals() and py_table is not None:
-                del py_table
-
-            pa_memory_pool.release_unused()
-            gc.collect()
+            cleanup_memory(pa_memory_pool, py_table)
 
     def _process_pa_table(
         self, pa_table: pa.Table, index: int, resuming_sync: bool, row_count: int, is_first_ever_sync: bool
@@ -240,36 +204,18 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
-        # Update the incremental_field_last_value.
-        # If the resource returns data sorted in ascending timestamp order, we can update the
-        # `incremental_field_last_value` in the schema.
-        # However, if the data is returned in descending order, we only want to update the
-        # `incremental_field_last_value` once we have processed all of the data, otherwise if we fail halfway through,
-        # we'd not process older data the next time we retry. But we do store the earliest available value so that we
-        # can resume syncs if they stop mid way through without having to start from the beginning
-        last_value = get_incremental_field_value(self._schema, pa_table)
-        if last_value is not None:
-            if (self._last_incremental_field_value is None) or (last_value > self._last_incremental_field_value):
-                self._last_incremental_field_value = last_value
+        self._last_incremental_field_value, self._earliest_incremental_field_value = update_incremental_field_values(
+            self._schema,
+            pa_table,
+            self._resource,
+            self._last_incremental_field_value,
+            self._earliest_incremental_field_value,
+            self._logger,
+        )
 
-            if self._resource.sort_mode == "asc":
-                self._logger.debug(f"Updating incremental_field_last_value with {self._last_incremental_field_value}")
-                self._schema.update_incremental_field_value(self._last_incremental_field_value)
-
-            if self._resource.sort_mode == "desc":
-                earliest_value = get_incremental_field_value(self._schema, pa_table, aggregate="min")
-
-                if (
-                    self._earliest_incremental_field_value is None
-                    or earliest_value < self._earliest_incremental_field_value
-                ):
-                    self._earliest_incremental_field_value = earliest_value
-
-                    self._logger.debug(f"Updating incremental_field_earliest_value with {earliest_value}")
-                    self._schema.update_incremental_field_value(earliest_value, type="earliest")
-
-        update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
-        decrement_rows(self._job.team_id, self._schema.id, pa_table.num_rows)
+        update_row_tracking_after_batch(
+            self._job.id, self._job.team_id, self._schema.id, pa_table.num_rows, self._logger
+        )
 
         # if it's the first ever sync for this schema and the source supports partial data loading, we make the delta
         # table files available for querying and create the data warehouse table, so that the user has some data
@@ -360,14 +306,9 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._logger.debug("Notifying revenue analytics that sync has completed")
         _notify_revenue_analytics_that_sync_has_completed(self._schema, self._logger)
 
-        # As mentioned above, for sort mode 'desc' we only want to update the `incremental_field_last_value` once we
-        # have processed all of the data (we could also update it here for 'asc' but it's not needed)
-        if self._resource.sort_mode == "desc" and self._last_incremental_field_value is not None:
-            self._logger.debug(
-                f"Sort mode is 'desc' -> updating incremental_field_last_value with {self._last_incremental_field_value}"
-            )
-            self._schema.refresh_from_db()
-            self._schema.update_incremental_field_value(self._last_incremental_field_value)
+        finalize_desc_sort_incremental_value(
+            self._resource, self._schema, self._last_incremental_field_value, self._logger
+        )
 
         self._logger.debug("Validating schema and updating table")
         validate_schema_and_update_table_sync(

@@ -2216,7 +2216,7 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.pipeline.decrement_rows") as mock_decrement_rows,
+        mock.patch("posthog.temporal.data_imports.pipelines.common.extract.decrement_rows") as mock_decrement_rows,
         mock.patch("posthog.temporal.data_imports.external_data_job.finish_row_tracking") as mock_finish_row_tracking,
     ):
         _, inputs = await _run(
