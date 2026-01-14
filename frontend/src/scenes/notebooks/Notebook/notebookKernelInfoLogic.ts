@@ -116,10 +116,10 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                 executeKernel: (state) => ({ ...state, execute: true }),
                 saveKernelConfig: (state) => ({ ...state, save: true }),
                 loadKernelInfo: (state) => ({ ...state, refresh: true }),
-                loadKernelInfoSuccess: (state) => ({
+                loadKernelInfoSuccess: (state, { kernelInfo }) => ({
                     ...state,
                     start: false,
-                    stop: false,
+                    stop: state.stop && kernelInfo?.status === 'running',
                     restart: false,
                     save: false,
                     refresh: false,

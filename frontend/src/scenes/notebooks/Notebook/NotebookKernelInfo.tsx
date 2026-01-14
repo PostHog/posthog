@@ -92,8 +92,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                 <div className="space-y-3 p-3">
                     <div className="flex flex-wrap items-center gap-2">
                         {statusInfo ? <LemonTag type={statusInfo.tone}>{statusInfo.label}</LemonTag> : null}
-                        {isBusyStatus ? <Spinner size="small" textColored /> : null}
-                        {actionInFlight.refresh ? <Spinner size="small" textColored /> : null}
+                        {isBusyStatus || actionInFlight.refresh ? <Spinner size="small" textColored /> : null}
                         <LemonTag type="default">
                             {kernelInfo.backend === 'modal' ? 'Modal' : 'Local - Docker'}
                         </LemonTag>
@@ -165,7 +164,9 @@ export const NotebookKernelInfo = (): JSX.Element => {
                                     CPU and RAM are reservations. Usage can burst above the configured values.
                                 </div>
                             ) : (
-                                <div className="text-sm text-muted">Using docker-based local kernel.</div>
+                                <div className="text-sm text-muted">
+                                    Using docker-based local kernel. Can't update compute profile.
+                                </div>
                             )}
                         </div>
                         {isModalKernel ? (
