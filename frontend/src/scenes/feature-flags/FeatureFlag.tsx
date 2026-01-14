@@ -1238,6 +1238,7 @@ function FeatureFlagRollout({
                                                 target="_blank"
                                                 className="font-semibold"
                                                 to={urls.featureFlag(flag.id)}
+                                                aria-label={`Open ${flag.key}`}
                                             >
                                                 <IconOpenInNew fontSize="18" />
                                             </Link>
