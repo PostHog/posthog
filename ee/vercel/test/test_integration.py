@@ -349,8 +349,8 @@ class TestVercelIntegration(TestCase):
     @patch("ee.vercel.integration.report_user_signed_up")
     @patch("ee.vercel.integration.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
-    def test_billing_failure_does_not_delete_trusted_vercel_user(self, mock_license, mock_billing, mock_report):
-        """Billing failure during second installation should NOT delete the trusted user."""
+    def test_billing_failure_does_not_delete_existing_user(self, mock_license, mock_billing, mock_report):
+        """Billing failure should NOT delete existing users (only newly created ones)."""
         # First installation - creates user with mapping
         first_installation_id = self.NEW_INSTALLATION_ID
         first_user_claims = self._create_user_claims("vercel_user_billing")
