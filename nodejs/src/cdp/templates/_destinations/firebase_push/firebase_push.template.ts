@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'alpha',
+    status: 'hidden',
     type: 'destination',
     id: 'template-firebase-push',
     name: 'Firebase Push Notification',
