@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -21,6 +20,7 @@ import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
+import { useSceneTitleEditing } from './sceneTitleLogic'
 
 export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
@@ -268,40 +268,18 @@ function SceneName({
     renameDebounceMs = 100,
     saveOnBlur = false,
 }: SceneNameProps): JSX.Element {
-    const [name, setName] = useState(initialName)
-    const [isEditing, setIsEditing] = useState(forceEdit)
+    const { value: name, isEditing, setIsEditing, handleChange, handleBlur } = useSceneTitleEditing({
+        initialValue: initialName,
+        onChange,
+        debounceMs: renameDebounceMs,
+        saveOnBlur,
+        forceEdit,
+        isLoading,
+    })
 
     const textClasses =
         'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
 
-    useEffect(() => {
-        if (!isLoading) {
-            setName(initialName)
-        }
-    }, [initialName, isLoading])
-
-    useEffect(() => {
-        if (!isLoading && forceEdit) {
-            setIsEditing(true)
-        } else {
-            setIsEditing(false)
-        }
-    }, [isLoading, forceEdit])
-
-    const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
-    }, renameDebounceMs)
-
-    const debouncedOnChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
-    }, renameDebounceMs)
-
-    // If onBlur is provided, we want to show a button that allows the user to edit the name
-    // Otherwise, we want to show the name as a text
     const Element =
         onChange && canEdit ? (
             <>
@@ -310,12 +288,7 @@ function SceneName({
                         variant="default"
                         name="name"
                         value={name || ''}
-                        onChange={(e) => {
-                            setName(e.target.value)
-                            if (!saveOnBlur) {
-                                debouncedOnChange(e.target.value)
-                            }
-                        }}
+                        onChange={(e) => handleChange(e.target.value)}
                         data-attr="scene-title-textarea"
                         className={cn(
                             buttonPrimitiveVariants({
@@ -326,16 +299,7 @@ function SceneName({
                             '[&_.LemonIcon]:size-4'
                         )}
                         placeholder="Enter name"
-                        onBlur={() => {
-                            // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && name !== initialName) {
-                                debouncedOnBlurSave(name || '')
-                            }
-                            // Exit edit mode if not forced
-                            if (!forceEdit) {
-                                setIsEditing(false)
-                            }
-                        }}
+                        onBlur={handleBlur}
                         autoFocus={!forceEdit}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') {
@@ -402,38 +366,18 @@ function SceneDescription({
     renameDebounceMs = 100,
     saveOnBlur = false,
 }: SceneDescriptionProps): JSX.Element | null {
-    const [description, setDescription] = useState(initialDescription)
-    const [isEditing, setIsEditing] = useState(forceEdit)
+    const { value: description, isEditing, setIsEditing, handleChange, handleBlur } = useSceneTitleEditing({
+        initialValue: initialDescription,
+        onChange,
+        debounceMs: renameDebounceMs,
+        saveOnBlur,
+        forceEdit,
+        isLoading,
+    })
 
     const textClasses = 'text-sm my-0 select-auto'
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setDescription(initialDescription)
-        }
-    }, [initialDescription, isLoading])
-
-    useEffect(() => {
-        if (!isLoading && forceEdit) {
-            setIsEditing(true)
-        } else {
-            setIsEditing(false)
-        }
-    }, [isLoading, forceEdit])
-
-    const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
-    }, renameDebounceMs)
-
-    const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
-    }, renameDebounceMs)
 
     const Element =
         onChange && canEdit ? (
@@ -443,12 +387,7 @@ function SceneDescription({
                         variant="default"
                         name="description"
                         value={description || ''}
-                        onChange={(e) => {
-                            setDescription(e.target.value)
-                            if (!saveOnBlur) {
-                                debouncedOnDescriptionChange(e.target.value)
-                            }
-                        }}
+                        onChange={(e) => handleChange(e.target.value)}
                         data-attr="scene-description-textarea"
                         className={cn(
                             buttonPrimitiveVariants({
@@ -461,16 +400,7 @@ function SceneDescription({
                         wrapperClassName="w-full"
                         markdown={markdown}
                         placeholder={emptyText}
-                        onBlur={() => {
-                            // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && description !== initialDescription) {
-                                debouncedOnBlurSaveDescription(description || '')
-                            }
-                            // Exit edit mode if not forced
-                            if (!forceEdit) {
-                                setIsEditing(false)
-                            }
-                        }}
+                        onBlur={handleBlur}
                         autoFocus={!forceEdit}
                     />
                 ) : (
