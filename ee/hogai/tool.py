@@ -324,9 +324,6 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             preview: Human-readable preview of the operation. Must be provided when the operation
                      is dangerous (pre-computed async by the caller).
         """
-        if not self.is_dangerous_operation(**kwargs):
-            return None
-
         if preview is None:
             raise ValueError("preview must be provided for dangerous operations")
 
