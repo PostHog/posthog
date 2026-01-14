@@ -213,7 +213,7 @@ function FeatureFlagCopySection(): JSX.Element {
 }
 
 export default function FeatureFlagProjects(): JSX.Element {
-    const { projectsWithCurrentFlag } = useValues(featureFlagLogic)
+    const { projectsWithCurrentFlag, featureFlag } = useValues(featureFlagLogic)
     const { loadProjectsWithCurrentFlag, loadScheduledChanges } = useActions(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
