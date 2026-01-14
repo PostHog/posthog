@@ -126,9 +126,9 @@ class TestEAVBackfillEndToEnd:
             )
 
             if expected is None:
-                assert (
-                    len(result) == 0
-                ), f"Property {prop_name} with value {input_value!r} should NOT have been inserted, but got {result}"
+                assert len(result) == 0, (
+                    f"Property {prop_name} with value {input_value!r} should NOT have been inserted, but got {result}"
+                )
             else:
                 assert len(result) == 1, (
                     f"Property {prop_name} with value {input_value!r} should have been inserted, "
@@ -139,10 +139,10 @@ class TestEAVBackfillEndToEnd:
                 # Handle datetime comparison (convert to string for comparison)
                 if prop_type == PropertyType.Datetime:
                     actual_str = str(actual)[: len(expected)]
-                    assert (
-                        actual_str == expected
-                    ), f"Property {prop_name}: expected {expected!r}, got {actual_str!r} (input was {input_value!r})"
+                    assert actual_str == expected, (
+                        f"Property {prop_name}: expected {expected!r}, got {actual_str!r} (input was {input_value!r})"
+                    )
                 else:
-                    assert (
-                        actual == expected
-                    ), f"Property {prop_name}: expected {expected!r}, got {actual!r} (input was {input_value!r})"
+                    assert actual == expected, (
+                        f"Property {prop_name}: expected {expected!r}, got {actual!r} (input was {input_value!r})"
+                    )
