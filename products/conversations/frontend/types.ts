@@ -34,11 +34,18 @@ export interface Ticket {
     unread_team_count: number
 }
 
+export interface MessageAuthor {
+    first_name?: string
+    last_name?: string
+    email?: string
+}
+
 export interface ChatMessage {
     id: string
     content: string
     authorType: MessageAuthorType
     authorName: string
+    createdBy?: MessageAuthor | null
     createdAt: string
 }
 

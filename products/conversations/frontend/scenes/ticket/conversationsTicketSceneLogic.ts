@@ -131,6 +131,7 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                         content: message.content || '',
                         authorType: authorType === 'support' ? 'human' : authorType,
                         authorName: displayName,
+                        createdBy: message.created_by,
                         createdAt: message.created_at,
                     }
                 }),

@@ -1,6 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { generateText } from '@tiptap/core'
+import { useRef, useState } from 'react'
 
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
+import {
+    DEFAULT_EXTENSIONS,
+    LemonRichContentEditor,
+    serializationOptions,
+} from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 export interface MessageInputProps {
     onSendMessage: (content: string, onSuccess: () => void) => void
@@ -17,39 +27,38 @@ export function MessageInput({
     buttonText = 'Send',
     minRows = 3,
 }: MessageInputProps): JSX.Element {
-    const [messageContent, setMessageContent] = useState('')
-    const clearInputRef = useRef<(() => void) | null>(null)
-
-    // Set up the clear callback that parent can call on success
-    useEffect(() => {
-        clearInputRef.current = () => setMessageContent('')
-    })
+    const [isEmpty, setIsEmpty] = useState(true)
+    const editorRef = useRef<RichContentEditorType | null>(null)
 
     const handleSubmit = (): void => {
-        if (messageContent.trim()) {
-            // Pass callback that parent calls on success
-            onSendMessage(messageContent, () => {
-                setMessageContent('')
+        if (editorRef.current && !isEmpty) {
+            const content = generateText(editorRef.current.getJSON(), DEFAULT_EXTENSIONS, serializationOptions)
+            onSendMessage(content, () => {
+                editorRef.current?.clear()
+                setIsEmpty(true)
             })
         }
     }
 
     return (
         <div>
-            <LemonTextArea
+            <LemonRichContentEditor
                 placeholder={placeholder}
-                value={messageContent}
-                onChange={setMessageContent}
-                minRows={minRows}
+                onCreate={(editor) => {
+                    editorRef.current = editor
+                }}
+                onUpdate={(empty) => setIsEmpty(empty)}
+                onPressCmdEnter={handleSubmit}
                 disabled={messageSending}
+                minRows={minRows}
             />
-            <div className="flex justify-end">
+            <div className="flex justify-end mt-2">
                 <LemonButton
                     type="primary"
                     onClick={handleSubmit}
                     loading={messageSending}
-                    disabled={!messageContent.trim()}
-                    className="mt-2"
+                    disabledReason={isEmpty ? 'No message' : undefined}
+                    sideIcon={<KeyboardShortcut command enter />}
                 >
                     {buttonText}
                 </LemonButton>
