@@ -179,7 +179,7 @@ jobs:
         timeout-minutes: 30
         name: Bazel tests (products)
         outputs:
-            run_legacy: ${{ steps.determine.outputs.run_legacy }}
+            run_legacy: ${{ steps.test.outputs.run_legacy }}
 
         steps:
             - uses: actions/checkout@v4
@@ -267,28 +267,32 @@ jobs:
                     ls -la /tmp/bazel-wheels/
                   fi
 
-            - name: Determine affected targets
-              id: determine
+            - name: Run tests
+              id: test
               run: |
                   LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
-                  PRODUCTS_CHANGED="${{ needs.changes.outputs.products }}"
+
+                  run_tests() {
+                    echo "Waiting for services..."
+                    bin/check_kafka_clickhouse_up
+                    bin/check_postgres_up
+                    echo "Running: bazel test --config=ci //products/..."
+                    bazel test --config=ci //products/...
+                  }
 
                   # For pushes to master, run all tests
                   if [[ "${{ github.event_name }}" != "pull_request" ]]; then
                     echo "Push to master - running all tests"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
-                    echo "use_target_determinator=false" >> $GITHUB_OUTPUT
+                    run_tests
                     exit 0
                   fi
 
-                  # If legacy changed, skip target-determinator - run everything
-                  # (we know Django must run anyway, no point analyzing)
+                  # If legacy changed, skip target-determinator - we know Django must run
                   if [[ "$LEGACY_CHANGED" == "true" ]]; then
                     echo "Legacy code changed - running all tests, skipping target-determinator"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
-                    echo "use_target_determinator=false" >> $GITHUB_OUTPUT
+                    run_tests
                     exit 0
                   fi
 
@@ -308,58 +312,26 @@ jobs:
                   if [[ "$BAZELIFIED_CHANGED" == "false" ]]; then
                     echo "Only non-bazelified products changed - running all tests, skipping target-determinator"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
-                    echo "use_target_determinator=false" >> $GITHUB_OUTPUT
+                    run_tests
                     exit 0
                   fi
 
-                  # Only bazelified products changed - worth running target-determinator
-                  # This is the one case where we might skip Django tests
-                  echo "Only bazelified products changed - running target-determinator"
-                  echo "use_target_determinator=true" >> $GITHUB_OUTPUT
+                  # Only bazelified products changed - check if legacy is affected
+                  echo "Only bazelified products changed - checking legacy impact..."
 
                   if ! TARGETS=$(target-determinator -targets="//products/..." "origin/${{ github.base_ref }}" 2>&1); then
-                    echo "target-determinator failed:"
-                    echo "$TARGETS"
-                    echo "Falling back to run all product tests"
+                    echo "target-determinator failed, assuming legacy impact"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  echo "Affected targets:"
-                  echo "$TARGETS"
-
-                  # Check if legacy pytest needs to run (product changes affect legacy code)
-                  if echo "$TARGETS" | grep -q "//ci:legacy_pytest"; then
+                  elif echo "$TARGETS" | grep -q "//ci:legacy_pytest"; then
+                    echo "Product changes affect legacy code - Django tests will run"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "Product changes affect legacy code - pytest will run"
                   else
-                    echo "run_legacy=false" >> $GITHUB_OUTPUT
                     echo "No legacy impact - Django tests can be skipped!"
+                    echo "run_legacy=false" >> $GITHUB_OUTPUT
                   fi
 
-                  # Extract bazel test targets (only actual test rules, not internal artifacts like .venv)
-                  TEST_TARGETS=$(echo "$TARGETS" | tr ' ' '\n' | grep -E '(_test$|:tests$)' | grep -v legacy_pytest | tr '\n' ' ' || true)
-                  if [[ -n "$TEST_TARGETS" ]]; then
-                    echo "bazel_targets=$TEST_TARGETS" >> $GITHUB_OUTPUT
-                    echo "Test targets: $TEST_TARGETS"
-                  else
-                    echo "bazel_targets=" >> $GITHUB_OUTPUT
-                    echo "No test targets affected"
-                  fi
-
-            - name: Wait for services
-              if: steps.determine.outputs.bazel_targets != ''
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
-
-            - name: Run Bazel tests
-              if: steps.determine.outputs.bazel_targets != ''
-              run: |
-                  echo "Running targets: ${{ steps.determine.outputs.bazel_targets }}"
-                  bazel test --config=ci ${{ steps.determine.outputs.bazel_targets }}
+                  # Run all product tests (Bazel handles test discovery)
+                  run_tests
 
     check-migrations:
         needs: [changes]
