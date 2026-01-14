@@ -71,19 +71,26 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             ):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
 
-            # Check feature flag for llm_gateway scope - only on creation (self.instance is None)
-            if scope_parts[0] == "llm_gateway" and self.instance is None:
-                if not posthoganalytics.feature_enabled(
-                    "gateway-personal-api-key",
-                    str(requesting_user.distinct_id),
-                    groups={"organization": str(requesting_user.current_organization_id)},
-                    group_properties={"organization": {"id": str(requesting_user.current_organization_id)}},
-                    only_evaluate_locally=False,
-                    send_feature_flag_events=False,
-                ):
-                    raise serializers.ValidationError(
-                        "LLM gateway scope is not available. Contact support to enable this feature."
-                    )
+            # Check feature flag for llm_gateway scope - block if newly adding this scope
+            if scope_parts[0] == "llm_gateway":
+                existing_has_llm_gateway = self.instance is not None and any(
+                    s.startswith("llm_gateway:") for s in (self.instance.scopes or [])
+                )
+                if not existing_has_llm_gateway:
+                    organization_id = requesting_user.current_organization_id
+                    if organization_id is None:
+                        raise serializers.ValidationError("Unable to verify feature access.")
+                    if not posthoganalytics.feature_enabled(
+                        "gateway-personal-api-key",
+                        str(requesting_user.distinct_id),
+                        groups={"organization": str(organization_id)},
+                        group_properties={"organization": {"id": str(organization_id)}},
+                        only_evaluate_locally=False,
+                        send_feature_flag_events=False,
+                    ):
+                        raise serializers.ValidationError(
+                            "LLM gateway scope is not available. Contact support to enable this feature."
+                        )
 
         return scopes
 

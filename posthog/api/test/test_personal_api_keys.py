@@ -799,6 +799,30 @@ class TestPersonalAPIKeyLLMGatewayFeatureFlag(APIBaseTest):
         mock_feature_enabled.assert_not_called()
 
     @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_update_adding_llm_gateway_scope_blocked_when_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["insight:read"],
+        )
+
+        response = self.client.patch(
+            f"/api/personal_api_keys/{key.id}",
+            {"scopes": ["insight:read", "llm_gateway:read"]},
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "LLM gateway scope is not available. Contact support to enable this feature.",
+            "attr": "scopes",
+        }
+        mock_feature_enabled.assert_called_once()
+
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
     def test_create_other_scopes_unaffected_by_flag(self, mock_feature_enabled):
         response = self.client.post(
             "/api/personal_api_keys",
