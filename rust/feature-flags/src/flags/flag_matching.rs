@@ -900,6 +900,37 @@ impl FeatureFlagMatcher {
             });
         }
         // For person-based flags, empty distinct_id is valid and should continue evaluation
+        if flag.get_group_type_index().is_none() {
+            use crate::flags::flag_models::BucketingIdentifier;
+
+            if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                if let Some(device_id) = &self.device_id {
+                    if !device_id.is_empty() {
+                        with_canonical_log(|log| log.flags_device_id_bucketing += 1);
+                    } else {
+                        with_canonical_log(|log| {
+                            tracing::warn!(
+                                flag_key = %flag.key,
+                                team_id = %flag.team_id,
+                                lib = log.lib,
+                                lib_version = log.lib_version.as_deref(),
+                                "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
+                            );
+                        });
+                    }
+                } else {
+                    with_canonical_log(|log| {
+                        tracing::warn!(
+                            flag_key = %flag.key,
+                            team_id = %flag.team_id,
+                            lib = log.lib,
+                            lib_version = log.lib_version.as_deref(),
+                            "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
+                        );
+                    });
+                }
+            }
+        }
 
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;
@@ -1300,28 +1331,9 @@ impl FeatureFlagMatcher {
             if feature_flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
                 if let Some(device_id) = &self.device_id {
                     if !device_id.is_empty() {
-                        with_canonical_log(|log| log.flags_device_id_bucketing += 1);
                         return Ok(device_id.clone());
                     }
                 }
-                // If device_id bucketing is set but no device_id provided,
-                // fall through to hash_key_overrides or distinct_id
-                let (lib, lib_version) = {
-                    let mut lib: Option<&'static str> = None;
-                    let mut lib_version: Option<String> = None;
-                    with_canonical_log(|log| {
-                        lib = log.lib;
-                        lib_version = log.lib_version.clone();
-                    });
-                    (lib, lib_version)
-                };
-                tracing::warn!(
-                    flag_key = %feature_flag.key,
-                    team_id = %feature_flag.team_id,
-                    lib = lib,
-                    lib_version = lib_version.as_deref(),
-                    "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
-                );
             }
 
             // Use hash key overrides for experience continuity
