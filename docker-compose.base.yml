@@ -196,6 +196,14 @@ services:
         entrypoint: sh
         command: -c 'mkdir -p /data/posthog /data/ducklake-dev /data/ai-blobs && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog', 'ducklake-dev', and 'ai-blobs' buckets before starting the service
 
+    objectstorage-azure:
+        image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+        restart: on-failure
+        profiles: ['batch-exports']
+        command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data
+        ports:
+            - '10000:10000'
+
     maildev:
         image: maildev/maildev:2.0.5
         restart: on-failure

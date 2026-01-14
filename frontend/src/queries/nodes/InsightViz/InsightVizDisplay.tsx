@@ -106,7 +106,15 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
-            return <InsightValidationError query={query} detail={validationError} />
+            return (
+                <InsightValidationError
+                    query={query}
+                    detail={validationError}
+                    onRetry={() => {
+                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+                    }}
+                />
+            )
         }
 
         // Insight specific empty states - note order is important here
