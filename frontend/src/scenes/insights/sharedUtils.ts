@@ -25,14 +25,8 @@ export const keyForInsightLogicProps =
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        // Only include dashboardId in the key for existing insights (not new ones)
-        // This ensures that when creating a new insight that will be added to a dashboard,
-        // the logic instances maintain consistent keys during insight type changes
-        const isNewInsight =
-            !props.dashboardItemId || props.dashboardItemId === 'new' || props.dashboardItemId.startsWith('new-')
-
         return props.dashboardItemId
-            ? `${props.dashboardItemId}${props.dashboardId && !isNewInsight ? `/on-dashboard-${props.dashboardId}` : ''}`
+            ? `${props.dashboardItemId}${props.dashboardId ? `/on-dashboard-${props.dashboardId}` : ''}`
             : defaultKey
     }
 
