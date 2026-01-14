@@ -1,7 +1,6 @@
-from typing import Literal
+from typing import Any, Literal, TypedDict, cast
 
 from django.db import transaction
-from django.db.models import Q
 
 import structlog
 from pydantic import BaseModel, Field
@@ -13,29 +12,24 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ArtifactManager
-from ee.hogai.artifacts.types import ModelArtifactResult
+from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.upsert_dashboard.prompts import (
     CREATE_NO_INSIGHTS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     MISSING_INSIGHTS_NOTE_PROMPT,
     NO_PERMISSION_PROMPT,
+    PERMISSION_REQUEST_PROMPT,
     UPDATE_NO_CHANGES_PROMPT,
     UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE,
     UPSERT_DASHBOARD_TOOL_PROMPT,
 )
+from ee.hogai.utils.prompt import format_prompt_string
 
 logger = structlog.get_logger(__name__)
-
-
-def _track_replacements(original_ids: list[str], new_ids: list[str]) -> dict[str, str | None]:
-    """Map original insight IDs to new insight IDs based on position."""
-    result: dict[str, str | None] = {}
-    for i, orig_id in enumerate(original_ids):
-        result[orig_id] = new_ids[i] if i < len(new_ids) else None
-    return result
 
 
 class CreateDashboardToolArgs(BaseModel):
@@ -80,104 +74,70 @@ class UpsertDashboardToolArgs(BaseModel):
     )
 
 
+class UpdateDiff(TypedDict):
+    created: list[VisualizationWithSourceResult]
+    deleted: list[DashboardTile]
+    replaced: list[tuple[DashboardTile, VisualizationWithSourceResult]]
+
+
 class UpsertDashboardTool(MaxTool):
     name: Literal["upsert_dashboard"] = "upsert_dashboard"
     description: str = UPSERT_DASHBOARD_TOOL_PROMPT
     context_prompt_template: str = UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE
-
     args_schema: type[BaseModel] = UpsertDashboardToolArgs
+    _cached_update_diff: UpdateDiff | None = None
 
     def get_required_resource_access(self):
         return [("dashboard", "editor")]
 
     async def is_dangerous_operation(self, *, action: UpsertDashboardAction, **kwargs) -> bool:
         """Update operations that replace existing insights are dangerous."""
-        if isinstance(action, UpdateDashboardToolArgs):
-            return bool(action.insight_ids)
+        if isinstance(action, UpdateDashboardToolArgs) and action.insight_ids:
+            _, sorted_tiles = await self._get_dashboard_and_sorted_tiles(action.dashboard_id)
+            diff = await self._get_update_diff(sorted_tiles, action.insight_ids)
+            return len(diff["deleted"]) > 0 or len(diff["replaced"]) > 0
         return False
 
     async def format_dangerous_operation_preview(self, *, action: UpsertDashboardAction, **kwargs) -> str:
         """
         Build a rich preview showing dashboard details and what will be modified.
         """
-        # Fetch dashboard details for richer preview
-        dashboard_name = f"Dashboard #{action.dashboard_id}"
-        existing_insight_count = 0
-        existing_insight_names: list[str] = []
-        existing_insights: list[Insight] = []
+        if isinstance(action, CreateDashboardToolArgs):
+            raise MaxToolFatalError("Create dashboard operation is not dangerous.")
 
-        try:
-            dashboard = await Dashboard.objects.aget(id=action.dashboard_id, team=self._team, deleted=False)
-            dashboard_name = dashboard.name or dashboard_name
+        dashboard, sorted_tiles = await self._get_dashboard_and_sorted_tiles(action.dashboard_id)
+        diff = await self._get_update_diff(sorted_tiles, action.insight_ids or [])
 
-            # TRICKY: All conditions on `dashboard_tiles__*` must be in a single .filter() call.
-            # Chaining separate .filter() calls that span multi-valued relationships causes Django
-            # to create separate JOINs, which can match different tiles for each condition.
-            existing_insights = [
-                i
-                async for i in Insight.objects.filter(
-                    Q(dashboard_tiles__dashboard=dashboard)
-                    & (Q(dashboard_tiles__deleted=False) | Q(dashboard_tiles__deleted__isnull=True)),
-                    team=self._team,
-                    deleted=False,
-                ).distinct()
+        def get_insight_name(insight: Insight) -> str:
+            return insight.name or insight.derived_name or f"Insight #{insight.short_id or insight.id}"
+
+        def get_artifact_name(artifact: VisualizationWithSourceResult) -> str:
+            return artifact.content.name or "Insight"
+
+        def join(items: list[str]) -> str:
+            return "\n".join(items)
+
+        created_insights = join([get_artifact_name(artifact) for artifact in diff["created"]])
+        deleted_insights = join(
+            [get_insight_name(tile.insight) for tile in diff["deleted"] if tile.insight is not None]
+        )
+        replaced_insights = join(
+            [
+                f"{get_insight_name(tile.insight)} -> {get_artifact_name(artifact)}"
+                for tile, artifact in diff["replaced"]
+                if tile.insight is not None
             ]
-            existing_insight_count = len(existing_insights)
-            existing_insight_names = [i.name or i.derived_name or f"Insight #{i.id}" for i in existing_insights[:5]]
-        except Dashboard.DoesNotExist:
-            pass
-        except Exception as e:
-            logger.exception(f"Error fetching dashboard details for preview: {e}")
+        )
 
-        # Build detailed preview
-        lines = [f"Dashboard: {dashboard_name}"]
-
-        if action.name and action.name != dashboard_name:
-            lines.append(f"Rename to: '{action.name}'")
-
-        if action.description is not None:
-            lines.append("Update description")
-
-        if action.update_insight_ids:
-            # Surgical update: show which insights will be modified
-            update_count = len(action.update_insight_ids)
-            lines.append("")
-            lines.append(f"UPDATE {update_count} insight(s) on this dashboard")
-
-            # Try to find the names of insights being updated
-            old_insight_ids = list(action.update_insight_ids.keys())
-            insights_to_update = [i for i in existing_insights if i.short_id in old_insight_ids]
-            if insights_to_update:
-                lines.append("")
-                lines.append("Insights that will be MODIFIED:")
-                for insight in insights_to_update[:5]:
-                    name = insight.name or insight.derived_name or f"Insight #{insight.id}"
-                    lines.append(f"  • {name}")
-                if len(insights_to_update) > 5:
-                    lines.append(f"  • ... and {len(insights_to_update) - 5} more")
-            else:
-                # Fallback if we couldn't resolve the insight names
-                lines.append("")
-                lines.append("Insight IDs being modified:")
-                for old_id in old_insight_ids[:5]:
-                    lines.append(f"  • {old_id}")
-                if len(old_insight_ids) > 5:
-                    lines.append(f"  • ... and {len(old_insight_ids) - 5} more")
-
-        elif action.replace_insights:
-            new_count = len(action.insight_ids) if action.insight_ids else 0
-            lines.append("")
-            lines.append(f"REPLACE all {existing_insight_count} existing insight(s) with {new_count} new insight(s)")
-
-            if existing_insight_names:
-                lines.append("")
-                lines.append("Insights that will be REMOVED:")
-                for name in existing_insight_names:
-                    lines.append(f"  • {name}")
-                if existing_insight_count > 5:
-                    lines.append(f"  • ... and {existing_insight_count - 5} more")
-
-        return "\n".join(lines)
+        return format_prompt_string(
+            PERMISSION_REQUEST_PROMPT,
+            dashboard_name=dashboard.name or f"Dashboard #{dashboard.id}",
+            new_dashboard_name=action.name,
+            new_dashboard_description=action.description,
+            deleted_insights=deleted_insights,
+            new_insights=created_insights,
+            updated_insights=replaced_insights,
+        )
 
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, dict | None]:
         if isinstance(action, CreateDashboardToolArgs):
@@ -405,3 +365,82 @@ class UpsertDashboardTool(MaxTool):
             result += "\n\n" + MISSING_INSIGHTS_NOTE_PROMPT.format(missing_ids=", ".join(missing_ids))
 
         return result
+
+    async def _get_dashboard_and_sorted_tiles(self, dashboard_id: Any) -> tuple[Dashboard, list[DashboardTile]]:
+        """Get the dashboard and sorted tiles for the given dashboard ID."""
+        try:
+            dashboard = await Dashboard.objects.aget(id=dashboard_id, team=self._team, deleted=False)
+        except Dashboard.DoesNotExist:
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(
+            [tile async for tile in DashboardTile.objects.filter(dashboard=dashboard).select_related("insight")]
+        )
+
+        return dashboard, sorted_tiles
+
+    async def _get_visualization_artifacts(self, insight_ids: list[str]) -> list[VisualizationWithSourceResult]:
+        """
+        Fetch and validate visualization artifacts for the given insight IDs.
+        """
+        artifacts = await self._context_manager.artifacts.aget_visualizations(self._state.messages, insight_ids)
+        not_found = [insight_id for insight_id, artifact in zip(insight_ids, artifacts) if artifact is None]
+        if not_found:
+            raise MaxToolRetryableError(
+                f"Some insights were not found in the conversation artifacts: {not_found}. You should check if the provided insight_ids are correct."
+            )
+        return cast(list[VisualizationWithSourceResult], artifacts)
+
+    async def _get_update_diff(self, dashboard_tiles: list[DashboardTile], insight_ids: list[str]) -> UpdateDiff:
+        """
+        Get the update diff for the given dashboard tiles and insight IDs. Returns a list of deleted tiles, created insights, and replaced tiles with their corresponding visualization artifacts.
+        """
+        if self._cached_update_diff is not None:
+            return self._cached_update_diff
+
+        if not insight_ids:
+            return UpdateDiff(
+                deleted=[],
+                created=[],
+                replaced=[],
+            )
+
+        # Find existing insights in the dashboard.
+        dashboard_insights = {tile.insight.short_id: tile for tile in dashboard_tiles if tile.insight is not None}
+
+        # Map original insight IDs to new insight IDs based on position.
+        diff: dict[str, str | None] = {}
+        for i, orig_id in enumerate(list(dashboard_insights.keys())):
+            diff[orig_id] = insight_ids[i] if i < len(insight_ids) else None
+
+        # Find deleted insights.
+        deleted_insights = [
+            dashboard_insights[key] for key, value in diff.items() if value is None and key in dashboard_insights
+        ]
+
+        # Find replaced insights.
+        replaced_insights = [
+            (dashboard_insights[key], value)
+            for key, value in diff.items()
+            if value is not None and key in dashboard_insights
+        ]
+
+        # Find new insights.
+        created_insights = [insight_id for insight_id in insight_ids if insight_id not in dashboard_insights]
+
+        if not created_insights and not replaced_insights:
+            return UpdateDiff(
+                deleted=deleted_insights,
+                created=[],
+                replaced=[],
+            )
+
+        # Fetch and validate visualization artifacts for the provided insight IDs.
+        artifact_mapping = dict(zip(insight_ids, await self._get_visualization_artifacts(insight_ids)))
+
+        self._cached_update_diff = UpdateDiff(
+            deleted=deleted_insights,
+            created=[artifact_mapping[insight_id] for insight_id in created_insights],
+            replaced=[(tile, artifact_mapping[artifact_id]) for tile, artifact_id in replaced_insights],
+        )
+        return self._cached_update_diff

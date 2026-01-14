@@ -113,11 +113,7 @@ class VisualizationHandler(ArtifactHandler[VisualizationArtifactContent, Visuali
         for msg in messages:
             if isinstance(msg, VisualizationMessage) and msg.id == artifact_id:
                 try:
-                    return VisualizationArtifactContent(
-                        query=msg.answer,
-                        name=msg.query,
-                        plan=msg.plan,
-                    )
+                    return VisualizationArtifactContent(query=msg.answer, name="Insight", plan=msg.plan)
                 except ValidationError as e:
                     capture_exception(e)
                     # Old unsupported visualization messages schemas

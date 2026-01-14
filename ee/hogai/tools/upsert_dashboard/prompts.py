@@ -71,3 +71,25 @@ Cannot update dashboard: no valid insights found and no metadata changes provide
 MISSING_INSIGHTS_NOTE_PROMPT = """
 Note: The following insight IDs could not be added (not found or not saved): {missing_ids}
 """.strip()
+
+PERMISSION_REQUEST_PROMPT = """
+Dashboard: {{{dashboard_name}}}
+{{#new_dashboard_name}}
+Rename to: {{{new_dashboard_name}}}
+{{/new_dashboard_name}}
+{{#new_dashboard_description}}
+Update description to: {{{new_dashboard_description}}}
+{{/new_dashboard_description}}
+{{#new_insights}}
+This action will add the following insights:
+{{{new_insights}}}
+{{/new_insights}}
+{{#deleted_insights}}
+This action will remove the following insights:
+{{{deleted_insights}}}
+{{/deleted_insights}}
+{{#updated_insights}}
+This action will replace the following insights:
+{{{updated_insights}}}
+{{/updated_insights}}
+""".strip()
