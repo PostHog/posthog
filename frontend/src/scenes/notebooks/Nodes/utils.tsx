@@ -126,6 +126,19 @@ export const sanitizeSvgContent = (svg: string): string => {
     return DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } })
 }
 
+export const buildMediaSource = (media: { mimeType: string; data: string }): string | null => {
+    if (media.mimeType === 'image/png') {
+        return `data:image/png;base64,${media.data}`
+    }
+    if (media.mimeType === 'image/jpeg') {
+        return `data:image/jpeg;base64,${media.data}`
+    }
+    if (media.mimeType === 'image/svg+xml') {
+        return `data:image/svg+xml;utf8,${encodeURIComponent(sanitizeSvgContent(media.data))}`
+    }
+    return null
+}
+
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')
     return new RegExp(origin + path, 'ig')

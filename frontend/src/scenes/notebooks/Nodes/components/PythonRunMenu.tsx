@@ -4,8 +4,9 @@ import { IconChevronDown, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonMenuItems, LemonMenuOverlay } from '@posthog/lemon-ui'
 
 import { notebookSettingsLogic } from '../../Notebook/notebookSettingsLogic'
+import { NotebookRunMode, buildRunMenuItems } from './runMenuItems'
 
-export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
+export type PythonRunMode = NotebookRunMode
 
 type PythonRunMenuProps = {
     isFresh: boolean
@@ -30,22 +31,7 @@ export const PythonRunMenu = ({
     const pythonRunTooltip = `Run Python cell.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
 
     const pythonRunMenuItems: LemonMenuItems = [
-        {
-            label: 'Run (auto)',
-            onClick: () => onRun('auto'),
-        },
-        {
-            label: 'Run cell + upstream',
-            onClick: () => onRun('cell_upstream'),
-        },
-        {
-            label: 'Run cell',
-            onClick: () => onRun('cell'),
-        },
-        {
-            label: 'Run cell + downstream',
-            onClick: () => onRun('cell_downstream'),
-        },
+        ...buildRunMenuItems(onRun),
         {
             label: 'Toggle kernel info',
             onClick: () => setShowKernelInfo(!showKernelInfo),

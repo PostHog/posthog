@@ -7,8 +7,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { notebookSettingsLogic } from '../../Notebook/notebookSettingsLogic'
+import { NotebookRunMode, buildRunMenuItems } from './runMenuItems'
 
-export type DuckSqlRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
+export type DuckSqlRunMode = NotebookRunMode
 
 type DuckSqlRunMenuProps = {
     isFresh: boolean
@@ -33,24 +34,7 @@ export const DuckSqlRunMenu = ({
     const duckSqlRunIconClass = isFresh ? 'text-success' : isStale ? 'text-danger' : undefined
     const duckSqlRunTooltip = `Run SQL (duckdb) query.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
 
-    const duckSqlRunMenuItems: LemonMenuItems = [
-        {
-            label: 'Run (auto)',
-            onClick: () => onRun('auto'),
-        },
-        {
-            label: 'Run cell + upstream',
-            onClick: () => onRun('cell_upstream'),
-        },
-        {
-            label: 'Run cell',
-            onClick: () => onRun('cell'),
-        },
-        {
-            label: 'Run cell + downstream',
-            onClick: () => onRun('cell_downstream'),
-        },
-    ]
+    const duckSqlRunMenuItems: LemonMenuItems = [...buildRunMenuItems(onRun)]
 
     if (featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]) {
         duckSqlRunMenuItems.push({

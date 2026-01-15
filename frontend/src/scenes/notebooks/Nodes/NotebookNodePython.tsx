@@ -13,7 +13,7 @@ import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import type { NotebookDependencyUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
-import { renderAnsiText, sanitizeSvgContent } from './utils'
+import { buildMediaSource, renderAnsiText } from './utils'
 
 export type NotebookNodePythonAttributes = {
     code: string
@@ -150,19 +150,6 @@ const OutputBlock = ({
             </pre>
         </div>
     )
-}
-
-const buildMediaSource = (media: PythonExecutionMedia): string | null => {
-    if (media.mimeType === 'image/png') {
-        return `data:image/png;base64,${media.data}`
-    }
-    if (media.mimeType === 'image/jpeg') {
-        return `data:image/jpeg;base64,${media.data}`
-    }
-    if (media.mimeType === 'image/svg+xml') {
-        return `data:image/svg+xml;utf8,${encodeURIComponent(sanitizeSvgContent(media.data))}`
-    }
-    return null
 }
 
 const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | null => {

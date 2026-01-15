@@ -155,19 +155,17 @@ const getDependencyNodesForRun = (
 }
 
 const isPythonExecutionFresh = (nodeLogic: BuiltLogic<notebookNodeLogicType>, code: string): boolean => {
-    const nodeAttributes = nodeLogic.values.nodeAttributes as {
-        pythonExecutionCodeHash?: number | null
-        pythonExecution?: PythonExecutionResult | null
-        pythonExecutionSandboxId?: string | null
-    }
-    const executionHash = nodeAttributes.pythonExecutionCodeHash ?? null
+    const { pythonExecutionCodeHash, pythonExecution, pythonExecutionSandboxId } = nodeLogic.values.nodeAttributes
     const codeHash = hashCodeForString(code)
-    const status = nodeAttributes.pythonExecution?.status ?? null
-    const executionSandboxId = nodeAttributes.pythonExecutionSandboxId ?? null
     const kernelSandboxId = nodeLogic.values.kernelInfo?.sandbox_id ?? null
     const sandboxMatches =
-        executionSandboxId !== null && kernelSandboxId !== null && executionSandboxId === kernelSandboxId
-    return executionHash !== null && executionHash === codeHash && status === 'ok' && sandboxMatches
+        pythonExecutionSandboxId && kernelSandboxId !== null && pythonExecutionSandboxId === kernelSandboxId
+    return (
+        pythonExecutionCodeHash &&
+        pythonExecutionCodeHash === codeHash &&
+        pythonExecution?.status === 'ok' &&
+        sandboxMatches
+    )
 }
 
 const isDuckSqlExecutionFresh = (
@@ -175,19 +173,14 @@ const isDuckSqlExecutionFresh = (
     code: string,
     returnVariable: string
 ): boolean => {
-    const nodeAttributes = nodeLogic.values.nodeAttributes as {
-        duckExecutionCodeHash?: number | null
-        duckExecution?: PythonExecutionResult | null
-        duckExecutionSandboxId?: string | null
-    }
-    const executionHash = nodeAttributes.duckExecutionCodeHash ?? null
+    const { duckExecutionCodeHash, duckExecution, duckExecutionSandboxId } = nodeLogic.values.nodeAttributes
     const codeHash = hashCodeForString(`${code}\n${returnVariable}`)
-    const status = nodeAttributes.duckExecution?.status ?? null
-    const executionSandboxId = nodeAttributes.duckExecutionSandboxId ?? null
     const kernelSandboxId = nodeLogic.values.kernelInfo?.sandbox_id ?? null
     const sandboxMatches =
-        executionSandboxId !== null && kernelSandboxId !== null && executionSandboxId === kernelSandboxId
-    return executionHash !== null && executionHash === codeHash && status === 'ok' && sandboxMatches
+        duckExecutionSandboxId && kernelSandboxId !== null && duckExecutionSandboxId === kernelSandboxId
+    return (
+        duckExecutionCodeHash && duckExecutionCodeHash === codeHash && duckExecution?.status === 'ok' && sandboxMatches
+    )
 }
 
 const setDependencyNodeQueued = (
@@ -416,20 +409,13 @@ const parseDataframePreview = (preview?: string | null): NotebookDataframeResult
             }
             const columns = Array.isArray(parsed.columns) ? parsed.columns : []
             const rows = Array.isArray(parsed.rows) ? parsed.rows : []
-            const rowCount =
-                typeof parsed.rowCount === 'number'
-                    ? parsed.rowCount
-                    : typeof parsed.row_count === 'number'
-                      ? parsed.row_count
-                      : rows.length
+            const rowCount = parsed.rowCount || parsed.row_count || rows.length
             return {
                 columns,
                 rows,
                 rowCount,
             }
-        } catch {
-            continue
-        }
+        } catch {}
     }
     return null
 }
@@ -640,9 +626,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     })),
 
     selectors({
-        notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
-        nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
-        nodeId: [(_, p) => [p.attributes], (nodeAttributes): string => nodeAttributes.nodeId],
+        notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic): BuiltLogic<notebookLogicType> => notebookLogic],
+        nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes): NotebookNodeAttributes<any> => nodeAttributes],
+        nodeId: [
+            (_, p) => [p.attributes],
+            (nodeAttributes: NotebookNodeAttributes<any>): string => nodeAttributes.nodeId,
+        ],
         nodeType: [(_, p) => [p.nodeType], (nodeType) => nodeType],
         Settings: [() => [(_, props) => props], (props): NotebookNodeSettings | null => props.Settings ?? null],
         settingsPlacement: [

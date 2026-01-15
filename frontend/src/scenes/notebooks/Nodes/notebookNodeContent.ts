@@ -44,7 +44,7 @@ export type NotebookDependencyGraph = {
     downstreamUsageByNode: Record<string, Record<string, NotebookDependencyUsage[]>>
 }
 
-// NOTE!!! The SQL parsing logic in this file is very rough. This is on purpose.
+// TODO: The SQL parsing logic in this file is very rough. This is on purpose.
 // The HogQL WASM parser is coming. Once we have that, we'll revisit this part and make it robust.
 
 const stripSqlComments = (sql: string): string => {
