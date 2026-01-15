@@ -15,7 +15,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 from posthog.hogql.utils import ilike_matches, like_matches
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.utils import UUIDT
@@ -594,26 +594,30 @@ class ClickHousePrinter(HogQLPrinter):
         return None  # nothing to optimize
 
     def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
-        """Helper to check if a node is a timestamp field from the actual events table"""
+        traverser = GetFieldsTraverser(node)
 
-        if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
-            field_name = str(node.chain[-1]) if node.chain else ""
+        for field in traverser.fields:
+            if isinstance(field.type, ast.FieldType):
+                field_name = str(field.chain[-1]) if field.chain else ""
 
-            if not (field_name == "timestamp" or field_name.endswith("_timestamp")):
-                return False
+                # Check if field name is timestamp-like
+                if not (field_name == "timestamp" or field_name.endswith("_timestamp")):
+                    continue
 
-            table_type = node.type.table_type
-            while True:
-                if isinstance(table_type, ast.TableType):
-                    table_name = table_type.table.to_printed_hogql()
+                table_type = field.type.table_type
+                while True:
+                    if isinstance(table_type, ast.TableType):
+                        table_name = table_type.table.to_printed_hogql()
+                        if table_name in ("events", "raw_sessions", "raw_sessions_v3"):
+                            return True
+                        break
+                    elif isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
+                        table_type = table_type.table_type
+                    elif isinstance(table_type, ast.TableAliasType):
+                        table_type = table_type.table_type
+                    else:
+                        break
 
-                    return table_name in ("events", "raw_sessions", "raw_sessions_v3")
-                elif isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
-                    table_type = table_type.table_type
-                elif isinstance(table_type, ast.TableAliasType):
-                    table_type = table_type.table_type
-                else:
-                    return False
         return False
 
     def visit_compare_operation(self, node: ast.CompareOperation):

@@ -843,3 +843,17 @@ class CloningVisitor(Visitor[Any]):
             set_operator=node.set_operator,
             select_query=self.visit(node.select_query),
         )
+
+
+class GetFieldsTraverser(TraversingVisitor):
+    """Traverser that collects all Field nodes from an expression tree"""
+
+    fields: list[ast.Field]
+
+    def __init__(self, expr: Expr):
+        super().__init__()
+        self.fields = []
+        super().visit(expr)
+
+    def visit_field(self, node: ast.Field):
+        self.fields.append(node)
