@@ -26,7 +26,7 @@ export function ProductTourPreview({
         if (ref.current) {
             renderProductTourPreview({
                 step: (prepareStep ? prepareStepForRender(step) : step) as any,
-                appearance: appearance as any,
+                appearance: { ...appearance, zIndex: 1 } as any,
                 parentElement: ref.current,
                 stepIndex,
                 totalSteps,
@@ -47,7 +47,7 @@ export function BannerPreviewWrapper({
     return (
         <div>
             <div className="text-xs text-muted uppercase tracking-wide mb-3">Preview</div>
-            <div className="bg-[#f0f0f0] overflow-hidden">
+            <div className="bg-[#f0f0f0] overflow-hidden p-4 -m-4">
                 {step && <ProductTourPreview step={step} appearance={appearance} />}
             </div>
         </div>
