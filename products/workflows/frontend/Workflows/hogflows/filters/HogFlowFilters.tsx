@@ -10,7 +10,7 @@ import { FilterType } from '~/types'
 import { HogFlowAction } from '../types'
 
 export type HogFlowFiltersProps = {
-    actionId?: HogFlowAction['id']
+    filtersKey: string
     filters: HogFlowAction['filters']
     setFilters: (filters: HogFlowAction['filters']) => void
     typeKey?: string
@@ -64,14 +64,14 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
     )
 }
 
-export function HogFlowPropertyFilters({ actionId, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
+export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
             onChange={(properties: FilterType['properties']): void => {
                 setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
             }}
-            pageKey={`HogFlowPropertyFilters.${actionId}`}
+            pageKey={`HogFlowPropertyFilters.${filtersKey}`}
             taxonomicGroupTypes={[
                 TaxonomicFilterGroupType.WorkflowVariables,
                 TaxonomicFilterGroupType.EventProperties,
