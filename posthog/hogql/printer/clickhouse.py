@@ -511,7 +511,7 @@ class ClickHousePrinter(HogQLPrinter):
         if property_source.is_nullable:
             values_sql = ", ".join(self.visit(v) for v in values)
             if node.op == ast.CompareOperationOp.In:
-                # We use transform_null_in=1 which makes it hard to use a skip index with the in() function in clickhouse.
+                # We use transform_null_in=1 which makes it hard to use a skip index with the in() function in ClickHouse.
                 # As a workaround, flip the args and use has() - this is safe because we already excluded NULL
                 return f"and(has([{values_sql}], {materialized_column_sql}), {materialized_column_sql} IS NOT NULL)"
             else:
