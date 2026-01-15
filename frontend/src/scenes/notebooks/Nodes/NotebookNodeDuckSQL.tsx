@@ -130,7 +130,7 @@ const Component = ({
             return
         }
         const footerHeight = footerRef.current?.offsetHeight ?? 0
-        const desiredHeight = output.scrollHeight + footerHeight
+        const desiredHeight = output.scrollHeight + footerHeight + 8
         const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_DUCK_SQL_NODE_HEIGHT
         const lastExecutionCodeHash = lastExecutionCodeHashRef.current
         const executionChanged = executionCodeHash !== lastExecutionCodeHash
