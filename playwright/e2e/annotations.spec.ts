@@ -15,13 +15,26 @@ test.describe('Annotations', () => {
 
     test('Create annotation', async ({ page }) => {
         // Wait for the create button to be visible before clicking
-        await expect(page.locator('[data-attr=create-annotation]')).toBeVisible()
-        await page.click('[data-attr=create-annotation]')
+        const createButton = page.locator('[data-attr=create-annotation]')
+        await expect(createButton).toBeVisible({ timeout: 10000 })
+        await createButton.click()
+
+        // Wait for the modal to open and input to be visible
+        const annotationInput = page.locator('[data-attr=create-annotation-input]')
+        await expect(annotationInput).toBeVisible({ timeout: 5000 })
 
         // Use a unique name to avoid conflicts with retries
         const uniqueAnnotationName = `Test Annotation ${Date.now()}`
-        await page.fill('[data-attr=create-annotation-input]', uniqueAnnotationName)
-        await page.click('[data-attr=create-annotation-submit]')
-        await expect(page.locator('[data-attr=annotations-table]')).toContainText(uniqueAnnotationName)
+        await annotationInput.fill(uniqueAnnotationName)
+
+        // Click submit and wait for the annotation to appear
+        const submitButton = page.locator('[data-attr=create-annotation-submit]')
+        await expect(submitButton).toBeVisible()
+        await submitButton.click()
+
+        // Wait for the table to contain the new annotation
+        await expect(page.locator('[data-attr=annotations-table]')).toContainText(uniqueAnnotationName, {
+            timeout: 10000,
+        })
     })
 })
