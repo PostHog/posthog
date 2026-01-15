@@ -177,41 +177,8 @@ class TestSurvey(APIBaseTest):
         survey = Survey.objects.get(id=survey_id)
         assert survey.translations is None
 
-    def test_invalid_language_code_rejected_both_levels(self):
-        # Test survey-level invalid code
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey",
-                "type": "popover",
-                "questions": [{"type": "open", "question": "Question?"}],
-                "translations": {"INVALID": {"name": "Bad"}},
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid language code" in str(response.json())
-
-        # Test inline question-level invalid code
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey",
-                "type": "popover",
-                "questions": [
-                    {
-                        "type": "open",
-                        "question": "Question?",
-                        "translations": {"INVALID_CODE": {"question": "Bad"}},
-                    }
-                ],
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid language code" in response.json()["detail"]
-
-    def test_valid_language_codes_accepted(self):
+    def test_custom_language_codes_accepted(self):
+        """Test that custom language codes are accepted (e.g. 'english', 'french')"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -219,18 +186,19 @@ class TestSurvey(APIBaseTest):
                 "type": "popover",
                 "questions": [{"type": "open", "question": "Question?"}],
                 "translations": {
-                    "es": {"name": "ISO 639-1"},
-                    "yue": {"name": "ISO 639-3 Cantonese"},
-                    "en-US": {"name": "BCP 47 region"},
-                    "zh-Hans": {"name": "BCP 47 script"},
-                    "zh-Hant-TW": {"name": "BCP 47 full"},
+                    "english": {"name": "Custom code"},
+                    "french": {"name": "Code personnalisé"},
+                    "es-MX": {"name": "BCP 47 still works"},
                 },
             },
             format="json",
         )
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert len(Survey.objects.get(id=response.json()["id"]).translations) == 5
+        survey = Survey.objects.get(id=response.json()["id"])
+        assert "english" in survey.translations
+        assert "french" in survey.translations
+        assert "es-MX" in survey.translations
 
     def test_choices_array_length_mismatch_rejected(self):
         """Prevent partial translations by ensuring choices array lengths match"""
@@ -433,25 +401,6 @@ class TestSurvey(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not have choices" in response.json()["detail"]
-
-    def test_underscore_language_codes_rejected(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey",
-                "type": "popover",
-                "questions": [{"type": "open", "question": "Question?"}],
-                "translations": {
-                    "en_US": {"name": "Wrong"},
-                    "zh_Hans_CN": {"name": "Also wrong"},
-                },
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid language code" in response.json()["detail"]
-        assert "en-US" in response.json()["detail"] or "BCP 47" in response.json()["detail"]
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_creation_context_is_set_to_surveys(self, mock_capture):
