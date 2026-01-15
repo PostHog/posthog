@@ -345,15 +345,99 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Translations must be an object")
 
-        # Validate language codes format (ISO 639-1 or BCP 47)
-        language_code_pattern = re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")
-        for lang_code in value.keys():
+        # Validate language codes format (ISO 639-1/2/3 or BCP 47)
+        # Supports: en, es, yue (2-3 letter), zh-Hans (script), en-US (region), zh-Hans-CN (all)
+        language_code_pattern = re.compile(r"^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$")
+
+        cleaned_translations = {}
+        for lang_code, translation_data in value.items():
             if not language_code_pattern.match(lang_code):
                 raise serializers.ValidationError(
                     f"Invalid language code '{lang_code}'. Use ISO 639-1 format (e.g., 'es', 'fr') or BCP 47 format (e.g., 'es-MX', 'en-US')"
                 )
 
-        return value
+            if not isinstance(translation_data, dict):
+                raise serializers.ValidationError(f"Translation for '{lang_code}' must be an object")
+
+            cleaned_translation = {**translation_data}
+
+            # Sanitize name and description to prevent XSS
+            if "name" in translation_data and isinstance(translation_data["name"], str):
+                if nh3.is_html(translation_data["name"]):
+                    cleaned_translation["name"] = nh3_clean_with_allow_list(translation_data["name"])
+
+            if "description" in translation_data and isinstance(translation_data["description"], str):
+                if nh3.is_html(translation_data["description"]):
+                    cleaned_translation["description"] = nh3_clean_with_allow_list(translation_data["description"])
+
+            # Validate and sanitize questions array
+            if "questions" in translation_data and isinstance(translation_data["questions"], list):
+                # Enforce array length matching for data integrity
+                # Index-based mapping only works if lengths match
+                # For updates, check instance; for creates, check initial_data
+                main_questions = (
+                    self.initial_data.get("questions")
+                    if self.initial_data.get("questions")
+                    else (self.instance.questions if self.instance else [])
+                )
+                if len(translation_data["questions"]) != len(main_questions):
+                    raise serializers.ValidationError(
+                        f"Translation '{lang_code}' has {len(translation_data['questions'])} questions, "
+                        f"but the survey has {len(main_questions)} questions. Array lengths must match. "
+                        f"Use empty objects {{}} for untranslated questions."
+                    )
+
+                cleaned_questions = []
+                for question in translation_data["questions"]:
+                    if not isinstance(question, dict):
+                        continue
+
+                    cleaned_question = {**question}
+
+                    if "question" in question and isinstance(question["question"], str):
+                        if nh3.is_html(question["question"]):
+                            cleaned_question["question"] = nh3_clean_with_allow_list(question["question"])
+
+                    if "description" in question and isinstance(question["description"], str):
+                        if nh3.is_html(question["description"]):
+                            cleaned_question["description"] = nh3_clean_with_allow_list(question["description"])
+
+                    # Sanitize buttonText
+                    if "buttonText" in question and isinstance(question["buttonText"], str):
+                        if nh3.is_html(question["buttonText"]):
+                            cleaned_question["buttonText"] = nh3_clean_with_allow_list(question["buttonText"])
+
+                    # Sanitize link URL
+                    if "link" in question and isinstance(question["link"], str):
+                        if nh3.is_html(question["link"]):
+                            cleaned_question["link"] = nh3_clean_with_allow_list(question["link"])
+
+                    # Sanitize rating labels
+                    if "lowerBoundLabel" in question and isinstance(question["lowerBoundLabel"], str):
+                        if nh3.is_html(question["lowerBoundLabel"]):
+                            cleaned_question["lowerBoundLabel"] = nh3_clean_with_allow_list(question["lowerBoundLabel"])
+
+                    if "upperBoundLabel" in question and isinstance(question["upperBoundLabel"], str):
+                        if nh3.is_html(question["upperBoundLabel"]):
+                            cleaned_question["upperBoundLabel"] = nh3_clean_with_allow_list(question["upperBoundLabel"])
+
+                    # Sanitize choices arrays (for multiple_choice, single_choice questions)
+                    if "choices" in question and isinstance(question["choices"], list):
+                        cleaned_choices = []
+                        for choice in question["choices"]:
+                            if isinstance(choice, str) and nh3.is_html(choice):
+                                cleaned_choices.append(nh3_clean_with_allow_list(choice))
+                            else:
+                                cleaned_choices.append(choice)
+                        cleaned_question["choices"] = cleaned_choices
+
+                    cleaned_questions.append(cleaned_question)
+
+                cleaned_translation["questions"] = cleaned_questions
+
+            cleaned_translations[lang_code] = cleaned_translation
+
+        return cleaned_translations
 
     def validate_questions(self, value):
         if value is None:
