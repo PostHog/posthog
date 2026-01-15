@@ -1,15 +1,26 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 
-import { IconAIText, IconChat, IconComment, IconCopy, IconMessage, IconReceipt } from '@posthog/icons'
+import {
+    IconAIText,
+    IconChat,
+    IconComment,
+    IconCopy,
+    IconDownload,
+    IconMessage,
+    IconReceipt,
+    IconShare,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
+    LemonDivider,
     LemonSelect,
     LemonTable,
     LemonTabs,
     LemonTag,
     Link,
+    Popover,
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -23,6 +34,7 @@ import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -50,7 +62,7 @@ import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalytic
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
-import { exportTraceToClipboard } from './traceExportUtils'
+import { buildMinimalTraceJSON, exportTraceToClipboard } from './traceExportUtils'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
     formatLLMCost,
@@ -137,7 +149,7 @@ function TraceSceneWrapper(): JSX.Element {
                                     Discussion
                                 </LemonButton>
                             )}
-                            <CopyTraceButton trace={trace} tree={enrichedTree} />
+                            <ShareTraceButton trace={trace} tree={enrichedTree} />
                         </div>
                     </div>
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
@@ -755,22 +767,133 @@ function EventTypeFilters(): JSX.Element {
     )
 }
 
-function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTraceTreeNode[] }): JSX.Element {
-    const handleCopyTrace = async (): Promise<void> => {
+function ShareTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTraceTreeNode[] }): JSX.Element {
+    const [visible, setVisible] = useState(false)
+
+    const currentUrl = window.location.href
+    const previewUrl = `${window.location.origin}/llm-analytics/trace-preview`
+
+    const handleCopyInternalLink = async (): Promise<void> => {
+        await copyToClipboard(currentUrl, 'trace link')
+    }
+
+    const handleCopyPreviewLink = async (): Promise<void> => {
+        await copyToClipboard(previewUrl, 'trace preview link')
+    }
+
+    const handleCopyTraceJson = async (): Promise<void> => {
         await exportTraceToClipboard(trace, tree)
     }
 
+    const handleDownloadTraceJson = (): void => {
+        const exportData = buildMinimalTraceJSON(trace, tree)
+        const jsonString = JSON.stringify(exportData, null, 2)
+        const blob = new Blob([jsonString], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `trace-${trace.id}.json`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+    }
+
     return (
-        <LemonButton
-            type="secondary"
-            size="xsmall"
-            icon={<IconCopy />}
-            onClick={handleCopyTrace}
-            tooltip="Copy trace to clipboard"
-            data-attr="copy-trace-json"
+        <Popover
+            visible={visible}
+            onClickOutside={() => setVisible(false)}
+            placement="bottom-end"
+            overlay={
+                <div className="p-3 min-w-72 max-w-96">
+                    <div className="flex items-center justify-between mb-3">
+                        <span className="font-semibold text-sm">Share trace</span>
+                        <LemonButton
+                            size="xsmall"
+                            onClick={() => setVisible(false)}
+                            noPadding
+                            data-attr="share-trace-close"
+                        >
+                            <span className="text-lg leading-none">&times;</span>
+                        </LemonButton>
+                    </div>
+
+                    <div className="mb-3">
+                        <div className="font-medium text-xs mb-1">Share with team members</div>
+                        <p className="text-muted text-xs mb-2">
+                            Team members with project access can view this trace directly.
+                        </p>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconCopy />}
+                            onClick={handleCopyInternalLink}
+                            fullWidth
+                            data-attr="share-trace-copy-link"
+                        >
+                            Copy link
+                        </LemonButton>
+                    </div>
+
+                    <LemonDivider className="my-3" />
+
+                    <div>
+                        <div className="font-medium text-xs mb-1">Share externally</div>
+                        <p className="text-muted text-xs mb-2">
+                            Share with people outside your organization using the trace preview.
+                        </p>
+                        <div className="flex flex-col gap-2">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconCopy />}
+                                onClick={handleCopyPreviewLink}
+                                fullWidth
+                                data-attr="share-trace-copy-preview-link"
+                            >
+                                Copy preview link
+                            </LemonButton>
+                            <div className="flex gap-2">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconCopy />}
+                                    onClick={handleCopyTraceJson}
+                                    className="flex-1"
+                                    data-attr="share-trace-copy-json"
+                                >
+                                    Copy trace JSON
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconDownload />}
+                                    onClick={handleDownloadTraceJson}
+                                    className="flex-1"
+                                    data-attr="share-trace-download-json"
+                                >
+                                    Download JSON
+                                </LemonButton>
+                            </div>
+                        </div>
+                        <p className="text-muted text-xs mt-2">
+                            Send both the preview link and the trace JSON to the recipient. They'll paste the JSON at
+                            the preview link to view the trace.
+                        </p>
+                    </div>
+                </div>
+            }
         >
-            Copy trace JSON
-        </LemonButton>
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                icon={<IconShare />}
+                onClick={() => setVisible(!visible)}
+                data-attr="share-trace-button"
+            >
+                Share
+            </LemonButton>
+        </Popover>
     )
 }
 
