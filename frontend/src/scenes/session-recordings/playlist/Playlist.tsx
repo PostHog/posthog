@@ -212,7 +212,7 @@ export function Playlist({
         return (
             <div className="flex items-center justify-center h-full w-full px-0">
                 <LemonButton
-                    icon={<IconSidebarClose className="rotate-180" />}
+                    icon={<IconSidebarClose className={clsx('rotate-180')} />}
                     onClick={() => setPlaylistCollapsed(false)}
                     tooltip="Expand recordings"
                     size="xsmall"
@@ -259,7 +259,7 @@ export function Playlist({
                                         <LemonButton
                                             icon={
                                                 <IconSidebarClose
-                                                    className={clsx(isPlaylistCollapsed && 'rotate-180')}
+                                                    className={clsx(!isPlaylistCollapsed && 'rotate-180')}
                                                 />
                                             }
                                             onClick={() => setPlaylistCollapsed(true)}
