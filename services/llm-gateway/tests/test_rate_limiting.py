@@ -211,23 +211,6 @@ class TestRateLimiter:
 
 
 class TestRateLimitResponseHeaders:
-    @pytest.fixture
-    def mock_db_pool(self) -> MagicMock:
-        pool = MagicMock()
-        conn = AsyncMock()
-        conn.fetchrow = AsyncMock(
-            return_value={
-                "id": "key_id",
-                "user_id": 1,
-                "scopes": ["llm_gateway:read"],
-                "current_team_id": 1,
-            }
-        )
-        conn.fetchval = AsyncMock(return_value=1)
-        pool.acquire = AsyncMock(return_value=conn)
-        pool.release = AsyncMock()
-        return pool
-
     def test_429_includes_retry_after_header_and_structured_error(self, mock_db_pool: MagicMock) -> None:
         class AlwaysDenyThrottle(Throttle):
             scope = "test_throttle"
@@ -238,6 +221,17 @@ class TestRateLimitResponseHeaders:
                     scope=self.scope,
                     retry_after=3600,
                 )
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "key_id",
+                "user_id": 1,
+                "scopes": ["llm_gateway:read"],
+                "current_team_id": 1,
+            }
+        )
+        mock_db_pool.acquire = AsyncMock(return_value=conn)
 
         app = create_test_app(mock_db_pool, throttles=[AlwaysDenyThrottle()])
 
