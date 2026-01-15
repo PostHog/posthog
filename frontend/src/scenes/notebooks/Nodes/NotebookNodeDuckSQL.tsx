@@ -123,51 +123,58 @@ const Component = ({
         updateAttributes,
     ])
 
-    if (!expanded) {
+    const isSettingsVisible = attributes.showSettings ?? false
+    const showReturnVariableRow = expanded || isSettingsVisible
+
+    if (!expanded && !showReturnVariableRow) {
         return null
     }
 
     return (
         <div data-attr="notebook-node-duck-sql" className="flex h-full flex-col gap-2">
-            <div ref={outputRef} className="p-3 overflow-y-auto h-full space-y-3">
-                {hasExecution ? (
-                    <>
-                        {duckExecution?.stdout ? (
-                            <OutputBlock title="Output" toneClassName="text-default" value={duckExecution.stdout} />
-                        ) : null}
-                        {duckExecution?.stderr ? (
-                            <OutputBlock title="stderr" toneClassName="text-danger" value={duckExecution.stderr} />
-                        ) : null}
-                        {hasResult ? (
-                            <OutputBlock title="Result" toneClassName="text-default" value={duckExecution.result} />
-                        ) : null}
-                        {duckExecution?.media?.map((media, index) => (
-                            <MediaBlock key={`duck-sql-media-${index}`} media={media} />
-                        ))}
-                        {duckExecution?.status === 'error' && duckExecution.traceback?.length ? (
-                            <OutputBlock
-                                title="Error"
-                                toneClassName="text-danger"
-                                value={duckExecution.traceback.join('\n')}
-                            />
-                        ) : null}
-                    </>
-                ) : (
-                    <div className="text-xs text-muted font-mono">Run the query to see execution results.</div>
-                )}
-            </div>
-            <div ref={footerRef} className="flex items-center gap-2 text-xs text-muted border-t p-2">
-                <span className="font-mono mt-0.5">
-                    <IconCornerDownRight />
-                </span>
-                <input
-                    type="text"
-                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
-                    value={attributes.returnVariable ?? ''}
-                    onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                    spellCheck={false}
-                />
-            </div>
+            {expanded ? (
+                <div ref={outputRef} className="p-3 overflow-y-auto h-full space-y-3">
+                    {hasExecution ? (
+                        <>
+                            {duckExecution?.stdout ? (
+                                <OutputBlock title="Output" toneClassName="text-default" value={duckExecution.stdout} />
+                            ) : null}
+                            {duckExecution?.stderr ? (
+                                <OutputBlock title="stderr" toneClassName="text-danger" value={duckExecution.stderr} />
+                            ) : null}
+                            {hasResult ? (
+                                <OutputBlock title="Result" toneClassName="text-default" value={duckExecution.result} />
+                            ) : null}
+                            {duckExecution?.media?.map((media, index) => (
+                                <MediaBlock key={`duck-sql-media-${index}`} media={media} />
+                            ))}
+                            {duckExecution?.status === 'error' && duckExecution.traceback?.length ? (
+                                <OutputBlock
+                                    title="Error"
+                                    toneClassName="text-danger"
+                                    value={duckExecution.traceback.join('\n')}
+                                />
+                            ) : null}
+                        </>
+                    ) : (
+                        <div className="text-xs text-muted font-mono">Run the query to see execution results.</div>
+                    )}
+                </div>
+            ) : null}
+            {showReturnVariableRow ? (
+                <div ref={footerRef} className="flex items-center gap-2 text-xs text-muted border-t p-2">
+                    <span className="font-mono mt-0.5">
+                        <IconCornerDownRight />
+                    </span>
+                    <input
+                        type="text"
+                        className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                        value={attributes.returnVariable ?? ''}
+                        onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
+                        spellCheck={false}
+                    />
+                </div>
+            ) : null}
         </div>
     )
 }
