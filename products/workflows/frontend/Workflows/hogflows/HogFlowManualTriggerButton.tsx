@@ -104,7 +104,7 @@ const TriggerPopover = ({
                         if (workflow?.trigger?.type === 'batch') {
                             triggerBatchWorkflow(
                                 variableValues,
-                                workflow?.trigger?.filters || {},
+                                workflow?.trigger?.filters || { properties: [] },
                                 workflow?.trigger?.scheduled_at || null
                             )
                         } else if (workflow?.trigger?.type === 'manual') {
