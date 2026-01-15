@@ -57,10 +57,21 @@ _refs:
 
 ## How to Use
 
+Keep track of todo list when upserting a dashboard.
+
+### Create vs Update Decision
+
 1. **Search first**: Use grep or the index to check if a relevant dashboard and insights already exists
 2. **Ask if ambiguous**: If the request is unclear, ask whether to create new or update existing
 3. **Understand existing**: If updating, read the dashboard file to understand its current structure
-4. **Create new insights**: Retrieve data schema and create new insights.
+
+### Choose insights
+
+1. Search for saved insights first that match user's request.
+2. Read their schemas to understand if they match.
+3. Explore data schema to find relevant events, properties, and property values.
+4. Explore saved actions in order to find matching.
+5. Optionally, create new insights using the skill.
 
 ### Creating a New Dashboard
 
