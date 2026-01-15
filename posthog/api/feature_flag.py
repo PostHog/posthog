@@ -1731,7 +1731,7 @@ class FeatureFlagViewSet(
 
         return Response({"success": True}, status=200)
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
     def dependent_flags(self, request: request.Request, **kwargs):
         """Get other active flags that depend on this flag."""
         feature_flag: FeatureFlag = self.get_object()
