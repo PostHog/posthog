@@ -2425,6 +2425,7 @@ class MaxExperimentVariantResultBayesian(BaseModel):
     )
     chance_to_win: float | None = None
     credible_interval: list[float] | None = None
+    delta: float | None = None
     key: str
     significant: bool
 
@@ -2434,6 +2435,7 @@ class MaxExperimentVariantResultFrequentist(BaseModel):
         extra="forbid",
     )
     confidence_interval: list[float] | None = None
+    delta: float | None = None
     key: str
     p_value: float | None = None
     significant: bool

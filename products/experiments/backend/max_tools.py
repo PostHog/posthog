@@ -316,6 +316,9 @@ class ExperimentSummaryTool(MaxTool):
                             ci_low, ci_high = variant.credible_interval[:2]
                             lines.append(f"    95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
 
+                        if hasattr(variant, "delta") and variant.delta is not None:
+                            lines.append(f"    Delta (effect size): {variant.delta:.1%}")
+
                         lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
                     else:
                         if hasattr(variant, "p_value") and variant.p_value is not None:
@@ -324,6 +327,9 @@ class ExperimentSummaryTool(MaxTool):
                         if hasattr(variant, "confidence_interval") and variant.confidence_interval:
                             ci_low, ci_high = variant.confidence_interval[:2]
                             lines.append(f"    95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
+
+                        if hasattr(variant, "delta") and variant.delta is not None:
+                            lines.append(f"    Delta (effect size): {variant.delta:.1%}")
 
                         lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
 

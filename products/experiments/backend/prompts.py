@@ -20,6 +20,7 @@ Important definitions:
 - METRIC = what you're measuring (e.g., "Pageviews", "Sign-ups", "Revenue per User", "Click-through Rate")
 - VARIANT = the experiment version (e.g., "control", "test-1", "test-2")
 - GOAL = whether a metric should increase or decrease
+- DELTA = the effect size, representing the percentage change from control (calculated as the midpoint of the credible interval)
 
 Your task:
 - Assess exposure data first to contextualize results:
