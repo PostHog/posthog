@@ -323,9 +323,7 @@ export function buildNodeQueryContent(query: QuerySchema): JSONContent {
         type: NotebookNodeType.Query,
         attrs: {
             query: query,
-            __init: {
-                showSettings: true,
-            },
+            showSettings: true,
         },
     }
 }

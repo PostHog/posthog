@@ -68,7 +68,9 @@ const extractTextValue = (data?: Record<string, any> | null): string | undefined
         return preferred
     }
 
-    if (data['image/png'] || data['image/jpeg'] || data['image/svg+xml']) {
+    const imageMimeTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/gif', 'image/webp']
+
+    if (imageMimeTypes.some((mimeType) => data[mimeType])) {
         return undefined
     }
 

@@ -154,7 +154,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isDraggable = !!(isEditable && getPos)
     const isPythonNode = nodeType === NotebookNodeType.Python
     const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
-    const pythonRunDisabledReason = !notebook ? 'Notebook not loaded' : undefined
+    const runDisabledReason = !notebook ? 'Notebook not loaded' : undefined
     const pythonAttributes = attributes as {
         code?: string
         pythonExecutionCodeHash?: number | null
@@ -270,7 +270,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         isStale={pythonIsStale}
                                                         loading={pythonRunLoading}
                                                         queued={pythonRunQueued}
-                                                        disabledReason={pythonRunDisabledReason}
+                                                        disabledReason={runDisabledReason}
                                                         onRun={(mode) => void runPythonNodeWithMode({ mode })}
                                                     />
                                                 ) : null}
@@ -281,7 +281,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         isStale={duckSqlIsStale}
                                                         loading={duckSqlRunLoading}
                                                         queued={duckSqlRunQueued}
-                                                        disabledReason={pythonRunDisabledReason}
+                                                        disabledReason={runDisabledReason}
                                                         onRun={(mode) => void runDuckSqlNodeWithMode({ mode })}
                                                     />
                                                 ) : null}

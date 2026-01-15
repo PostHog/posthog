@@ -590,6 +590,7 @@ class KernelRuntimeService:
     def _build_kernel_bootstrap_code(self, notebook: Notebook, user: User | None) -> str:
         return (
             "import duckdb\n"
+            "import json\n"
             "from typing import Any, Sequence\n"
             "\n"
             "_duckdb_connection = duckdb.connect(database=':memory:')\n"
