@@ -259,7 +259,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         Check file-based global templates first, then DB team templates.
         The queryset excludes all global templates from DB, so this only returns team templates from DB.
         """
-        template_id = kwargs.get("pk")
+        template_id: str = kwargs["pk"]
 
         # Check if it's a global template from files
         file_template = get_global_template_by_id(template_id)
