@@ -8,16 +8,19 @@ import asyncio
 import structlog
 from temporalio import activity
 
+from posthog.schema import PropertyOperator, RecordingPropertyFilter, RecordingsQuery
+
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.video_segment_clustering.data import fetch_recent_session_ids
 from posthog.temporal.ai.video_segment_clustering.models import (
     PrimeSessionEmbeddingsActivityInputs,
     PrimeSessionEmbeddingsResult,
 )
 
-from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
+from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, MIN_SESSION_DURATION_FOR_SUMMARY_MS
 from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
@@ -32,7 +35,7 @@ async def _prime_session_embeddings(inputs: PrimeSessionEmbeddingsActivityInputs
     team = await Team.objects.aget(id=inputs.team_id)
 
     # Step 1: Fetch recent session IDs
-    session_ids = await database_sync_to_async(fetch_recent_session_ids)(
+    session_ids = await database_sync_to_async(_fetch_recent_session_ids)(
         team=team,
         lookback_hours=inputs.lookback_hours,
     )
@@ -46,6 +49,7 @@ async def _prime_session_embeddings(inputs: PrimeSessionEmbeddingsActivityInputs
         )
 
     # Step 2: Get first user with access to the team for running summarization (as summarization requires _some_ user)
+    # TODO: In this case, we should pass no user, and summarization should then understand it was "system-initiated"
     system_user = await database_sync_to_async(lambda: team.all_users_with_access().first())()
 
     if not system_user:
@@ -112,3 +116,44 @@ async def prime_session_embeddings_activity(
     video-based summarization to populate embeddings for clustering.
     """
     return await _prime_session_embeddings(inputs)
+
+
+def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
+    """Fetch session IDs of recordings that ended within the lookback period.
+
+    Uses RecordingsQuery for consistency with the session recordings API, ensuring:
+    - Full test account filtering (not just person properties)
+    - Expiry/retention period checks (excludes expired recordings)
+    - Minimum duration threshold (MIN_SESSION_DURATION_FOR_SUMMARY_MS)
+    - Finished sessions only (ongoing = False, i.e., last event > 5 minutes ago)
+
+    Args:
+        team: Team object to query for
+        lookback_hours: How far back to look for ended recordings
+
+    Returns:
+        List of session IDs of finished recordings in the timeframe
+    """
+    min_duration_seconds = MIN_SESSION_DURATION_FOR_SUMMARY_MS / 1000
+
+    query = RecordingsQuery(
+        filter_test_accounts=True,
+        date_from=f"-{lookback_hours}h",
+        having_predicates=[
+            RecordingPropertyFilter(
+                key="duration",
+                operator=PropertyOperator.GTE,
+                value=min_duration_seconds,
+            ),
+            RecordingPropertyFilter(
+                key="ongoing",
+                operator=PropertyOperator.EXACT,
+                value=0,  # ongoing is UInt8 in ClickHouse (0 = finished, 1 = ongoing)
+            ),
+        ],
+    )
+
+    with tags_context(product=Product.REPLAY):
+        result = SessionRecordingListFromQuery(team=team, query=query).run()
+
+    return [recording["session_id"] for recording in result.results]

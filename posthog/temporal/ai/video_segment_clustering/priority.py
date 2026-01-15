@@ -6,6 +6,9 @@ Priority is calculated based on number of unique users affected.
 import math
 from datetime import datetime
 
+from asgiref.sync import sync_to_async
+
+from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering.data import count_distinct_persons
 from posthog.temporal.ai.video_segment_clustering.models import VideoSegmentMetadata
 
@@ -26,7 +29,7 @@ def calculate_priority_score(distinct_user_count: int) -> float:
     return math.log(1 + distinct_user_count)
 
 
-async def calculate_task_metrics(team_id: int, segments: list[VideoSegmentMetadata]) -> dict:
+async def calculate_task_metrics(team: Team, segments: list[VideoSegmentMetadata]) -> dict:
     """Calculate aggregate metrics for a task from its segments.
 
     Args:
@@ -45,7 +48,7 @@ async def calculate_task_metrics(team_id: int, segments: list[VideoSegmentMetada
 
     # Count unique persons via SQL (a person can have multiple distinct_ids)
     distinct_ids = [segment.distinct_id for segment in segments if segment.distinct_id]
-    distinct_user_count = await count_distinct_persons(team_id, distinct_ids)
+    distinct_user_count = await sync_to_async(count_distinct_persons)(team, distinct_ids)
 
     # Find most recent occurrence
     timestamps = []

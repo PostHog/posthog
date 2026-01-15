@@ -9,6 +9,7 @@ from google.genai import types
 from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
 
+from posthog.models.team.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.models import ClusterContext, ClusterLabel
 
@@ -52,7 +53,7 @@ Respond in JSON:
 
 
 async def generate_cluster_labels_llm(
-    team_id: int,
+    team: Team,
     context: ClusterContext,
     model: str = constants.LABELING_LLM_MODEL,
 ) -> ClusterLabel:
@@ -115,7 +116,7 @@ Determine if this cluster is actionable and generate task details if so."""
     except Exception as e:
         logger.warning(
             "LLM labeling failed, marking as not actionable",
-            team_id=team_id,
+            team_id=team.pk,
             error=str(e),
         )
 

@@ -9,7 +9,6 @@ from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
-from posthog.temporal.ai.video_segment_clustering.data import fetch_existing_task_centroids
 from posthog.temporal.ai.video_segment_clustering.models import (
     Cluster,
     MatchClustersActivityInputs,
@@ -17,8 +16,46 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     TaskMatch,
 )
 
+from products.tasks.backend.models import Task
 
-def match_clusters_to_existing_tasks(
+
+@activity.defn
+async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> MatchingResult:
+    """Match new clusters to existing Tasks.
+
+    Compares cluster centroids to existing Task centroids using cosine distance.
+    Clusters within threshold are matched; others become new Tasks.
+    """
+    team = await Team.objects.aget(id=inputs.team_id)
+    existing_centroids = await _fetch_existing_task_centroids(team)
+
+    return _match_clusters_to_existing_tasks(
+        clusters=inputs.clusters,
+        existing_task_centroids=existing_centroids,
+    )
+
+
+async def _fetch_existing_task_centroids(team: Team) -> dict[str, list[float]]:
+    """Fetch cluster centroids from existing Tasks for deduplication.
+
+    Args:
+        team: Team object
+
+    Returns:
+        Dictionary mapping task_id -> centroid embedding
+    """
+    result: dict[str, list[float]] = {}
+    async for task in Task.objects.filter(
+        team=team,
+        origin_product=Task.OriginProduct.SESSION_SUMMARIES,
+        deleted=False,
+        cluster_centroid__isnull=False,
+    ).values("id", "cluster_centroid"):
+        result[str(task["id"])] = task["cluster_centroid"]
+    return result
+
+
+def _match_clusters_to_existing_tasks(
     clusters: list[Cluster],
     existing_task_centroids: dict[str, list[float]],
     match_threshold: float = constants.TASK_MATCH_THRESHOLD,
@@ -73,20 +110,4 @@ def match_clusters_to_existing_tasks(
     return MatchingResult(
         new_clusters=new_clusters,
         matched_clusters=matched_clusters,
-    )
-
-
-@activity.defn
-async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> MatchingResult:
-    """Match new clusters to existing Tasks.
-
-    Compares cluster centroids to existing Task centroids using cosine distance.
-    Clusters within threshold are matched; others become new Tasks.
-    """
-    team = await Team.objects.aget(id=inputs.team_id)
-    existing_centroids = await fetch_existing_task_centroids(team)
-
-    return match_clusters_to_existing_tasks(
-        clusters=inputs.clusters,
-        existing_task_centroids=existing_centroids,
     )

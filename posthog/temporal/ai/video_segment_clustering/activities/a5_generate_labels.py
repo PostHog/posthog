@@ -7,8 +7,10 @@ import asyncio
 from datetime import datetime
 
 import structlog
+from asgiref.sync import sync_to_async
 from temporalio import activity
 
+from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.data import count_distinct_persons
 from posthog.temporal.ai.video_segment_clustering.labeling import generate_cluster_labels_llm
@@ -23,7 +25,7 @@ from posthog.temporal.ai.video_segment_clustering.models import (
 logger = structlog.get_logger(__name__)
 
 
-async def _calculate_metrics_from_segments(team_id: int, segments: list[VideoSegmentMetadata]) -> dict:
+async def _calculate_metrics_from_segments(team: Team, segments: list[VideoSegmentMetadata]) -> dict:
     """Calculate aggregate metrics from segment metadata."""
     if not segments:
         return {
@@ -34,7 +36,7 @@ async def _calculate_metrics_from_segments(team_id: int, segments: list[VideoSeg
 
     # Count unique persons via SQL (a person can have multiple distinct_ids)
     distinct_ids = [s.distinct_id for s in segments if s.distinct_id]
-    distinct_user_count = await count_distinct_persons(team_id, distinct_ids)
+    distinct_user_count = await sync_to_async(count_distinct_persons)(team, distinct_ids)
 
     timestamps = []
     for s in segments:
@@ -54,7 +56,7 @@ async def _calculate_metrics_from_segments(team_id: int, segments: list[VideoSeg
     }
 
 
-async def _generate_labels(inputs: GenerateLabelsActivityInputs) -> LabelingResult:
+async def _generate_labels(team: Team, inputs: GenerateLabelsActivityInputs) -> LabelingResult:
     """Generate LLM labels for clusters with actionability filtering."""
     segment_lookup = {s.document_id: s for s in inputs.segments}
 
@@ -69,7 +71,7 @@ async def _generate_labels(inputs: GenerateLabelsActivityInputs) -> LabelingResu
                 description="",
             )
 
-        metrics = await _calculate_metrics_from_segments(inputs.team_id, cluster_segments)
+        metrics = await _calculate_metrics_from_segments(team, cluster_segments)
 
         sample_segments = cluster_segments[: constants.DEFAULT_SEGMENTS_PER_CLUSTER_FOR_LABELING]
 
@@ -82,7 +84,7 @@ async def _generate_labels(inputs: GenerateLabelsActivityInputs) -> LabelingResu
 
         try:
             label = await generate_cluster_labels_llm(
-                team_id=inputs.team_id,
+                team=team,
                 context=context,
             )
             return cluster.cluster_id, label
@@ -107,4 +109,5 @@ async def _generate_labels(inputs: GenerateLabelsActivityInputs) -> LabelingResu
 @activity.defn
 async def generate_labels_activity(inputs: GenerateLabelsActivityInputs) -> LabelingResult:
     """Generate LLM-based labels for new clusters, i.e. actionable task titles and descriptions."""
-    return await _generate_labels(inputs)
+    team = await Team.objects.aget(id=inputs.team_id)
+    return await _generate_labels(team, inputs)

@@ -3,16 +3,22 @@ Activity 3 of the video segment clustering workflow:
 Clustering video segments using HDBSCAN, with optional noise handling.
 """
 
+import json
 import asyncio
 
 import numpy as np
 import fast_hdbscan as hdbscan
+from asgiref.sync import sync_to_async
 from sklearn.decomposition import PCA
 from temporalio import activity
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
-from posthog.temporal.ai.video_segment_clustering.data import fetch_embeddings_by_document_ids
 from posthog.temporal.ai.video_segment_clustering.models import (
     Cluster,
     ClusteringResult,
@@ -233,10 +239,112 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
     single-segment clusters so they can become individual Tasks.
     """
     team = await Team.objects.aget(id=inputs.team_id)
-    segments = await fetch_embeddings_by_document_ids(team, inputs.document_ids)
+    segments = await _fetch_embeddings_by_document_ids(team, inputs.document_ids)
 
     return await asyncio.to_thread(
         _perform_clustering,
         segments,
         inputs.create_single_segment_clusters_for_noise,
     )
+
+
+async def _fetch_embeddings_by_document_ids(
+    team: Team,
+    document_ids: list[str],
+) -> list[VideoSegment]:
+    """Fetch video segments with embeddings for specific document IDs.
+
+    Used by clustering activity to fetch embeddings only when needed,
+    avoiding large payloads in Temporal activity inputs/outputs.
+
+    Args:
+        team: Team object to query for
+        document_ids: List of document IDs to fetch
+
+    Returns:
+        List of VideoSegment objects with embeddings
+    """
+    if not document_ids:
+        return []
+
+    query = parse_select(
+        """
+        SELECT
+            document_id,
+            content,
+            embedding,
+            metadata,
+            timestamp
+        FROM raw_document_embeddings
+        WHERE document_id IN {doc_ids}
+            AND product = {product}
+            AND document_type = {document_type}
+            AND rendering = {rendering}
+        """
+    )
+
+    placeholders = {
+        "doc_ids": ast.Constant(value=document_ids),
+        "product": ast.Constant(value=constants.PRODUCT),
+        "document_type": ast.Constant(value=constants.DOCUMENT_TYPE),
+        "rendering": ast.Constant(value=constants.RENDERING),
+    }
+
+    @sync_to_async
+    def _execute_query():
+        with tags_context(product=Product.REPLAY):
+            return execute_hogql_query(
+                query_type="VideoSegmentEmbeddingsForClustering",
+                query=query,
+                placeholders=placeholders,
+                team=team,
+            )
+
+    result = await _execute_query()
+
+    rows = result.results or []
+    segments: list[VideoSegment] = []
+
+    for row in rows:
+        document_id = row[0]
+        content = row[1]
+        embedding = row[2]
+        metadata_str = row[3]
+        timestamp = row[4]
+
+        # Parse metadata JSON
+        try:
+            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+        except (json.JSONDecodeError, TypeError):
+            metadata = {}
+
+        # Parse document_id format: "{session_id}:{start_time}:{end_time}"
+        parts = document_id.split(":")
+        if len(parts) >= 3:
+            session_id = parts[0]
+            start_time = parts[1]
+            end_time = parts[2]
+        else:
+            session_id = metadata.get("session_id", "")
+            start_time = metadata.get("start_time", "")
+            end_time = metadata.get("end_time", "")
+
+        distinct_id = metadata.get("distinct_id", "")
+        timestamp_str = (
+            timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp) if timestamp else ""
+        )
+
+        segments.append(
+            VideoSegment(
+                document_id=document_id,
+                session_id=session_id,
+                start_time=start_time,
+                end_time=end_time,
+                distinct_id=distinct_id,
+                content=content,
+                embedding=embedding,
+                timestamp=timestamp_str,
+            )
+        )
+
+    return segments
