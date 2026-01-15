@@ -20,17 +20,17 @@ def _normalize_model_name(model: str) -> str:
 
 
 async def _handle_chat_completions(
-    request: ChatCompletionRequest,
+    body: ChatCompletionRequest,
     user: RateLimitedUser,
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
-    data = request.model_dump(exclude_none=True)
+    data = body.model_dump(exclude_none=True)
 
     return await handle_llm_request(
         request_data=data,
         user=user,
-        model=request.model,
-        is_streaming=request.stream or False,
+        model=body.model,
+        is_streaming=body.stream or False,
         provider_config=OPENAI_CONFIG,
         llm_call=litellm.acompletion,
         product=product,
@@ -38,7 +38,7 @@ async def _handle_chat_completions(
 
 
 async def _handle_responses(
-    request: ResponsesRequest,
+    body: ResponsesRequest,
     user: RateLimitedUser,
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
@@ -47,9 +47,9 @@ async def _handle_responses(
     The Responses API is used by Codex and other agentic applications.
     It supports multimodal inputs, reasoning models, and persistent conversations.
     """
-    data = request.model_dump(exclude_none=True)
+    data = body.model_dump(exclude_none=True)
 
-    original_model = request.model
+    original_model = body.model
     normalized_model = _normalize_model_name(original_model)
     data["model"] = normalized_model
 
@@ -58,7 +58,7 @@ async def _handle_responses(
             request_data=data,
             user=user,
             model=normalized_model,
-            is_streaming=request.stream or False,
+            is_streaming=body.stream or False,
             provider_config=OPENAI_RESPONSES_CONFIG,
             llm_call=litellm.aresponses,
             product=product,
@@ -70,53 +70,53 @@ async def _handle_responses(
 
 @openai_router.post("/v1/chat/completions", response_model=None)
 async def chat_completions(
-    request: ChatCompletionRequest,
+    body: ChatCompletionRequest,
     user: RateLimitedUser,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _handle_chat_completions(request, user)
+    return await _handle_chat_completions(body, user)
 
 
 @openai_router.post("/{product}/v1/chat/completions", response_model=None)
 async def chat_completions_with_product(
-    request: ChatCompletionRequest,
+    body: ChatCompletionRequest,
     user: RateLimitedUser,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
-    return await _handle_chat_completions(request, user, product=product)
+    return await _handle_chat_completions(body, user, product=product)
 
 
 @openai_router.post("/v1/responses", response_model=None)
 async def responses_v1(
-    request: ResponsesRequest,
+    body: ResponsesRequest,
     user: RateLimitedUser,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _handle_responses(request, user)
+    return await _handle_responses(body, user)
 
 
 @openai_router.post("/{product}/v1/responses", response_model=None)
 async def responses_v1_with_product(
-    request: ResponsesRequest,
+    body: ResponsesRequest,
     user: RateLimitedUser,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
-    return await _handle_responses(request, user, product=product)
+    return await _handle_responses(body, user, product=product)
 
 
 @openai_router.post("/responses", response_model=None)
 async def responses(
-    request: ResponsesRequest,
+    body: ResponsesRequest,
     user: RateLimitedUser,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _handle_responses(request, user)
+    return await _handle_responses(body, user)
 
 
 @openai_router.post("/{product}/responses", response_model=None)
 async def responses_with_product(
-    request: ResponsesRequest,
+    body: ResponsesRequest,
     user: RateLimitedUser,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
-    return await _handle_responses(request, user, product=product)
+    return await _handle_responses(body, user, product=product)

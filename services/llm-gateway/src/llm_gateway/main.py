@@ -5,7 +5,6 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 
 import asyncpg
 import structlog
@@ -23,13 +22,15 @@ from llm_gateway.api.routes import router
 from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
-from llm_gateway.rate_limiting.redis_limiter import RateLimiter
-
-request_id_var: ContextVar[str] = ContextVar("request_id", default="")
-
-
-def get_request_id() -> str:
-    return request_id_var.get()
+from llm_gateway.rate_limiting.model_throttles import (
+    ProductModelInputTokenThrottle,
+    ProductModelOutputTokenThrottle,
+    UserModelInputTokenThrottle,
+    UserModelOutputTokenThrottle,
+)
+from llm_gateway.rate_limiting.runner import ThrottleRunner
+from llm_gateway.rate_limiting.tokenizer import TokenCounter
+from llm_gateway.request_context import set_request_id
 
 
 def configure_logging() -> None:
@@ -63,7 +64,7 @@ def update_db_pool_metrics(pool: asyncpg.Pool | None) -> None:
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())[:8]
-        request_id_var.set(request_id)
+        set_request_id(request_id)
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
         start_time = time.monotonic()
@@ -128,13 +129,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if app.state.redis:
         logger.info("Redis connected")
 
-    app.state.rate_limiter = RateLimiter(
-        redis=app.state.redis,
-        burst_limit=settings.rate_limit_burst,
-        burst_window=settings.rate_limit_burst_window,
-        sustained_limit=settings.rate_limit_sustained,
-        sustained_window=settings.rate_limit_sustained_window,
+    app.state.token_counter = TokenCounter()
+
+    output_throttles = [
+        ProductModelOutputTokenThrottle(redis=app.state.redis),
+        UserModelOutputTokenThrottle(redis=app.state.redis),
+    ]
+    app.state.output_throttles = output_throttles
+
+    app.state.throttle_runner = ThrottleRunner(
+        throttles=[
+            ProductModelInputTokenThrottle(redis=app.state.redis),
+            UserModelInputTokenThrottle(redis=app.state.redis),
+            *output_throttles,
+        ]
     )
+    logger.info("Throttle runner initialized")
 
     init_analytics_service()
 

@@ -44,6 +44,10 @@ services:
                         path /capture*
                     }
 
+                    @capture-logs {
+                        path /i/v1/logs
+                    }
+
                     @flags {
                         path /flags
                         path /flags*
@@ -62,6 +66,10 @@ services:
 
                     handle @capture {
                         reverse_proxy capture:3307
+                    }
+
+                    handle @capture-logs {
+                        reverse_proxy capture-logs:4318
                     }
 
                     handle @replay-capture {
