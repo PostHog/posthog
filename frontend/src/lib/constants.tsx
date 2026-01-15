@@ -342,7 +342,6 @@ export const FEATURE_FLAGS = {
     SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
     SURVEY_RESULTS_V2: 'survey-results-v2', // owner: #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
-    SURVEYS_EXPERIMENTS_CROSS_SELL: 'surveys-experiments-cross-sell', // owner: @adboio #team-surveys
     SURVEYS_FF_CROSS_SELL: 'surveys-ff-cross-sell', // owner: @adboio #team-surveys
     SURVEYS_FUNNELS_CROSS_SELL: 'survey-funnels-cross-sell', // owner: @adboio #team-surveys
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
