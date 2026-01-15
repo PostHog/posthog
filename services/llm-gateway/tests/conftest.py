@@ -15,11 +15,12 @@ from llm_gateway.rate_limiting.model_throttles import (
     UserModelOutputTokenThrottle,
 )
 from llm_gateway.rate_limiting.runner import ThrottleRunner
+from llm_gateway.rate_limiting.throttles import Throttle
 
 
 def create_test_app(
     mock_db_pool: MagicMock,
-    throttles: list | None = None,
+    throttles: list[Throttle] | None = None,
 ) -> FastAPI:
     from llm_gateway.api.health import health_router
     from llm_gateway.api.routes import router
