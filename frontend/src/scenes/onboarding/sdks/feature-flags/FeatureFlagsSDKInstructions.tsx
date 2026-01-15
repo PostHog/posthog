@@ -40,7 +40,7 @@ import { AdvertiseMobileReplay } from '../session-replay/SessionReplaySDKInstruc
 
 // Helper to create wrapped instruction components without recreating snippets on every render
 function withOnboardingDocsWrapper(
-    Installation: React.ComponentType,
+    Installation: React.ComponentType<any>,
     snippets?: Record<string, React.ComponentType<any>>
 ): () => JSX.Element {
     return function WrappedInstallation() {
@@ -95,7 +95,7 @@ const SERVER_SDK_SNIPPETS = {
 
 // Helper to create components with Installation + FlagImplementationSteps
 function withFlagImplementation(
-    Installation: React.ComponentType,
+    Installation: React.ComponentType<any>,
     _sdkKey: SDKKey,
     snippets?: Record<string, React.ComponentType<any>>
 ): () => JSX.Element {
@@ -110,7 +110,7 @@ function withFlagImplementation(
 
 // Helper to create components with Installation + FlagImplementationSteps + AdvertiseMobileReplay
 function withFlagImplementationAndReplay(
-    Installation: React.ComponentType,
+    Installation: React.ComponentType<any>,
     sdkKey: SDKKey,
     snippets?: Record<string, React.ComponentType<any>>
 ): () => JSX.Element {
@@ -127,7 +127,7 @@ function withFlagImplementationAndReplay(
 // Helper to create components with Installation + FlagImplementationStepsSSR (for SSR frameworks)
 // Note: SSR frameworks now use feature-flags Installation components that already include flag steps
 function withFlagImplementationSSR(
-    Installation: React.ComponentType,
+    Installation: React.ComponentType<any>,
     _clientSDKKey: SDKKey,
     _serverSDKKey: SDKKey,
     snippets?: Record<string, React.ComponentType<any>>

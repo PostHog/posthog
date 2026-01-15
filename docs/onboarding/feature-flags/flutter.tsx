@@ -1,14 +1,8 @@
 import { getFlutterSteps as getFlutterStepsPA } from '../product-analytics/flutter'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { StepDefinition } from '../steps'
 
-export const getFlutterSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+export const getFlutterSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
     // Get installation steps from product-analytics
     const installationSteps = getFlutterStepsPA(CodeBlock, Markdown, dedent)
 
@@ -85,13 +79,12 @@ export const getFlutterSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...flagSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...flagSteps]
 }
 
-export const FlutterInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getFlutterSteps(CodeBlock, Markdown, dedent, snippets, { modifySteps })
+export const FlutterInstallation = (): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+    const steps = getFlutterSteps(CodeBlock, Markdown, dedent)
 
     return (
         <Steps>

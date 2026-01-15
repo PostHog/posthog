@@ -1,14 +1,8 @@
 import { getIOSSteps as getIOSStepsPA } from '../product-analytics/ios'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { StepDefinition } from '../steps'
 
-export const getIOSSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
     // Get installation steps from product-analytics
     const installationSteps = getIOSStepsPA(CodeBlock, Markdown, dedent)
 
@@ -85,13 +79,12 @@ export const getIOSSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...flagSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...flagSteps]
 }
 
-export const IOSInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getIOSSteps(CodeBlock, Markdown, dedent, snippets, { modifySteps })
+export const IOSInstallation = (): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+    const steps = getIOSSteps(CodeBlock, Markdown, dedent)
 
     return (
         <Steps>

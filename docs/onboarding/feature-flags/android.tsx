@@ -1,14 +1,8 @@
 import { getAndroidSteps as getAndroidStepsPA } from '../product-analytics/android'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { StepDefinition } from '../steps'
 
-export const getAndroidSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+export const getAndroidSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
     // Get installation steps from product-analytics
     const installationSteps = getAndroidStepsPA(CodeBlock, Markdown, dedent)
 
@@ -85,13 +79,12 @@ export const getAndroidSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...flagSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...flagSteps]
 }
 
-export const AndroidInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getAndroidSteps(CodeBlock, Markdown, dedent, snippets, { modifySteps })
+export const AndroidInstallation = (): JSX.Element => {
+    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
+    const steps = getAndroidSteps(CodeBlock, Markdown, dedent)
 
     return (
         <Steps>

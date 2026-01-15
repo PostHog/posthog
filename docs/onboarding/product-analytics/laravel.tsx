@@ -1,4 +1,3 @@
-import { ReactNode } from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { PersonProfiles } from './_snippets/person-profiles'
 import { StepDefinition } from '../steps'
