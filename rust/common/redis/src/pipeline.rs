@@ -92,7 +92,7 @@ pub enum PipelineCommand {
 
 /// A Redis pipeline that batches multiple commands into a single round-trip.
 ///
-/// Create a pipeline using [`Client::pipeline()`], add commands using the builder
+/// Create a pipeline using [`ClientPipelineExt::pipeline()`], add commands using the builder
 /// methods, then call [`execute()`](Pipeline::execute) to send all commands at once.
 ///
 /// # Example
