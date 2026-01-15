@@ -700,7 +700,7 @@ class SessionRecordingViewSet(
             # older recordings did not store this and so "null" is equivalent to web
             # but for reporting we want to distinguish between not loaded and no value to load
             "snapshot_source": player_metadata.get("snapshot_source", "unknown"),
-            "snapshot_lib": player_metadata.get("snapshot_library"),
+            "snapshot_library": player_metadata.get("snapshot_library"),
         }
         user: User | AnonymousUser = cast(User | AnonymousUser, request.user)
 
