@@ -62,20 +62,19 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
-            - name: Install system dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y pkg-config libssl-dev
-
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.91.1
+                  toolchain: 1.88.0
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
+              env:
+                  # Bust cache key due to OpenSSL assembly corruption (2026-01-13)
+                  SCCACHE_GHA_CACHE_TO: sccache-rust-build-v2-20260113
+                  SCCACHE_GHA_CACHE_FROM: sccache-rust-build-v2-20260113
               run: |
                   echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
                   sccache --start-server
@@ -153,15 +152,10 @@ jobs:
                   docker inspect rust-kafka-1 || true
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
-            - name: Install system dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y pkg-config libssl-dev
-
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.91.1
+                  toolchain: 1.88.0
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
@@ -246,21 +240,20 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
-            - name: Install system dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y pkg-config libssl-dev
-
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.91.1
+                  toolchain: 1.88.0
                   components: clippy,rustfmt
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
+              env:
+                  # Bust cache key due to OpenSSL assembly corruption (2026-01-13)
+                  SCCACHE_GHA_CACHE_TO: sccache-rust-lint-v2-20260113
+                  SCCACHE_GHA_CACHE_FROM: sccache-rust-lint-v2-20260113
               run: |
                   echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
                   sccache --start-server
