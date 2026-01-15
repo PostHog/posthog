@@ -80,7 +80,7 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.92-node_22.22.0 AS nodejs-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.91-node_22.22.0 AS nodejs-build
 
 
 # Compile and install system dependencies
