@@ -7,7 +7,7 @@ import base64
 import signal
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
@@ -15,7 +15,6 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
 from posthog.redis import get_client
 
@@ -572,26 +571,10 @@ class KernelRuntimeService:
             )
 
     def _build_kernel_bootstrap_code(self, notebook: Notebook, user: User | None) -> str:
-        api_url = f"{settings.SITE_URL.rstrip('/')}/api/projects/{notebook.team_id}/query/"
-        hogql_token = ""
-        if user:
-            hogql_token = encode_jwt(
-                {"id": user.id},
-                expiry_delta=timedelta(minutes=15),
-                audience=PosthogJwtAudience.IMPERSONATED_USER,
-            )
-        payload = {
-            "api_url": api_url,
-            "hogql_token": hogql_token,
-        }
-        encoded = json.dumps(payload)
         return (
-            "import json\n"
             "import duckdb\n"
-            "import requests\n"
             "from typing import Any, Sequence\n"
             "\n"
-            f"_bootstrap_payload = json.loads({encoded!r})\n"
             "_duckdb_connection = duckdb.connect(database=':memory:')\n"
             "\n"
             "def duck_execute(sql: str, parameters: Sequence[Any] | dict[str, Any] | None = None):\n"
@@ -610,24 +593,6 @@ class KernelRuntimeService:
             '        f"CREATE OR REPLACE TABLE {table_identifier} AS SELECT * FROM {temp_identifier}"\n'
             "    )\n"
             "    _duckdb_connection.unregister(temp_name)\n"
-            "\n"
-            "_HOGQL_ENDPOINT = _bootstrap_payload['api_url']\n"
-            "_HOGQL_TOKEN = _bootstrap_payload['hogql_token']\n"
-            "\n"
-            "def hogql_execute(query: str, *, refresh: str | None = None) -> dict[str, Any]:\n"
-            "    if not _HOGQL_TOKEN:\n"
-            "        raise RuntimeError('HogQL token is not available for this kernel.')\n"
-            "    payload = {'query': {'kind': 'HogQLQuery', 'query': query}}\n"
-            "    if refresh:\n"
-            "        payload['refresh'] = refresh\n"
-            "    response = requests.post(\n"
-            "        _HOGQL_ENDPOINT,\n"
-            "        json=payload,\n"
-            "        headers={'Authorization': f'Bearer {_HOGQL_TOKEN}'},\n"
-            "        timeout=30,\n"
-            "    )\n"
-            "    response.raise_for_status()\n"
-            "    return response.json()\n"
         )
 
     def _reuse_kernel_handle_for_backend(
