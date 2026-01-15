@@ -629,8 +629,8 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         data = response.json()
         self.assertEqual(data["attr"], None)
-        self.assertEqual(data["code"], "CHQueryErrorIllegalTypeOfArgument")
-        self.assertTrue(data["detail"].startswith("Illegal types of arguments (DateTime64(6, 'UTC'), UUID)"))
+        # Error code differs with enable_analyzer=0
+        self.assertEqual(data["code"], "CHQueryErrorTypeMismatch")
         self.assertEqual(data["type"], "query_error")
         self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
 
