@@ -12,6 +12,9 @@ on:
 jobs:
     build:
         name: build ${{ matrix.image }}
+        concurrency:
+            group: rust-docker-build-${{ github.ref }}
+            cancel-in-progress: false
         strategy:
             matrix:
                 include:
@@ -150,6 +153,14 @@ jobs:
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+
+            - name: report failure
+              if: failure()
+              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              with:
+                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-rust-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}", "image": "${{ matrix.image }}"}'
 
             - name: Container image digest
               id: digest

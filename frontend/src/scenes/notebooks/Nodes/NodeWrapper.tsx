@@ -16,15 +16,16 @@ import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
+import { hashCodeForString } from 'lib/utils'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
-import { notebookNodeLogicType } from './notebookNodeLogicType'
+import { PythonRunMenu } from './components/PythonRunMenu'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
@@ -35,6 +36,7 @@ import {
     NodeWrapperProps,
     NotebookNodeProps,
     NotebookNodeResource,
+    NotebookNodeType,
 } from '../types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -56,7 +58,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeIds, containerSize, notebook, mode } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
@@ -72,8 +74,11 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         expanded,
         actions,
         nodeId,
+        pythonRunLoading,
+        pythonRunQueued,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
+        customMenuItems,
     } = useValues(nodeLogic)
     const {
         setRef,
@@ -84,6 +89,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         toggleEditingTitle,
         copyToClipboard,
         convertToBacklink,
+        runPythonNodeWithMode,
     } = useActions(nodeLogic)
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
@@ -139,8 +145,16 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
     const isDraggable = !!(isEditable && getPos)
+    const isPythonNode = nodeType === NotebookNodeType.Python
+    const pythonRunDisabledReason = !notebook ? 'Notebook not loaded' : undefined
+    const pythonAttributes = attributes as { code?: string; pythonExecutionCodeHash?: number | null }
+    const pythonExecutionCodeHash = pythonAttributes.pythonExecutionCodeHash ?? null
+    const pythonCodeHash = hashCodeForString(pythonAttributes.code ?? '')
+    const pythonIsStale = pythonExecutionCodeHash !== null && pythonExecutionCodeHash !== pythonCodeHash
+    const pythonIsFresh = pythonExecutionCodeHash !== null && pythonExecutionCodeHash === pythonCodeHash
 
-    const menuItems: LemonMenuItems = [
+    // TODO: Add list on non-copyable nodes
+    const defaultMenuItems: LemonMenuItems = [
         {
             label: 'Copy',
             onClick: () => copyToClipboard(),
@@ -172,7 +186,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconX />, status: 'danger' } : null,
     ]
 
+    const menuItems = customMenuItems ?? defaultMenuItems
+
     const hasMenu = menuItems.some((x) => !!x)
+    const isInCanvas = mode === 'canvas'
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
@@ -215,12 +232,23 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
                                                 )}
 
-                                                {isEditable && Settings ? (
+                                                {isPythonNode ? (
+                                                    <PythonRunMenu
+                                                        isFresh={pythonIsFresh}
+                                                        isStale={pythonIsStale}
+                                                        loading={pythonRunLoading}
+                                                        queued={pythonRunQueued}
+                                                        disabledReason={pythonRunDisabledReason}
+                                                        onRun={(mode) => void runPythonNodeWithMode({ mode })}
+                                                    />
+                                                ) : null}
+
+                                                {(isEditable || isInCanvas) && Settings ? (
                                                     <LemonButton
                                                         onClick={() => toggleEditing()}
                                                         size="small"
                                                         icon={<IconPencil />}
-                                                        active={editingNodeId === nodeId}
+                                                        active={editingNodeIds[nodeId]}
                                                     />
                                                 ) : null}
 
@@ -241,7 +269,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                         </div>
 
                                         {Settings &&
-                                        editingNodeId === nodeId &&
+                                        editingNodeIds[nodeId] &&
                                         (containerSize === 'small' || resolvedSettingsPlacement === 'inline') ? (
                                             <div className="NotebookNode__settings">
                                                 <ErrorBoundary>
@@ -464,16 +492,14 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 }
 
 export const NotebookNodeChildRenderer = ({
-    nodeLogic,
+    // nodeLogic: nodeLogic,
     content,
 }: {
-    nodeLogic: BuiltLogic<notebookNodeLogicType>
+    // nodeLogic: BuiltLogic<notebookNodeLogicType>
     content: NotebookNodeResource
 }): JSX.Element => {
     const options = KNOWN_NODES[content.type]
 
-    // eslint-disable-next-line no-console
-    console.log(nodeLogic)
     // TODO: Respect attr changes
 
     // TODO: Allow deletion
@@ -486,10 +512,7 @@ export const NotebookNodeChildRenderer = ({
             nodeType={content.type}
             titlePlaceholder={options.titlePlaceholder}
             attributes={content.attrs}
-            updateAttributes={(newAttrs) => {
-                // eslint-disable-next-line no-console
-                console.log('updated called (TODO)', newAttrs)
-            }}
+            updateAttributes={() => undefined}
             selected={false}
         />
     )

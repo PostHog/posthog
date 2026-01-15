@@ -67,7 +67,7 @@ function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
 }
 
 function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
-    const { workflow } = useValues(workflowLogic({ id: job.hog_flow_id }))
+    const { workflow } = useValues(workflowLogic({ id: job.hog_flow }))
 
     const isFutureJob = job.scheduled_at && dayjs(job.scheduled_at).isAfter(dayjs())
 
@@ -91,7 +91,9 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
         <div className="flex flex-col gap-2">
             <div className="flex flex-col gap-2 items-start">
                 <span className="text-muted">Job filters</span>
-                <PropertyFiltersDisplay filters={job.filters.properties} />
+                <PropertyFiltersDisplay
+                    filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}
+                />
             </div>
             <span className="text-muted">Logs</span>
             {logsSection}

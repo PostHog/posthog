@@ -11,6 +11,7 @@ from llm_gateway.metrics.prometheus import (
     REQUEST_COUNT,
     REQUEST_LATENCY,
     STREAMING_CLIENT_DISCONNECT,
+    STREAMING_USAGE_EXTRACTION,
     TIME_TO_FIRST_CHUNK,
     TOKENS_INPUT,
     TOKENS_OUTPUT,
@@ -39,6 +40,7 @@ class TestMetricsConfiguration:
             pytest.param(TIME_TO_FIRST_CHUNK, {"provider", "model", "product"}, id="time_to_first_chunk"),
             pytest.param(DB_POOL_SIZE, {"state"}, id="db_pool_size"),
             pytest.param(PROVIDER_LATENCY, {"provider", "model", "product"}, id="provider_latency"),
+            pytest.param(STREAMING_USAGE_EXTRACTION, {"provider", "status"}, id="streaming_usage_extraction"),
         ],
     )
     def test_metric_has_correct_labels(self, metric, expected_labels: set[str]) -> None:

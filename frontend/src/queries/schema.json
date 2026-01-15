@@ -15536,7 +15536,8 @@
                 "search",
                 "folder",
                 "folder_open",
-                "conversations"
+                "conversations",
+                "toolbar"
             ],
             "type": "string"
         },
@@ -18330,7 +18331,8 @@
                 "tiktok-ads",
                 "bing-ads",
                 "vercel",
-                "azure-blob"
+                "azure-blob",
+                "firebase"
             ],
             "type": "string"
         },
