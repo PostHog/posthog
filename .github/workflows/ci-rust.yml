@@ -62,6 +62,11 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
+            - name: Install system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y pkg-config libssl-dev
+
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
@@ -148,6 +153,11 @@ jobs:
                   docker inspect rust-kafka-1 || true
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
+            - name: Install system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y pkg-config libssl-dev
+
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
@@ -235,6 +245,11 @@ jobs:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false
                   clean: false
+
+            - name: Install system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y pkg-config libssl-dev
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
