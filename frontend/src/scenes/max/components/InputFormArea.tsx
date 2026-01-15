@@ -114,7 +114,7 @@ function MultiQuestionFormInput({ form }: MultiQuestionFormInputProps): JSX.Elem
                 </div>
             )}
             <div
-                className="overflow-hidden transition-[height] duration-150 motion-reduce:transition-none"
+                className="transition-[height] duration-150 motion-reduce:transition-none"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ height: contentHeight }}
             >
