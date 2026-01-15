@@ -11,7 +11,14 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { DateRange } from '~/queries/schema/schema-general'
-import { Breadcrumb, FeatureFlagFilters, ProductTour, ProductTourContent } from '~/types'
+import {
+    Breadcrumb,
+    FeatureFlagFilters,
+    ProductTour,
+    ProductTourBannerConfig,
+    ProductTourContent,
+    ProductTourStepButton,
+} from '~/types'
 
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
@@ -269,9 +276,62 @@ export const productTourLogic = kea<productTourLogicType>([
     forms(({ actions, props }) => ({
         productTourForm: {
             defaults: NEW_PRODUCT_TOUR as ProductTourForm,
-            errors: ({ name }: ProductTourForm) => ({
-                name: !name ? 'Name is required' : undefined,
-            }),
+            alwaysShowErrors: true,
+            errors: ({ name, content }: ProductTourForm) => {
+                const errors: Record<string, string | undefined> = {
+                    name: !name ? 'Name is required' : undefined,
+                }
+
+                const validateButton = (
+                    button: ProductTourStepButton | undefined,
+                    errorLabel: string
+                ): string | undefined => {
+                    if (!button?.action) {
+                        return undefined
+                    }
+                    if (!button.text?.trim()) {
+                        return `${errorLabel} requires a label`
+                    }
+                    if (button.action === 'link' && !button.link?.trim()) {
+                        return `${errorLabel} requires a URL`
+                    }
+                    if (button.action === 'trigger_tour' && !button.tourId) {
+                        return `${errorLabel} requires a tour selection`
+                    }
+                    return undefined
+                }
+
+                const validateBannerAction = (
+                    action: ProductTourBannerConfig['action'] | undefined,
+                    errorLabel: string
+                ): string | undefined => {
+                    if (!action?.type) {
+                        return undefined
+                    }
+                    if (action.type === 'link' && !action.link?.trim()) {
+                        return `${errorLabel} requires a URL`
+                    }
+                    if (action.type === 'trigger_tour' && !action.tourId) {
+                        return `${errorLabel} requires a tour selection`
+                    }
+                    return undefined
+                }
+
+                for (const step of content.steps || []) {
+                    const error =
+                        step.type === 'banner'
+                            ? validateBannerAction(step.bannerConfig?.action, 'Banner click action')
+                            : validateButton(step.buttons?.primary, 'Primary button') ||
+                              validateButton(step.buttons?.secondary, 'Secondary button')
+
+                    if (error) {
+                        errors._form = error
+                        break
+                    }
+                }
+
+                return errors
+            },
             submit: async (formValues: ProductTourForm) => {
                 const processedContent: ProductTourContent = {
                     ...formValues.content,

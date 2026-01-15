@@ -8,11 +8,11 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SaveAsTemplateModal } from './SaveAsTemplateModal'
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
+import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
+import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
-import { workflowTemplateLogic } from './workflowTemplateLogic'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)

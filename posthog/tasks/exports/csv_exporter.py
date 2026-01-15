@@ -13,6 +13,7 @@ from django.http import QueryDict
 
 import requests
 import structlog
+import posthoganalytics
 from openpyxl import Workbook
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
@@ -22,7 +23,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content, save_content_from_file
-from posthog.temporal.common.clickhouse import ClickHouseError
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.utils import absolute_uri
 
 from ...clickhouse.client.escape import substitute_params
@@ -414,36 +415,22 @@ def _stream_clickhouse_query(
 ) -> Generator[dict[str, Any], None, None]:
     """
     Stream query results from ClickHouse using HTTP interface with JSONEachRow format.
-    Yields one dict per row, keeping memory usage bounded.
     """
     if query_params:
         prepared_sql = substitute_params(clickhouse_sql, query_params)
     else:
         prepared_sql = clickhouse_sql
 
-    params = {
-        "database": settings.CLICKHOUSE_DATABASE,
-    }
-
-    headers = {
-        "X-ClickHouse-User": settings.CLICKHOUSE_USER,
-        "X-ClickHouse-Key": settings.CLICKHOUSE_PASSWORD,
-    }
-
     sql_with_format = f"{prepared_sql.rstrip(';')} FORMAT JSONEachRow"
 
-    with requests.post(
+    client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
-        params=params,
-        headers=headers,
-        data=sql_with_format.encode("utf-8"),
-        stream=True,
-        timeout=600,
-    ) as response:
-        if response.status_code != 200:
-            error_message = response.text
-            raise ClickHouseError(f"ClickHouse query failed: {error_message}", query=sql_with_format)
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 
+    with client.post_query(sql_with_format, query_parameters=None, query_id=None) as response:
         for line in response.iter_lines():
             if line:
                 yield json.loads(line)
@@ -452,7 +439,6 @@ def _stream_clickhouse_query(
 def _stream_hogql_query_rows(exported_asset: ExportedAsset, limit: int) -> Generator[dict[str, Any], None, None]:
     """
     Stream rows from a HogQL query using ClickHouse HTTP interface.
-    Yields one dict per row, keeping memory bounded.
     """
     from posthog.hogql.modifiers import create_default_modifiers_for_team
 
@@ -597,7 +583,19 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
 
     try:
         resource = exported_asset.export_context or {}
-        is_streamable = _is_streamable_hogql_query(resource)
+        team = exported_asset.team
+        is_streamable = _is_streamable_hogql_query(resource) and posthoganalytics.feature_enabled(
+            "buffer-tabular-export-to-disk",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
 
         with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
             if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:

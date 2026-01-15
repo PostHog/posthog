@@ -18330,7 +18330,8 @@
                 "tiktok-ads",
                 "bing-ads",
                 "vercel",
-                "azure-blob"
+                "azure-blob",
+                "firebase"
             ],
             "type": "string"
         },
