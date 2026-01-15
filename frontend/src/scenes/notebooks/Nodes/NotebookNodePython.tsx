@@ -9,7 +9,7 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
-import { VariableUsage } from './notebookNodeContent'
+import type { NotebookDependencyUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
 import { renderAnsiText } from './utils'
@@ -33,20 +33,20 @@ const VariableUsageOverlay = ({
 }: {
     name: string
     type: string
-    usages: VariableUsage[]
+    usages: NotebookDependencyUsage[]
     onNavigateToNode?: (nodeId: string) => void
 }): JSX.Element => {
-    const groupedUsageEntries = usages.reduce<Record<string, VariableUsage>>((acc, usage) => {
+    const groupedUsageEntries = usages.reduce<Record<string, NotebookDependencyUsage>>((acc, usage) => {
         if (!acc[usage.nodeId]) {
             acc[usage.nodeId] = usage
         }
         return acc
     }, {})
-    const sortedUsageEntries = Object.values(groupedUsageEntries).sort((a, b) => a.pythonIndex - b.pythonIndex)
+    const sortedUsageEntries = Object.values(groupedUsageEntries).sort((a, b) => a.nodeIndex - b.nodeIndex)
 
-    const usageLabel = (usage: VariableUsage): string => {
+    const usageLabel = (usage: NotebookDependencyUsage): string => {
         const trimmedTitle = usage.title.trim()
-        return trimmedTitle ? trimmedTitle : `Python cell ${usage.pythonIndex}`
+        return trimmedTitle ? trimmedTitle : `Python cell ${usage.nodeIndex}`
     }
 
     return (
@@ -60,7 +60,7 @@ const VariableUsageOverlay = ({
                     <div className="text-muted text-[10px] uppercase tracking-wide">Used in</div>
                     <div className="mt-1 space-y-1 max-h-48 overflow-y-auto">
                         {sortedUsageEntries.map((usage) => (
-                            <div key={`usage-${usage.pythonIndex}`}>
+                            <div key={`usage-${usage.nodeIndex}`}>
                                 {onNavigateToNode ? (
                                     <button
                                         type="button"
@@ -91,7 +91,7 @@ const VariableDependencyBadge = ({
 }: {
     name: string
     type: string
-    usages: VariableUsage[]
+    usages: NotebookDependencyUsage[]
     onNavigateToNode?: (nodeId: string) => void
 }): JSX.Element => {
     const [popoverVisible, setPopoverVisible] = useState(false)

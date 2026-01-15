@@ -32,7 +32,8 @@ import {
     NotebookNodeType,
 } from '../types'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
-import { DuckSqlUsage, VariableUsage, extractDuckSqlTables, normalizeDuckSqlIdentifier } from './notebookNodeContent'
+import { resolveDuckSqlReturnVariable } from './notebookNodeContent'
+import type { NotebookDependencyUsage } from './notebookNodeContent'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import {
     PythonExecutionResult,
@@ -70,10 +71,6 @@ const isSqlQueryNode = (nodeAttributes: NotebookNodeAttributes<any>): boolean =>
         return isHogQLQuery(query.source)
     }
     return false
-}
-
-const resolveDuckSqlReturnVariable = (returnVariable: string): string => {
-    return returnVariable.trim() || 'duck_df'
 }
 
 const buildDuckSqlCode = (code: string, returnVariable: string): string => {
@@ -203,7 +200,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
         values: [
             props.notebookLogic,
-            ['editor', 'isEditable', 'comments', 'pythonNodeSummaries', 'duckSqlNodeSummaries', 'notebook'],
+            [
+                'editor',
+                'isEditable',
+                'comments',
+                'pythonNodeSummaries',
+                'duckSqlNodeSummaries',
+                'dependencyGraph',
+                'notebook',
+            ],
         ],
     })),
 
@@ -336,96 +341,37 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (s) => [s.pythonNodeSummaries, s.nodeId],
             (pythonNodeSummaries, nodeId) => pythonNodeSummaries.findIndex((node) => node.nodeId === nodeId),
         ],
-
-        downstreamPythonNodes: [
-            (s) => [s.pythonNodeSummaries, s.pythonNodeIndex],
-            (pythonNodeSummaries, pythonNodeIndex) =>
-                pythonNodeIndex >= 0 ? pythonNodeSummaries.slice(pythonNodeIndex + 1) : [],
-        ],
         duckSqlNodeIndex: [
             (s) => [s.duckSqlNodeSummaries, s.nodeId],
             (duckSqlNodeSummaries, nodeId) => duckSqlNodeSummaries.findIndex((node) => node.nodeId === nodeId),
-        ],
-        downstreamDuckSqlNodes: [
-            (s) => [s.duckSqlNodeSummaries, s.duckSqlNodeIndex],
-            (duckSqlNodeSummaries, duckSqlNodeIndex) =>
-                duckSqlNodeIndex >= 0 ? duckSqlNodeSummaries.slice(duckSqlNodeIndex + 1) : [],
         ],
         duckSqlReturnVariable: [
             (s) => [s.nodeAttributes],
             (nodeAttributes): string => resolveDuckSqlReturnVariable(nodeAttributes.returnVariable ?? ''),
         ],
         duckSqlTablesUsed: [
-            (s) => [s.nodeAttributes],
-            (nodeAttributes): string[] => extractDuckSqlTables(nodeAttributes.code ?? ''),
+            (s) => [s.dependencyGraph, s.nodeId],
+            (dependencyGraph, nodeId): string[] => dependencyGraph.nodesById[nodeId]?.uses ?? [],
         ],
         duckSqlUpstreamTableSources: [
-            (s) => [s.duckSqlNodeSummaries, s.duckSqlNodeIndex, s.duckSqlTablesUsed],
-            (duckSqlNodeSummaries, duckSqlNodeIndex, duckSqlTablesUsed): Record<string, DuckSqlUsage> => {
-                const upstream = duckSqlNodeIndex >= 0 ? duckSqlNodeSummaries.slice(0, duckSqlNodeIndex) : []
-                const upstreamMap = new Map<string, DuckSqlUsage>()
-                upstream.forEach((node) => {
-                    const normalized = normalizeDuckSqlIdentifier(node.returnVariable)
-                    if (!normalized || upstreamMap.has(normalized)) {
-                        return
-                    }
-                    upstreamMap.set(normalized, {
-                        nodeId: node.nodeId,
-                        duckSqlIndex: node.duckSqlIndex,
-                        title: node.title,
-                    })
-                })
-
-                return duckSqlTablesUsed.reduce<Record<string, DuckSqlUsage>>((acc, table) => {
-                    const normalized = normalizeDuckSqlIdentifier(table)
-                    const source = upstreamMap.get(normalized)
-                    if (source) {
-                        acc[table] = source
-                    }
-                    return acc
-                }, {})
-            },
+            (s) => [s.dependencyGraph, s.nodeId],
+            (dependencyGraph, nodeId): Record<string, NotebookDependencyUsage> =>
+                dependencyGraph.upstreamSourcesByNode[nodeId] ?? {},
         ],
         duckSqlReturnVariableUsage: [
-            (s) => [s.downstreamDuckSqlNodes, s.duckSqlReturnVariable],
-            (downstreamDuckSqlNodes, duckSqlReturnVariable): DuckSqlUsage[] => {
-                if (!duckSqlReturnVariable) {
-                    return []
-                }
-                const normalized = normalizeDuckSqlIdentifier(duckSqlReturnVariable)
-                return downstreamDuckSqlNodes.flatMap((node) =>
-                    node.tablesUsed.some((table) => normalizeDuckSqlIdentifier(table) === normalized)
-                        ? [
-                              {
-                                  nodeId: node.nodeId,
-                                  duckSqlIndex: node.duckSqlIndex,
-                                  title: node.title,
-                              },
-                          ]
-                        : []
-                )
-            },
+            (s) => [s.dependencyGraph, s.nodeId, s.duckSqlReturnVariable],
+            (dependencyGraph, nodeId, duckSqlReturnVariable): NotebookDependencyUsage[] =>
+                dependencyGraph.downstreamUsageByNode[nodeId]?.[duckSqlReturnVariable] ?? [],
         ],
 
         usageByVariable: [
-            (s) => [s.downstreamPythonNodes, s.exportedGlobals],
-            (downstreamPythonNodes, exportedGlobals): Record<string, VariableUsage[]> => {
-                const usageMap: Record<string, VariableUsage[]> = {}
+            (s) => [s.dependencyGraph, s.exportedGlobals, s.nodeId],
+            (dependencyGraph, exportedGlobals, nodeId): Record<string, NotebookDependencyUsage[]> => {
+                const usageMap: Record<string, NotebookDependencyUsage[]> = {}
 
                 exportedGlobals.forEach(({ name }) => {
-                    const usages = downstreamPythonNodes.flatMap((node) =>
-                        node.globalsUsed.includes(name)
-                            ? [
-                                  {
-                                      nodeId: node.nodeId,
-                                      pythonIndex: node.pythonIndex,
-                                      title: node.title,
-                                  },
-                              ]
-                            : []
-                    )
-
-                    usageMap[name] = usages
+                    const usages = dependencyGraph.downstreamUsageByNode[nodeId]?.[name] ?? []
+                    usageMap[name] = usages.filter((usage) => usage.nodeType === NotebookNodeType.Python)
                 })
 
                 return usageMap

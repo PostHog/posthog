@@ -83,8 +83,7 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeDuckSQLAttributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, duckSqlReturnVariableUsage, duckSqlTablesUsed, duckSqlUpstreamTableSources } =
-        useValues(nodeLogic)
+    const { expanded, duckSqlReturnVariableUsage } = useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
     const outputRef = useRef<HTMLDivElement | null>(null)
     const footerRef = useRef<HTMLDivElement | null>(null)
@@ -127,11 +126,13 @@ const Component = ({
 
     const isSettingsVisible = attributes.showSettings ?? false
     const showReturnVariableRow = expanded || isSettingsVisible
-    const hasDependencies = duckSqlTablesUsed.length > 0 || duckSqlReturnVariableUsage.length > 0
 
-    const usageLabel = (duckSqlIndex: number, title: string): string => {
+    const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number, title: string): string => {
         const trimmedTitle = title.trim()
-        return trimmedTitle ? trimmedTitle : `Duck SQL cell ${duckSqlIndex}`
+        if (trimmedTitle) {
+            return trimmedTitle
+        }
+        return nodeType === NotebookNodeType.Python ? `Python cell ${nodeIndex}` : `Duck SQL cell ${nodeIndex}`
     }
 
     if (!expanded && !showReturnVariableRow) {
@@ -197,49 +198,12 @@ const Component = ({
                                         className="text-muted hover:text-default underline underline-offset-2 ml-1"
                                         onClick={() => navigateToNode(usage.nodeId)}
                                     >
-                                        {usageLabel(usage.duckSqlIndex, usage.title)}
+                                        {usageLabel(usage.nodeType, usage.nodeIndex, usage.title)}
                                     </button>
                                 ))}
                             </span>
                         ) : null}
                     </div>
-                    {hasDependencies ? (
-                        <div className="flex flex-col gap-1 pl-6">
-                            {duckSqlTablesUsed.length > 0 ? (
-                                <div>
-                                    <div className="text-[10px] uppercase tracking-wide text-muted">Tables read</div>
-                                    <div className="mt-1 flex flex-wrap gap-1">
-                                        {duckSqlTablesUsed.map((table) => {
-                                            const upstreamSource = duckSqlUpstreamTableSources[table]
-                                            return (
-                                                <span
-                                                    key={table}
-                                                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default"
-                                                >
-                                                    {table}
-                                                    {upstreamSource ? (
-                                                        <>
-                                                            <span className="text-muted"> ← </span>
-                                                            <button
-                                                                type="button"
-                                                                className="text-muted hover:text-default underline underline-offset-2"
-                                                                onClick={() => navigateToNode(upstreamSource.nodeId)}
-                                                            >
-                                                                {usageLabel(
-                                                                    upstreamSource.duckSqlIndex,
-                                                                    upstreamSource.title
-                                                                )}
-                                                            </button>
-                                                        </>
-                                                    ) : null}
-                                                </span>
-                                            )
-                                        })}
-                                    </div>
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : null}
                 </div>
             ) : null}
         </div>

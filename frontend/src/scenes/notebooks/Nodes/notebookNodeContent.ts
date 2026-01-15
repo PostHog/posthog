@@ -19,16 +19,27 @@ export type DuckSqlNodeSummary = {
     title: string
 }
 
-export type VariableUsage = {
+export type NotebookDependencyUsage = {
     nodeId: string
-    pythonIndex: number
+    nodeType: NotebookNodeType
+    nodeIndex: number
     title: string
 }
 
-export type DuckSqlUsage = {
+export type NotebookDependencyNode = {
     nodeId: string
-    duckSqlIndex: number
+    nodeType: NotebookNodeType
+    nodeIndex: number
     title: string
+    exports: string[]
+    uses: string[]
+}
+
+export type NotebookDependencyGraph = {
+    nodes: NotebookDependencyNode[]
+    nodesById: Record<string, NotebookDependencyNode>
+    upstreamSourcesByNode: Record<string, Record<string, NotebookDependencyUsage>>
+    downstreamUsageByNode: Record<string, Record<string, NotebookDependencyUsage[]>>
 }
 
 const stripSqlComments = (sql: string): string => {
@@ -65,6 +76,11 @@ export const extractDuckSqlTables = (sql: string): string[] => {
             match = tablePattern.exec(cleanedSql)
             continue
         }
+        const remainingSql = cleanedSql.slice(match.index + match[0].length)
+        if (remainingSql.trimStart().startsWith('(')) {
+            match = tablePattern.exec(cleanedSql)
+            continue
+        }
         const normalized = normalizeSqlIdentifier(rawTable)
         if (!normalized || normalized === 'select' || cteNames.has(normalized)) {
             match = tablePattern.exec(cleanedSql)
@@ -80,6 +96,10 @@ export const extractDuckSqlTables = (sql: string): string[] => {
 
 export const normalizeDuckSqlIdentifier = (identifier: string): string => {
     return normalizeSqlIdentifier(identifier)
+}
+
+export const resolveDuckSqlReturnVariable = (returnVariable: string): string => {
+    return returnVariable.trim() || 'duck_df'
 }
 
 export const collectPythonNodes = (content?: JSONContent | null): PythonNodeSummary[] => {
@@ -126,7 +146,9 @@ export const collectDuckSqlNodes = (content?: JSONContent | null): DuckSqlNodeSu
         if (node.type === NotebookNodeType.DuckSQL) {
             const attrs = node.attrs ?? {}
             const code = typeof attrs.code === 'string' ? attrs.code : ''
-            const returnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'duck_df'
+            const returnVariable = resolveDuckSqlReturnVariable(
+                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'duck_df'
+            )
             nodes.push({
                 nodeId: attrs.nodeId ?? '',
                 code,
@@ -143,6 +165,128 @@ export const collectDuckSqlNodes = (content?: JSONContent | null): DuckSqlNodeSu
 
     walk(content)
     return nodes
+}
+
+const buildDependencyUsage = (node: NotebookDependencyNode): NotebookDependencyUsage => {
+    return {
+        nodeId: node.nodeId,
+        nodeType: node.nodeType,
+        nodeIndex: node.nodeIndex,
+        title: node.title,
+    }
+}
+
+const matchesUsage = (exportName: string, usageName: string, usageNodeType: NotebookNodeType): boolean => {
+    if (usageNodeType === NotebookNodeType.DuckSQL) {
+        return normalizeDuckSqlIdentifier(exportName) === normalizeDuckSqlIdentifier(usageName)
+    }
+    return exportName === usageName
+}
+
+export const buildNotebookDependencyGraph = (content?: JSONContent | null): NotebookDependencyGraph => {
+    if (!content || typeof content !== 'object') {
+        return {
+            nodes: [],
+            nodesById: {},
+            upstreamSourcesByNode: {},
+            downstreamUsageByNode: {},
+        }
+    }
+
+    const nodes: NotebookDependencyNode[] = []
+    let pythonIndex = 0
+    let duckSqlIndex = 0
+
+    const walk = (node: any): void => {
+        if (!node || typeof node !== 'object') {
+            return
+        }
+
+        if (node.type === NotebookNodeType.Python) {
+            const attrs = node.attrs ?? {}
+            pythonIndex += 1
+            const exportedGlobals = Array.isArray(attrs.globalsExportedWithTypes)
+                ? attrs.globalsExportedWithTypes.map((entry: any) => entry?.name).filter(Boolean)
+                : []
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                nodeType: NotebookNodeType.Python,
+                nodeIndex: pythonIndex,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+                exports: exportedGlobals,
+                uses: Array.isArray(attrs.globalsUsed) ? attrs.globalsUsed : [],
+            })
+        }
+
+        if (node.type === NotebookNodeType.DuckSQL) {
+            const attrs = node.attrs ?? {}
+            duckSqlIndex += 1
+            const returnVariable = resolveDuckSqlReturnVariable(
+                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'duck_df'
+            )
+            const code = typeof attrs.code === 'string' ? attrs.code : ''
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                nodeType: NotebookNodeType.DuckSQL,
+                nodeIndex: duckSqlIndex,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+                exports: returnVariable ? [returnVariable] : [],
+                uses: extractDuckSqlTables(code),
+            })
+        }
+
+        if (Array.isArray(node.content)) {
+            node.content.forEach(walk)
+        }
+    }
+
+    walk(content)
+
+    const nodesById = nodes.reduce<Record<string, NotebookDependencyNode>>((acc, node) => {
+        if (node.nodeId) {
+            acc[node.nodeId] = node
+        }
+        return acc
+    }, {})
+
+    const upstreamSourcesByNode: Record<string, Record<string, NotebookDependencyUsage>> = {}
+    const downstreamUsageByNode: Record<string, Record<string, NotebookDependencyUsage[]>> = {}
+
+    nodes.forEach((node, nodeIndex) => {
+        const upstreamNodes = nodes.slice(0, nodeIndex)
+        const downstreamNodes = nodes.slice(nodeIndex + 1)
+
+        const upstreamSources = node.uses.reduce<Record<string, NotebookDependencyUsage>>((acc, usageName) => {
+            const source = upstreamNodes.find((upstreamNode) =>
+                upstreamNode.exports.some((exportName) => matchesUsage(exportName, usageName, node.nodeType))
+            )
+            if (source) {
+                acc[usageName] = buildDependencyUsage(source)
+            }
+            return acc
+        }, {})
+
+        const downstreamUsage = node.exports.reduce<Record<string, NotebookDependencyUsage[]>>((acc, exportName) => {
+            acc[exportName] = downstreamNodes
+                .filter((downstreamNode) =>
+                    downstreamNode.uses.some((usageName) =>
+                        matchesUsage(exportName, usageName, downstreamNode.nodeType)
+                    )
+                )
+                .map(buildDependencyUsage)
+            return acc
+        }, {})
+
+        upstreamSourcesByNode[node.nodeId] = upstreamSources
+        downstreamUsageByNode[node.nodeId] = downstreamUsage
+    })
+
+    return {
+        nodes,
+        nodesById,
+        upstreamSourcesByNode,
+        downstreamUsageByNode,
+    }
 }
 
 export const collectNodeIndices = (
