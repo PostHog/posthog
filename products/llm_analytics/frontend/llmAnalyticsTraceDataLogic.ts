@@ -1,4 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -88,10 +89,11 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
     connect((props: TraceDataLogicProps) => ({
         values: [
             llmAnalyticsTraceLogic,
-            ['eventId', 'searchQuery'],
+            ['eventId', 'searchQuery', 'traceId'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError'],
         ],
+        actions: [llmAnalyticsTraceLogic, ['loadNeighbors']],
     })),
     selectors({
         trace: [
@@ -290,6 +292,14 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             },
         ],
     }),
+
+    subscriptions(({ actions, values }) => ({
+        trace: (trace: LLMTrace | undefined) => {
+            if (trace?.createdAt && values.traceId) {
+                actions.loadNeighbors(values.traceId, trace.createdAt)
+            }
+        },
+    })),
 ])
 
 export interface TraceTreeNode {
