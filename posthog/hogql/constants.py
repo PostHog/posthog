@@ -134,4 +134,3 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     use_hive_partitioning: Optional[int] = 0
     read_overflow_mode: Optional[str] = None
     max_bytes_to_read: Optional[int] = None
-    force_data_skipping_indices: Optional[list[str]] = None
