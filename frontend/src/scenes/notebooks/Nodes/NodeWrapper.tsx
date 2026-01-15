@@ -40,6 +40,14 @@ import {
 } from '../types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
+const NON_COPYABLE_NODES = [
+    NotebookNodeType.PersonProperties,
+    NotebookNodeType.Person,
+    NotebookNodeType.GroupProperties,
+    NotebookNodeType.Group,
+    NotebookNodeType.RelatedGroups,
+]
+
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
         nodeType,
@@ -153,13 +161,14 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const pythonIsStale = pythonExecutionCodeHash !== null && pythonExecutionCodeHash !== pythonCodeHash
     const pythonIsFresh = pythonExecutionCodeHash !== null && pythonExecutionCodeHash === pythonCodeHash
 
-    // TODO: Add list on non-copyable nodes
     const defaultMenuItems: LemonMenuItems = [
-        {
-            label: 'Copy',
-            onClick: () => copyToClipboard(),
-            sideIcon: <IconCopy />,
-        },
+        !NON_COPYABLE_NODES.includes(nodeType)
+            ? {
+                  label: 'Copy',
+                  onClick: () => copyToClipboard(),
+                  sideIcon: <IconCopy />,
+              }
+            : null,
         isEditable && isResizeable
             ? {
                   label: 'Reset height to default',
