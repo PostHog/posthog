@@ -1194,11 +1194,15 @@ describe('Hogflow Executor', () => {
         })
 
         it('should filter out internal users with @posthog.com email', async () => {
-            // Create invocation with internal user email
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
+            // Create globals with internal user email
+            const globals = createHogExecutionGlobals({
                 event: {
-                    ...createHogExecutionGlobals().event,
+                    uuid: 'uuid',
                     event: '$pageview',
+                    distinct_id: 'distinct_id',
+                    elements_chain: '',
+                    timestamp: new Date().toISOString(),
+                    url: 'http://localhost:8000/events/1',
                     properties: {
                         name: 'Internal User',
                     },
@@ -1206,25 +1210,29 @@ describe('Hogflow Executor', () => {
                 person: {
                     id: 'person_internal',
                     name: 'Internal User',
+                    url: '',
                     properties: {
                         email: 'internal@posthog.com',
                     },
-                    url: '',
                 },
             })
 
-            const result = await executor.buildHogFlowInvocations([hogFlow], invocation.filterGlobals)
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
 
             // Should not match because email contains @posthog.com
-            expect(result).toHaveLength(0)
+            expect(result.invocations).toHaveLength(0)
         })
 
         it('should allow external users without @posthog.com email', async () => {
-            // Create invocation with external user email
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
+            // Create globals with external user email
+            const globals = createHogExecutionGlobals({
                 event: {
-                    ...createHogExecutionGlobals().event,
+                    uuid: 'uuid',
                     event: '$pageview',
+                    distinct_id: 'distinct_id',
+                    elements_chain: '',
+                    timestamp: new Date().toISOString(),
+                    url: 'http://localhost:8000/events/1',
                     properties: {
                         name: 'External User',
                     },
@@ -1232,18 +1240,18 @@ describe('Hogflow Executor', () => {
                 person: {
                     id: 'person_external',
                     name: 'External User',
+                    url: '',
                     properties: {
                         email: 'external@customer.com',
                     },
-                    url: '',
                 },
             })
 
-            const result = await executor.buildHogFlowInvocations([hogFlow], invocation.filterGlobals)
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
 
             // Should match because email doesn't contain @posthog.com
-            expect(result).toHaveLength(1)
-            expect(result[0].hogFlow.id).toBe(hogFlow.id)
+            expect(result.invocations).toHaveLength(1)
+            expect(result.invocations[0].hogFlow.id).toBe(hogFlow.id)
         })
     })
 
