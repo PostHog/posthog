@@ -515,7 +515,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes)) ||
                 props.nodeType === NotebookNodeType.DuckSQL
             ) {
-                const shouldShowSettings = values.nodeAttributes.showSettings ?? __init?.showSettings
+                const shouldShowSettings = __init?.showSettings ?? values.nodeAttributes.showSettings
                 if (typeof shouldShowSettings === 'boolean') {
                     props.notebookLogic.actions.setEditingNodeEditing(values.nodeId, shouldShowSettings)
                 }
