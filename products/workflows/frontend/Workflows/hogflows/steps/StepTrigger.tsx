@@ -478,12 +478,6 @@ function StepTriggerConfigurationBatch({
                     hasRowOperator={false}
                 />
             </div>
-            <TestAccountFilter
-                filters={{ filter_test_accounts: config.filter_test_accounts }}
-                onChange={({ filter_test_accounts }) =>
-                    partialSetWorkflowActionConfig(action.id, { filter_test_accounts })
-                }
-            />
             <LemonDivider />
             <div className="flex gap-2">
                 <span className="font-semibold">Schedule for later?</span>
