@@ -17,7 +17,7 @@ import {
     IconSidebarClose,
     IconSidebarOpen,
 } from '@posthog/icons'
-import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { keybindToKeyboardShortcutProps } from 'lib/components/AppShortcuts/AppShortcut'
@@ -299,9 +299,20 @@ function getDateGroupLabel(dateString: string | null): string {
 
 function AllConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
     const [open, setOpen] = useState(false)
-    const { conversationHistory } = useValues(maxGlobalLogic)
+    const { conversationHistory, conversationHistoryLoading } = useValues(maxGlobalLogic)
     const { searchParams } = useValues(router)
     const currentConversationId = searchParams?.chat
+
+    const [loadingStarted, setLoadingStarted] = useState(false)
+    const [initialLoadComplete, setInitialLoadComplete] = useState(false)
+
+    useEffect(() => {
+        if (conversationHistoryLoading) {
+            setLoadingStarted(true)
+        } else if (loadingStarted && !initialLoadComplete) {
+            setInitialLoadComplete(true)
+        }
+    }, [conversationHistoryLoading, loadingStarted, initialLoadComplete])
 
     const conversationGroups = useMemo(() => {
         const grouped: Record<string, ConversationDetail[]> = {}
@@ -384,64 +395,78 @@ function AllConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.El
                             className="w-full px-2 py-1.5 text-sm rounded-sm border border-primary bg-surface-primary focus:outline-none focus:ring-1 focus:ring-primary mb-1"
                             autoFocus
                         />
-                        <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical" styledScrollbars>
-                            <Combobox.List className="flex flex-col gap-1">
-                                {(group: ConversationGroup) => (
-                                    <Combobox.Group
-                                        key={group.value}
-                                        items={group.items}
-                                        className="flex flex-col gap-px"
-                                    >
-                                        <Combobox.GroupLabel className="px-2 py-1 text-xs font-medium text-muted sticky top-0 bg-surface-primary z-10">
-                                            {group.value}
-                                        </Combobox.GroupLabel>
-                                        <Combobox.Collection>
-                                            {(conversation: ConversationDetail) => (
-                                                <ConversationContextMenu
-                                                    key={conversation.id}
-                                                    conversation={conversation}
-                                                    onClick={() => setOpen(false)}
-                                                >
-                                                    <Combobox.Item
-                                                        value={conversation}
-                                                        render={
-                                                            <Link
-                                                                to={
-                                                                    combineUrl(urls.ai(conversation.id), {
-                                                                        from: 'history',
-                                                                    }).url
-                                                                }
-                                                                buttonProps={{
-                                                                    active: conversation.id === currentConversationId,
-                                                                    menuItem: true,
-                                                                    className: menuItemStyles,
-                                                                }}
-                                                                tooltip={conversation.title}
-                                                                tooltipPlacement="right"
-                                                            >
-                                                                <span className="flex-1 line-clamp-1">
-                                                                    {conversation.title}
-                                                                </span>
-                                                                {conversation.status ===
-                                                                    ConversationStatus.InProgress && (
-                                                                    <Spinner className="h-3 w-3" />
-                                                                )}
-                                                                <span className="text-xs text-tertiary/80 shrink-0">
-                                                                    {formatConversationDate(conversation.updated_at)}
-                                                                </span>
-                                                            </Link>
-                                                        }
-                                                    />
-                                                </ConversationContextMenu>
-                                            )}
-                                        </Combobox.Collection>
-                                    </Combobox.Group>
-                                )}
-                            </Combobox.List>
-                            <Combobox.Empty className="px-2 py-4 text-center text-sm text-muted empty:hidden">
-                                No chats found.
-                            </Combobox.Empty>
-                        </ScrollableShadows>
+                        {!initialLoadComplete && (
+                            <WrappingLoadingSkeleton fullWidth>
+                                <ButtonPrimitive inert aria-hidden>
+                                    Loading...
+                                </ButtonPrimitive>
+                            </WrappingLoadingSkeleton>
+                        )}
+                        {initialLoadComplete && (
+                            <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical" styledScrollbars>
+                                <Combobox.List className="flex flex-col gap-1">
+                                    {(group: ConversationGroup) => (
+                                        <Combobox.Group
+                                            key={group.value}
+                                            items={group.items}
+                                            className="flex flex-col gap-px"
+                                        >
+                                            <Combobox.GroupLabel className="flex px-2 py-1 text-xs font-medium text-muted sticky top-0 bg-surface-primary z-10 justify-between">
+                                                <span className="text-left">{group.value}</span>
+                                                <span className="text-xs text-tertiary/80 shrink-0">Updated at</span>
+                                            </Combobox.GroupLabel>
+                                            <Combobox.Collection>
+                                                {(conversation: ConversationDetail) => (
+                                                    <ConversationContextMenu
+                                                        key={conversation.id}
+                                                        conversation={conversation}
+                                                        onClick={() => setOpen(false)}
+                                                    >
+                                                        <Combobox.Item
+                                                            value={conversation}
+                                                            render={
+                                                                <Link
+                                                                    to={
+                                                                        combineUrl(urls.ai(conversation.id), {
+                                                                            from: 'history',
+                                                                        }).url
+                                                                    }
+                                                                    buttonProps={{
+                                                                        active:
+                                                                            conversation.id === currentConversationId,
+                                                                        menuItem: true,
+                                                                        className: menuItemStyles,
+                                                                    }}
+                                                                    tooltip={conversation.title}
+                                                                    tooltipPlacement="right"
+                                                                    onClick={() => setOpen(false)}
+                                                                >
+                                                                    <span className="flex-1 line-clamp-1">
+                                                                        {conversation.title}
+                                                                    </span>
+                                                                    {conversation.status ===
+                                                                        ConversationStatus.InProgress && (
+                                                                        <Spinner className="h-3 w-3" />
+                                                                    )}
+                                                                    <span className="text-xs text-tertiary/80 shrink-0">
+                                                                        {formatConversationDate(
+                                                                            conversation.updated_at
+                                                                        )}
+                                                                    </span>
+                                                                </Link>
+                                                            }
+                                                        />
+                                                    </ConversationContextMenu>
+                                                )}
+                                            </Combobox.Collection>
+                                        </Combobox.Group>
+                                    )}
+                                </Combobox.List>
+                                <Combobox.Empty className="px-2 py-4 text-center text-sm text-muted empty:hidden">
+                                    No chats found.
+                                </Combobox.Empty>
+                            </ScrollableShadows>
+                        )}
                     </Combobox.Popup>
                 </Combobox.Positioner>
             </Combobox.Portal>
@@ -517,6 +542,8 @@ function RecentConversations({ isCollapsed }: { isCollapsed: boolean }): JSX.Ele
                         buttonProps={{
                             active: isActive,
                             menuItem: true,
+                            // got to fix Link to stop being so powerful
+                            className: '[--radius:4px]',
                         }}
                         tooltip={conversation.title}
                         tooltipPlacement="right"
@@ -603,18 +630,16 @@ export function AiFirstNavBar(): JSX.Element {
                                         'items-center': isLayoutNavCollapsed,
                                     })}
                                 >
-                                    <ButtonPrimitive
-                                        iconOnly={isLayoutNavCollapsed}
+                                    <LemonButton
                                         tooltip={isLayoutNavCollapsed ? 'New chat' : undefined}
                                         tooltipPlacement="right"
                                         onClick={() => router.actions.push(urls.ai())}
-                                        menuItem={!isLayoutNavCollapsed}
-                                        className="bg-white dark:bg-black border border-secondary shadow"
-                                        variant="default"
+                                        type="secondary"
+                                        className="[--lemon-button-padding-horizontal:0.5rem] [--lemon-button-gap:1rem]"
                                     >
                                         <IconPlusSmall className="size-4 text-secondary" />
-                                        New chat
-                                    </ButtonPrimitive>
+                                        <span className="pl-[2px]">New chat</span>
+                                    </LemonButton>
 
                                     <div className="flex flex-col gap-1">
                                         <Label intent="menu" className="text-xxs px-2 text-tertiary">

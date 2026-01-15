@@ -74,7 +74,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, clearActivePanelIdentifier, showLayoutNavBar } = useActions(panelLayoutLogic)
     useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    const isAiUx = useFeatureFlag('AI_UX')
+    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     return (
         <>
@@ -108,7 +108,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                         : {}
                 }
             >
-                {isAiUx ? (
+                {isAIFirst ? (
                     <AiFirstNavBar />
                 ) : (
                     <PanelLayoutNavBar>

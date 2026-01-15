@@ -169,7 +169,8 @@ export const FEATURE_FLAGS = {
     CHRISTMAS_OVERRIDE: 'christmas-override', // owner: #team-growth, overrides the checks for Christmas to return true when this is enabled
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
-    AI_UX: 'ai-ux-improvements', // owner: #team-platform-ux, small improvements to the ai experience
+    AI_UX: 'ai-ux-improvements', // owner: #team-platform-ux, small improvements to the ai experience, this is released to team
+    AI_FIRST: 'ai-first', // owner: #team-platform-ux, this a larger change, not released to team yet
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     PERSON_PROPERTY_INCIDENT_ANNOTATION_JAN_2026: 'person-property-incident-annotation-jan-2026', // owner: #team-platform-features, shows system annotation for Jan 6-7 2026 person property incident
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
