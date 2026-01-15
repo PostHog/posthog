@@ -194,13 +194,6 @@ jobs:
                   chmod +x bazelisk-linux-amd64
                   sudo mv bazelisk-linux-amd64 /usr/local/bin/bazel
 
-            - name: Install target-determinator
-              if: github.event_name == 'pull_request'
-              run: |
-                  curl -LO https://github.com/bazel-contrib/target-determinator/releases/download/v0.32.0/target-determinator.linux.amd64
-                  chmod +x target-determinator.linux.amd64
-                  sudo mv target-determinator.linux.amd64 /usr/local/bin/target-determinator
-
             - name: Cache Bazel disk cache
               uses: actions/cache@v4
               with:
@@ -208,81 +201,94 @@ jobs:
                   key: bazel-disk-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock.txt') }}
                   restore-keys: bazel-disk-${{ runner.os }}-
 
-            - name: Determine affected targets
+            - name: Determine affected tests (diff-as-seed)
               id: determinator
               if: github.event_name == 'pull_request'
               run: |
                   LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
 
-                  # For legacy changes, skip determinator - we know Django must run
+                  # Cheap routing: legacy changes → run everything
                   if [[ "$LEGACY_CHANGED" == "true" ]]; then
-                    echo "Legacy code changed - skipping target-determinator"
+                    echo "Legacy code changed - running all tests"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "skip_reason=legacy_changed" >> $GITHUB_OUTPUT
                     exit 0
                   fi
 
-                  # Check if any bazelified product changed
+                  # Get changed files
                   git fetch origin ${{ github.base_ref }}
-                  CHANGED_PRODUCTS=$(git diff --name-only origin/${{ github.base_ref }}..HEAD | grep "^products/" | cut -d/ -f2 | sort -u || true)
 
-                  BAZELIFIED_PRODUCTS=""
+                  # Extract unique product names from changed files (O(1) per product, not per file)
+                  # This handles hundreds of files efficiently by deduplicating early
+                  CHANGED_PRODUCTS=$(git diff --name-only origin/${{ github.base_ref }}..HEAD \
+                    | grep '^products/' \
+                    | cut -d/ -f2 \
+                    | sort -u)
+
+                  if [[ -z "$CHANGED_PRODUCTS" ]]; then
+                    echo "No product changes - running all tests"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  echo "Changed products: $(echo $CHANGED_PRODUCTS | tr '\n' ' ')"
+
+                  # Check which products are bazelified (only check once per product)
+                  BAZELIFIED_PATTERNS=""
                   for product in $CHANGED_PRODUCTS; do
                     if [[ -f "products/$product/backend/BUILD.bazel" ]]; then
-                      BAZELIFIED_PRODUCTS="$BAZELIFIED_PRODUCTS $product"
+                      BAZELIFIED_PATTERNS="$BAZELIFIED_PATTERNS //products/$product/..."
                     fi
                   done
-                  BAZELIFIED_PRODUCTS=$(echo "$BAZELIFIED_PRODUCTS" | xargs)  # trim
+                  BAZELIFIED_PATTERNS=$(echo "$BAZELIFIED_PATTERNS" | xargs)  # trim
 
-                  if [[ -z "$BAZELIFIED_PRODUCTS" ]]; then
-                    echo "No bazelified products changed - skipping target-determinator"
+                  if [[ -z "$BAZELIFIED_PATTERNS" ]]; then
+                    echo "No bazelified products changed - running all tests"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "skip_reason=no_bazelified_products" >> $GITHUB_OUTPUT
                     exit 0
                   fi
 
-                  echo "Bazelified products changed: $BAZELIFIED_PRODUCTS"
+                  echo "Bazelified patterns: $BAZELIFIED_PATTERNS"
 
-                  # Build target pattern from changed products
-                  TARGET_PATTERN=""
-                  for product in $BAZELIFIED_PRODUCTS; do
-                    if [[ -n "$TARGET_PATTERN" ]]; then
-                      TARGET_PATTERN="$TARGET_PATTERN + //products/$product/..."
-                    else
-                      TARGET_PATTERN="//products/$product/..."
-                    fi
-                  done
+                  # Count bazelified products - if too many, skip expensive query
+                  PATTERN_COUNT=$(echo "$BAZELIFIED_PATTERNS" | wc -w | xargs)
+                  if [[ "$PATTERN_COUNT" -gt 5 ]]; then
+                    echo "Many products changed ($PATTERN_COUNT) - running all tests to avoid expensive query"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    echo "tests=//products/..." >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
 
-                  # Generate requirements_lock.txt for HEAD (needed for Bazel analysis)
+                  # Generate requirements_lock.txt (needed for any Bazel query)
                   echo "Generating requirements_lock.txt..."
                   bazel run //:requirements.update 2>&1 | tail -5
 
-                  # Run target-determinator
-                  # Note: "before" revision may fail if requirements_lock.txt doesn't exist there,
-                  # causing ErrorInQueryBefore fallback (conservative). This is expected until
-                  # requirements_lock.txt exists in the base branch.
-                  echo "::group::target-determinator"
-                  echo "Target pattern: $TARGET_PATTERN"
-                  echo "Workspace status:"
-                  git status --short
-                  DETERMINATOR_START=$(date +%s)
-                  if ! TARGETS=$(target-determinator -verbose -targets="$TARGET_PATTERN" "origin/${{ github.base_ref }}" 2>&1); then
-                    DETERMINATOR_END=$(date +%s)
-                    echo "target-determinator failed after $((DETERMINATOR_END - DETERMINATOR_START))s"
-                    echo "$TARGETS"
+                  # Query affected tests using rdeps (current workspace only!)
+                  echo "::group::bazel query"
+                  echo "Querying affected tests..."
+
+                  # Build set() expression for bazel query
+                  SET_EXPR="set($(echo $BAZELIFIED_PATTERNS | tr ' ' ' '))"
+
+                  if TESTS=$(bazel query "kind(test, rdeps(//products/..., $SET_EXPR))" 2>&1); then
+                    echo "Affected tests:"
+                    echo "$TESTS"
+                    # Convert newlines to spaces for bazel test command
+                    TESTS_ONELINE=$(echo "$TESTS" | tr '\n' ' ')
+                    echo "tests=$TESTS_ONELINE" >> $GITHUB_OUTPUT
+                  else
+                    echo "bazel query failed, running all tests"
+                    echo "$TESTS"
+                    echo "tests=//products/..." >> $GITHUB_OUTPUT
+                  fi
+
+                  # Check legacy impact via marker target
+                  echo "Checking legacy impact..."
+                  if bazel query "rdeps(//ci:legacy_pytest, $SET_EXPR)" 2>&1 | grep -q "legacy_pytest"; then
+                    echo "Product changes affect legacy code - Django will run"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
                   else
-                    DETERMINATOR_END=$(date +%s)
-                    echo "target-determinator completed in $((DETERMINATOR_END - DETERMINATOR_START))s"
-                    echo "Output:"
-                    echo "$TARGETS"
-                    if echo "$TARGETS" | grep -q "//ci:legacy_pytest"; then
-                      echo "Product changes affect legacy code"
-                      echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    else
-                      echo "No legacy impact - Django tests can be skipped!"
-                      echo "run_legacy=false" >> $GITHUB_OUTPUT
-                    fi
+                    echo "No legacy impact - Django can be skipped!"
+                    echo "run_legacy=false" >> $GITHUB_OUTPUT
                   fi
                   echo "::endgroup::"
 
@@ -350,22 +356,27 @@ jobs:
             - name: Run tests
               id: test
               run: |
-                  # Use determinator result from Phase 1, or default to true for master pushes
+                  # Use determinator result from Phase 1, or default for master pushes
                   if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-                    echo "Push to master - running all tests, Django will run"
+                    echo "Push to master - running all tests"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    TESTS="//products/..."
                   else
-                    # Pass through determinator result
+                    # Pass through determinator results
                     echo "run_legacy=${{ steps.determinator.outputs.run_legacy }}" >> $GITHUB_OUTPUT
-                    echo "Determinator result: run_legacy=${{ steps.determinator.outputs.run_legacy }}"
+                    TESTS="${{ steps.determinator.outputs.tests }}"
+                    # Fallback if no tests output
+                    if [[ -z "$TESTS" ]]; then
+                      TESTS="//products/..."
+                    fi
                   fi
 
                   echo "Waiting for services..."
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
 
-                  echo "Running: bazel test --config=ci //products/..."
-                  bazel test --config=ci //products/...
+                  echo "Running: bazel test --config=ci $TESTS"
+                  bazel test --config=ci $TESTS
 
     check-migrations:
         needs: [changes]
