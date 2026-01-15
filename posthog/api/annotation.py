@@ -13,7 +13,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import Annotation
+from posthog.models import Annotation, Dashboard
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
@@ -77,11 +77,17 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         team = self.context["get_team"]()
+
+        dashboard_id = request.data.get("dashboard_id", None)
+        if dashboard_id is not None:
+            if not Dashboard.objects.filter(id=dashboard_id, team_id=team.id).exists():
+                raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
+
         annotation = Annotation.objects.create(
             organization_id=team.organization_id,
             team_id=team.id,
             created_by=request.user,
-            dashboard_id=request.data.get("dashboard_id", None),
+            dashboard_id=dashboard_id,
             **validated_data,
         )
         return annotation
