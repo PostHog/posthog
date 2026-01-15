@@ -39,6 +39,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
+        setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -123,6 +124,12 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 setSelectedSchemas: (_, { schemaNames }) => schemaNames,
             },
         ],
+        showEnabledSchemasOnly: [
+            false as boolean,
+            {
+                setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
+            },
+        ],
         sourceConfigLoading: [
             false as boolean,
             {
@@ -141,6 +148,18 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 }
 
                 return availableSources[source.source_type]
+            },
+        ],
+        filteredSchemas: [
+            (s) => [s.source, s.showEnabledSchemasOnly],
+            (source, showEnabledSchemasOnly): ExternalDataSourceSchema[] => {
+                if (!source?.schemas) {
+                    return []
+                }
+                if (showEnabledSchemasOnly) {
+                    return source.schemas.filter((schema) => schema.should_sync)
+                }
+                return source.schemas
             },
         ],
     }),
