@@ -83,6 +83,7 @@ export const NotebookDataframeTable = ({
     return (
         <div className="flex flex-col gap-2">
             <LemonTable
+                className="border-b border-primary"
                 data-attr="notebook-dataframe-table"
                 columns={columns}
                 dataSource={rowsWithIndex}
