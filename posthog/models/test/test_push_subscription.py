@@ -9,8 +9,7 @@ class TestPushSubscription(BaseTest):
     def setUp(self):
         super().setUp()
         self.team = self.organization.teams.first()
-        if not self.team:
-            raise ValueError("Test requires a team")
+        assert self.team is not None
 
     def test_create_push_subscription(self):
         subscription = PushSubscription.objects.create(
