@@ -29,6 +29,10 @@ export function ReplayIntegrations(): JSX.Element {
                 <h3>GitLab</h3>
                 <GitLabIntegration />
             </div>
+            <div>
+                <h3>Jira</h3>
+                <JiraIntegration />
+            </div>
         </div>
     )
 }
@@ -51,6 +55,10 @@ function GitLabIntegration(): JSX.Element {
             <GitLabSetupModal isOpen={isOpen} onComplete={() => setIsOpen(false)} />
         </Integration>
     )
+}
+
+function JiraIntegration(): JSX.Element {
+    return <OAuthIntegration kind="jira" connectText="Connect site" />
 }
 
 const OAuthIntegration = ({ kind, connectText }: { kind: IntegrationKind; connectText: string }): JSX.Element => {

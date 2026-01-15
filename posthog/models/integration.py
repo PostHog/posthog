@@ -111,6 +111,7 @@ class Integration(models.Model):
         DATABRICKS = "databricks"
         AZURE_BLOB = "azure-blob"
         FIREBASE = "firebase"
+        JIRA = "jira"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -201,6 +202,7 @@ class OauthIntegration:
         "intercom",
         "linear",
         "clickup",
+        "jira",
     ]
     integration: Integration
 
@@ -450,13 +452,32 @@ class OauthIntegration:
                 id_path="user.id",
                 name_path="user.email",
             )
+        elif kind == "jira":
+            if not settings.ATLASSIAN_APP_CLIENT_ID or not settings.ATLASSIAN_APP_CLIENT_SECRET:
+                raise NotImplementedError("Atlassian/Jira app not configured")
+
+            return OauthConfig(
+                authorize_url="https://auth.atlassian.com/authorize",
+                additional_authorize_params={"audience": "api.atlassian.com", "prompt": "consent"},
+                token_url="https://auth.atlassian.com/oauth/token",
+                token_info_url="https://api.atlassian.com/oauth/token/accessible-resources",
+                token_info_config_fields=[],  # Handled specially in integration_from_oauth_response
+                client_id=settings.ATLASSIAN_APP_CLIENT_ID,
+                client_secret=settings.ATLASSIAN_APP_CLIENT_SECRET,
+                scope="read:jira-work write:jira-work",
+                id_path="cloud_id",
+                name_path="site_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
-        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
+        site_url = settings.SITE_URL
+        if not settings.DEBUG:
+            site_url = site_url.replace("http://", "https://")
+        return f"{site_url}/integrations/{kind}/callback"
 
     @classmethod
     def authorize_url(cls, kind: str, token: str, next="") -> str:
@@ -571,9 +592,23 @@ class OauthIntegration:
 
             if token_info_res.status_code == 200:
                 data = token_info_res.json()
-                if oauth_config.token_info_config_fields:
+
+                # Jira returns an array of accessible resources, extract the first one
+                if kind == "jira" and isinstance(data, list) and len(data) > 0:
+                    site = data[0]
+                    config["cloud_id"] = site.get("id")
+                    config["site_name"] = site.get("name")
+                    config["site_url"] = site.get("url")
+                elif oauth_config.token_info_config_fields:
                     for field in oauth_config.token_info_config_fields:
                         config[field] = dot_get(data, field)
+            else:
+                logger.error(
+                    f"OAuth token_info request failed for {kind}",
+                    token_info_url=oauth_config.token_info_url,
+                    status_code=token_info_res.status_code,
+                    response=token_info_res.text[:500],
+                )
 
         integration_id = dot_get(config, oauth_config.id_path)
 
@@ -635,7 +670,7 @@ class OauthIntegration:
             integration_id = ",".join(str(item) for item in integration_id)
 
         if not isinstance(integration_id, str):
-            raise Exception("Oauth error")
+            raise Exception(f"Oauth error: failed to extract integration ID for {kind}")
 
         # Handle TikTok's nested response format
         if kind == "tiktok-ads":
@@ -1442,6 +1477,81 @@ class LinearIntegration:
             json={"query": query},
         )
         return response.json()
+
+
+class JiraIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "jira":
+            raise Exception("JiraIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    def cloud_id(self) -> str:
+        """Get the Atlassian cloud ID from the integration config"""
+        return dot_get(self.integration.config, "cloud_id")
+
+    def site_name(self) -> str:
+        """Get the Jira site name from the integration config"""
+        return dot_get(self.integration.config, "site_name")
+
+    def site_url(self) -> str:
+        """Get the Jira site URL from the integration config"""
+        return dot_get(self.integration.config, "site_url")
+
+    def list_projects(self) -> list[dict]:
+        """List all Jira projects accessible to the user"""
+        cloud_id = self.cloud_id()
+        response = requests.get(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/project/search",
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+            },
+        )
+        body = response.json()
+        projects = body.get("values", [])
+        return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
+
+    def create_issue(self, config: dict[str, str]) -> dict[str, str]:
+        """Create a Jira issue and return the issue key"""
+        cloud_id = self.cloud_id()
+        title = config.pop("title")
+        description = config.pop("description")
+        project_key = config.pop("project_key")
+
+        # Jira uses Atlassian Document Format (ADF) for description
+        payload = {
+            "fields": {
+                "project": {"key": project_key},
+                "summary": title,
+                "description": {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": description}],
+                        }
+                    ],
+                },
+                "issuetype": {"name": "Task"},
+            }
+        }
+
+        response = requests.post(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue",
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+
+        issue = response.json()
+        return {"key": issue.get("key", ""), "id": issue.get("id", "")}
 
 
 class GitHubIntegration:
