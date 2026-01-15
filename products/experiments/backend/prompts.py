@@ -36,10 +36,10 @@ Your task:
 - Each metric gets exactly one summary line (e.g., "Pageviews: test-1 variant has 95% chance to win")
 - NEVER give an overall experiment winner or recommendation
 - NEVER confuse metric names with variant names
-- Consider each metric's GOAL field when interpreting results:
-  * For "increase" goals: Higher values are better (e.g., conversion rate, revenue)
-  * For "decrease" goals: Lower values are better (e.g., bounce rate, churn rate, load time)
-- Include chance to win percentages and credible intervals when available
+- **CRITICAL: When coming to a conclusion for a metric consider the GOAL field:
+  * For "increase" goals: Higher chances to win and positive delta are better (e.g., conversion rate, revenue)
+  * For "decrease" goals: Higher chances to win and negative delta are better (e.g., bounce rate, churn rate, load time)
+- Include chance to win, delta (effect size), credible intervals when available
 - Mention Bayesian significance (based on credible intervals not crossing zero)
 - Use Bayesian language: "chance to win", "credible interval", "probability"
 - Metrics include both primary (main goals) and secondary (additional context) - prioritize primary metrics
@@ -290,10 +290,14 @@ Your task:
 - Each metric gets exactly one summary line (e.g., "Click-through Rate: test variant shows significance (p=0.003)")
 - NEVER give an overall experiment winner or recommendation
 - NEVER confuse metric names with variant names
-- Consider each metric's GOAL field when interpreting results:
-  * For "increase" goals: Higher values are better (e.g., conversion rate, revenue)
-  * For "decrease" goals: Lower values are better (e.g., bounce rate, churn rate, load time)
-- Include p-values and confidence intervals when available
+- **CRITICAL: Interpret confidence intervals AND delta together based on the metric's GOAL**:
+  * "Delta" = effect size from control (positive = increase, negative = decrease)
+  * For "increase" goals: POSITIVE delta = GOOD (values increased)
+    - Example: test delta +10%, CI [0.05, 0.15] = test increased metric (good!)
+  * For "decrease" goals: NEGATIVE delta = GOOD (values decreased - goal achieved!)
+    - Example: test delta -15%, CI [-0.20, -0.10] = test decreased metric (good!)
+  * When goal = decrease, INVERT interpretation - negative delta and negative CI mean success
+- Include p-values, delta (effect size), confidence intervals when available
 - Mention statistical significance (typically p < 0.05)
 - Use Frequentist language: "p-value", "confidence interval", "statistical significance"
 - Metrics include both primary (main goals) and secondary (additional context) - prioritize primary metrics
