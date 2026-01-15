@@ -600,8 +600,8 @@ class KernelRuntimeService:
             "    return _duckdb_connection.execute(sql, parameters).df()\n"
             "\n"
             "def duck_save_table(name: str, data: Any) -> None:\n"
-            "    if not name:\n"
-            "        return\n"
+            "    if not name or not name.replace('_', '').isalnum():\n"
+            "        raise ValueError('Invalid table name')\n"
             '    temp_name = f"__notebook_{name}"\n'
             "    table_identifier = f'\"{name}\"'\n"
             "    temp_identifier = f'\"{temp_name}\"'\n"
