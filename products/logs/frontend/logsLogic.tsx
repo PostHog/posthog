@@ -739,6 +739,40 @@ export const logsLogic = kea<logsLogicType>([
             actions.syncUrlAndRunQuery()
         },
         setFilterGroup: () => {
+            // Don't run query if there's a filter without a value (user is still selecting)
+            const hasIncompleteUniversalFilterValue = (filterValue: UniversalFiltersGroupValue): boolean => {
+                if (!filterValue || typeof filterValue !== 'object') {
+                    return false
+                }
+
+                // If this is a nested UniversalFiltersGroup, recursively check its values
+                if ('type' in filterValue && 'values' in filterValue) {
+                    const groupValues = (filterValue as UniversalFiltersGroup).values ?? []
+                    return groupValues.some((child) => hasIncompleteUniversalFilterValue(child))
+                }
+
+                // ActionFilter: check for missing id
+                if ('id' in filterValue) {
+                    return (filterValue as { id: unknown }).id == null
+                }
+
+                // Property filter: check for missing or empty value
+                if ('value' in filterValue) {
+                    const val = (filterValue as { value: unknown }).value
+                    return val == null || (Array.isArray(val) && val.length === 0)
+                }
+
+                return false
+            }
+
+            const rootGroup = values.filterGroup?.values?.[0] as UniversalFiltersGroup | undefined
+            const hasIncompleteFilter =
+                rootGroup?.values?.some((filterValue) => hasIncompleteUniversalFilterValue(filterValue)) ?? false
+
+            if (hasIncompleteFilter) {
+                return
+            }
+
             if (values.hasRunQuery) {
                 posthog.capture('logs filter changed', { filter_type: 'attributes' })
                 actions.addProductIntent({

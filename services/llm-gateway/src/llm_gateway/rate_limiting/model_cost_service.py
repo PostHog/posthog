@@ -23,7 +23,7 @@ class ModelLimits(TypedDict):
     """Maximum output tokens per hour."""
 
 
-DEFAULT_LIMITS: Final[ModelLimits] = {"input_tph": 250_000, "output_tph": 50_000}
+DEFAULT_LIMITS: Final[ModelLimits] = {"input_tph": 2_000_000, "output_tph": 400_000}
 
 
 class ModelCost(TypedDict, total=False):
@@ -92,7 +92,11 @@ class ModelCostService:
 
     def get_limits(self, model: str) -> ModelLimits:
         self._ensure_fresh()
-        return self._limits.get(model, DEFAULT_LIMITS)
+        limits = self._limits.get(model)
+        if limits is None:
+            logger.warning("model_not_found_in_cost_map", model=model)
+            return DEFAULT_LIMITS
+        return limits
 
     def get_costs(self, model: str) -> ModelCost | None:
         self._ensure_fresh()

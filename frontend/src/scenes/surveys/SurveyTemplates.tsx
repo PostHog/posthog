@@ -32,7 +32,7 @@ export const scene: SceneExport = {
 interface TemplateCardProps {
     template: SurveyTemplate
     idx: number
-    setSurveyTemplateValues: (values: Partial<NewSurvey>) => void
+    setSurveyTemplateValues?: (values: Partial<NewSurvey>) => void
     reportSurveyTemplateClicked: (templateType: SurveyTemplateType) => void
     surveyAppearance: SurveyAppearance
     handleTemplateClick: (template: SurveyTemplate) => void

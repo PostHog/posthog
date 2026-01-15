@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn test_cohorts_weight_single_cohort() {
         let cohort = create_test_cohort(Some(serde_json::json!({"key": "value"})));
-        let weight = cohorts_weight(&[cohort.clone()]);
+        let weight = cohorts_weight(std::slice::from_ref(&cohort));
 
         assert!(weight > 0, "Single cohort should have non-zero weight");
         assert_eq!(
@@ -219,8 +219,8 @@ mod tests {
             "nested": {"deep": {"values": ["a", "b", "c", "d", "e"]}}
         })));
 
-        let small_weight = cohorts_weight(&[small.clone()]);
-        let large_weight = cohorts_weight(&[large.clone()]);
+        let small_weight = cohorts_weight(std::slice::from_ref(&small));
+        let large_weight = cohorts_weight(std::slice::from_ref(&large));
         let combined_weight = cohorts_weight(&[small, large]);
 
         assert_eq!(
@@ -241,7 +241,7 @@ mod tests {
         });
 
         let large_cohort = create_test_cohort(Some(large_filters));
-        let single_weight = cohorts_weight(&[large_cohort.clone()]);
+        let single_weight = cohorts_weight(std::slice::from_ref(&large_cohort));
 
         // Create many cohorts - weight should not overflow
         let many_cohorts: Vec<Cohort> = (0..10000).map(|_| large_cohort.clone()).collect();

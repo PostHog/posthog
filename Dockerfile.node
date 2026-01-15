@@ -8,7 +8,7 @@
 #
 # Build stage: Compile nodejs and dependencies
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.22.0 AS nodejs-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.91-node_22.22.0 AS nodejs-build
 
 # Compile and install system dependencies
 # Add Confluent's client repository for librdkafka 2.10.1
@@ -108,6 +108,7 @@ USER posthog
 # Add the commit hash
 ARG COMMIT_HASH
 RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
+
 
 # Add in the compiled nodejs & its runtime dependencies from the build stage
 COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
