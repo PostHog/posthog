@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.db.models import CharField, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
+from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
@@ -524,11 +524,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @staticmethod
     def _delete_related_tiles(instance: Dashboard, delete_related_insights: bool) -> None:
         if delete_related_insights:
+            tiles_with_counts = instance.tiles.select_related("insight").annotate(
+                insight_tile_count=Count("insight__dashboard_tiles")
+            )
+
             insights_to_update = []
-            for insight in Insight.objects.filter(dashboard_tiles__dashboard=instance.id):
-                if insight.dashboard_tiles.count() == 1:
-                    insight.deleted = True
-                    insights_to_update.append(insight)
+            for tile in tiles_with_counts:
+                if tile.insight and tile.insight_tile_count == 1:
+                    tile.insight.deleted = True
+                    insights_to_update.append(tile.insight)
 
             Insight.objects.bulk_update(insights_to_update, ["deleted"])
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
