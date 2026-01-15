@@ -1,4 +1,4 @@
-import { useActions, useAsyncActions, useMountedLogic, useValues } from 'kea'
+import { useAsyncActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconEllipsis, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
@@ -170,12 +170,11 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
         sortedMembers,
     } = useValues(resourcesAccessControlLogic)
 
-    const { updateAccessControlDefault } = useActions(accessControlLogic(projectAccessControlProps))
-    const { updateAccessControlMembers, updateAccessControlRoles } = useAsyncActions(
+    const { updateAccessControlDefault, updateAccessControlMembers, updateAccessControlRoles } = useAsyncActions(
         accessControlLogic(projectAccessControlProps)
     )
 
-    const { updateResourceAccessControls } = useActions(resourcesAccessControlLogic)
+    const { updateResourceAccessControls } = useAsyncActions(resourcesAccessControlLogic)
 
     const canUseRoles = hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS)
 
@@ -812,7 +811,7 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
 
         if (isProjectRule) {
             if (params.scopeType === 'default') {
-                updateAccessControlDefault(params.level)
+                await updateAccessControlDefault(params.level)
                 return
             }
             if (params.scopeType === 'role' && params.scopeId) {
