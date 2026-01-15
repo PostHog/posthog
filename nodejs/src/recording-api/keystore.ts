@@ -6,15 +6,14 @@ import { LRUCache } from 'lru-cache'
 import { RetentionService } from '../session-recording/retention/retention-service'
 import { TeamService } from '../session-recording/teams/team-service'
 import { RedisPool } from '../types'
-import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { isCloud } from '../utils/env-utils'
 import { parseJSON } from '../utils/json-parse'
 
 const KEYS_TABLE_NAME = 'session-recording-keys'
 const CACHE_KEY_PREFIX = 'recording-key'
 const REDIS_CACHE_TTL_SECONDS = 60 * 60 * 24 // 24 hours
-const MEMORY_CACHE_MAX_SIZE = 100_000
-const MEMORY_CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
+const MEMORY_CACHE_MAX_SIZE = 1_000_000
+const MEMORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 export interface SessionKey {
     plaintextKey: Buffer
@@ -28,7 +27,7 @@ export abstract class BaseKeyStore {
     abstract generateKey(sessionId: string, teamId: number): Promise<SessionKey>
     abstract getKey(sessionId: string, teamId: number): Promise<SessionKey>
     abstract deleteKey(sessionId: string, teamId: number): Promise<boolean>
-    abstract destroy(): Promise<void>
+    abstract destroy(): void
 }
 
 export class PassthroughKeyStore extends BaseKeyStore {
@@ -58,28 +57,28 @@ export class PassthroughKeyStore extends BaseKeyStore {
         return Promise.resolve(true)
     }
 
-    destroy(): Promise<void> {
-        return Promise.resolve()
-    }
+    destroy(): void {}
 }
 
 export class KeyStore extends BaseKeyStore {
-    // In-memory LRU cache to avoid hitting Redis for every operation
+    // In-memory LRU cache to avoid hitting DynamoDB/Redis for every operation
     // Since Kafka partitions by session ID, the same session always hits the same consumer
     private readonly memoryCache: LRUCache<string, SessionKey>
+    private readonly redisCacheEnabled: boolean
 
     constructor(
-        private redisPool: RedisPool,
         private dynamoDBClient: DynamoDBClient,
         private kmsClient: KMSClient,
         private retentionService: RetentionService,
-        private teamService: TeamService
+        private teamService: TeamService,
+        private redisPool?: RedisPool
     ) {
         super()
         this.memoryCache = new LRUCache({
             max: MEMORY_CACHE_MAX_SIZE,
             ttl: MEMORY_CACHE_TTL_MS,
         })
+        this.redisCacheEnabled = !!redisPool
     }
 
     async start(): Promise<void> {
@@ -103,6 +102,10 @@ export class KeyStore extends BaseKeyStore {
     }
 
     private async getRedisCachedKey(sessionId: string, teamId: number): Promise<SessionKey | null> {
+        if (!this.redisCacheEnabled || !this.redisPool) {
+            return null
+        }
+
         const client = await this.redisPool.acquire()
         try {
             const cached = await client.get(this.cacheKey(sessionId, teamId))
@@ -122,6 +125,10 @@ export class KeyStore extends BaseKeyStore {
     }
 
     private async setRedisCachedKey(sessionId: string, teamId: number, key: SessionKey): Promise<void> {
+        if (!this.redisCacheEnabled || !this.redisPool) {
+            return
+        }
+
         const client = await this.redisPool.acquire()
         try {
             const value = JSON.stringify({
@@ -137,6 +144,10 @@ export class KeyStore extends BaseKeyStore {
     }
 
     private async deleteRedisCachedKey(sessionId: string, teamId: number): Promise<void> {
+        if (!this.redisCacheEnabled || !this.redisPool) {
+            return
+        }
+
         const client = await this.redisPool.acquire()
         try {
             await client.del(this.cacheKey(sessionId, teamId))
@@ -222,7 +233,7 @@ export class KeyStore extends BaseKeyStore {
             }
         }
 
-        // Cache in memory and Redis
+        // Cache in memory and optionally in Redis
         this.setMemoryCachedKey(sessionId, teamId, sessionKey)
         await this.setRedisCachedKey(sessionId, teamId, sessionKey)
 
@@ -236,7 +247,7 @@ export class KeyStore extends BaseKeyStore {
             return memoryCached
         }
 
-        // Check Redis cache next
+        // Check Redis cache next (if enabled)
         const redisCached = await this.getRedisCachedKey(sessionId, teamId)
         if (redisCached) {
             // Populate memory cache for future lookups
@@ -297,7 +308,7 @@ export class KeyStore extends BaseKeyStore {
             }
         }
 
-        // Cache in memory and Redis
+        // Cache in memory and optionally in Redis
         this.setMemoryCachedKey(sessionId, teamId, sessionKey)
         await this.setRedisCachedKey(sessionId, teamId, sessionKey)
 
@@ -317,7 +328,7 @@ export class KeyStore extends BaseKeyStore {
             })
         )
 
-        // Delete from memory cache and Redis cache
+        // Delete from memory cache and optionally from Redis cache
         this.deleteMemoryCachedKey(sessionId, teamId)
         await this.deleteRedisCachedKey(sessionId, teamId)
 
@@ -325,33 +336,31 @@ export class KeyStore extends BaseKeyStore {
         return !!result.Attributes
     }
 
-    async destroy(): Promise<void> {
+    destroy(): void {
         this.kmsClient.destroy()
         this.dynamoDBClient.destroy()
-        await this.redisPool.drain()
-        await this.redisPool.clear()
     }
 }
 
-interface KeyStoreConfig {
-    redisUrl: string
-    redisPoolMinSize: number
-    redisPoolMaxSize: number
+export interface KeyStoreConfig {
+    redisPool?: RedisPool
+    redisCacheEnabled?: boolean
 }
 
-export function getKeyStore(config: KeyStoreConfig, teamService: TeamService, region: string): BaseKeyStore {
+export function getKeyStore(
+    teamService: TeamService,
+    retentionService: RetentionService,
+    region: string,
+    config?: KeyStoreConfig
+): BaseKeyStore {
     if (isCloud()) {
         const kmsClient = new KMSClient({ region })
         const dynamoDBClient = new DynamoDBClient({ region })
-        const redisPool = createRedisPoolFromConfig({
-            connection: { url: config.redisUrl, name: 'session-recording-keystore' },
-            poolMinSize: config.redisPoolMinSize,
-            poolMaxSize: config.redisPoolMaxSize,
-        })
 
-        const retentionService = new RetentionService(redisPool, teamService)
+        // Only pass the Redis pool if caching is explicitly enabled
+        const redisPool = config?.redisCacheEnabled ? config?.redisPool : undefined
 
-        return new KeyStore(redisPool, dynamoDBClient, kmsClient, retentionService, teamService)
+        return new KeyStore(dynamoDBClient, kmsClient, retentionService, teamService, redisPool)
     }
     return new PassthroughKeyStore()
 }

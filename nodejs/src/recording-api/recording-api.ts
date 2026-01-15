@@ -1,8 +1,17 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import express from 'ultimate-express'
 
+import { RetentionService } from '../session-recording/retention/retention-service'
 import { TeamService } from '../session-recording/teams/team-service'
-import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
+import {
+    HealthCheckResult,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    Hub,
+    PluginServerService,
+    RedisPool,
+} from '../types'
+import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { logger } from '../utils/logger'
 import { BaseKeyStore, getKeyStore } from './keystore'
 import { BaseRecordingDecryptor, getBlockDecryptor } from './recording-io'
@@ -17,13 +26,14 @@ export class RecordingApi {
     private s3Client: S3Client | null = null
     private keyStore: BaseKeyStore | null = null
     private decryptor: BaseRecordingDecryptor | null = null
+    private keystoreRedisPool: RedisPool | null = null
 
     constructor(private hub: Hub) {}
 
     public get service(): PluginServerService {
         return {
             id: 'recording-api',
-            onShutdown: async () => await this.stop(),
+            onShutdown: () => Promise.resolve(this.stop()),
             healthcheck: () => this.isHealthy(),
         }
     }
@@ -38,15 +48,25 @@ export class RecordingApi {
         })
 
         const teamService = new TeamService(this.hub.postgres)
-        this.keyStore = getKeyStore(
-            {
-                redisUrl: this.hub.REDIS_URL,
-                redisPoolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
-                redisPoolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
-            },
-            teamService,
-            region
-        )
+        const redisPool = createRedisPoolFromConfig({
+            connection: { url: this.hub.REDIS_URL, name: 'recording-api' },
+            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+        })
+        const retentionService = new RetentionService(redisPool, teamService)
+
+        // Create a separate Redis pool for the keystore cache
+        // Redis caching is enabled for the Recording API to reduce DynamoDB reads
+        this.keystoreRedisPool = createRedisPoolFromConfig({
+            connection: { url: this.hub.REDIS_URL, name: 'recording-api-keystore' },
+            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+        })
+
+        this.keyStore = getKeyStore(teamService, retentionService, region, {
+            redisPool: this.keystoreRedisPool,
+            redisCacheEnabled: true,
+        })
         await this.keyStore.start()
         this.decryptor = getBlockDecryptor(this.keyStore)
         await this.decryptor.start()
@@ -55,9 +75,14 @@ export class RecordingApi {
     async stop(): Promise<void> {
         this.s3Client?.destroy()
         this.s3Client = null
-        await this.keyStore?.destroy()
+        this.keyStore?.destroy()
         this.keyStore = null
         this.decryptor = null
+        if (this.keystoreRedisPool) {
+            await this.keystoreRedisPool.drain()
+            await this.keystoreRedisPool.clear()
+            this.keystoreRedisPool = null
+        }
     }
 
     isHealthy(): HealthCheckResult {
