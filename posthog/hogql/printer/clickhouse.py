@@ -492,7 +492,7 @@ class ClickHousePrinter(HogQLPrinter):
             return None
 
         if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
-            values = [node.right]
+            values: list[ast.Constant] = [node.right]
         elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
             values = []
             for value in node.right.exprs:
