@@ -67,6 +67,7 @@ from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refr
 from posthog.utils import get_crontab, get_instance_region
 
 from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.surveys.backend.tasks import cleanup_stale_recommendations, generate_survey_recommendations_for_all_teams
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -514,4 +515,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="0"),
         deactivate_stale_materializations.s(),
         name="deactivate stale endpoint materializations",
+    )
+
+    # Survey recommendations - generate daily, cleanup weekly
+    sender.add_periodic_task(
+        crontab(hour="6", minute="0"),
+        generate_survey_recommendations_for_all_teams.s(),
+        name="generate survey recommendations for all teams",
+    )
+    sender.add_periodic_task(
+        crontab(day_of_week="sun", hour="7", minute="0"),
+        cleanup_stale_recommendations.s(),
+        name="cleanup stale survey recommendations",
     )
