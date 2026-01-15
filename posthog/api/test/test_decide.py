@@ -774,6 +774,26 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["captureDeadClicks"], True)
 
+    def test_feedback_recording_disabled_by_default(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(response["feedbackRecording"], False)
+
+    def test_feedback_recording_requires_both_opt_ins(self, *args):
+        # Only feedback_recording_opt_in - should be False
+        self._update_team({"feedback_recording_opt_in": True, "session_recording_opt_in": False})
+        response = self._post_decide().json()
+        self.assertEqual(response["feedbackRecording"], False)
+
+        # Only session_recording_opt_in - should be False
+        self._update_team({"feedback_recording_opt_in": False, "session_recording_opt_in": True})
+        response = self._post_decide().json()
+        self.assertEqual(response["feedbackRecording"], False)
+
+        # Both enabled - should be True
+        self._update_team({"feedback_recording_opt_in": True, "session_recording_opt_in": True})
+        response = self._post_decide().json()
+        self.assertEqual(response["feedbackRecording"], True)
+
     def test_conversations_disabled_by_default(self, *args):
         response = self._post_decide().json()
         self.assertEqual(response.get("conversations"), False)
