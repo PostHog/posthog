@@ -1379,9 +1379,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         # With enable_analyzer=0, subqueries in table function arguments aren't constant expressions
         query = "SELECT number from numbers(2 + ifNull((select 2), 1000))"
-        with self.assertRaises(InternalCHQueryError) as e:
+        with self.assertRaises(InternalCHQueryError) as ch_err:
             execute_hogql_query(query, team=self.team)
-        self.assertIn("is not a constant expression", str(e.exception))
+        self.assertIn("is not a constant expression", str(ch_err.exception))
 
         query = "SELECT number from numbers(assumeNotNull(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00')), toDateTime('2012-01-14 23:59:59'))))"
         response = execute_hogql_query(query, team=self.team)
