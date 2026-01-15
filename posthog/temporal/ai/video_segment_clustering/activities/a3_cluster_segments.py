@@ -271,6 +271,7 @@ def _create_single_segment_clusters(
     for i, doc_id in enumerate(noise_segment_ids):
         segment = segment_lookup.get(doc_id)
         if not segment:
+            logger.error(f"Segment not found for document_id: {doc_id}", document_ids=all_segments)
             continue
         new_clusters.append(
             Cluster(

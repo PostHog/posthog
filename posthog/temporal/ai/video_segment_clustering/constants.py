@@ -1,6 +1,7 @@
 """Configuration constants for video segment clustering workflow."""
 
 from datetime import timedelta
+from typing import Literal
 
 from temporalio.common import RetryPolicy
 
@@ -16,7 +17,7 @@ MIN_SEGMENTS_FOR_CLUSTERING = 3
 # Clustering parameters (relaxed for small datasets)
 MIN_CLUSTER_SIZE = 2  # Allow pairs of similar segments to form clusters
 MIN_SAMPLES = 1  # Less conservative - allows more clusters to form
-CLUSTER_SELECTION_METHOD = "leaf"  # Produces more granular clusters
+CLUSTER_SELECTION_METHOD: Literal["leaf", "eom"] = "leaf"  # Produces more granular clusters
 CLUSTER_SELECTION_EPSILON = 0.0  # No epsilon for leaf method
 
 # Task matching threshold (for deduplication)

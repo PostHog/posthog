@@ -45,7 +45,6 @@ Given video segment descriptions grouped as similar issues, determine if this cl
 Mark as NOT actionable if:
 - Normal, expected user behavior (e.g., "User browsed products")
 - Feature request rather than bug/friction (e.g., "User looked for dark mode")
-- Too vague to act on (e.g., "Something went wrong")
 - User error with no product fix (e.g., "User entered wrong password")
 
 Mark as actionable if:
@@ -123,11 +122,9 @@ async def generate_label_for_cluster(
     )
 
     try:
-        label = await _call_llm_to_label_cluster(
-            context=context,
-        )
+        label = await _call_llm_to_label_cluster(context=context)
         return cluster_id, label
-    except:
+    except Exception:
         logger.exception(
             "Failed to generate LLM label for cluster, marking not actionable",
             cluster_id=cluster_id,
