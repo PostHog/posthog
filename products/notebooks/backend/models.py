@@ -38,6 +38,9 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         blank=True,
         related_name="modified_notebooks",
     )
+    kernel_cpu_cores = models.FloatField(null=True, blank=True)
+    kernel_memory_gb = models.FloatField(null=True, blank=True)
+    kernel_idle_timeout_seconds = models.IntegerField(null=True, blank=True)
 
     class Meta:
         unique_together = ("team", "short_id")
@@ -130,3 +133,36 @@ class ResourceNotebook(UUIDTModel):
 
     def __str__(self) -> str:
         return f"Notebook {self.notebook.short_id} -> {self.resource_type} {self.resource}"
+
+
+class KernelRuntime(UUIDTModel):
+    class Backend(models.TextChoices):
+        MODAL = "modal", "modal"
+        DOCKER = "docker", "docker"
+
+    class Status(models.TextChoices):
+        STARTING = "starting", "starting"
+        RUNNING = "running", "running"
+        STOPPED = "stopped", "stopped"
+        DISCARDED = "discarded", "discarded"
+        ERROR = "error", "error"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.SET_NULL, null=True, blank=True)
+    notebook_short_id = models.CharField(max_length=12)
+    user = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(default=timezone.now)
+    status = models.CharField(choices=Status.choices, default=Status.STARTING, max_length=20)
+    backend = models.CharField(choices=Backend.choices, default=Backend.DOCKER, max_length=20)
+    kernel_id = models.CharField(max_length=64, null=True, blank=True)
+    kernel_pid = models.IntegerField(null=True, blank=True)
+    connection_file = models.TextField(null=True, blank=True)
+    sandbox_id = models.CharField(max_length=128, null=True, blank=True)
+    last_error = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_kernelruntime"
+        indexes = [
+            models.Index(fields=["team", "notebook_short_id", "user", "status"]),
+        ]
