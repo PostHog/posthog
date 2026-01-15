@@ -768,6 +768,7 @@ export type ToolbarUserIntent =
     | 'edit-experiment'
     | 'add-product-tour'
     | 'edit-product-tour'
+    | 'preview-product-tour'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -3428,9 +3429,12 @@ export interface ProductTourAppearance {
     whiteLabel?: boolean
     /** defaults to true, auto-set to false for announcements/banners */
     dismissOnClickOutside?: boolean
+    zIndex?: number
 }
 
 export type ProductTourType = 'tour' | 'announcement'
+
+export type ProductTourDisplayFrequency = 'show_once' | 'until_interacted' | 'always'
 
 export interface ProductTourContent {
     type?: ProductTourType
@@ -3439,6 +3443,7 @@ export interface ProductTourContent {
     conditions?: ProductTourDisplayConditions
     /** History of step order changes for funnel analysis */
     step_order_history?: StepOrderVersion[]
+    displayFrequency?: ProductTourDisplayFrequency
 }
 
 export interface ProductTour {
@@ -4004,7 +4009,7 @@ export type HotKey =
     | 'arrowdown'
     | 'arrowup'
     | 'forwardslash'
-
+    | 'delete'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface EventDefinition {
