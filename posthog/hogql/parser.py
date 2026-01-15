@@ -5,15 +5,10 @@ from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeV
 from antlr4.error.ErrorListener import ErrorListener
 from hogql_parser import (
     parse_expr as _parse_expr_cpp,
-    parse_expr_json as _parse_expr_json_cpp,
     parse_full_template_string as _parse_full_template_string_cpp,
-    parse_full_template_string_json as _parse_full_template_string_json_cpp,
     parse_order_expr as _parse_order_expr_cpp,
-    parse_order_expr_json as _parse_order_expr_json_cpp,
     parse_program as _parse_program_cpp,
-    parse_program_json as _parse_program_json_cpp,
     parse_select as _parse_select_cpp,
-    parse_select_json as _parse_select_json_cpp,
 )
 from opentelemetry import trace
 from prometheus_client import Histogram
@@ -67,12 +62,17 @@ RULE_TO_PARSE_FUNCTION: dict[
         "full_template_string": lambda string: _parse_full_template_string_cpp(string),
         "program": lambda string: _parse_program_cpp(string),
     },
+    # Defer imports until the new version of hogql_parser is built and installed.
     "cpp-json": {
-        "expr": lambda string, start: deserialize_ast(_parse_expr_json_cpp(string, is_internal=start is None)),
-        "order_expr": lambda string: deserialize_ast(_parse_order_expr_json_cpp(string)),
-        "select": lambda string: deserialize_ast(_parse_select_json_cpp(string)),
-        "full_template_string": lambda string: deserialize_ast(_parse_full_template_string_json_cpp(string)),
-        "program": lambda string: deserialize_ast(_parse_program_json_cpp(string)),
+        "expr": lambda string, start: deserialize_ast(
+            __import__("hogql_parser").parse_expr_json(string, is_internal=start is None)
+        ),
+        "order_expr": lambda string: deserialize_ast(__import__("hogql_parser").parse_order_expr_json(string)),
+        "select": lambda string: deserialize_ast(__import__("hogql_parser").parse_select_json(string)),
+        "full_template_string": lambda string: deserialize_ast(
+            __import__("hogql_parser").parse_full_template_string_json(string)
+        ),
+        "program": lambda string: deserialize_ast(__import__("hogql_parser").parse_program_json(string)),
     },
 }
 
@@ -85,13 +85,15 @@ RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_s
     for rule in ("expr", "order_expr", "select", "full_template_string")
 }
 
+DEFAULT_BACKEND: HogQLParserBackend = "cpp"
+
 
 def parse_string_template(
     string: str,
     placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = "cpp",
+    backend: HogQLParserBackend = DEFAULT_BACKEND,
 ) -> ast.Call:
     """Parse a full template string without start/end quotes"""
     if timings is None:
@@ -111,7 +113,7 @@ def parse_expr(
     start: int | None = 0,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = "cpp",
+    backend: HogQLParserBackend = DEFAULT_BACKEND,
 ) -> ast.Expr:
     if expr == "":
         raise SyntaxError("Empty query")
@@ -131,7 +133,7 @@ def parse_order_expr(
     placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = "cpp",
+    backend: HogQLParserBackend = DEFAULT_BACKEND,
 ) -> ast.OrderExpr:
     if timings is None:
         timings = HogQLTimings()
@@ -149,7 +151,7 @@ def parse_select(
     placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = "cpp",
+    backend: HogQLParserBackend = DEFAULT_BACKEND,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     if timings is None:
         timings = HogQLTimings()
@@ -169,7 +171,7 @@ def parse_program(
     source: str,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = "cpp",
+    backend: HogQLParserBackend = DEFAULT_BACKEND,
 ) -> ast.Program:
     if timings is None:
         timings = HogQLTimings()
