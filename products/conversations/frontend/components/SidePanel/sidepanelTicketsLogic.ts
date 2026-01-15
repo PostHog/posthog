@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
-import type { ConversationMessage, ConversationTicket, SidePanelViewState } from '../../types'
+import type { ChatMessage, ConversationMessage, ConversationTicket, SidePanelViewState } from '../../types'
 import type { sidepanelTicketsLogicType } from './sidepanelTicketsLogicType'
 
 export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
@@ -18,7 +18,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         loadTickets: true,
         setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
         loadMessages: (ticketId: string) => ({ ticketId }),
-        setMessages: (messages: ConversationMessage[]) => ({ messages }),
+        setMessages: (messages: ChatMessage[]) => ({ messages }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
@@ -42,7 +42,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             },
         ],
         messages: [
-            [] as ConversationMessage[],
+            [] as ChatMessage[],
             {
                 setMessages: (_, { messages }) => messages,
             },
@@ -102,7 +102,16 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             try {
                 const response = await posthog.conversations.getMessages(ticketId)
                 if (response) {
-                    actions.setMessages(response.messages as ConversationMessage[])
+                    const transformedMessages: ChatMessage[] = (response.messages as ConversationMessage[]).map(
+                        (msg) => ({
+                            id: msg.id,
+                            content: msg.content,
+                            authorType: msg.author_type,
+                            authorName: msg.author_name || '',
+                            createdAt: msg.created_at,
+                        })
+                    )
+                    actions.setMessages(transformedMessages)
                     actions.setHasMoreMessages(response.has_more)
                 }
             } catch (e) {
