@@ -442,9 +442,9 @@ class ClickHousePrinter(HogQLPrinter):
             return None
 
         materialized_column_sql = str(property_source)
-        pattern_sql = self.visit(pattern_expr)
 
         if property_source.is_nullable:
+            pattern_sql = self.visit(pattern_expr)
             if node.op == ast.CompareOperationOp.Like:
                 # We include IS NOT NULL because we want to return FALSE rather than NULL if the column is NULL,
                 # and prefer this to wrapping in ifNull because it allows skip index usage.
@@ -457,6 +457,7 @@ class ClickHousePrinter(HogQLPrinter):
             # regular code path handle it, which handles this case
             if any(like_matches(pattern_expr.value, s) for s in MAT_COL_NULL_SENTINELS):
                 return None
+            pattern_sql = self.visit(pattern_expr)
 
             # For non-nullable columns with non-sentinel patterns, use raw column for performance
             if node.op == ast.CompareOperationOp.Like:
