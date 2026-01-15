@@ -56,11 +56,9 @@ class TestParsePersonProperties:
         assert result == {}
 
     def test_handles_empty_json_array_string(self):
-        """Should return empty dict for JSON array (falsy when parsed)."""
+        """Should return empty dict for JSON array."""
         result = parse_person_properties("[]", "person123")
 
-        # Empty array is truthy in Python, so it should be returned as-is
-        # But since we have `or {}`, it should return empty dict
         assert result == {}
 
     def test_handles_json_false_string(self):
