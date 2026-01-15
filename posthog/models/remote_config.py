@@ -260,6 +260,9 @@ class RemoteConfig(UUIDTModel):
                 config["sessionRecording"] = False
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
+        config["feedbackRecording"] = (
+            True if team.feedback_recording_opt_in and team.session_recording_opt_in else False
+        )
 
         # MARK: Conversations
         if team.conversations_enabled:

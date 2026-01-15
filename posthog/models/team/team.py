@@ -416,6 +416,9 @@ class Team(UUIDTClassicModel):
     # Product tours
     product_tours_opt_in = models.BooleanField(null=True, blank=True)
 
+    # Feedback recording
+    feedback_recording_opt_in = models.BooleanField(null=True, blank=True)
+
     # Capture / Autocapture
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)

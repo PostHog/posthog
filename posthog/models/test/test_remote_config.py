@@ -1,7 +1,6 @@
 from decimal import Decimal
 from typing import Any
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -133,6 +132,32 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.save()
         self.sync_remote_config()
         assert self.remote_config.config["autocaptureExceptions"]
+
+    def test_feedback_recording_disabled_by_default(self):
+        self.sync_remote_config()
+        assert self.remote_config.config.get("feedbackRecording") is False
+
+    def test_feedback_recording_requires_both_opt_ins(self):
+        # Only feedback_recording_opt_in - should be False
+        self.team.feedback_recording_opt_in = True
+        self.team.session_recording_opt_in = False
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["feedbackRecording"] is False
+
+        # Only session_recording_opt_in - should be False
+        self.team.feedback_recording_opt_in = False
+        self.team.session_recording_opt_in = True
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["feedbackRecording"] is False
+
+        # Both enabled - should be True
+        self.team.feedback_recording_opt_in = True
+        self.team.session_recording_opt_in = True
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["feedbackRecording"] is True
 
     def test_conversations_disabled_by_default(self):
         self.sync_remote_config()
@@ -535,6 +560,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                 "suppressionRules": [],
             },
             "heatmaps": False,
+            "feedbackRecording": False,
             "logs": {
                 "captureConsoleLogs": False,
             },

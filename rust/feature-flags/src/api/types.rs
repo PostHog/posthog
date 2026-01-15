@@ -139,6 +139,7 @@ impl ConfigResponse {
             "sessionRecording": false,
             "surveys": false,
             "heatmaps": false,
+            "feedbackRecording": false,
             "capturePerformance": false,
             "autocaptureExceptions": false,
             "isAuthenticated": false,
