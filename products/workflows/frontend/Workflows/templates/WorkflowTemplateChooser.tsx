@@ -18,8 +18,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import BlankWorkflowHog from 'public/blank-dashboard-hog.png'
 
-import type { HogFlowTemplate } from './hogflows/types'
-import { newWorkflowLogic } from './newWorkflowLogic'
+import type { HogFlowTemplate } from '../hogflows/types'
+import { newWorkflowLogic } from '../newWorkflowLogic'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
 // Adapted from DashboardTemplateChooser.tsx; try to keep parity for a consistent user experience

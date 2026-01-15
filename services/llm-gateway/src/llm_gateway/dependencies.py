@@ -99,7 +99,13 @@ async def enforce_throttles(
     if body:
         try:
             data: dict[str, Any] = json.loads(body)
-            max_output_tokens = data.get("max_tokens")
+            # HOTFIX: Don't reserve output tokens for streaming requests.
+            # Streaming doesn't release reservations after completion, causing
+            # rapid rate limit exhaustion. Disable until proper fix is implemented.
+            # TODO: Extract actual output tokens from stream and release properly.
+            is_streaming = data.get("stream", False)
+            if not is_streaming:
+                max_output_tokens = data.get("max_tokens")
 
             if model and "messages" in data:
                 token_counter = getattr(request.app.state, "token_counter", None)

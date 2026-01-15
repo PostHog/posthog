@@ -9,8 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionTemplateType } from '~/types'
 
-import { HogFlow, HogFlowAction } from './hogflows/types'
-import { workflowLogic } from './workflowLogic'
+import { HogFlow, HogFlowAction } from '../hogflows/types'
+import { workflowLogic } from '../workflowLogic'
 import { workflowTemplateLogic } from './workflowTemplateLogic'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 

@@ -14,6 +14,8 @@ import {
 } from 'kea'
 import posthog from 'posthog-js'
 
+import { LemonMenuItems } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 import { hashCodeForString } from 'lib/utils'
@@ -101,6 +103,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setExpanded: (expanded: boolean) => ({ expanded }),
         setResizeable: (resizeable: boolean) => ({ resizeable }),
         setActions: (actions: (NotebookNodeAction | undefined)[]) => ({ actions }),
+        setMenuItems: (menuItems: LemonMenuItems | null) => ({ menuItems }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
@@ -166,6 +169,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             [] as NotebookNodeAction[],
             {
                 setActions: (_, { actions }) => actions.filter((x) => !!x) as NotebookNodeAction[],
+            },
+        ],
+        customMenuItems: [
+            null as LemonMenuItems | null,
+            {
+                setMenuItems: (_, { menuItems }) => menuItems,
             },
         ],
         messageListeners: [

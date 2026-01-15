@@ -3320,6 +3320,20 @@ export type ProductTourProgressionTriggerType = 'button' | 'click'
 
 export type ProductTourStepType = 'element' | 'modal' | 'survey'
 
+export type ProductTourButtonAction = 'dismiss' | 'link'
+
+export interface ProductTourStepButton {
+    text: string
+    action: ProductTourButtonAction
+    /** URL to open when action is 'link' */
+    link?: string
+}
+
+export interface ProductTourStepButtons {
+    primary?: ProductTourStepButton
+    secondary?: ProductTourStepButton
+}
+
 /** Preset width options for product tour tooltips */
 export type ProductTourStepWidth = 'compact' | 'default' | 'wide' | 'extra-wide'
 
@@ -3356,6 +3370,8 @@ export interface ProductTourStep {
     screenshotMediaId?: string
     /** enhanced element data for more reliable lookup at runtime */
     inferenceData?: InferredSelector
+    /** Button configuration for tour steps (modals / announcements) */
+    buttons?: ProductTourStepButtons
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
