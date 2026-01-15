@@ -37,6 +37,7 @@ import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -92,11 +93,11 @@ function TraceNavigation(): JSX.Element {
     const { trace } = useValues(llmAnalyticsTraceDataLogic)
 
     // Load neighbors when trace data is available with its timestamp
-    useEffect(() => {
+    useOnMountEffect(() => {
         if (traceId && trace?.createdAt) {
             loadNeighbors(traceId, trace.createdAt)
         }
-    }, [traceId, trace?.createdAt])
+    })
 
     // In PostHog, lists are descending (newest first), so:
     // - "Next" (n) = next row in list = older trace = prevTraceId (time-wise)
