@@ -1,18 +1,9 @@
-import { Menu } from '@base-ui/react/menu'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef, useState } from 'react'
 
-import {
-    IconChevronRight,
-    IconClock,
-    IconDatabase,
-    IconPeople,
-    IconPlusSmall,
-    IconSidebarClose,
-    IconSidebarOpen,
-} from '@posthog/icons'
+import { IconChevronRight, IconPlusSmall, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
@@ -31,26 +22,16 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AppsMenu } from '~/layout/panel-layout/ai-first/AppsMenu'
 import { ConversationsMenu } from '~/layout/panel-layout/ai-first/ConversationsMenu'
 import { RecentConversationsList } from '~/layout/panel-layout/ai-first/RecentConversationsList'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
-import { ActivityTab } from '~/types'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
 import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-
-const menuTriggerStyles =
-    'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover data-[popup-open]:bg-fill-button-tertiary-hover w-full'
-const menuPopupStyles =
-    'primitive-menu-content min-w-[200px] z-[var(--z-popover)] outline-none origin-[var(--transform-origin)]'
-const menuItemStyles =
-    'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover outline-none data-[highlighted]:bg-fill-button-tertiary-hover'
-const submenuTriggerStyles =
-    'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover outline-none data-[highlighted]:bg-fill-button-tertiary-hover data-[popup-open]:bg-fill-button-tertiary-hover'
+import { DataMenu } from './ai-first/DataMenu'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -171,115 +152,7 @@ export function AiFirstNavBar(): JSX.Element {
 
                                     <div className="flex flex-col gap-px w-full">
                                         {/* Data Menu */}
-                                        <Menu.Root>
-                                            <Menu.Trigger className={menuTriggerStyles}>
-                                                <IconDatabase className="size-4 text-secondary" />
-                                                {!isLayoutNavCollapsed && (
-                                                    <>
-                                                        <span className="flex-1 text-left">Data</span>
-                                                        <IconChevronRight className="size-3 text-secondary" />
-                                                    </>
-                                                )}
-                                            </Menu.Trigger>
-                                            <Menu.Portal>
-                                                <Menu.Positioner
-                                                    className={menuPopupStyles}
-                                                    side="right"
-                                                    align="start"
-                                                    sideOffset={6}
-                                                    alignOffset={-4}
-                                                >
-                                                    <Menu.Popup className="primitive-menu-content-inner flex flex-col gap-px p-1">
-                                                        <Menu.Item
-                                                            className={menuItemStyles}
-                                                            onClick={() =>
-                                                                router.actions.push(
-                                                                    urls.activity(ActivityTab.ExploreEvents)
-                                                                )
-                                                            }
-                                                        >
-                                                            <IconClock className="size-4 text-secondary" />
-                                                            Activity
-                                                        </Menu.Item>
-                                                        <Menu.Item
-                                                            className={menuItemStyles}
-                                                            onClick={() => router.actions.push(urls.persons())}
-                                                        >
-                                                            <IconPeople className="size-4 text-secondary" />
-                                                            Persons
-                                                        </Menu.Item>
-
-                                                        {/* Data management submenu */}
-                                                        <Menu.SubmenuRoot>
-                                                            <Menu.SubmenuTrigger className={submenuTriggerStyles}>
-                                                                {iconForType('data_warehouse')}
-                                                                <span className="flex-1">Data management</span>
-                                                                <IconChevronRight className="size-3 text-secondary" />
-                                                            </Menu.SubmenuTrigger>
-                                                            <Menu.Portal>
-                                                                <Menu.Positioner
-                                                                    className={menuPopupStyles}
-                                                                    alignOffset={-4}
-                                                                >
-                                                                    <Menu.Popup className="primitive-menu-content-inner flex flex-col gap-px p-1">
-                                                                        <Menu.Item
-                                                                            className={menuItemStyles}
-                                                                            onClick={() =>
-                                                                                router.actions.push(
-                                                                                    urls.eventDefinitions()
-                                                                                )
-                                                                            }
-                                                                        >
-                                                                            {iconForType('event_definition')}
-                                                                            Events
-                                                                        </Menu.Item>
-                                                                        <Menu.Item
-                                                                            className={menuItemStyles}
-                                                                            onClick={() =>
-                                                                                router.actions.push(
-                                                                                    urls.propertyDefinitions()
-                                                                                )
-                                                                            }
-                                                                        >
-                                                                            {iconForType('property_definition')}
-                                                                            Properties
-                                                                        </Menu.Item>
-                                                                        <Menu.Item
-                                                                            className={menuItemStyles}
-                                                                            onClick={() =>
-                                                                                router.actions.push(urls.annotations())
-                                                                            }
-                                                                        >
-                                                                            {iconForType('annotation')}
-                                                                            Annotations
-                                                                        </Menu.Item>
-                                                                        <Menu.Item
-                                                                            className={menuItemStyles}
-                                                                            onClick={() =>
-                                                                                router.actions.push(
-                                                                                    urls.dataManagementHistory()
-                                                                                )
-                                                                            }
-                                                                        >
-                                                                            <IconClock className="size-4 text-secondary" />
-                                                                            History
-                                                                        </Menu.Item>
-                                                                    </Menu.Popup>
-                                                                </Menu.Positioner>
-                                                            </Menu.Portal>
-                                                        </Menu.SubmenuRoot>
-
-                                                        <Menu.Item
-                                                            className={menuItemStyles}
-                                                            onClick={() => router.actions.push(urls.groups(0))}
-                                                        >
-                                                            {iconForType('group')}
-                                                            Groups
-                                                        </Menu.Item>
-                                                    </Menu.Popup>
-                                                </Menu.Positioner>
-                                            </Menu.Portal>
-                                        </Menu.Root>
+                                        <DataMenu />
 
                                         {/* Apps Menu */}
                                         <AppsMenu isCollapsed={isLayoutNavCollapsed} />

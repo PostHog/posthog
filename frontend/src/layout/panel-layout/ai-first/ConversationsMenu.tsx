@@ -26,11 +26,6 @@ import { urls } from 'scenes/urls'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { ConversationDetail, ConversationStatus } from '~/types'
 
-const menuTriggerStyles =
-    'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover data-[popup-open]:bg-fill-button-tertiary-hover w-full'
-const menuItemStyles =
-    'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover outline-none data-[highlighted]:bg-fill-button-tertiary-hover'
-
 function ConversationContextMenu({
     conversation,
     onClick,
@@ -146,7 +141,6 @@ export function ConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JS
             autoHighlight
         >
             <Combobox.Trigger
-                className={menuTriggerStyles}
                 render={
                     <ButtonPrimitive
                         iconOnly={isCollapsed}
@@ -157,6 +151,8 @@ export function ConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JS
                         }
                         tooltipPlacement="right"
                         onClick={() => setOpen(!open)}
+                        menuItem={!isCollapsed}
+                        className="hidden lg:flex"
                     >
                         <IconEllipsis className="size-4 text-secondary" />
                         {!isCollapsed && (
@@ -222,7 +218,6 @@ export function ConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JS
                                                                         active:
                                                                             conversation.id === currentConversationId,
                                                                         menuItem: true,
-                                                                        className: menuItemStyles,
                                                                     }}
                                                                     tooltip={conversation.title}
                                                                     tooltipPlacement="right"

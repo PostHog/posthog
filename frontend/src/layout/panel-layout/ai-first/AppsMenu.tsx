@@ -29,8 +29,6 @@ import { SessionReplayMenuItems } from '~/layout/panel-layout/ProjectTree/menus/
 import { getTreeItemsProducts } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-const menuTriggerStyles =
-    'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover data-[popup-open]:bg-fill-button-tertiary-hover w-full'
 const menuItemStyles =
     'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover outline-none data-[highlighted]:bg-fill-button-tertiary-hover'
 
@@ -143,7 +141,7 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
                         }
                         tooltipPlacement="right"
                         menuItem
-                        className={cn('hidden lg:flex', menuTriggerStyles)}
+                        className="hidden lg:flex"
                         onClick={() => setOpen(!open)}
                     >
                         <IconApps className="size-4 text-secondary" />
@@ -198,20 +196,27 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
                                                             router.actions.push(product.href || '#')
                                                             setOpen(false)
                                                         }}
-                                                    >
-                                                        {iconForType(product.iconType)}
-                                                        <span className="flex-1">{product.path}</span>
-                                                        {product.tags?.includes('beta') && (
-                                                            <LemonTag type="highlight" size="small">
-                                                                BETA
-                                                            </LemonTag>
-                                                        )}
-                                                        {product.tags?.includes('alpha') && (
-                                                            <LemonTag type="completion" size="small">
-                                                                ALPHA
-                                                            </LemonTag>
-                                                        )}
-                                                    </Combobox.Item>
+                                                        render={
+                                                            <ButtonPrimitive
+                                                                iconOnly={isCollapsed}
+                                                                menuItem={!isCollapsed}
+                                                                className="hidden lg:flex"
+                                                            >
+                                                                {iconForType(product.iconType)}
+                                                                <span className="flex-1">{product.path}</span>
+                                                                {product.tags?.includes('beta') && (
+                                                                    <LemonTag type="highlight" size="small">
+                                                                        BETA
+                                                                    </LemonTag>
+                                                                )}
+                                                                {product.tags?.includes('alpha') && (
+                                                                    <LemonTag type="completion" size="small">
+                                                                        ALPHA
+                                                                    </LemonTag>
+                                                                )}
+                                                            </ButtonPrimitive>
+                                                        }
+                                                    />
                                                 </ProductContextMenu>
                                             )}
                                         </Combobox.Collection>

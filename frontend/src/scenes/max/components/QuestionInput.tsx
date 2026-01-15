@@ -130,7 +130,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <div className="relative w-full">
                                 {!question && (
-                                    <div id="textarea-hint" className="text-secondary absolute top-4 left-4 text-sm">
+                                    <div
+                                        id="textarea-hint"
+                                        className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
+                                    >
                                         {conversation && isSharedThread ? (
                                             `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
                                         ) : threadLoading ? (
