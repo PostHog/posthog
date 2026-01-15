@@ -1,5 +1,6 @@
 import math
 import hashlib
+from datetime import timedelta
 from typing import Any, Optional
 
 from django.db import transaction
@@ -199,6 +200,18 @@ class NotebookKernelExecuteSerializer(serializers.Serializer):
     code = serializers.CharField(allow_blank=True)
     return_variables = serializers.BooleanField(default=True)
     timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
+
+
+class NotebookKernelDataframeSerializer(serializers.Serializer):
+    variable_name = serializers.CharField()
+    offset = serializers.IntegerField(default=0, min_value=0)
+    limit = serializers.IntegerField(default=10, min_value=1, max_value=500)
+    timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
+
+    def validate_variable_name(self, value: str) -> str:
+        if not value.isidentifier():
+            raise serializers.ValidationError("Variable name must be a valid identifier.")
+        return value
 
 
 ALLOWED_KERNEL_CPU_CORES = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
@@ -486,9 +499,19 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             except Exception:
                 status = KernelRuntime.Status.STOPPED
 
-        if runtime and status == KernelRuntime.Status.STOPPED and runtime.status != KernelRuntime.Status.STOPPED:
-            runtime.status = KernelRuntime.Status.STOPPED
-            runtime.save(update_fields=["status"])
+        if runtime and status == KernelRuntime.Status.STOPPED:
+            if (
+                runtime.backend == KernelRuntime.Backend.MODAL
+                and runtime.status in (KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING)
+                and runtime.last_used_at
+                and sandbox_config.ttl_seconds
+                and now() >= runtime.last_used_at + timedelta(seconds=sandbox_config.ttl_seconds)
+            ):
+                status = KernelRuntime.Status.TIMED_OUT
+
+            if runtime.status != status:
+                runtime.status = status
+                runtime.save(update_fields=["status"])
 
         return Response(
             {
@@ -558,6 +581,34 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to execute notebook code."}, status=503)
 
         return Response(execution.as_dict())
+
+    @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
+    def kernel_dataframe(self, request: Request, **kwargs):
+        serializer = NotebookKernelDataframeSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        try:
+            data = get_kernel_runtime(notebook, self._current_user()).dataframe_page(
+                serializer.validated_data["variable_name"],
+                offset=serializer.validated_data["offset"],
+                limit=serializer.validated_data["limit"],
+                timeout=serializer.validated_data.get("timeout"),
+            )
+        except ValueError:
+            logger.exception(
+                "notebook_kernel_dataframe_invalid_request",
+                notebook_short_id=notebook.short_id,
+            )
+            return Response({"detail": "Invalid dataframe request."}, status=400)
+        except SandboxProvisionError:
+            logger.exception("notebook_kernel_dataframe_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to fetch dataframe data."}, status=503)
+        except RuntimeError:
+            logger.exception("notebook_kernel_dataframe_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to fetch dataframe data."}, status=503)
+
+        return Response(data)
 
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):
