@@ -599,6 +599,18 @@ class KernelRuntimeService:
             "        return _duckdb_connection.execute(sql).df()\n"
             "    return _duckdb_connection.execute(sql, parameters).df()\n"
             "\n"
+            "def duck_save_table(name: str, data: Any) -> None:\n"
+            "    if not name:\n"
+            "        return\n"
+            '    temp_name = f"__notebook_{name}"\n'
+            "    table_identifier = f'\"{name}\"'\n"
+            "    temp_identifier = f'\"{temp_name}\"'\n"
+            "    _duckdb_connection.register(temp_name, data)\n"
+            "    _duckdb_connection.execute(\n"
+            '        f"CREATE OR REPLACE TABLE {table_identifier} AS SELECT * FROM {temp_identifier}"\n'
+            "    )\n"
+            "    _duckdb_connection.unregister(temp_name)\n"
+            "\n"
             "_HOGQL_ENDPOINT = _bootstrap_payload['api_url']\n"
             "_HOGQL_TOKEN = _bootstrap_payload['hogql_token']\n"
             "\n"

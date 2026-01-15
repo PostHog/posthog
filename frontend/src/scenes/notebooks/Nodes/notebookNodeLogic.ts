@@ -78,7 +78,12 @@ const resolveDuckSqlReturnVariable = (returnVariable: string): string => {
 const buildDuckSqlCode = (code: string, returnVariable: string): string => {
     const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
     const sqlLiteral = JSON.stringify(code ?? '')
-    return `${resolvedReturnVariable} = duck_execute(${sqlLiteral})\n${resolvedReturnVariable}`
+    const tableNameLiteral = JSON.stringify(resolvedReturnVariable)
+    return (
+        `${resolvedReturnVariable} = duck_execute(${sqlLiteral})\n` +
+        `duck_save_table(${tableNameLiteral}, ${resolvedReturnVariable})\n` +
+        `${resolvedReturnVariable}`
+    )
 }
 
 const runPythonCell = async ({
