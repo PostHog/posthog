@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 
 import { ProductTourAppearance, ProductTourStep } from '~/types'
 
+import { StepButtonsEditor } from './editor/StepButtonsEditor'
 import { StepContentEditor } from './editor/StepContentEditor'
 import { StepLayoutSettings } from './editor/StepLayoutSettings'
 import { prepareStepForRender } from './editor/generateStepHtml'
@@ -33,7 +34,7 @@ export function AnnouncementContentEditor({ step, appearance, onChange }: Announ
                 totalSteps: 1,
             })
         }
-    }, [step, step?.maxWidth, appearance])
+    }, [step, appearance])
 
     if (!step) {
         return <div>No content</div>
@@ -47,6 +48,11 @@ export function AnnouncementContentEditor({ step, appearance, onChange }: Announ
                     onChange={(content) => updateStep({ content })}
                     placeholder="Type '/' for commands, or start writing your announcement..."
                 />
+
+                <div className="mt-6 pt-6 border-t">
+                    <label className="text-sm font-medium block mb-3">Buttons</label>
+                    <StepButtonsEditor buttons={step.buttons} onChange={(buttons) => updateStep({ buttons })} />
+                </div>
 
                 <div className="mt-6 pt-6 border-t">
                     <StepLayoutSettings step={step} onChange={updateStep} />
