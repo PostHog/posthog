@@ -134,6 +134,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
         query = ast.SelectQuery(
             select=cols,
             select_from=self.join_expr,
+            where=self.rendering_filter_expr,
             group_by=group_by,  # If we got multiple hits for a doc, we take the best one
             order_by=self.order_by,
         )
@@ -151,59 +152,12 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
 
     @property
     def join_expr(self) -> ast.JoinExpr:
-        # This join expression is saying, for every unique combination of product, document type, and document ID,
-        # we want to join the origin table with the universe table on the model name. The OR clause in it is
-        # specifying that, if a given universe document has the same product and document_type as the origin document,
-        # we want to ONLY join like for like renderings, but if the document is from a different product or document_type,
-        # we want to join /across/ renderings (we take the best result later, in the final selects group by)
         constraint = ast.JoinConstraint(
             constraint_type="ON",
-            expr=ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["origin", "model_name"]),
-                        right=ast.Field(chain=["universe", "model_name"]),
-                    ),
-                    ast.Or(
-                        exprs=[
-                            ast.And(
-                                exprs=[
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Eq,
-                                        left=ast.Field(chain=["origin", "product"]),
-                                        right=ast.Field(chain=["universe", "product"]),
-                                    ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Eq,
-                                        left=ast.Field(chain=["origin", "document_type"]),
-                                        right=ast.Field(chain=["universe", "document_type"]),
-                                    ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Eq,
-                                        left=ast.Field(chain=["origin", "rendering"]),
-                                        right=ast.Field(chain=["universe", "rendering"]),
-                                    ),
-                                ]
-                            ),
-                            # If the document type or product is different - compare all renderings
-                            ast.Or(
-                                exprs=[
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.NotEq,
-                                        left=ast.Field(chain=["origin", "product"]),
-                                        right=ast.Field(chain=["universe", "product"]),
-                                    ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.NotEq,
-                                        left=ast.Field(chain=["origin", "document_type"]),
-                                        right=ast.Field(chain=["universe", "document_type"]),
-                                    ),
-                                ]
-                            ),
-                        ]
-                    ),
-                ],
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["origin", "model_name"]),
+                right=ast.Field(chain=["universe", "model_name"]),
             ),
         )
 
@@ -216,6 +170,49 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
                 table=self.universe_select,
                 alias="universe",
             ),
+        )
+
+    @property
+    def rendering_filter_expr(self) -> ast.Expr:
+        # For INNER JOIN, WHERE is equivalent to JOIN ON but compatible with enable_analyzer=0
+        # Logic: if same product and document_type, only match same rendering;
+        # if different product or document_type, match all renderings
+        return ast.Or(
+            exprs=[
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["origin", "product"]),
+                            right=ast.Field(chain=["universe", "product"]),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["origin", "document_type"]),
+                            right=ast.Field(chain=["universe", "document_type"]),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["origin", "rendering"]),
+                            right=ast.Field(chain=["universe", "rendering"]),
+                        ),
+                    ]
+                ),
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.NotEq,
+                            left=ast.Field(chain=["origin", "product"]),
+                            right=ast.Field(chain=["universe", "product"]),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.NotEq,
+                            left=ast.Field(chain=["origin", "document_type"]),
+                            right=ast.Field(chain=["universe", "document_type"]),
+                        ),
+                    ]
+                ),
+            ]
         )
 
     @property
