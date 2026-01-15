@@ -4,3 +4,6 @@ pub mod config;
 pub mod kafka;
 pub mod log_record;
 pub mod service;
+
+#[cfg(test)]
+pub mod tests;
