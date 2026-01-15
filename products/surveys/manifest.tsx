@@ -12,6 +12,7 @@ export const manifest: ProductManifest = {
         /** @param id A UUID or 'new'. ':id' for routing. */
         survey: (id: string): string => `/surveys/${id}`,
         surveyTemplates: (): string => '/survey_templates',
+        surveyWizard: (id: string = 'new'): string => `/surveys/guided/${id}`,
     },
     fileSystemTypes: {
         survey: {

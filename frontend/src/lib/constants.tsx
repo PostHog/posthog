@@ -211,6 +211,7 @@ export const FEATURE_FLAGS = {
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
+    SURVEYS_GUIDED_EDITOR: 'surveys-guided-editor', // owner: #team-surveys, enables the new simplified survey guided editor
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
     WEB_ANALYTICS_API: 'web-analytics-api', // owner: #team-web-analytics
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: #team-web-analytics
@@ -311,6 +312,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_CONVERSATIONS: 'product-conversations', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT: 'product-support', // owner: @veryayskiy #team-conversations
+    PRODUCT_SUPPORT_SIDE_PANEL: 'product-support-side-panel', // owner: @veryayskiy #team-conversations
     ONBOARDING_AI_PRODUCT_RECOMMENDATIONS: 'onboarding-ai-product-recommendations', // owner: @rafaeelaudibert #team-growth, AI-powered product recommendations in onboarding multivariate=control,test
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
     ONBOARDING_TELL_US_MORE_STEP: 'onboarding-tell-us-more-step', // owner: @rafaeelaudibert #team-growth
