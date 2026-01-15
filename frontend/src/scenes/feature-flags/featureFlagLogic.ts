@@ -46,6 +46,7 @@ import {
     Breadcrumb,
     CohortType,
     EarlyAccessFeatureType,
+    FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagStatusResponse,
@@ -86,6 +87,12 @@ export type VariantError = {
     key: string | undefined
 }
 
+export interface DependentFlag {
+    id: number
+    key: string
+    name: string
+}
+
 export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
@@ -115,6 +122,7 @@ export const NEW_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    bucketing_identifier: null,
     evaluation_tags: [],
     _should_create_usage_dashboard: true,
 }
@@ -355,6 +363,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
+            bucketingIdentifier,
+        }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -440,6 +451,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return {
                         ...state,
                         is_remote_configuration: enabled,
+                    }
+                },
+                setBucketingIdentifier: (state, { bucketingIdentifier }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        bucketing_identifier: bucketingIdentifier,
                     }
                 },
                 resetEncryptedPayload: (state) => {
@@ -1110,6 +1131,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return null
             },
         },
+        dependentFlags: [
+            [] as DependentFlag[],
+            {
+                loadDependentFlags: async () => {
+                    const { currentProjectId } = values
+                    if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
+                        const response = await api.create(
+                            `api/projects/${currentProjectId}/feature_flags/${props.id}/has_active_dependents/`,
+                            {}
+                        )
+                        return response.dependent_flags || []
+                    }
+                    return []
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, props, sharedListeners }) => ({
         generateUsageDashboard: async () => {
@@ -1138,6 +1175,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
+            actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
@@ -1215,6 +1253,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         loadFeatureFlagSuccess: async () => {
             actions.loadRelatedInsights()
+            actions.loadDependentFlags()
             // Experiment is now loaded inline during loadFeatureFlag, not here
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
@@ -1258,6 +1297,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
+                actions.setScheduleDateMarker(null)
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.setIsRecurring(false)
                 actions.setRecurrenceInterval(null)
@@ -1599,6 +1639,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setFeatureFlag(formatPayloadsWithFlag)
             actions.loadRelatedInsights()
             actions.loadFeatureFlagStatus()
+            actions.loadDependentFlags()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()

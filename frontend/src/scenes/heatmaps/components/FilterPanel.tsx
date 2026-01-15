@@ -12,7 +12,6 @@ import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
@@ -30,8 +29,8 @@ const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
 }
 
 export function ViewportChooser(): JSX.Element {
-    const { widthOverride } = useValues(heatmapLogic)
-    const { setIframeWidth } = useActions(heatmapLogic)
+    const { widthOverride } = useValues(heatmapDataLogic({ context: 'in-app' }))
+    const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
 
     const options = [
         {
@@ -78,8 +77,8 @@ export function ViewportChooser(): JSX.Element {
             <span>Screen width:</span>
             <LemonSelect
                 size="small"
-                onChange={setIframeWidth}
-                value={widthOverride ? widthOverride : undefined}
+                onChange={setWindowWidthOverride}
+                value={widthOverride}
                 data-attr="viewport-chooser"
                 options={allOptions.map(({ value, icon }) => ({
                     value,
@@ -187,9 +186,7 @@ export function FilterPanel(): JSX.Element {
                         </Popover>
                     </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                    <ViewportChooser />
-                </div>
+                <ViewportChooser />
             </div>
             {heatmapEmpty ? (
                 <LemonBanner type="info" className="mb-2">

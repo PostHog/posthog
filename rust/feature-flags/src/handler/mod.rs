@@ -97,13 +97,13 @@ async fn process_request_inner(
     };
 
     let result = async {
+        // Use the pre-initialized HyperCacheReaders from state (for team and flags)
+        // This avoids per-request AWS SDK initialization overhead
         let flag_service = FlagService::new(
             context.state.redis_client.clone(),
-            context.state.dedicated_redis_client.clone(),
             context.state.database_pools.non_persons_reader.clone(),
-            context.state.config.team_cache_ttl_seconds,
-            context.state.config.flags_cache_ttl_seconds,
-            context.state.config.clone(),
+            context.state.team_hypercache_reader.clone(),
+            context.state.flags_hypercache_reader.clone(),
         );
 
         let (original_distinct_id, verified_token, request) =
@@ -113,8 +113,21 @@ async fn process_request_inner(
             .clone()
             .unwrap_or_else(|| "disabled".to_string());
 
-        // Populate canonical log with distinct_id
-        with_canonical_log(|log| log.distinct_id = Some(distinct_id_for_logging.clone()));
+        // Populate canonical log with distinct_id, device_id, and anon_distinct_id
+        // anon_distinct_id uses same precedence as hash_key_override: top-level > person_properties
+        let anon_distinct_id_for_logging = request.anon_distinct_id.clone().or_else(|| {
+            request
+                .person_properties
+                .as_ref()
+                .and_then(|props| props.get("$anon_distinct_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+        with_canonical_log(|log| {
+            log.distinct_id = Some(distinct_id_for_logging.clone());
+            log.device_id = request.device_id.clone();
+            log.anon_distinct_id = anon_distinct_id_for_logging;
+        });
 
         tracing::debug!(
             "Authentication completed for distinct_id: {}",
@@ -166,14 +179,6 @@ async fn process_request_inner(
             .await?;
 
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
-
-            // Count flags with experience continuity for canonical logging
-            let experience_continuity_count = filtered_flags
-                .flags
-                .iter()
-                .filter(|f| f.ensure_experience_continuity.unwrap_or(false))
-                .count();
-            with_canonical_log(|log| log.flags_experience_continuity = experience_continuity_count);
 
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 

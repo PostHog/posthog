@@ -1,4 +1,4 @@
-import { AnyEntityNode } from '~/queries/schema/schema-general'
+import { AnyEntityNode, GroupNode } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
@@ -8,6 +8,6 @@ export const buildDashboardItemId = (uniqueKey: string): InsightLogicProps['dash
     return `new-AdHoc.customer-analytics.${uniqueKey}`
 }
 
-export function isPageviewWithoutFilters(event: AnyEntityNode): boolean {
+export function isPageviewWithoutFilters(event: AnyEntityNode | GroupNode): boolean {
     return isEventsNode(event) && event.event === '$pageview' && (!event.properties || event.properties.length === 0)
 }

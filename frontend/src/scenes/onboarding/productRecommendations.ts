@@ -1,5 +1,4 @@
 import { ProductKey } from '~/queries/schema/schema-general'
-import { UserRole } from '~/types'
 
 export type UseCaseOption =
     | 'see_user_behavior'
@@ -9,11 +8,6 @@ export type UseCaseOption =
     | 'monitor_ai'
     | 'pick_myself'
 
-export interface RoleRecommendation {
-    role: UserRole
-    banner: string
-}
-
 export interface UseCaseDefinition {
     key: UseCaseOption
     title: string
@@ -21,7 +15,6 @@ export interface UseCaseDefinition {
     iconKey: string
     iconColor: string
     products: readonly ProductKey[]
-    recommendedForRoles: readonly RoleRecommendation[]
 }
 
 // Single source of truth for use case definitions
@@ -35,13 +28,6 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         iconKey: 'IconGraph',
         iconColor: 'rgb(47 128 250)',
         products: [ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY, ProductKey.WEB_ANALYTICS],
-        recommendedForRoles: [
-            { role: UserRole.Marketing, banner: 'Great for marketers' },
-            { role: UserRole.Product, banner: 'Great for product managers' },
-            { role: UserRole.Data, banner: 'Great for data teams' },
-            { role: UserRole.Founder, banner: 'Great for founders' },
-            { role: UserRole.Leadership, banner: 'Great for leadership' },
-        ],
     },
     {
         key: 'fix_issues',
@@ -50,7 +36,6 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         iconKey: 'IconWarning',
         iconColor: 'rgb(235 157 42)',
         products: [ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING],
-        recommendedForRoles: [],
     },
     {
         key: 'launch_features',
@@ -59,10 +44,6 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         iconKey: 'IconToggle',
         iconColor: 'rgb(48 171 198)',
         products: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS],
-        recommendedForRoles: [
-            { role: UserRole.Engineering, banner: 'Great for engineers' },
-            { role: UserRole.Product, banner: 'Great for product managers' },
-        ],
     },
     {
         key: 'collect_feedback',
@@ -71,7 +52,6 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         iconKey: 'IconMessage',
         iconColor: 'rgb(243 84 84)',
         products: [ProductKey.SURVEYS, ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY],
-        recommendedForRoles: [{ role: UserRole.Sales, banner: 'Great for sales & success teams' }],
     },
     {
         key: 'monitor_ai',
@@ -80,32 +60,8 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         iconKey: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         products: [ProductKey.LLM_ANALYTICS, ProductKey.PRODUCT_ANALYTICS],
-        recommendedForRoles: [{ role: UserRole.Engineering, banner: 'Great for AI engineers' }],
     },
 ] as const
-
-export function getRecommendedBanner(useCase: UseCaseDefinition, role: UserRole | null | undefined): string | null {
-    if (!role) {
-        return null
-    }
-
-    const match = useCase.recommendedForRoles.find((r) => r.role === role)
-    return match?.banner ?? null
-}
-
-export function getSortedUseCases(role: UserRole | null | undefined): UseCaseDefinition[] {
-    if (!role) {
-        return [...USE_CASE_OPTIONS]
-    }
-
-    // We should sort matches above non-matches
-    return [...USE_CASE_OPTIONS].sort((a, b) => {
-        const scoreA = a.recommendedForRoles.some((r) => r.role === role) ? 1 : 0
-        const scoreB = b.recommendedForRoles.some((r) => r.role === role) ? 1 : 0
-
-        return scoreB - scoreA
-    })
-}
 
 // 'pick_myself' is handled separately as it has no products or UI representation in the selection list
 

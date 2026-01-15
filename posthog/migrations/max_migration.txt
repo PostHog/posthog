@@ -1,1 +1,1 @@
-0958_drop_teamcoreeventsconfig_table
+0973_alter_integration_kind

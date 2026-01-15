@@ -11,13 +11,14 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogsFilters } from 'products/logs/frontend/components/LogsFilters'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
+import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 
 import { logsLogic } from './logsLogic'
 
 export const scene: SceneExport = {
     component: LogsScene,
     logic: logsLogic,
-    settingSectionId: 'product-logs',
+    settingSectionId: 'environment-logs',
 }
 
 export function LogsScene(): JSX.Element {
@@ -40,8 +41,11 @@ const LogsSceneContent = (): JSX.Element => {
         hasMoreLogsToLoad,
         orderBy,
         sparklineData,
+        sparklineBreakdownBy,
     } = useValues(logsLogic)
-    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange } = useActions(logsLogic)
+    const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
+        useActions(logsLogic)
 
     return (
         <>
@@ -52,6 +56,19 @@ const LogsSceneContent = (): JSX.Element => {
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
             />
+            {teamHasLogsCheckFailed && (
+                <LemonBanner
+                    type="info"
+                    dismissKey="logs-setup-hint-banner"
+                    action={{
+                        to: 'https://posthog.com/docs/logs/',
+                        targetBlank: true,
+                        children: 'Setup guide',
+                    }}
+                >
+                    Unable to verify logs setup. If you haven't configured logging yet, check out our setup guide.
+                </LemonBanner>
+            )}
             <LemonBanner
                 type="warning"
                 dismissKey="logs-beta-banner"
@@ -79,6 +96,8 @@ const LogsSceneContent = (): JSX.Element => {
                     sparklineData={sparklineData}
                     sparklineLoading={sparklineLoading}
                     onDateRangeChange={setDateRange}
+                    sparklineBreakdownBy={sparklineBreakdownBy}
+                    onSparklineBreakdownByChange={setSparklineBreakdownBy}
                 />
             </div>
         </>

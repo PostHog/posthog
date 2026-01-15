@@ -242,10 +242,6 @@ export const workflowLogic = kea<workflowLogicType>([
     })),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
-        isTemplateEditMode: [
-            () => [(_, props: WorkflowLogicProps) => props],
-            (props: WorkflowLogicProps): boolean => !!props.editTemplateId,
-        ],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
         edgesByActionId: [
             (s) => [s.workflow],
@@ -270,8 +266,12 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         actionValidationErrorsById: [
-            (s) => [s.workflow, s.hogFunctionTemplatesById],
-            (workflow, hogFunctionTemplatesById): Record<string, HogFlowActionValidationResult | null> => {
+            (s) => [s.workflow, s.hogFunctionTemplatesById, s.hogFunctionTemplatesByIdLoading],
+            (
+                workflow,
+                hogFunctionTemplatesById,
+                hogFunctionTemplatesByIdLoading
+            ): Record<string, HogFlowActionValidationResult | null> => {
                 return workflow.actions.reduce(
                     (acc, action) => {
                         const result: HogFlowActionValidationResult = {
@@ -317,7 +317,10 @@ export const workflowLogic = kea<workflowLogicType>([
                             }
                         }
 
-                        if (isFunctionAction(action) || isTriggerFunction(action)) {
+                        if (
+                            (isFunctionAction(action) || isTriggerFunction(action)) &&
+                            !hogFunctionTemplatesByIdLoading
+                        ) {
                             const template = hogFunctionTemplatesById[action.config.template_id]
                             if (!template) {
                                 result.valid = false
@@ -349,6 +352,13 @@ export const workflowLogic = kea<workflowLogicType>([
                                     result.valid = false
                                     result.errors = {
                                         scheduled_at: 'A scheduled time is required',
+                                    }
+                                }
+                            } else if (action.config.type === 'batch') {
+                                if (!action.config.filters.properties?.length) {
+                                    result.valid = false
+                                    result.errors = {
+                                        filters: 'At least one property filter is required for batch workflows',
                                     }
                                 }
                             }
@@ -504,7 +514,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 },
             })
         },
-        triggerManualWorkflow: async ({ variables, scheduledAt }) => {
+        triggerManualWorkflow: async ({ variables }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
@@ -512,7 +522,8 @@ export const workflowLogic = kea<workflowLogicType>([
 
             const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
 
-            lemonToast.info(scheduledAt ? 'Scheduling workflow...' : 'Triggering workflow...')
+            const isScheduleTrigger = 'scheduled_at' in (values.workflow.trigger || {})
+            lemonToast.info(isScheduleTrigger ? 'Scheduling workflow...' : 'Triggering workflow...')
 
             try {
                 await fetch(webhookUrl, {
@@ -523,12 +534,11 @@ export const workflowLogic = kea<workflowLogicType>([
                     body: JSON.stringify({
                         user_id: values.user?.email,
                         $variables: variables,
-                        $scheduled_at: scheduledAt,
                     }),
                     credentials: 'omit',
                 })
 
-                lemonToast.success(`Workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
+                lemonToast.success(`Workflow ${isScheduleTrigger ? 'scheduled' : 'triggered'}`, {
                     button: {
                         label: 'View logs',
                         action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
@@ -539,13 +549,25 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
         },
-        triggerBatchWorkflow: async ({}) => {
+        triggerBatchWorkflow: async ({ variables }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
             }
 
-            lemonToast.info('Batch workflow runs coming soon...')
+            const isScheduleTrigger = 'scheduled_at' in (values.workflow.trigger || {})
+            lemonToast.info(isScheduleTrigger ? 'Scheduling batch workflow...' : 'Triggering batch workflow...')
+
+            try {
+                await api.hogFlows.createHogFlowBatchJob(values.workflow.id, {
+                    variables,
+                })
+                lemonToast.success('Batch workflow job created')
+                router.actions.push(urls.workflow(values.workflow.id!, 'logs'))
+            } catch (e) {
+                lemonToast.error('Error creating batch workflow job: ' + (e as Error).message)
+                return
+            }
         },
     })),
     afterMount(({ actions }) => {

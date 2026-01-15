@@ -32,7 +32,7 @@ class BaseConversationsAPITest(APIBaseTest):
         self.mock_feature_flag = self.feature_flag_patcher.start()
 
         def check_flag(flag_name, *_args, **_kwargs):
-            if flag_name == "product-conversations":
+            if flag_name == "product-support":
                 return enabled
             return False
 
@@ -260,7 +260,7 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertIn("assigned_to_user", ticket_data)
 
     def test_feature_flag_required(self):
-        """Verify that product-conversations feature flag is required for API access."""
+        """Verify that product-support feature flag is required for API access."""
         self.set_conversations_feature_flag(False)
 
         endpoints = [

@@ -553,6 +553,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Search issues in error tracking',
         product: Scene.ErrorTracking,
         icon: iconForType('error_tracking'),
+        modes: [AgentMode.ErrorTracking],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Found issues'
@@ -571,18 +572,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Found impactful issues'
             }
             return 'Finding impactful issues...'
-        },
-    },
-    error_tracking_explain_issue: {
-        name: 'Explain an issue',
-        description: 'Explain an issue by analyzing its stack trace',
-        product: Scene.ErrorTracking,
-        icon: iconForType('error_tracking'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Issue explained'
-            }
-            return 'Analyzing issue...'
         },
     },
     experiment_results_summary: {
@@ -870,6 +859,28 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         },
         flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
+    manage_memories: {
+        name: 'Manage memories',
+        description: 'Manage memories to store and retrieve persistent information',
+        icon: <IconMemory />,
+    },
+    create_notebook: {
+        name: 'Create a document',
+        description: 'Create a document to write down your thoughts',
+        icon: iconForType('notebook'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.args.draft_content) {
+                if (toolCall.status === 'completed') {
+                    return 'Created a draft document'
+                }
+                return 'Creating a draft document...'
+            }
+            if (toolCall.status === 'completed') {
+                return 'Created a document'
+            }
+            return 'Creating a document...'
+        },
+    },
 }
 
 export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
@@ -950,8 +961,12 @@ export const AI_GENERALLY_CANNOT: string[] = [
 ]
 
 export function getToolDefinitionFromToolCall(toolCall: EnhancedToolCall): ToolDefinition | null {
-    const identifier = toolCall.args.kind ?? toolCall.name
-    return getToolDefinition(identifier as string)
+    const definition = getToolDefinition(toolCall.name)
+    // Only use args.kind for subtool lookup if the parent tool has subtools
+    if (definition?.subtools && typeof toolCall.args.kind === 'string') {
+        return definition.subtools[toolCall.args.kind] ?? definition
+    }
+    return definition
 }
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {

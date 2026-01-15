@@ -8,10 +8,18 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
-from posthog.tasks.exporter import export_asset_direct, is_user_query_error_type
+from posthog.tasks.exports.failure_handler import (
+    EXCEPTIONS_TO_RETRY,
+    FAILURE_TYPE_SYSTEM,
+    FAILURE_TYPE_USER,
+    is_user_query_error_type,
+)
 from posthog.tasks.exports.image_exporter import get_driver
 
 
@@ -96,13 +104,81 @@ class TestExporterTask(APIBaseTest):
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_export_stores_exception_type_on_failure(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
-        from posthog.hogql.errors import QueryError
-
         mock_export.side_effect = QueryError("Unknown table 'foo'")
 
         asset = ExportedAsset.objects.create(team=self.team, dashboard=None, export_format="image/png")
-        export_asset_direct(asset)
+        exporter.export_asset(asset.id)
 
         asset.refresh_from_db()
         assert asset.exception == "Unknown table 'foo'"
         assert asset.exception_type == "QueryError"
+        assert asset.failure_type == FAILURE_TYPE_USER
+
+
+class TestExportAssetFailureRecording(APIBaseTest):
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_non_retriable_error_records_failure_and_does_not_raise(self, mock_export_direct: MagicMock) -> None:
+        mock_export_direct.side_effect = QueryError("Invalid query syntax")
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+        # Should NOT raise - non-retriable errors are swallowed
+        exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        assert asset.exception == "Invalid query syntax"
+        assert asset.exception_type == "QueryError"
+        assert asset.failure_type == "user"
+
+    @patch("time.sleep")  # Avoid real tenacity backoff waits
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_retriable_error_retries_then_records_and_raises(
+        self, mock_export_direct: MagicMock, mock_sleep: MagicMock
+    ) -> None:
+        e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+        assert isinstance(e, EXCEPTIONS_TO_RETRY)
+        mock_export_direct.side_effect = e
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+        with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
+            exporter.export_asset(asset.id)
+
+        # Verify tenacity attempted multiple retries (4 attempts total)
+        assert mock_export_direct.call_count == 4
+
+        asset.refresh_from_db()
+        assert asset.exception == "Code: None.\nToo many queries"
+        assert asset.exception_type == "CHQueryErrorTooManySimultaneousQueries"
+        assert asset.failure_type == FAILURE_TYPE_SYSTEM
+
+    @patch("time.sleep")  # Avoid real tenacity backoff waits
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_retriable_error_succeeds_on_retry(self, mock_export_direct: MagicMock, mock_sleep: MagicMock) -> None:
+        # Fail twice, then succeed
+        mock_export_direct.side_effect = [
+            CHQueryErrorTooManySimultaneousQueries("Too many queries"),
+            CHQueryErrorTooManySimultaneousQueries("Too many queries"),
+            None,  # Success on third attempt
+        ]
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+        exporter.export_asset(asset.id)
+
+        # Verify 3 attempts were made
+        assert mock_export_direct.call_count == 3
+
+        asset.refresh_from_db()
+        # Should be cleared on success
+        assert asset.exception is None
+        assert asset.exception_type is None
+        assert asset.failure_type is None

@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import {
     type CreatedResources,
+    SAMPLE_HOGQL_QUERIES,
     TEST_ORG_ID,
     TEST_PROJECT_ID,
     cleanupResources,
@@ -12,11 +13,14 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
+import addInsightToDashboardTool from '@/tools/dashboards/addInsight'
 import createDashboardTool from '@/tools/dashboards/create'
 import deleteDashboardTool from '@/tools/dashboards/delete'
 import getDashboardTool from '@/tools/dashboards/get'
 import getAllDashboardsTool from '@/tools/dashboards/getAll'
+import reorderDashboardTilesTool from '@/tools/dashboards/reorderTiles'
 import updateDashboardTool from '@/tools/dashboards/update'
+import createInsightTool from '@/tools/insights/create'
 import type { Context } from '@/tools/types'
 
 describe('Dashboards', { concurrent: false }, () => {
@@ -26,6 +30,7 @@ describe('Dashboards', { concurrent: false }, () => {
         insights: [],
         dashboards: [],
         surveys: [],
+        actions: [],
     }
 
     beforeAll(async () => {
@@ -220,6 +225,96 @@ describe('Dashboards', { concurrent: false }, () => {
             })
             const deleteResponse = parseToolResponse(deleteResult)
             expect(deleteResponse.success).toBe(true)
+        })
+    })
+
+    describe('reorder-dashboard-tiles tool', () => {
+        const createDashboard = createDashboardTool()
+        const createInsight = createInsightTool()
+        const addInsight = addInsightToDashboardTool()
+        const reorderTiles = reorderDashboardTilesTool()
+        const getDashboard = getDashboardTool()
+        const deleteDashboard = deleteDashboardTool()
+
+        it('should reorder tiles on a dashboard', async () => {
+            // Create a dashboard
+            const dashboardResult = await createDashboard.handler(context, {
+                data: {
+                    name: generateUniqueKey('Reorder Test Dashboard'),
+                    description: 'Dashboard for testing tile reordering',
+                    pinned: false,
+                },
+            })
+            const dashboard = parseToolResponse(dashboardResult)
+            createdResources.dashboards.push(dashboard.id)
+
+            // Create two insights
+            const insight1Result = await createInsight.handler(context, {
+                data: {
+                    name: generateUniqueKey('Insight 1'),
+                    description: 'First insight',
+                    query: SAMPLE_HOGQL_QUERIES.pageviews,
+                    favorited: false,
+                },
+            })
+            const insight1 = parseToolResponse(insight1Result)
+            createdResources.insights.push(insight1.id)
+
+            const insight2Result = await createInsight.handler(context, {
+                data: {
+                    name: generateUniqueKey('Insight 2'),
+                    description: 'Second insight',
+                    query: SAMPLE_HOGQL_QUERIES.topEvents,
+                    favorited: false,
+                },
+            })
+            const insight2 = parseToolResponse(insight2Result)
+            createdResources.insights.push(insight2.id)
+
+            // Add insights to dashboard
+            await addInsight.handler(context, {
+                data: {
+                    insightId: insight1.short_id,
+                    dashboardId: dashboard.id,
+                },
+            })
+            await addInsight.handler(context, {
+                data: {
+                    insightId: insight2.short_id,
+                    dashboardId: dashboard.id,
+                },
+            })
+
+            // Get the dashboard to see the tile IDs
+            const dashboardWithTilesResult = await getDashboard.handler(context, {
+                dashboardId: dashboard.id,
+            })
+            const dashboardWithTiles = parseToolResponse(dashboardWithTilesResult)
+
+            expect(dashboardWithTiles.tiles).toBeTruthy()
+            expect(dashboardWithTiles.tiles.length).toBeGreaterThanOrEqual(2)
+
+            // Get the tile IDs (filter out null tiles)
+            const tileIds = dashboardWithTiles.tiles
+                .filter((tile: any) => tile !== null && tile.id !== undefined)
+                .map((tile: any) => tile.id)
+
+            // Reorder tiles (reverse the order)
+            const reversedTileOrder = [...tileIds].reverse()
+            const reorderResult = await reorderTiles.handler(context, {
+                dashboardId: dashboard.id,
+                tileOrder: reversedTileOrder,
+            })
+            const reorderResponse = parseToolResponse(reorderResult)
+
+            expect(reorderResponse.success).toBe(true)
+            expect(reorderResponse.message).toContain('Successfully reordered')
+            expect(reorderResponse.tiles).toBeTruthy()
+            expect(reorderResponse.url).toContain('/dashboard/')
+
+            // Clean up
+            await deleteDashboard.handler(context, { dashboardId: dashboard.id })
+            createdResources.dashboards = createdResources.dashboards.filter((id) => id !== dashboard.id)
         })
     })
 })

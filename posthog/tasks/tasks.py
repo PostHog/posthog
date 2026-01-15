@@ -58,6 +58,20 @@ def delete_expired_exported_assets() -> None:
 
 
 @shared_task(ignore_result=True)
+def clear_expired_sessions() -> None:
+    from django.contrib.sessions.models import Session
+
+    deleted_count, _ = Session.objects.filter(expire_date__lt=timezone.now()).delete()
+
+    with pushed_metrics_registry("celery_clear_expired_sessions") as registry:
+        Gauge(
+            "posthog_celery_clear_expired_sessions_deleted_count",
+            "Number of expired Django sessions deleted",
+            registry=registry,
+        ).set(deleted_count)
+
+
+@shared_task(ignore_result=True)
 def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
@@ -904,9 +918,7 @@ def background_delete_model_task(
 
             time.sleep(0.2)  # Sleep to avoid overwhelming the database
 
-        logger.info(
-            f"Completed background deletion for {model_name}, " f"team_id={team_id}, total_deleted={deleted_count}"
-        )
+        logger.info(f"Completed background deletion for {model_name}, team_id={team_id}, total_deleted={deleted_count}")
 
     except Exception as e:
         logger.error(f"Error in background deletion for {model_name}, team_id={team_id}: {str(e)}", exc_info=True)

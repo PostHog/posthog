@@ -3,12 +3,15 @@ from prometheus_client import generate_latest
 
 from llm_gateway.metrics.prometheus import (
     ACTIVE_STREAMS,
+    CONCURRENT_REQUESTS,
     DB_POOL_SIZE,
     PROVIDER_ERRORS,
     PROVIDER_LATENCY,
     RATE_LIMIT_EXCEEDED,
     REQUEST_COUNT,
     REQUEST_LATENCY,
+    STREAMING_CLIENT_DISCONNECT,
+    TIME_TO_FIRST_CHUNK,
     TOKENS_INPUT,
     TOKENS_OUTPUT,
 )
@@ -19,16 +22,23 @@ class TestMetricsConfiguration:
         "metric,expected_labels",
         [
             pytest.param(
-                REQUEST_COUNT, {"endpoint", "provider", "model", "status_code", "auth_method"}, id="request_count"
+                REQUEST_COUNT,
+                {"endpoint", "provider", "model", "status_code", "auth_method", "product"},
+                id="request_count",
             ),
-            pytest.param(REQUEST_LATENCY, {"endpoint", "provider", "streaming"}, id="request_latency"),
-            pytest.param(TOKENS_INPUT, {"provider", "model"}, id="tokens_input"),
-            pytest.param(TOKENS_OUTPUT, {"provider", "model"}, id="tokens_output"),
+            pytest.param(REQUEST_LATENCY, {"endpoint", "provider", "streaming", "product"}, id="request_latency"),
+            pytest.param(TOKENS_INPUT, {"provider", "model", "product"}, id="tokens_input"),
+            pytest.param(TOKENS_OUTPUT, {"provider", "model", "product"}, id="tokens_output"),
             pytest.param(RATE_LIMIT_EXCEEDED, {"scope"}, id="rate_limit_exceeded"),
-            pytest.param(PROVIDER_ERRORS, {"provider", "error_type"}, id="provider_errors"),
-            pytest.param(ACTIVE_STREAMS, {"provider"}, id="active_streams"),
+            pytest.param(PROVIDER_ERRORS, {"provider", "error_type", "product"}, id="provider_errors"),
+            pytest.param(ACTIVE_STREAMS, {"provider", "model", "product"}, id="active_streams"),
+            pytest.param(CONCURRENT_REQUESTS, {"provider", "model", "product"}, id="concurrent_requests"),
+            pytest.param(
+                STREAMING_CLIENT_DISCONNECT, {"provider", "model", "product"}, id="streaming_client_disconnect"
+            ),
+            pytest.param(TIME_TO_FIRST_CHUNK, {"provider", "model", "product"}, id="time_to_first_chunk"),
             pytest.param(DB_POOL_SIZE, {"state"}, id="db_pool_size"),
-            pytest.param(PROVIDER_LATENCY, {"provider", "model"}, id="provider_latency"),
+            pytest.param(PROVIDER_LATENCY, {"provider", "model", "product"}, id="provider_latency"),
         ],
     )
     def test_metric_has_correct_labels(self, metric, expected_labels: set[str]) -> None:
@@ -54,6 +64,8 @@ class TestMetricsExport:
             pytest.param(b"llm_gateway_rate_limit_exceeded_total", id="rate_limit"),
             pytest.param(b"llm_gateway_provider_errors_total", id="provider_errors"),
             pytest.param(b"llm_gateway_active_streams", id="active_streams"),
+            pytest.param(b"llm_gateway_concurrent_requests", id="concurrent_requests"),
+            pytest.param(b"llm_gateway_streaming_client_disconnect_total", id="streaming_client_disconnect"),
             pytest.param(b"llm_gateway_db_pool_size", id="db_pool_size"),
             pytest.param(b"llm_gateway_provider_latency_seconds", id="provider_latency"),
         ],
@@ -70,16 +82,42 @@ class TestMetricsRecording:
         assert RATE_LIMIT_EXCEEDED.labels(scope="burst")._value.get() == initial_value + 1
 
     def test_provider_errors_tracks_error_types(self) -> None:
-        initial_value = PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError")._value.get()
-        PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError").inc()
-        assert PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError")._value.get() == initial_value + 1
+        initial_value = PROVIDER_ERRORS.labels(
+            provider="anthropic", error_type="TimeoutError", product="llm_gateway"
+        )._value.get()
+        PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError", product="llm_gateway").inc()
+        assert (
+            PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError", product="llm_gateway")._value.get()
+            == initial_value + 1
+        )
 
     def test_active_streams_can_increment_and_decrement(self) -> None:
-        ACTIVE_STREAMS.labels(provider="openai").set(0)
-        ACTIVE_STREAMS.labels(provider="openai").inc()
-        assert ACTIVE_STREAMS.labels(provider="openai")._value.get() == 1
-        ACTIVE_STREAMS.labels(provider="openai").dec()
-        assert ACTIVE_STREAMS.labels(provider="openai")._value.get() == 0
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="llm_gateway").set(0)
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="llm_gateway").inc()
+        assert ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="llm_gateway")._value.get() == 1
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="llm_gateway").dec()
+        assert ACTIVE_STREAMS.labels(provider="openai", model="gpt-4", product="llm_gateway")._value.get() == 0
+
+    def test_concurrent_requests_can_increment_and_decrement(self) -> None:
+        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="llm_gateway").set(0)
+        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="llm_gateway").inc()
+        assert (
+            CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="llm_gateway")._value.get() == 1
+        )
+        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="llm_gateway").dec()
+        assert (
+            CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3", product="llm_gateway")._value.get() == 0
+        )
+
+    def test_streaming_client_disconnect_increments(self) -> None:
+        initial = STREAMING_CLIENT_DISCONNECT.labels(
+            provider="openai", model="gpt-4", product="llm_gateway"
+        )._value.get()
+        STREAMING_CLIENT_DISCONNECT.labels(provider="openai", model="gpt-4", product="llm_gateway").inc()
+        assert (
+            STREAMING_CLIENT_DISCONNECT.labels(provider="openai", model="gpt-4", product="llm_gateway")._value.get()
+            == initial + 1
+        )
 
     def test_db_pool_size_tracks_connection_states(self) -> None:
         DB_POOL_SIZE.labels(state="idle").set(5)
@@ -88,16 +126,21 @@ class TestMetricsRecording:
         assert DB_POOL_SIZE.labels(state="active")._value.get() == 3
 
     def test_tokens_counter_accepts_large_values(self) -> None:
-        initial = TOKENS_INPUT.labels(provider="anthropic", model="claude-3")._value.get()
-        TOKENS_INPUT.labels(provider="anthropic", model="claude-3").inc(100000)
-        assert TOKENS_INPUT.labels(provider="anthropic", model="claude-3")._value.get() == initial + 100000
+        initial = TOKENS_INPUT.labels(provider="anthropic", model="claude-3", product="llm_gateway")._value.get()
+        TOKENS_INPUT.labels(provider="anthropic", model="claude-3", product="llm_gateway").inc(100000)
+        assert (
+            TOKENS_INPUT.labels(provider="anthropic", model="claude-3", product="llm_gateway")._value.get()
+            == initial + 100000
+        )
 
     def test_request_latency_histogram_observes_values(self) -> None:
-        REQUEST_LATENCY.labels(endpoint="test", provider="test", streaming="false").observe(0.5)
-        REQUEST_LATENCY.labels(endpoint="test", provider="test", streaming="false").observe(1.5)
-        # Just verify it doesn't raise
+        REQUEST_LATENCY.labels(endpoint="test", provider="test", streaming="false", product="llm_gateway").observe(0.5)
+        REQUEST_LATENCY.labels(endpoint="test", provider="test", streaming="false", product="llm_gateway").observe(1.5)
 
     def test_provider_latency_histogram_observes_values(self) -> None:
-        PROVIDER_LATENCY.labels(provider="anthropic", model="claude-3").observe(0.25)
-        PROVIDER_LATENCY.labels(provider="anthropic", model="claude-3").observe(2.5)
-        # Just verify it doesn't raise
+        PROVIDER_LATENCY.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.25)
+        PROVIDER_LATENCY.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(2.5)
+
+    def test_time_to_first_chunk_histogram_observes_values(self) -> None:
+        TIME_TO_FIRST_CHUNK.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.15)
+        TIME_TO_FIRST_CHUNK.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.75)

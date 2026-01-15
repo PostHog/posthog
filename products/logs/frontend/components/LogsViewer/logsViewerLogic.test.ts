@@ -233,54 +233,6 @@ describe('logsViewerLogic', () => {
         })
     })
 
-    describe('expansion', () => {
-        beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
-        })
-        it('expands a log when not expanded', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.toggleExpandLog('log-1')
-            }).toMatchValues({
-                expandedLogIds: { 'log-1': true },
-            })
-        })
-
-        it('collapses a log when already expanded', async () => {
-            logic.actions.toggleExpandLog('log-1')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds['log-1']).toBe(true)
-
-            await expectLogic(logic, () => {
-                logic.actions.toggleExpandLog('log-1')
-            }).toMatchValues({
-                expandedLogIds: {},
-            })
-        })
-
-        it('supports multiple expanded logs', async () => {
-            logic.actions.toggleExpandLog('log-1')
-            logic.actions.toggleExpandLog('log-2')
-            logic.actions.toggleExpandLog('log-3')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds).toEqual({
-                'log-1': true,
-                'log-2': true,
-                'log-3': true,
-            })
-
-            logic.actions.toggleExpandLog('log-2')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds).toEqual({
-                'log-1': true,
-                'log-3': true,
-            })
-        })
-    })
-
     describe('pinning', () => {
         const mockLog1 = createMockParsedLog('log-1')
         const mockLog2 = createMockParsedLog('log-2')
@@ -653,6 +605,53 @@ describe('logsViewerLogic', () => {
                     attributeColumns: ['A', 'B', 'C'],
                 })
             })
+        })
+    })
+
+    describe('expansion', () => {
+        beforeEach(() => {
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
+        })
+
+        it('defaults to no expanded logs', () => {
+            expect(logic.values.expandedLogIds).toEqual({})
+        })
+
+        it('expands a log when not expanded', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleExpandLog('log-1')
+            }).toMatchValues({
+                expandedLogIds: { 'log-1': true },
+            })
+        })
+
+        it('collapses a log when already expanded', async () => {
+            logic.actions.toggleExpandLog('log-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleExpandLog('log-1')
+            }).toMatchValues({
+                expandedLogIds: {},
+            })
+        })
+
+        it('supports multiple expanded logs', async () => {
+            logic.actions.toggleExpandLog('log-1')
+            logic.actions.toggleExpandLog('log-3')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.expandedLogIds).toEqual({
+                'log-1': true,
+                'log-3': true,
+            })
+        })
+
+        it('triggers recomputeRowHeights when toggling', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleExpandLog('log-1')
+            }).toDispatchActions(['toggleExpandLog', 'recomputeRowHeights'])
         })
     })
 

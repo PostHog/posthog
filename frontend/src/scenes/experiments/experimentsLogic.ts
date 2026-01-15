@@ -39,6 +39,7 @@ export interface ExperimentsFilters {
     search?: string
     status?: ProgressStatus | 'all'
     created_by_id?: number
+    archived?: boolean
     page?: number
     order?: string
 }
@@ -56,6 +57,7 @@ const DEFAULT_FILTERS: ExperimentsFilters = {
     search: undefined,
     status: 'all',
     created_by_id: undefined,
+    archived: false,
     page: 1,
     order: undefined,
 }
@@ -76,6 +78,29 @@ export function getExperimentStatus(experiment: Experiment): ProgressStatus {
         return ProgressStatus.Running
     }
     return ProgressStatus.Complete
+}
+
+export function isSingleVariantShipped(experiment: Experiment): boolean {
+    const filters = experiment.feature_flag?.filters
+
+    return (
+        !!filters &&
+        Array.isArray(filters.groups?.[0]?.properties) &&
+        filters.groups?.[0]?.properties?.length === 0 &&
+        filters.groups?.[0]?.rollout_percentage === 100 &&
+        (filters.multivariate?.variants?.some(({ rollout_percentage }) => rollout_percentage === 100) || false)
+    )
+}
+
+export function getShippedVariantKey(experiment: Experiment): string | null {
+    if (!isSingleVariantShipped(experiment)) {
+        return null
+    }
+    return (
+        experiment.feature_flag?.filters.multivariate?.variants?.find(
+            ({ rollout_percentage }) => rollout_percentage === 100
+        )?.key || null
+    )
 }
 
 export function getExperimentStatusColor(status: ProgressStatus): LemonTagType {
@@ -264,12 +289,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
     selectors(() => ({
         count: [(selectors) => [selectors.experiments], (experiments) => experiments.count],
         paramsFromFilters: [
-            (s) => [s.filters, s.tab],
-            (filters: ExperimentsFilters, tab: ExperimentsTabs) => ({
+            (s) => [s.filters],
+            (filters: ExperimentsFilters) => ({
                 ...filters,
                 limit: EXPERIMENTS_PER_PAGE,
                 offset: filters.page ? (filters.page - 1) * EXPERIMENTS_PER_PAGE : 0,
-                archived: tab === ExperimentsTabs.Archived,
             }),
         ],
         featureFlagModalParamsFromFilters: [
@@ -398,7 +422,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number> = {
+            const searchParams: Record<string, string | number | boolean> = {
                 ...values.filters,
             }
 
@@ -406,7 +430,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 searchParams['tab'] = values.tab
             }
 
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         }
 
         const changeFeatureFlagModalUrl = ():
@@ -419,7 +443,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number> = {
+            const searchParams: Record<string, string | number | boolean> = {
                 ...values.filters,
             }
 
@@ -433,7 +457,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 searchParams['ff_page'] = modalPage
             }
 
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         }
 
         return {
@@ -455,7 +479,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 actions.setExperimentsTab(tabInURL)
             }
 
-            const { page, search, status, created_by_id, order } = searchParams
+            const { page, search, status, created_by_id, order, archived } = searchParams
             const pageFiltersFromUrl: Partial<ExperimentsFilters> = {
                 search,
                 created_by_id,
@@ -464,6 +488,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
 
             pageFiltersFromUrl.status = status || 'all'
             pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : 1
+            pageFiltersFromUrl.archived = String(archived) === 'true'
 
             actions.setExperimentsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },

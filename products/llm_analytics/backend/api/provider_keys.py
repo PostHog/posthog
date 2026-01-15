@@ -9,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -167,6 +168,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.delete()
 
     @action(detail=True, methods=["post"])
+    @monitor(feature=None, endpoint="llma_provider_keys_validate", method="POST")
     def validate(self, request: Request, **_kwargs) -> Response:
         instance = self.get_object()
         api_key = instance.encrypted_config.get("api_key")
@@ -196,6 +198,30 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+    @monitor(feature=None, endpoint="llma_provider_keys_list", method="GET")
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llma_provider_keys_retrieve", method="GET")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llma_provider_keys_create", method="POST")
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llma_provider_keys_update", method="PUT")
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llma_provider_keys_partial_update", method="PATCH")
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
+    @monitor(feature=None, endpoint="llma_provider_keys_destroy", method="DELETE")
+    def destroy(self, request, *args, **kwargs):
+        return super().destroy(request, *args, **kwargs)
+
 
 class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Validate LLM provider API keys without persisting them"""
@@ -203,6 +229,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [IsAuthenticated]
 
+    @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")
     def create(self, request: Request, **_kwargs) -> Response:
         api_key = request.data.get("api_key")
 
