@@ -117,12 +117,12 @@ class OutputTokenThrottle(TokenThrottle):
             await limiter.release(cache_key, unused)
 
 
-class GlobalModelInputTokenThrottle(InputTokenThrottle):
-    scope = "global_model_input_tokens"
+class ProductModelInputTokenThrottle(InputTokenThrottle):
+    scope = "product_model_input_tokens"
     limit_multiplier = 10
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
-        return f"global:model:{context.model}:input"
+        return f"product:{context.product}:model:{context.model}:input"
 
 
 class UserModelInputTokenThrottle(InputTokenThrottle):
@@ -132,12 +132,12 @@ class UserModelInputTokenThrottle(InputTokenThrottle):
         return f"user:{context.user.user_id}:model:{context.model}:input"
 
 
-class GlobalModelOutputTokenThrottle(OutputTokenThrottle):
-    scope = "global_model_output_tokens"
+class ProductModelOutputTokenThrottle(OutputTokenThrottle):
+    scope = "product_model_output_tokens"
     limit_multiplier = 10
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
-        return f"global:model:{context.model}:output"
+        return f"product:{context.product}:model:{context.model}:output"
 
 
 class UserModelOutputTokenThrottle(OutputTokenThrottle):

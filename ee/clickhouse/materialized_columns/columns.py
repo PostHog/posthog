@@ -128,11 +128,11 @@ class MaterializedColumn:
                 LEFT JOIN system.data_skipping_indices i_bf
                     ON i_bf.database = c.database
                     AND i_bf.table = %(data_table)s
-                    AND i_bf.name = concat('bf_', c.name)
+                    AND i_bf.name = concat('bloom_filter_', c.name)
                 LEFT JOIN system.data_skipping_indices i_ngram
                     ON i_ngram.database = c.database
                     AND i_ngram.table = %(data_table)s
-                    AND i_ngram.name = concat('ngram_lower_', c.name)
+                    AND i_ngram.name = concat('ngram_bf_lower_', c.name)
                 WHERE c.database = %(database)s
                   AND c.table = %(table)s
                   AND c.comment LIKE '%%column_materializer::%%'
@@ -160,8 +160,8 @@ class MaterializedColumn:
         rows = MaterializedColumn._get_all(table)
         for name, comment, is_nullable, index_names in rows:
             has_minmax = any(idx and idx.startswith("minmax_") for idx in index_names)
-            has_bloom = any(idx and idx.startswith("bf_") for idx in index_names)
-            has_ngram = any(idx and idx.startswith("ngram_lower_") for idx in index_names)
+            has_bloom = any(idx and idx.startswith("bloom_filter_") for idx in index_names)
+            has_ngram = any(idx and idx.startswith("ngram_bf_lower_") for idx in index_names)
             yield MaterializedColumn(
                 name,
                 MaterializedColumnDetails.from_column_comment(comment),
@@ -271,11 +271,11 @@ def get_minmax_index_name(column: str) -> str:
 
 
 def get_bloom_filter_index_name(column: str) -> str:
-    return f"bf_{column}"
+    return f"bloom_filter_{column}"
 
 
 def get_ngram_lower_index_name(column: str) -> str:
-    return f"ngram_lower_{column}"
+    return f"ngram_bf_lower_{column}"
 
 
 @dataclass

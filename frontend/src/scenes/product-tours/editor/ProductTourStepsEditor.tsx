@@ -1,8 +1,7 @@
 import './ProductTourStepsEditor.scss'
 
 import { JSONContent } from '@tiptap/core'
-import { renderProductTourPreview } from 'posthog-js/dist/product-tours-preview'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import {
     IconChevronLeft,
@@ -27,11 +26,11 @@ import {
     SurveyPosition,
 } from '~/types'
 
+import { ProductTourPreview } from '../components/ProductTourPreview'
 import { StepContentEditor } from './StepContentEditor'
 import { StepLayoutSettings } from './StepLayoutSettings'
 import { StepScreenshotThumbnail } from './StepScreenshotThumbnail'
 import { SurveyStepEditor } from './SurveyStepEditor'
-import { prepareStepForRender } from './generateStepHtml'
 
 export interface ProductTourStepsEditorProps {
     steps: ProductTourStep[]
@@ -92,8 +91,6 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
     const [stepToDelete, setStepToDelete] = useState<number | null>(null)
     const [showPreviewModal, setShowPreviewModal] = useState(false)
     const [showScreenshotModal, setShowScreenshotModal] = useState(false)
-    const previewRef = useRef<HTMLDivElement>(null)
-    const surveyPreviewRef = useRef<HTMLDivElement>(null)
 
     const selectedStep = steps[selectedStepIndex]
 
@@ -126,31 +123,6 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
         onChange(newSteps)
         setSelectedStepIndex(toIndex)
     }
-
-    useEffect(() => {
-        if (showPreviewModal && previewRef.current && selectedStep) {
-            renderProductTourPreview({
-                step: prepareStepForRender(selectedStep) as any,
-                appearance: appearance as any,
-                parentElement: previewRef.current,
-                stepIndex: selectedStepIndex,
-                totalSteps: steps.length,
-            })
-        }
-    }, [showPreviewModal, selectedStep, appearance, selectedStepIndex, steps.length])
-
-    // Render inline survey preview
-    useEffect(() => {
-        if (surveyPreviewRef.current && selectedStep?.type === 'survey') {
-            renderProductTourPreview({
-                step: prepareStepForRender(selectedStep) as any,
-                appearance: appearance as any,
-                parentElement: surveyPreviewRef.current,
-                stepIndex: selectedStepIndex,
-                totalSteps: steps.length,
-            })
-        }
-    }, [selectedStep, appearance, selectedStepIndex, steps.length])
 
     if (steps.length === 0) {
         return (
@@ -273,7 +245,12 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                 <div className="ProductTourStepsEditor__survey-preview">
                                     <div className="text-xs text-muted uppercase tracking-wide mb-3">Preview</div>
                                     <div className="flex justify-center p-6 bg-[#f0f0f0] rounded min-h-[200px]">
-                                        <div ref={surveyPreviewRef} />
+                                        <ProductTourPreview
+                                            step={selectedStep}
+                                            appearance={appearance}
+                                            stepIndex={selectedStepIndex}
+                                            totalSteps={steps.length}
+                                        />
                                     </div>
                                 </div>
                             </div>
@@ -335,7 +312,14 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                 width={800}
             >
                 <div className="flex justify-center items-center p-8 bg-[#f0f0f0] rounded min-h-[300px]">
-                    <div ref={previewRef} />
+                    {selectedStep && (
+                        <ProductTourPreview
+                            step={selectedStep}
+                            appearance={appearance}
+                            stepIndex={selectedStepIndex}
+                            totalSteps={steps.length}
+                        />
+                    )}
                 </div>
             </LemonModal>
 

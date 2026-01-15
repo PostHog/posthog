@@ -3,8 +3,8 @@ import pytest
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.rate_limiting.model_cost_service import ModelCostService, get_model_limits
 from llm_gateway.rate_limiting.model_throttles import (
-    GlobalModelInputTokenThrottle,
-    GlobalModelOutputTokenThrottle,
+    ProductModelInputTokenThrottle,
+    ProductModelOutputTokenThrottle,
     UserModelInputTokenThrottle,
     UserModelOutputTokenThrottle,
 )
@@ -70,11 +70,11 @@ class TestInputTokenThrottle:
         result = await throttle.allow_request(context)
         assert result.allowed is True
 
-    async def test_global_uses_10x_limit(self) -> None:
-        global_throttle = GlobalModelInputTokenThrottle(redis=None)
+    async def test_product_uses_10x_limit(self) -> None:
+        product_throttle = ProductModelInputTokenThrottle(redis=None)
         user_throttle = UserModelInputTokenThrottle(redis=None)
 
-        assert global_throttle.limit_multiplier == 10
+        assert product_throttle.limit_multiplier == 10
         assert user_throttle.limit_multiplier == 1
 
     async def test_denies_over_limit(self) -> None:
@@ -293,8 +293,8 @@ class TestOutputTokenAdjustment:
         result = await throttle.allow_request(ctx_haiku2)
         assert result.allowed is True
 
-    async def test_global_and_user_throttles_track_separately(self) -> None:
-        global_throttle = GlobalModelOutputTokenThrottle(redis=None)
+    async def test_product_and_user_throttles_track_separately(self) -> None:
+        product_throttle = ProductModelOutputTokenThrottle(redis=None)
         user_throttle = UserModelOutputTokenThrottle(redis=None)
 
         limits = get_model_limits("claude-3-5-haiku-20241022")
@@ -309,7 +309,7 @@ class TestOutputTokenAdjustment:
             request_id="req-1",
         )
 
-        result = await global_throttle.allow_request(ctx)
+        result = await product_throttle.allow_request(ctx)
         assert result.allowed is True
         result = await user_throttle.allow_request(ctx)
         assert result.allowed is True
@@ -320,7 +320,7 @@ class TestOutputTokenAdjustment:
             max_output_tokens=1000,
             request_id="req-2",
         )
-        result = await global_throttle.allow_request(ctx2)
+        result = await product_throttle.allow_request(ctx2)
         assert result.allowed is True
         result = await user_throttle.allow_request(ctx2)
         assert result.allowed is False
@@ -331,21 +331,21 @@ class TestOutputTokenAdjustment:
         assert result.allowed is True
 
 
-class TestGlobalThrottles:
-    async def test_global_input_scope(self) -> None:
-        throttle = GlobalModelInputTokenThrottle(redis=None)
-        assert throttle.scope == "global_model_input_tokens"
+class TestProductThrottles:
+    async def test_product_input_scope(self) -> None:
+        throttle = ProductModelInputTokenThrottle(redis=None)
+        assert throttle.scope == "product_model_input_tokens"
 
-    async def test_global_output_scope(self) -> None:
-        throttle = GlobalModelOutputTokenThrottle(redis=None)
-        assert throttle.scope == "global_model_output_tokens"
+    async def test_product_output_scope(self) -> None:
+        throttle = ProductModelOutputTokenThrottle(redis=None)
+        assert throttle.scope == "product_model_output_tokens"
 
-    async def test_global_cache_key_format(self) -> None:
-        throttle = GlobalModelInputTokenThrottle(redis=None)
-        context = make_context(model="claude-3-5-haiku-20241022")
+    async def test_product_cache_key_format(self) -> None:
+        throttle = ProductModelInputTokenThrottle(redis=None)
+        context = make_context(model="claude-3-5-haiku-20241022", product="wizard")
 
         key = throttle._get_cache_key(context)
-        assert key == "global:model:claude-3-5-haiku-20241022:input"
+        assert key == "product:wizard:model:claude-3-5-haiku-20241022:input"
 
 
 class TestUserThrottles:

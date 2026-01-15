@@ -7,7 +7,7 @@ import pytest
 from llm_gateway.api.handler import adjust_output_throttles
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.rate_limiting.model_throttles import (
-    GlobalModelInputTokenThrottle,
+    ProductModelInputTokenThrottle,
     UserModelInputTokenThrottle,
 )
 from llm_gateway.rate_limiting.runner import ThrottleRunner
@@ -143,10 +143,10 @@ class TestThrottleRunner:
 
     @pytest.mark.asyncio
     async def test_composite_throttle_order(self) -> None:
-        global_throttle = GlobalModelInputTokenThrottle(redis=None)
+        product_throttle = ProductModelInputTokenThrottle(redis=None)
         user_throttle = UserModelInputTokenThrottle(redis=None)
 
-        runner = ThrottleRunner(throttles=[global_throttle, user_throttle])
+        runner = ThrottleRunner(throttles=[product_throttle, user_throttle])
 
         user = make_user(auth_method="personal_api_key")
         context = make_context(

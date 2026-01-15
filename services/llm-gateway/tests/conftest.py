@@ -9,8 +9,8 @@ from httpx import ASGITransport, AsyncClient
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.rate_limiting.model_throttles import (
-    GlobalModelInputTokenThrottle,
-    GlobalModelOutputTokenThrottle,
+    ProductModelInputTokenThrottle,
+    ProductModelOutputTokenThrottle,
     UserModelInputTokenThrottle,
     UserModelOutputTokenThrottle,
 )
@@ -26,13 +26,13 @@ def create_test_app(mock_db_pool: MagicMock) -> FastAPI:
         app.state.db_pool = mock_db_pool
         app.state.redis = None
         output_throttles = [
-            GlobalModelOutputTokenThrottle(redis=None),
+            ProductModelOutputTokenThrottle(redis=None),
             UserModelOutputTokenThrottle(redis=None),
         ]
         app.state.output_throttles = output_throttles
         app.state.throttle_runner = ThrottleRunner(
             throttles=[
-                GlobalModelInputTokenThrottle(redis=None),
+                ProductModelInputTokenThrottle(redis=None),
                 UserModelInputTokenThrottle(redis=None),
                 *output_throttles,
             ]
