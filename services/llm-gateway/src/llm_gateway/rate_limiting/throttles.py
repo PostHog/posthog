@@ -4,6 +4,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.config import get_settings
+
+
+def get_team_multiplier(team_id: int | None) -> int:
+    if team_id is None:
+        return 1
+
+    return get_settings().team_rate_limit_multipliers.get(team_id, 1)
 
 
 @dataclass

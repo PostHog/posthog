@@ -12,6 +12,7 @@ from llm_gateway.rate_limiting.throttles import (
     Throttle,
     ThrottleContext,
     ThrottleResult,
+    get_team_multiplier,
 )
 
 
@@ -179,3 +180,25 @@ class TestThrottleContext:
         assert context.input_tokens == 1000
         assert context.max_output_tokens == 4096
         assert context.request_id == "req-123"
+
+
+class TestGetTeamMultiplier:
+    def test_returns_1_for_none_team_id(self) -> None:
+        assert get_team_multiplier(None) == 1
+
+    def test_returns_1_for_unconfigured_team(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10}')
+        from llm_gateway.config import get_settings
+
+        get_settings.cache_clear()
+        assert get_team_multiplier(99) == 1
+        get_settings.cache_clear()
+
+    def test_returns_configured_multiplier(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10, "5": 5}')
+        from llm_gateway.config import get_settings
+
+        get_settings.cache_clear()
+        assert get_team_multiplier(2) == 10
+        assert get_team_multiplier(5) == 5
+        get_settings.cache_clear()
