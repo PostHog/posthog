@@ -3240,15 +3240,15 @@ wheels = [
 
 [[package]]
 name = "langgraph-checkpoint"
-version = "2.0.26"
+version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "ormsgpack" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c5/61/e2518ac9216a4e9f4efda3ac61595e3c9e9ac00833141c9688e8d56bd7eb/langgraph_checkpoint-2.0.26.tar.gz", hash = "sha256:2b800195532d5efb079db9754f037281225ae175f7a395523f4bf41223cbc9d6", size = 37874, upload-time = "2025-05-15T17:31:22.466Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b7/cb/2a6dad2f0a14317580cc122e2a60e7f0ecabb50aaa6dc5b7a6a2c94cead7/langgraph_checkpoint-3.0.0.tar.gz", hash = "sha256:f738695ad938878d8f4775d907d9629e9fcd345b1950196effb08f088c52369e", size = 132132, upload-time = "2025-10-20T18:35:49.132Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/48/d7cec540a3011b3207470bb07294a399e3b94b2e8a602e38cb007ce5bc10/langgraph_checkpoint-2.0.26-py3-none-any.whl", hash = "sha256:ad4907858ed320a208e14ac037e4b9244ec1cb5aa54570518166ae8b25752cec", size = 44247, upload-time = "2025-05-15T17:31:21.38Z" },
+    { url = "https://files.pythonhosted.org/packages/85/2a/2efe0b5a72c41e3a936c81c5f5d8693987a1b260287ff1bbebaae1b7b888/langgraph_checkpoint-3.0.0-py3-none-any.whl", hash = "sha256:560beb83e629784ab689212a3d60834fb3196b4bbe1d6ac18e5cad5d85d46010", size = 46060, upload-time = "2025-10-20T18:35:48.255Z" },
 ]
 
 [[package]]
