@@ -77,6 +77,21 @@ class ApprovalDecisionStatus(StrEnum):
     AUTO_REJECTED = "auto_rejected"
 
 
+class Action(StrEnum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
+class ApprovalResumePayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Action
+    feedback: str | None = None
+    payload: dict[str, Any] | None = None
+    proposal_id: str
+
+
 class ArtifactContentType(StrEnum):
     VISUALIZATION = "visualization"
     NOTEBOOK = "notebook"
@@ -2500,7 +2515,10 @@ class MultiQuestionFormQuestionOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    value: str = Field(..., description="The value to use when this option is selected")
+    description: str | None = Field(
+        default=None, description="A longer description of the option, in one short sentence"
+    )
+    value: str = Field(..., description="A short value to use when this option is selected, in a few words")
 
 
 class MultipleBreakdownType(StrEnum):
@@ -4935,6 +4953,14 @@ class FileSystemImport(BaseModel):
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
+class FormResumePayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Literal["form"] = "form"
+    form_answers: dict[str, str]
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5270,6 +5296,7 @@ class MultiQuestionFormQuestion(BaseModel):
     id: str = Field(..., description="Unique identifier for this question")
     options: list[MultiQuestionFormQuestionOption] = Field(..., description="Available answer options")
     question: str = Field(..., description="The question text to display")
+    title: str = Field(..., description='One word title for the question e.g. "Use case", "Team size", "Experience"')
 
 
 class NotebookInfo(RootModel[DeepResearchNotebook]):
@@ -5443,6 +5470,10 @@ class QueryStatusResponse(BaseModel):
 
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
     root: ResultCustomizationByValue | ResultCustomizationByPosition
+
+
+class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload]):
+    root: ApprovalResumePayload | FormResumePayload
 
 
 class RetentionValue(BaseModel):

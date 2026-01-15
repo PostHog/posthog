@@ -1,0 +1,198 @@
+import { useActions, useValues } from 'kea'
+import { useCallback, useMemo, useState } from 'react'
+
+import { IconCheck, IconWarning, IconX } from '@posthog/icons'
+import { LemonTabs, Spinner } from '@posthog/lemon-ui'
+
+import { DangerousOperationResponse, MultiQuestionForm } from '~/queries/schema/schema-assistant-messages'
+
+import { maxThreadLogic } from '../maxThreadLogic'
+import { Option, OptionSelector } from './OptionSelector'
+
+interface MultiQuestionFormInputProps {
+    form: MultiQuestionForm
+}
+
+function MultiQuestionFormInput({ form }: MultiQuestionFormInputProps): JSX.Element | null {
+    const { continueAfterForm } = useActions(maxThreadLogic)
+    const questions = form.questions
+
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+    const [answers, setAnswers] = useState<Record<string, string>>({})
+    // Track custom input text separately from answers, so switching tabs preserves typed text
+    const [customInputs, setCustomInputs] = useState<Record<string, string>>({})
+    const [isSubmitting, setIsSubmitting] = useState(false)
+
+    const currentQuestion = questions[currentQuestionIndex]
+    const allowCustomAnswer = currentQuestion?.allow_custom_answer !== false
+    const isLastQuestion = currentQuestionIndex >= questions.length - 1
+
+    const options: Option[] = useMemo(() => {
+        if (!currentQuestion) {
+            return []
+        }
+        return currentQuestion.options.map((option) => ({
+            label: option.value,
+            value: option.value,
+            description: option.description,
+        }))
+    }, [currentQuestion])
+
+    const advanceToNextQuestion = useCallback(
+        (updatedAnswers: Record<string, string>) => {
+            if (isLastQuestion) {
+                if (Object.keys(updatedAnswers).length === questions.length) {
+                    setIsSubmitting(true)
+                    continueAfterForm(updatedAnswers)
+                } else {
+                    const firstMissingQuestion = questions.find((question) => !updatedAnswers[question.id])
+                    if (firstMissingQuestion) {
+                        setCurrentQuestionIndex(questions.indexOf(firstMissingQuestion))
+                    }
+                }
+            } else {
+                setCurrentQuestionIndex((prev) => prev + 1)
+            }
+        },
+        [isLastQuestion, questions, continueAfterForm]
+    )
+
+    const handleSelect = useCallback(
+        (value: string) => {
+            const updatedAnswers = { ...answers, [currentQuestion.id]: value }
+            setAnswers(updatedAnswers)
+            advanceToNextQuestion(updatedAnswers)
+        },
+        [answers, currentQuestion, advanceToNextQuestion]
+    )
+
+    const handleCustomSubmit = useCallback(
+        (value: string) => {
+            // Store the custom input text and use it as the answer
+            setCustomInputs((prev) => ({ ...prev, [currentQuestion.id]: value }))
+            const updatedAnswers = { ...answers, [currentQuestion.id]: value }
+            setAnswers(updatedAnswers)
+            advanceToNextQuestion(updatedAnswers)
+        },
+        [answers, currentQuestion, advanceToNextQuestion]
+    )
+
+    const handleTabClick = useCallback((index: number) => {
+        setCurrentQuestionIndex(index)
+    }, [])
+
+    if (!currentQuestion || isSubmitting) {
+        return (
+            <div className="flex items-center gap-2 text-muted p-3">
+                <Spinner className="size-4" />
+                <span>Submitting answers...</span>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-2 p-3">
+            {questions.length > 1 && (
+                <div className="w-full">
+                    <LemonTabs
+                        key={currentQuestion.id}
+                        size="xsmall"
+                        activeKey={currentQuestionIndex}
+                        onChange={handleTabClick}
+                        tabs={questions.map((question, index) => {
+                            return {
+                                key: index,
+                                label: question.title,
+                            }
+                        })}
+                        className="w-full"
+                    />
+                </div>
+            )}
+            <div className="font-medium text-sm">{currentQuestion.question}</div>
+            <OptionSelector
+                key={currentQuestion.id}
+                options={options}
+                onSelect={handleSelect}
+                allowCustom={allowCustomAnswer}
+                customPlaceholder="Type your answer..."
+                onCustomSubmit={handleCustomSubmit}
+                initialCustomValue={customInputs[currentQuestion.id]}
+                selectedValue={answers[currentQuestion.id]}
+            />
+        </div>
+    )
+}
+
+interface DangerousOperationInputProps {
+    operation: DangerousOperationResponse
+}
+
+function DangerousOperationInput({ operation }: DangerousOperationInputProps): JSX.Element {
+    const { continueAfterApproval, continueAfterRejection } = useActions(maxThreadLogic)
+    const [status, setStatus] = useState<'pending' | 'approving' | 'rejecting' | 'custom'>('pending')
+
+    const options: Option[] = [
+        { label: 'Approve and execute', value: 'approve', icon: <IconCheck /> },
+        { label: 'Reject this operation', value: 'reject', icon: <IconX /> },
+    ]
+
+    const handleSelect = (value: string): void => {
+        if (value === 'approve') {
+            setStatus('approving')
+            continueAfterApproval(operation.proposalId)
+        } else if (value === 'reject') {
+            setStatus('rejecting')
+            continueAfterRejection(operation.proposalId)
+        }
+    }
+
+    const handleCustomSubmit = (customResponse: string): void => {
+        setStatus('custom')
+        continueAfterRejection(operation.proposalId, customResponse)
+    }
+
+    const isLoading = status === 'approving' || status === 'rejecting' || status === 'custom'
+
+    return (
+        <div className="flex flex-col gap-2 p-3">
+            <div className="flex items-center gap-2 text-sm">
+                <IconWarning className="text-warning size-4" />
+                <span className="font-medium">Approval required</span>
+            </div>
+            <p className="text-xs text-secondary m-0">This operation will make the following changes:</p>
+            <pre className="bg-bg-light rounded whitespace-pre-wrap font-mono text-xs m-0 pb-2">
+                {operation.preview}
+            </pre>
+            <OptionSelector
+                options={options}
+                onSelect={handleSelect}
+                allowCustom
+                customPlaceholder="Type something..."
+                onCustomSubmit={handleCustomSubmit}
+                loading={isLoading}
+                loadingMessage={
+                    status === 'approving'
+                        ? 'Approving...'
+                        : status === 'custom'
+                          ? 'Sending response...'
+                          : 'Rejecting...'
+                }
+            />
+        </div>
+    )
+}
+
+export function InputFormArea(): JSX.Element | null {
+    const { activeMultiQuestionForm, activeDangerousOperationApproval } = useValues(maxThreadLogic)
+
+    if (activeDangerousOperationApproval) {
+        return <DangerousOperationInput operation={activeDangerousOperationApproval} />
+    }
+
+    if (activeMultiQuestionForm) {
+        return <MultiQuestionFormInput form={activeMultiQuestionForm} />
+    }
+
+    return null
+}

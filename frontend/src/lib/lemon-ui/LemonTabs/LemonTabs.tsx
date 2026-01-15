@@ -32,7 +32,7 @@ export interface LemonTabsProps<T extends string | number> {
     onChange?: (key: T) => void
     /** List of tabs. Falsy entries are ignored - they're there to make conditional tabs convenient. */
     tabs: (LemonTab<T> | null | false)[]
-    size?: 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium'
     /** data-attr to be placed on the tab container, useful for autocapture */
     'data-attr'?: string
     barClassName?: string

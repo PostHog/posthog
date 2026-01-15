@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { ApprovalCardUIStatus, DangerousOperationResponse } from '~/queries/schema/schema-assistant-messages'
 
+import { OptionSelector } from './components/OptionSelector'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 
@@ -13,6 +14,9 @@ interface DangerousOperationApprovalCardProps {
     operation: DangerousOperationResponse
     onResolved?: (approved: boolean) => void
 }
+
+const APPROVE_VALUE = 'approve'
+const REJECT_VALUE = 'reject'
 
 function CompactStatusDisplay({
     status,
@@ -56,19 +60,15 @@ export function DangerousOperationApprovalCard({
     operation,
     onResolved,
 }: DangerousOperationApprovalCardProps): JSX.Element {
-    // Local state tracks user-initiated loading states (approving, rejecting)
-    const [localStatus, setLocalStatus] = useState<'pending' | 'approving' | 'rejecting'>('pending')
+    const [localStatus, setLocalStatus] = useState<'pending' | 'approving' | 'rejecting' | 'custom'>('pending')
 
-    // Use maxThreadLogic without explicit key to connect to the already-mounted instance
-    // This ensures we receive the same state updates as the parent Thread component
     const { effectiveApprovalStatuses, isSharedThread } = useValues(maxThreadLogic)
     const { continueAfterApproval, continueAfterRejection } = useActions(maxThreadLogic)
 
     const resolvedStatus = effectiveApprovalStatuses[operation.proposalId]
 
     const displayStatus: ApprovalCardUIStatus = (() => {
-        if (localStatus === 'approving' || localStatus === 'rejecting') {
-            // Check if the operation completed while we were loading
+        if (localStatus === 'approving' || localStatus === 'rejecting' || localStatus === 'custom') {
             if (resolvedStatus === 'approved' || resolvedStatus === 'rejected' || resolvedStatus === 'auto_rejected') {
                 return resolvedStatus
             }
@@ -80,24 +80,40 @@ export function DangerousOperationApprovalCard({
         return 'pending'
     })()
 
-    const handleApprove = (): void => {
-        setLocalStatus('approving')
-        // Resume conversation with approval
-        continueAfterApproval(operation.proposalId)
-        onResolved?.(true)
+    const handleSelect = (value: string): void => {
+        if (value === APPROVE_VALUE) {
+            setLocalStatus('approving')
+            continueAfterApproval(operation.proposalId)
+            onResolved?.(true)
+        } else if (value === REJECT_VALUE) {
+            setLocalStatus('rejecting')
+            continueAfterRejection(operation.proposalId)
+            onResolved?.(false)
+        }
     }
 
-    const handleReject = (): void => {
-        setLocalStatus('rejecting')
-        // Resume conversation with rejection
-        continueAfterRejection(operation.proposalId)
+    const handleCustomSubmit = (customResponse: string): void => {
+        setLocalStatus('custom')
+        continueAfterRejection(operation.proposalId, customResponse)
         onResolved?.(false)
     }
 
-    // Show compact display for resolved statuses
+    const isLoading = displayStatus === 'approving' || displayStatus === 'rejecting' || displayStatus === 'custom'
+    const loadingMessage =
+        displayStatus === 'approving'
+            ? 'Approving...'
+            : displayStatus === 'custom'
+              ? 'Sending response...'
+              : 'Rejecting...'
+
     if (displayStatus === 'approved' || displayStatus === 'rejected' || displayStatus === 'auto_rejected') {
         return <CompactStatusDisplay status={displayStatus} isSharedThread={isSharedThread} />
     }
+
+    const options = [
+        { label: 'Approve and execute', value: APPROVE_VALUE, icon: <IconCheck /> },
+        { label: 'Reject this operation', value: REJECT_VALUE, icon: <IconX /> },
+    ]
 
     return (
         <MessageTemplate type="ai" boxClassName="border-warning p-0 overflow-hidden text-xs">
@@ -113,34 +129,16 @@ export function DangerousOperationApprovalCard({
 
             <LemonDivider />
 
-            <div className="p-2 pt-0 flex items-center justify-between gap-1.5">
-                {displayStatus === 'pending' && (
-                    <>
-                        <span className="text-muted">Review the changes above before approving</span>
-                        <div className="flex gap-2">
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                status="danger"
-                                icon={<IconX />}
-                                onClick={handleReject}
-                            >
-                                Reject
-                            </LemonButton>
-                            <LemonButton size="xsmall" type="primary" icon={<IconCheck />} onClick={handleApprove}>
-                                Approve
-                            </LemonButton>
-                        </div>
-                    </>
-                )}
-
-                {(displayStatus === 'rejecting' || displayStatus === 'approving') && (
-                    <div className="flex items-center gap-2 text-muted ml-auto">
-                        <LemonButton size="xsmall" type="primary" loading>
-                            {displayStatus === 'rejecting' ? 'Rejecting...' : 'Approving...'}
-                        </LemonButton>
-                    </div>
-                )}
+            <div className="p-2 pt-0">
+                <OptionSelector
+                    options={options}
+                    onSelect={handleSelect}
+                    allowCustom
+                    customPlaceholder="Type something..."
+                    onCustomSubmit={handleCustomSubmit}
+                    loading={isLoading}
+                    loadingMessage={loadingMessage}
+                />
             </div>
         </MessageTemplate>
     )
