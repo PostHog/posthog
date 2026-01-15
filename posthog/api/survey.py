@@ -504,11 +504,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if choices:
                 if not isinstance(choices, list):
                     raise serializers.ValidationError("Question choices must be a list of strings")
-                self._validate_and_sanitize_choices(choices, "Question")
+                cleaned_question["choices"] = self._validate_and_sanitize_choices(choices, "Question")
 
             link = raw_question.get("link")
             if link:
-                self._validate_and_sanitize_link(link, "Question")
+                cleaned_question["link"] = self._validate_and_sanitize_link(link, "Question")
 
             cleaned_questions.append(cleaned_question)
 
