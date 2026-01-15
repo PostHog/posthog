@@ -593,6 +593,29 @@ class ClickHousePrinter(HogQLPrinter):
 
         return None  # nothing to optimize
 
+    def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
+        """Helper to check if a node is a timestamp field from the actual events table"""
+
+        if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
+            field_name = str(node.chain[-1]) if node.chain else ""
+
+            if not (field_name == "timestamp" or field_name.endswith("_timestamp")):
+                return False
+
+            table_type = node.type.table_type
+            while True:
+                if isinstance(table_type, ast.TableType):
+                    table_name = table_type.table.to_printed_hogql()
+
+                    return table_name in ("events", "raw_sessions", "raw_sessions_v3")
+                elif isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
+                    table_type = table_type.table_type
+                elif isinstance(table_type, ast.TableAliasType):
+                    table_type = table_type.table_type
+                else:
+                    return False
+        return False
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
@@ -619,10 +642,10 @@ class ClickHousePrinter(HogQLPrinter):
 
         # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
         # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
-            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
-        ):
+        # Only apply this optimization to actual table timestamp fields, not CTE fields.
+        if self._is_events_table_timestamp_field(node.left) or self._is_events_table_timestamp_field(node.right):
             not_nullable = True
+
         hack_sessions_timestamp = (
             "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
             "raw_sessions_v3.session_timestamp",

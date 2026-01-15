@@ -334,9 +334,10 @@
 # ---
 # name: TestMappings.test_postgres_functions_snapshot
   '''
-  SELECT date_functions.to_timestamp_result AS to_timestamp_result
-  FROM
-    (SELECT toDateTime(fromUnixTimestamp(1672579532)) AS to_timestamp_result) AS date_functions
+  WITH date_functions AS
+    (SELECT toDateTime(fromUnixTimestamp(1672579532)) AS to_timestamp_result)
+  SELECT toTimeZone(date_functions.to_timestamp_result, 'UTC') AS to_timestamp_result
+  FROM date_functions
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
