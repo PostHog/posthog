@@ -124,12 +124,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             if (heightAttr && heightAttr !== initialHeightAttr) {
                 updateAttributes({
                     height: contentRef.current?.clientHeight,
+                    ...(nodeType === NotebookNodeType.Python ? { autoHeight: false } : {}),
                 } as any)
             }
         }
 
         window.addEventListener('mouseup', onResizedEnd)
-    }, [resizeable, updateAttributes])
+    }, [nodeType, resizeable, updateAttributes])
 
     const onActionsAreaClick = (): void => {
         // Clicking in the area of the actions without selecting a specific action likely indicates the user wants to
@@ -164,6 +165,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                   onClick: () => {
                       updateAttributes({
                           height: null,
+                          ...(nodeType === NotebookNodeType.Python ? { autoHeight: true } : {}),
                       } as any)
                   },
               }

@@ -22,6 +22,7 @@ export type NotebookNodePythonAttributes = {
     pythonExecution?: PythonExecutionResult | null
     pythonExecutionCodeHash?: number | null
     showSettings?: boolean
+    autoHeight?: boolean
 }
 
 const VariableUsageOverlay = ({
@@ -204,7 +205,7 @@ const Component = ({
             pythonExecution.variables?.length)
 
     useLayoutEffect(() => {
-        if (!hasExecution) {
+        if (!hasExecution || attributes.autoHeight === false) {
             return
         }
         const output = outputRef.current
@@ -330,6 +331,9 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
         },
         showSettings: {
             default: false,
+        },
+        autoHeight: {
+            default: true,
         },
     },
     Settings,
