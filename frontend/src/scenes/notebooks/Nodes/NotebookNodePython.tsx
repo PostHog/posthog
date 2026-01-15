@@ -229,7 +229,7 @@ const Component = ({
         const desiredHeight = Math.min(MAX_PYTHON_NODE_HEIGHT, output.scrollHeight + footerHeight)
         const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_PYTHON_NODE_HEIGHT
 
-        if (desiredHeight > currentHeight) {
+        if (desiredHeight !== currentHeight) {
             updateAttributes({ height: desiredHeight })
         }
     }, [

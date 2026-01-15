@@ -595,8 +595,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 limit=serializer.validated_data["limit"],
                 timeout=serializer.validated_data.get("timeout"),
             )
-        except ValueError as err:
-            return Response({"detail": str(err)}, status=400)
+        except ValueError:
+            logger.exception(
+                "notebook_kernel_dataframe_invalid_request",
+                notebook_short_id=notebook.short_id,
+            )
+            return Response({"detail": "Invalid dataframe request."}, status=400)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_dataframe_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to fetch dataframe data."}, status=503)
