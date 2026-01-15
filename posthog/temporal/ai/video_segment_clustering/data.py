@@ -26,6 +26,44 @@ from products.tasks.backend.models import Task
 from ee.hogai.session_summaries.constants import MIN_SESSION_DURATION_FOR_SUMMARY_MS
 
 
+async def count_distinct_persons(team_id: int, distinct_ids: list[str]) -> int:
+    """Count unique persons for a set of distinct_ids using SQL aggregation.
+
+    A person can have multiple distinct IDs, so we count distinct person_ids
+    rather than distinct_ids to get accurate unique user counts.
+    """
+    if not distinct_ids:
+        return 0
+
+    query = parse_select(
+        """
+        SELECT COUNT(DISTINCT person_id)
+        FROM person_distinct_ids
+        WHERE distinct_id IN {distinct_ids}
+        """
+    )
+
+    placeholders = {
+        "distinct_ids": ast.Constant(value=distinct_ids),
+    }
+
+    @sync_to_async
+    def _execute_query():
+        team = Team.objects.get(id=team_id)
+        with tags_context(product=Product.REPLAY):
+            return execute_hogql_query(
+                query_type="DistinctPersonCount",
+                query=query,
+                placeholders=placeholders,
+                team=team,
+            )
+
+    result = await _execute_query()
+    if result.results and len(result.results) > 0:
+        return result.results[0][0]
+    return 0
+
+
 async def fetch_video_segments(
     team: Team,
     since_timestamp: datetime | None,

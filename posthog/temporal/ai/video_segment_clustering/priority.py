@@ -6,6 +6,7 @@ Priority is calculated based on number of unique users affected.
 import math
 from datetime import datetime
 
+from posthog.temporal.ai.video_segment_clustering.data import count_distinct_persons
 from posthog.temporal.ai.video_segment_clustering.models import VideoSegmentMetadata
 
 
@@ -25,10 +26,11 @@ def calculate_priority_score(distinct_user_count: int) -> float:
     return math.log(1 + distinct_user_count)
 
 
-def calculate_task_metrics(segments: list[VideoSegmentMetadata]) -> dict:
+async def calculate_task_metrics(team_id: int, segments: list[VideoSegmentMetadata]) -> dict:
     """Calculate aggregate metrics for a task from its segments.
 
     Args:
+        team_id: Team ID for the HogQL query
         segments: List of video segment metadata
 
     Returns:
@@ -41,9 +43,9 @@ def calculate_task_metrics(segments: list[VideoSegmentMetadata]) -> dict:
             "last_occurrence_at": None,
         }
 
-    # Count unique users
-    distinct_ids = {segment.distinct_id for segment in segments}
-    distinct_user_count = len(distinct_ids)
+    # Count unique persons via SQL (a person can have multiple distinct_ids)
+    distinct_ids = [segment.distinct_id for segment in segments if segment.distinct_id]
+    distinct_user_count = await count_distinct_persons(team_id, distinct_ids)
 
     # Find most recent occurrence
     timestamps = []

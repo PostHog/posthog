@@ -53,7 +53,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
             )
 
         cluster_segments = [segment_lookup[sid] for sid in cluster.segment_ids if sid in segment_lookup]
-        metrics = calculate_task_metrics(cluster_segments)
+        metrics = await calculate_task_metrics(inputs.team_id, cluster_segments)
 
         priority = calculate_priority_score(
             distinct_user_count=metrics["distinct_user_count"],
@@ -98,7 +98,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
         cluster_segments = [segment_lookup[sid] for sid in matched_segment_ids if sid in segment_lookup]
 
         if cluster_segments:
-            new_metrics = calculate_task_metrics(cluster_segments)
+            new_metrics = await calculate_task_metrics(inputs.team_id, cluster_segments)
 
             task.distinct_user_count += new_metrics["distinct_user_count"]
             task.occurrence_count += new_metrics["occurrence_count"]
