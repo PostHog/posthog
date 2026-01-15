@@ -1,20 +1,14 @@
-import classNames from 'classnames'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect, useRef, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
+import React, { useEffect } from 'react'
 
-import { IconAIText, IconChat, IconComment, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
+import { IconAIText, IconChat, IconComment, IconCopy, IconMessage, IconReceipt } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
-    LemonDivider,
-    LemonInput,
     LemonSelect,
     LemonTable,
     LemonTabs,
     LemonTag,
-    LemonTagProps,
     Link,
     SpinnerOverlay,
     Tooltip,
@@ -28,7 +22,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { identifierToHuman, isObject, pluralize } from 'lib/utils'
+import { identifierToHuman, isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -43,12 +37,12 @@ import { SidePanelTab } from '~/types'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
-import { SearchHighlight } from './SearchHighlight'
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
+import { EventTypeTag, TraceSidebarBase } from './components/TraceSidebarBase'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
@@ -63,10 +57,8 @@ import {
     formatLLMEventTitle,
     formatLLMLatency,
     formatLLMUsage,
-    getEventType,
     getSessionID,
     getSessionStartTimestamp,
-    getTraceTimestamp,
     isLLMEvent,
     isTraceLevel,
     removeMilliseconds,
@@ -311,34 +303,9 @@ function TraceSidebar({
     tree: EnrichedTraceTreeNode[]
     showBillingInfo?: boolean
 }): JSX.Element {
-    const ref = useRef<HTMLDivElement | null>(null)
     const { mostRelevantEvent, searchOccurrences } = useValues(llmAnalyticsTraceDataLogic)
-    const { searchQuery } = useValues(llmAnalyticsTraceLogic)
+    const { searchQuery, eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
     const { setSearchQuery, setEventId } = useActions(llmAnalyticsTraceLogic)
-
-    const [searchValue, setSearchValue] = useState(searchQuery)
-
-    useEffect(() => {
-        setSearchValue(searchQuery)
-    }, [searchQuery])
-
-    const debouncedSetSearchQuery = useDebouncedCallback((value: string) => {
-        setSearchQuery(value)
-    }, 300)
-
-    const onSearchChange = (value: string): void => {
-        setSearchValue(value)
-        debouncedSetSearchQuery(value)
-    }
-
-    useEffect(() => {
-        if (eventId && ref.current) {
-            const selectedNode = ref.current.querySelector(`[aria-current=true]`)
-            if (selectedNode) {
-                selectedNode.scrollIntoView({ block: 'center' })
-            }
-        }
-    }, [eventId])
 
     useEffect(() => {
         if (mostRelevantEvent && searchQuery.trim()) {
@@ -347,252 +314,18 @@ function TraceSidebar({
     }, [mostRelevantEvent, searchQuery, setEventId])
 
     return (
-        <aside
-            className="sticky bottom-[var(--scene-padding)] border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col w-full md:w-80"
-            ref={ref}
-        >
-            <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
-            <LemonDivider className="m-0" />
-            <div className="p-2">
-                <LemonInput
-                    placeholder="Search trace..."
-                    prefix={<IconSearch />}
-                    value={searchValue}
-                    onChange={onSearchChange}
-                    size="small"
-                    data-attr="trace-search-input"
-                />
-                {searchValue.trim() && (
-                    <div className="text-xs text-muted ml-1 mt-1">
-                        {searchOccurrences.length > 0 ? (
-                            <>
-                                {searchOccurrences.length}{' '}
-                                {searchOccurrences.length === 1 ? 'occurrence' : 'occurrences'}
-                            </>
-                        ) : (
-                            'No occurrences'
-                        )}
-                    </div>
-                )}
-                <div className="mt-2">
-                    <EventTypeFilters />
-                </div>
-            </div>
-            <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
-                <TreeNode
-                    topLevelTrace={trace}
-                    node={{
-                        event: trace,
-                        displayTotalCost: trace.totalCost || 0,
-                        displayLatency: trace.totalLatency || 0,
-                        displayUsage: formatLLMUsage(trace),
-                    }}
-                    isSelected={!eventId || eventId === trace.id}
-                    searchQuery={searchQuery}
-                    showBillingInfo={showBillingInfo}
-                />
-                <TreeNodeChildren
-                    tree={tree}
-                    trace={trace}
-                    selectedEventId={eventId}
-                    searchQuery={searchQuery}
-                    showBillingInfo={showBillingInfo}
-                />
-            </ul>
-        </aside>
-    )
-}
-
-function NestingGroup({
-    onToggle,
-    isCollapsed,
-    children,
-}: {
-    onToggle?: () => void
-    isCollapsed?: boolean
-    children: React.ReactNode
-}): JSX.Element {
-    return (
-        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted')}>
-            <div
-                className={clsx('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted')}
-                onClick={onToggle}
-            >
-                <div
-                    className={clsx(
-                        'w-0 h-full my-0 ml-1 mr-2 border-l border-current',
-                        isCollapsed && 'border-dashed'
-                    )}
-                />
-            </div>
-            <ul className="flex-1 min-w-0">{children}</ul>
-        </li>
-    )
-}
-
-const TreeNode = React.memo(function TraceNode({
-    topLevelTrace,
-    node,
-    isSelected,
-    searchQuery,
-    showBillingInfo,
-}: {
-    topLevelTrace: LLMTrace
-    node:
-        | EnrichedTraceTreeNode
-        | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
-    isSelected: boolean
-    searchQuery?: string
-    showBillingInfo?: boolean
-}): JSX.Element {
-    const totalCost = node.displayTotalCost
-    const latency = node.displayLatency
-    const usage = node.displayUsage
-    const item = node.event
-
-    const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
-    const eventType = getEventType(item)
-    const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
-    const isBillable =
-        showBillingInfo &&
-        isLLMEvent(item) &&
-        (item as LLMTraceEvent).event === '$ai_generation' &&
-        !!(item as LLMTraceEvent).properties?.$ai_billable
-
-    const children = [
-        isLLMEvent(item) && item.properties.$ai_is_error && (
-            <LemonTag key="error-tag" type="danger">
-                Error
-            </LemonTag>
-        ),
-        latency >= 0.01 && (
-            <LemonTag key="latency-tag" type="muted">
-                {formatLLMLatency(latency)}
-            </LemonTag>
-        ),
-        (usage != null || totalCost != null) && (
-            <span key="usage-tag">
-                {usage}
-                {usage != null && totalCost != null && <span>{' / '}</span>}
-                {totalCost != null && formatLLMCost(totalCost)}
-            </span>
-        ),
-    ]
-    const hasChildren = children.some((child) => !!child)
-
-    return (
-        <li key={item.id} className="mt-0.5" aria-current={isSelected /* aria-current used for auto-focus */}>
-            <Link
-                to={urls.llmAnalyticsTrace(topLevelTrace.id, {
-                    event: item.id,
-                    timestamp: getTraceTimestamp(topLevelTrace.createdAt),
-                    ...(searchQuery?.trim() && { search: searchQuery }),
-                })}
-                className={classNames(
-                    'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',
-                    isSelected && '!bg-accent-highlight-secondary',
-                    isCollapsedDueToFilter && 'min-h-4 min-w-0'
-                )}
-                data-attr="trace-event-link"
-            >
-                <div className="flex flex-row items-center gap-1.5">
-                    <EventTypeTag event={item} size="small" />
-                    {isBillable && (
-                        <span title="Billable" aria-label="Billable" className="text-base">
-                            💰
-                        </span>
-                    )}
-                    {!isCollapsedDueToFilter && (
-                        <Tooltip title={formatLLMEventTitle(item)}>
-                            {searchQuery?.trim() ? (
-                                <SearchHighlight
-                                    string={formatLLMEventTitle(item)}
-                                    substring={searchQuery}
-                                    className="flex-1"
-                                />
-                            ) : (
-                                <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
-                            )}
-                        </Tooltip>
-                    )}
-                </div>
-                {!isCollapsedDueToFilter && renderModelRow(item, searchQuery)}
-                {!isCollapsedDueToFilter && hasChildren && (
-                    <div className="flex flex-row flex-wrap text-secondary items-center gap-1.5">{children}</div>
-                )}
-            </Link>
-        </li>
-    )
-})
-
-export function renderModelRow(event: LLMTrace | LLMTraceEvent, searchQuery?: string): React.ReactNode | null {
-    if (isLLMEvent(event)) {
-        if (event.event === '$ai_generation') {
-            // if we don't have a span name, we don't want to render the model row as its covered by the event title
-            if (!event.properties.$ai_span_name) {
-                return null
-            }
-            let model = event.properties.$ai_model
-            if (event.properties.$ai_provider) {
-                model = `${model} (${event.properties.$ai_provider})`
-            }
-            return searchQuery?.trim() ? (
-                <SearchHighlight string={model} substring={searchQuery} className="flex-1" />
-            ) : (
-                <span className="flex-1 truncate"> {model} </span>
-            )
-        }
-    }
-    return null
-}
-
-function TreeNodeChildren({
-    tree,
-    trace,
-    selectedEventId,
-    searchQuery,
-    showBillingInfo,
-}: {
-    tree: EnrichedTraceTreeNode[]
-    trace: LLMTrace
-    selectedEventId?: string | null
-    searchQuery?: string
-    showBillingInfo?: boolean
-}): JSX.Element {
-    const [isCollapsed, setIsCollapsed] = useState(false)
-
-    return (
-        <NestingGroup isCollapsed={isCollapsed} onToggle={() => setIsCollapsed(!isCollapsed)}>
-            {!isCollapsed ? (
-                tree.map((node) => (
-                    <React.Fragment key={node.event.id}>
-                        <TreeNode
-                            topLevelTrace={trace}
-                            node={node}
-                            isSelected={!!selectedEventId && selectedEventId === node.event.id}
-                            searchQuery={searchQuery}
-                            showBillingInfo={showBillingInfo}
-                        />
-                        {node.children && (
-                            <TreeNodeChildren
-                                tree={node.children}
-                                trace={trace}
-                                selectedEventId={selectedEventId}
-                                searchQuery={searchQuery}
-                                showBillingInfo={showBillingInfo}
-                            />
-                        )}
-                    </React.Fragment>
-                ))
-            ) : (
-                <div
-                    className="text-secondary hover:text-default text-xxs cursor-pointer p-1"
-                    onClick={() => setIsCollapsed(false)}
-                >
-                    Show {pluralize(tree.length, 'collapsed child', 'collapsed children')}
-                </div>
-            )}
-        </NestingGroup>
+        <TraceSidebarBase
+            trace={trace}
+            tree={tree}
+            selectedEventId={eventId}
+            searchQuery={searchQuery}
+            searchOccurrencesCount={searchOccurrences.length}
+            onSearchChange={setSearchQuery}
+            onSelectEvent={setEventId}
+            eventTypeExpanded={eventTypeExpanded}
+            showBillingInfo={showBillingInfo}
+            eventTypeFiltersSlot={<EventTypeFilters />}
+        />
     )
 }
 
@@ -994,32 +727,6 @@ const EventContent = React.memo(
     }
 )
 EventContent.displayName = 'EventContent'
-
-function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?: LemonTagProps['size'] }): JSX.Element {
-    const eventType = getEventType(event)
-    let tagType: LemonTagProps['type'] = 'completion'
-
-    switch (eventType) {
-        case 'generation':
-            tagType = 'success'
-            break
-        case 'embedding':
-            tagType = 'warning'
-            break
-        case 'span':
-            tagType = 'default'
-            break
-        case 'trace':
-            tagType = 'completion'
-            break
-    }
-
-    return (
-        <LemonTag className="uppercase" type={tagType} size={size}>
-            {eventType}
-        </LemonTag>
-    )
-}
 
 function EventTypeFilters(): JSX.Element {
     const { availableEventTypes } = useValues(llmAnalyticsTraceDataLogic)

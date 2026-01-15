@@ -98,6 +98,13 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
         },
+        LLMAnalyticsTracePreview: {
+            import: () => import('./frontend/LLMAnalyticsTracePreviewScene'),
+            projectBased: false,
+            name: 'LLM trace preview',
+            layout: 'plain',
+            allowUnauthenticated: true,
+        },
     },
     routes: {
         '/llm-analytics': ['LLMAnalytics', 'llmAnalytics'],
@@ -121,6 +128,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
         '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
         '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
+        '/llm-analytics/trace-preview': ['LLMAnalyticsTracePreview', 'llmAnalyticsTracePreview'],
     },
     redirects: {
         '/llm-observability': (_params, searchParams, hashParams) =>
@@ -183,6 +191,7 @@ export const manifest: ProductManifest = {
             runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
         llmAnalyticsCluster: (runId: string, clusterId: number): string =>
             `/llm-analytics/clusters/${encodeURIComponent(runId)}/${clusterId}`,
+        llmAnalyticsTracePreview: (): string => '/llm-analytics/trace-preview',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

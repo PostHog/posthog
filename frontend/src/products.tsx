@@ -82,6 +82,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/llm_analytics/frontend/evaluations/EvaluationTemplates'),
     LLMAnalyticsPrompt: () => import('../../products/llm_analytics/frontend/prompts/LLMPromptScene'),
     LLMAnalyticsCluster: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClusterScene'),
+    LLMAnalyticsTracePreview: () => import('../../products/llm_analytics/frontend/LLMAnalyticsTracePreviewScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
@@ -146,6 +147,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
+    '/llm-analytics/trace-preview': ['LLMAnalyticsTracePreview', 'llmAnalyticsTracePreview'],
     '/logs': ['Logs', 'logs'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
@@ -367,6 +369,12 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
     },
+    LLMAnalyticsTracePreview: {
+        projectBased: false,
+        name: 'LLM trace preview',
+        layout: 'plain',
+        allowUnauthenticated: true,
+    },
     Logs: {
         projectBased: true,
         name: 'Logs',
@@ -578,6 +586,7 @@ export const productUrls = {
         runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
     llmAnalyticsCluster: (runId: string, clusterId: number): string =>
         `/llm-analytics/clusters/${encodeURIComponent(runId)}/${clusterId}`,
+    llmAnalyticsTracePreview: (): string => '/llm-analytics/trace-preview',
     logs: (): string => '/logs',
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
@@ -1142,6 +1151,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsEvaluationTemplates',
             'LLMAnalyticsPrompt',
             'LLMAnalyticsCluster',
+            'LLMAnalyticsTracePreview',
         ],
     },
     {

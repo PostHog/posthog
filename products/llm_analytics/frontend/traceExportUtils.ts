@@ -3,60 +3,25 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from './llmAnalyticsTraceDataLogic'
-import { CompatMessage } from './types'
+import { EventMetrics, MinimalEventExport, MinimalTraceExport } from './traceImportUtils'
 import { formatLLMEventTitle, normalizeMessages } from './utils'
-
-interface EventMetrics {
-    latency?: number
-    tokens?: {
-        input: number
-        output: number
-    }
-    cost?: number
-}
-
-interface TokenUsage {
-    input: number
-    output: number
-}
-
-interface MinimalTraceExport {
-    trace_id: string
-    name?: string
-    timestamp: string
-    total_cost?: number
-    total_tokens: TokenUsage
-    events: MinimalEventExport[]
-}
-
-interface MinimalEventExport {
-    type: 'generation' | 'span' | 'trace'
-    name: string
-    model?: string
-    provider?: string
-    messages?: CompatMessage[]
-    input?: unknown
-    output?: unknown
-    available_tools?: unknown[]
-    error?: string | Record<string, unknown>
-    metrics?: EventMetrics
-    children?: MinimalEventExport[]
-}
 
 function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode[]): MinimalEventExport {
     const isGeneration = event.event === '$ai_generation'
-    const type = isGeneration ? 'generation' : 'span'
+    const isEmbedding = event.event === '$ai_embedding'
+    const type = isGeneration ? 'generation' : isEmbedding ? 'embedding' : 'span'
 
     const result: MinimalEventExport = {
         type,
         name: formatLLMEventTitle(event),
     }
 
-    // Add model and provider for generations
-    if (isGeneration) {
+    // Add model and provider for generations and embeddings
+    if (isGeneration || isEmbedding) {
         if (event.properties.$ai_model) {
             result.model = event.properties.$ai_model
         }
+
         if (event.properties.$ai_provider) {
             result.provider = event.properties.$ai_provider
         }
@@ -72,12 +37,15 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
         )
 
         const messages: CompatMessage[] = []
+
         if (inputMessages.length > 0) {
             messages.push(...inputMessages)
         }
+
         if (outputMessages.length > 0) {
             messages.push(...outputMessages)
         }
+
         if (messages.length > 0) {
             result.messages = messages
         }
@@ -86,11 +54,18 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
         if (event.properties.$ai_tools) {
             result.available_tools = event.properties.$ai_tools
         }
+    } else if (isEmbedding) {
+        // For embeddings, store the input text
+        if (event.properties.$ai_input !== undefined) {
+            result.input = event.properties.$ai_input
+        }
+        // Output is just "Embedding vector generated" - no need to store
     } else {
         // For spans, include raw input/output
         if (event.properties.$ai_input_state !== undefined) {
             result.input = event.properties.$ai_input_state
         }
+
         if (event.properties.$ai_output_state !== undefined) {
             result.output = event.properties.$ai_output_state
         }
