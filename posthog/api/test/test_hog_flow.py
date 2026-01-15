@@ -725,8 +725,8 @@ class TestHogFlowAPI(APIBaseTest):
                 "type": "event",
                 "filters": {
                     "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                    "filter_test_accounts": True,
                 },
+                "filter_test_accounts": True,
             },
         }
 
@@ -738,8 +738,9 @@ class TestHogFlowAPI(APIBaseTest):
         response_with = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow_with)
         assert response_with.status_code == 201, response_with.json()
 
-        # Bytecode should include test account filter (not_icontains @posthog.com on person.email)
-        bytecode_with = response_with.json()["trigger"]["filters"]["bytecode"]
+        # Bytecode should be in trigger.filters.bytecode
+        trigger_filters = response_with.json()["trigger"]["filters"]
+        bytecode_with = trigger_filters["bytecode"]
 
         # The bytecode should be longer and include the test account filter check
         assert len(bytecode_with) > len(bytecode_without), "Bytecode with filter_test_accounts should be longer"
