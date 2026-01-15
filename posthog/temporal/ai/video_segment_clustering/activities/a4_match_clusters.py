@@ -88,5 +88,7 @@ async def _fetch_existing_task_centroids(team: Team) -> dict[str, list[float]]:
         deleted=False,
         cluster_centroid__isnull=False,
     ).values("id", "cluster_centroid"):
-        result[str(task["id"])] = task["cluster_centroid"]
+        centroid = task["cluster_centroid"]
+        assert centroid is not None  # Filtered by cluster_centroid__isnull=False
+        result[str(task["id"])] = centroid
     return result
