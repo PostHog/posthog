@@ -315,7 +315,7 @@ class TestSurvey(APIBaseTest):
                         "link": "https://example.com",
                         "translations": {
                             "es": {
-                                "link": "<script>alert()</script>https://ejemplo.com",
+                                "link": "https://ejemplo.com",
                             },
                         },
                     },
@@ -354,12 +354,60 @@ class TestSurvey(APIBaseTest):
 
         q1_es = survey.questions[1]["translations"]["es"]
         assert "https://ejemplo.com" in q1_es["link"]
-        assert "<script>" not in q1_es["link"]
 
         q2_es = survey.questions[2]["translations"]["es"]
         assert "<b>Opción A</b>" in q2_es["choices"][0]
         assert "<script>" not in q2_es["choices"][1]
         assert "Opción B" in q2_es["choices"][1]
+
+    def test_translated_link_validation(self):
+        # Test invalid URL scheme in translated link
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "link",
+                        "question": "Click",
+                        "link": "https://example.com",
+                        "translations": {
+                            "es": {
+                                "link": "ftp://invalid.com",
+                            },
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "schemes" in response.json()["detail"]
+
+        # Test invalid mailto in translated link
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "link",
+                        "question": "Contact",
+                        "link": "mailto:test@example.com",
+                        "translations": {
+                            "es": {
+                                "link": "mailto:invalid",
+                            },
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "invalid mailto" in response.json()["detail"].lower()
 
     def test_underscore_language_codes_rejected(self):
         response = self.client.post(
