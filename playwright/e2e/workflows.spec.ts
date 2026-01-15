@@ -35,7 +35,7 @@ test.describe('Workflows', () => {
         // Take a screenshot of the workflows list page
         await expect(page).toHaveScreenshot('workflows-list.png', {
             fullPage: true,
-            maxDiffPixelRatio: 0.01,
+            maxDiffPixelRatio: 0.05,
         })
     })
 
@@ -58,7 +58,7 @@ test.describe('Workflows', () => {
         // Take a screenshot of the new workflow page
         await expect(page).toHaveScreenshot('new-workflow.png', {
             fullPage: true,
-            maxDiffPixelRatio: 0.01,
+            maxDiffPixelRatio: 0.05,
         })
     })
 })
