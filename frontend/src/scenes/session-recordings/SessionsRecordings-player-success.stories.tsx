@@ -1,15 +1,12 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -314,33 +311,3 @@ FiltersExpandedLotsOfResultsNarrow.parameters = {
         viewport: { width: 568, height: 1024 },
     },
 }
-
-const recordingsCollapsedStory = (mocks: Record<string, any> = {}): StoryFn => {
-    const Story: StoryFn = () => {
-        const { setRecordingsCollapsed } = useActions(playerSettingsLogic)
-        useStorybookMocks({ get: mocks })
-        useEffect(() => setRecordingsCollapsed(true), [setRecordingsCollapsed])
-        router.actions.push(sceneUrl(urls.replay(), { sessionRecordingId: recordings[0].id }))
-        return <App />
-    }
-    return Story
-}
-
-const recordingsCollapsedWideParameters = { testOptions: { viewport: { width: 1300, height: 720 } } }
-const recordingsCollapsedNarrowParameters = { testOptions: { viewport: { width: 568, height: 1024 } } }
-
-export const PlaylistCollapsedWithIntro: StoryFn = recordingsCollapsedStory()
-PlaylistCollapsedWithIntro.parameters = recordingsCollapsedWideParameters
-
-export const PlaylistCollapsedSeenIntro: StoryFn = recordingsCollapsedStory({
-    '/api/users/@me/': userSeenReplayIntroMock,
-})
-PlaylistCollapsedSeenIntro.parameters = recordingsCollapsedWideParameters
-
-export const PlaylistCollapsedWithIntroNarrow: StoryFn = recordingsCollapsedStory()
-PlaylistCollapsedWithIntroNarrow.parameters = recordingsCollapsedNarrowParameters
-
-export const PlaylistCollapsedSeenIntroNarrow: StoryFn = recordingsCollapsedStory({
-    '/api/users/@me/': userSeenReplayIntroMock,
-})
-PlaylistCollapsedSeenIntroNarrow.parameters = recordingsCollapsedNarrowParameters
