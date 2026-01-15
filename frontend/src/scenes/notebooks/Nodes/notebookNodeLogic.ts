@@ -769,6 +769,17 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 if (uniqueReturnVariable !== resolveDuckSqlReturnVariable(currentReturnVariable)) {
                     actions.updateAttributes({ returnVariable: uniqueReturnVariable })
                 }
+                const cachedExecution = values.nodeAttributes.duckExecution
+                if (
+                    !values.dataframeVariableName &&
+                    cachedExecution?.status === 'ok' &&
+                    typeof cachedExecution.result === 'string'
+                ) {
+                    const previewResult = parseDataframePreview(cachedExecution.result)
+                    if (previewResult) {
+                        actions.setDataframeVariableName(values.duckSqlReturnVariable, previewResult)
+                    }
+                }
             }
         },
 
